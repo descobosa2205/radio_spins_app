@@ -7,6 +7,10 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
     también la plantilla / plantilla nueva)
   · la landing pública de las condiciones (sin sesión) y su token
   · los permisos: los endpoints de dentro resuelven a «invitaciones.gestionar», los públicos a None
+  · LOTE 2: las secciones del formato del recinto, generar una categoría (butacas del plano + de pie +
+    un sector a mano), el PDF de cada entrada al vuelo y su enlace público, las generadas en la gestión
+    de invitaciones (PDF unido, ZIP, plano), recuperar una enviada → código NUEVO (el viejo anulado),
+    descartar → anulado, eliminar → anulado, el Excel de códigos y los permisos
     /tmp/python/bin/python3 tools/check_invitaciones_generadas.py
 Requiere el entorno de /tmp de CLAUDE.md. Es IDEMPOTENTE (borra lo que crea).
 """
@@ -32,8 +36,10 @@ os.environ.setdefault("PGCONNECT_TIMEOUT", "5")
 
 import app as A                                       # noqa: E402
 import models                                         # noqa: E402
-from models import (Artist, Concert, GroupCompany, InvitationConditionsTemplate,   # noqa: E402
-                    InvitationExtraPreset, InvitationGenConfig, Promoter, User, UserProfile, Venue)
+from models import (Artist, Concert, GroupCompany, InvitationAccessLog, InvitationCategory,   # noqa: E402
+                    InvitationConditionsTemplate, InvitationExtraPreset, InvitationGenCategory,
+                    InvitationGenConfig, InvitationTicket, InvitationVoidedCode, Promoter, User,
+                    UserProfile, Venue, VenueSeatMap)
 
 A.app.config["WTF_CSRF_ENABLED"] = False
 models.ensure_invitation_gen_schema()
@@ -54,8 +60,18 @@ HOY = A.today_local()
 
 def limpia(s):
     for c in s.query(Concert).filter(Concert.festival_name.in_(["InvGen Festival Prueba", "InvGen Tercero Prueba"])).all():
+        s.query(InvitationAccessLog).filter(InvitationAccessLog.concert_id == c.id).delete()
+        s.query(InvitationVoidedCode).filter(InvitationVoidedCode.concert_id == c.id).delete()
+        s.query(InvitationTicket).filter(InvitationTicket.concert_id == c.id).delete()
+        for gc in s.query(InvitationGenCategory).filter(InvitationGenCategory.concert_id == c.id).all():
+            s.delete(gc)
+        s.flush()
+        s.query(InvitationCategory).filter(InvitationCategory.concert_id == c.id).delete()
         s.query(InvitationGenConfig).filter(InvitationGenConfig.concert_id == c.id).delete()
         s.delete(c)
+    ven = s.query(Venue).filter(Venue.name == "Teatro InvGen").first()
+    if ven is not None:
+        s.query(VenueSeatMap).filter(VenueSeatMap.venue_id == ven.id).delete()
     for t in s.query(InvitationConditionsTemplate).filter(InvitationConditionsTemplate.name.like("InvGen %")).all():
         s.delete(t)
     for p in s.query(InvitationExtraPreset).filter(InvitationExtraPreset.name.like("InvGen %")).all():
@@ -300,6 +316,217 @@ def main():
     cl2 = cliente(u2id)
     r = cl2.get(f"/invitaciones/evento/{cid}/generar")
     check("sin acceso a invitaciones no entra (403 o redirección de acceso)", r.status_code in (302, 403), r.status_code)
+
+    # ------------------------------------------------------------------ LOTE 2 · categorías
+    print("8 · el formato del recinto y las secciones para la categoría")
+    s = A.db()
+    try:
+        ven = s.query(Venue).filter(Venue.name == "Teatro InvGen").first()
+        layout = {"sections": [
+            {"id": "s1", "kind": "grid", "name": "Grada", "x": 0, "y": 600, "rows": 3, "cols": 4, "pitch": 26, "rowGap": 30, "rowScheme": "alpha"},
+            {"id": "s2", "kind": "floor", "name": "Pista", "x": 0, "y": 250, "w": 400, "h": 200, "cap": 50},
+        ], "elements": [
+            {"id": "e1", "type": "stage", "x": 0, "y": -100, "w": 300, "h": 120, "label": "ESCENARIO"},
+            {"id": "e2", "type": "door", "x": 300, "y": 600, "label": "Puerta 3"},
+        ], "categories": []}
+        s.add(VenueSeatMap(venue_id=ven.id, name="Principal", is_default=True, layout_json=layout, assignments_json={}, version=1))
+        s.commit()
+    finally:
+        s.close()
+    r = cl.get(f"/invitaciones/evento/{cid}/generar/secciones")
+    j = r.get_json()
+    check("las secciones responden JSON con mapa", r.status_code == 200 and j["ok"] and j["has_map"], r.status_code)
+    secs = {x["key"]: x for x in j["sections"]}
+    check("Grada numerada con 12 butacas, todas libres", secs["s1"]["numbered"] and secs["s1"]["count"] == 12 and secs["s1"]["free"] == 12, secs.get("s1"))
+    check("Pista de pie con aforo 50", not secs["s2"]["numbered"] and secs["s2"]["cap"] == 50)
+    check("la puerta del plano se ofrece", "Puerta 3" in j["doors"], j["doors"])
+    check("las butacas llevan fila y número impresos", secs["s1"]["seats"][0]["row_label"] == "A" and secs["s1"]["seats"][0]["number"] == "1", secs["s1"]["seats"][:2])
+    check("el layout viaja para dibujarlo", bool(j["layout"]["sections"]) and any(e.get("type") == "stage" for e in j["layout"]["elements"]))
+    html = cl.get(f"/invitaciones/evento/{cid}/generar").get_data(as_text=True)
+    check("la página incluye el asistente de categorías y su botón", "invGenCatModal" in html and "data-invgen-cat-open" in html and "venue_map.js" in html)
+
+    print("9 · generar una categoría: 3 butacas de Grada + 5 de Pista, con puerta")
+    seats = secs["s1"]["seats"][:3]
+    body = {"name": "InvGen Palco", "extra_ids": [], "sectors": [
+        {"section_key": "s1", "section_name": "Grada", "numbered": True, "door": "Puerta 3",
+         "seats": [{"key": x["key"], "row_label": x["row_label"], "number": x["number"]} for x in seats], "qty": 0},
+        {"section_key": "s2", "section_name": "Pista", "numbered": False, "door": "", "seats": [], "qty": 5},
+    ]}
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias", json=body)
+    j = r.get_json()
+    check("se genera (8 invitaciones)", r.status_code == 200 and j["ok"] and j["created"] == 8, (r.status_code, j))
+    s = A.db()
+    try:
+        cat = s.query(InvitationCategory).filter(InvitationCategory.concert_id == A.to_uuid(cid), InvitationCategory.name == "InvGen Palco").first()
+        check("hay una categoría de invitación GENERADA, numerada, con 8 por contrato", cat is not None and cat.source == "GENERADA" and cat.ticket_kind == "PDF_NUMBERED" and cat.qty_contract == 8)
+        tks = s.query(InvitationTicket).filter(InvitationTicket.category_id == cat.id).all()
+        check("8 entradas", len(tks) == 8, len(tks))
+        check("todas generadas, con código de 16 y pdf_url NUESTRO", all(len(t.qr_token or "") == 16 and t.is_generated and "/invitaciones/entrada/" in (t.pdf_url or "") and t.ticket_code == t.qr_token for t in tks))
+        num = sorted([t for t in tks if t.is_numbered], key=lambda t: (t.row_label, t.seat_number))
+        check("3 numeradas con su butaca, fila, map_key y puerta", len(num) == 3 and all(t.sector == "Grada" and t.row_label and t.seat_number and (t.map_key or "").startswith("s1|") and t.door == "Puerta 3" for t in num), [(t.row_label, t.seat_number, t.map_key) for t in num])
+        check("5 sin numerar de Pista", sum(1 for t in tks if not t.is_numbered and t.sector == "Pista") == 5)
+        check("códigos únicos", len({t.qr_token for t in tks}) == 8)
+        gc = s.query(InvitationGenCategory).filter(InvitationGenCategory.concert_id == A.to_uuid(cid)).first()
+        check("la categoría generada guarda sus 2 sectores", gc is not None and len(gc.sectors) == 2 and gc.generated_count == 8)
+        tok_num, tid_num = num[0].qr_token, str(num[0].id)
+        tid_num2 = str(num[1].id)
+        tok_qty = [t for t in tks if not t.is_numbered][0].qr_token
+        pdf = A._invitation_ticket_pdf_bytes(num[0])
+        rd = PdfReader(io.BytesIO(pdf)); txt = "\n".join((p.extract_text() or "") for p in rd.pages)
+        check("el PDF de la entrada se compone al vuelo con su butaca, su puerta y su código", pdf[:4] == b"%PDF" and "INVITACIÓN" in txt and "Grada" in txt and "Puerta 3" in txt and tok_num[:4] in txt, txt[:300])
+        check("dice la categoría", "InvGen Palco" in txt)
+        check("una sola página", len(rd.pages) == 1)
+    finally:
+        s.close()
+    r = cl.get(f"/invitaciones/evento/{cid}/generar/secciones")
+    j2 = r.get_json(); secs2 = {x["key"]: x for x in j2["sections"]}
+    check("las 3 butacas quedan OCUPADAS para la siguiente categoría", secs2["s1"]["free"] == 9 and all(x["key"] in j2["taken"] for x in seats), secs2["s1"]["free"])
+    check("Pista lleva 5 ya generadas", secs2["s2"]["used_unnumbered"] == 5)
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias", json=dict(body, name="InvGen Otra"))
+    check("repetir esas butacas se rechaza", r.status_code == 400 and "ocupadas" in r.get_json()["error"], r.get_json())
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias", json=dict(body, sectors=[body["sectors"][1]]))
+    check("un nombre repetido se rechaza", r.status_code == 400 and "Ya hay" in r.get_json()["error"])
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias", json={"name": "InvGen Pista grande", "extra_ids": [], "sectors": [{"section_key": "s2", "section_name": "Pista", "numbered": False, "seats": [], "qty": 60}]})
+    check("pasarse del aforo se rechaza (quedan 45)", r.status_code == 400 and "aforo" in r.get_json()["error"] and "45" in r.get_json()["error"], r.get_json())
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias", json={"name": "InvGen A mano", "extra_ids": [], "sectors": [{"section_key": "", "section_name": "Zona prensa", "numbered": True, "door": "Puerta 1", "seats": [{"key": "", "row_label": "12", "number": "7"}, {"key": "", "row_label": "12", "number": "8"}], "qty": 0}]})
+    check("un sector escrito a mano, numerado, se genera", r.status_code == 200 and r.get_json()["created"] == 2, r.get_json())
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias", json={"name": "InvGen Vacía", "extra_ids": [], "sectors": []})
+    check("sin sectores se rechaza", r.status_code == 400)
+    html = cl.get(f"/invitaciones/evento/{cid}/generar").get_data(as_text=True)
+    check("la pantalla lista las categorías con sus sectores y el Excel", "InvGen Palco" in html and "Zona prensa" in html and "codigos.xlsx" in html and "8 generadas" in html)
+
+    print("10 · las generadas en la gestión de invitaciones: PDF público, plano, descargas")
+    anon = A.app.test_client()
+    r = anon.get(f"/invitaciones/entrada/{tok_num}.pdf")
+    check("el PDF público abre SIN sesión", r.status_code == 200 and r.get_data()[:4] == b"%PDF", r.status_code)
+    check("… y no se cachea", "no-store" in r.headers.get("Cache-Control", ""))
+    check("el código con guiones o en minúsculas también vale", anon.get(f"/invitaciones/entrada/{tok_num[:4].lower()}-{tok_num[4:]}.pdf").status_code == 200)
+    check("un código que no existe da 404", anon.get("/invitaciones/entrada/NOEXISTE12345678.pdf").status_code == 404)
+    r = cl.get(f"/invitaciones/evento/{cid}")
+    html = r.get_data(as_text=True)
+    check("la gestión del evento enseña la categoría generada con el plano de su sector", r.status_code == 200 and "InvGen Palco" in html and 'data-sector="Grada"' in html)
+    # Las entradas viajan en el parcial del asignador (la página no las incrusta: se piden al abrirlo).
+    r = cl.get(f"/invitaciones/evento/{cid}/asignador-parcial")
+    parcial = r.get_data(as_text=True)
+    check("el asignador lleva la entrada generada (por su id)", r.status_code == 200 and tid_num in parcial, r.status_code)
+    check("… y su butaca del plano (map_key) ya resuelta", "s1|1|1" in parcial or "s1|1|2" in parcial, parcial.count("map_key"))
+    s = A.db()
+    try:
+        tks = s.query(InvitationTicket).filter(InvitationTicket.concert_id == A.to_uuid(cid), InvitationTicket.is_generated.is_(True)).order_by(InvitationTicket.uploaded_at).all()
+        pdfm, n = A._invitation_tickets_to_merged_pdf(tks[:3])
+        check("el PDF unido de 3 generadas tiene 3 páginas (compuestas al vuelo)", n == 3 and len(PdfReader(io.BytesIO(pdfm)).pages) == 3, n)
+        zb, zname, added = A._invitation_tickets_to_zip(tks[:2])
+        check("el ZIP incluye las 2", added == 2 and zb[:2] == b"PK")
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/evento/{cid}/tickets/redetectar", data={"ajax": "1"})
+    check("re-detectar butacas se salta las generadas", r.status_code == 200 and r.get_json()["total"] == 0, r.get_json() if r.status_code == 200 else r.status_code)
+
+    print("11 · recuperar una enviada → código NUEVO; descartar → anulado; eliminar → anulado")
+    s = A.db()
+    try:
+        t = s.get(InvitationTicket, A.to_uuid(tid_num))
+        t.status = "SENT"; t.sent_at = A._now_madrid(); t.assigned_label = "Pepe Invitado"
+        t2 = s.get(InvitationTicket, A.to_uuid(tid_num2))
+        t2.status = "SENT"; t2.sent_at = A._now_madrid(); t2.assigned_label = "Otro Invitado"
+        s.commit()
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/tickets/{tid_num}/liberar", data={"ajax": "1"})
+    check("una enviada pide confirmación", r.status_code == 200 and r.get_json().get("needs_confirm"))
+    r = cl.post(f"/invitaciones/tickets/{tid_num}/liberar", data={"ajax": "1", "mode": "recover"})
+    check("se recupera y lo dice: código nuevo", r.status_code == 200 and r.get_json()["ok"] and "código nuevo" in r.get_json()["message"], r.get_json())
+    s = A.db()
+    try:
+        t = s.get(InvitationTicket, A.to_uuid(tid_num))
+        check("la entrada vuelve a disponible con OTRO código y versión 2", t.status == "AVAILABLE" and t.qr_token != tok_num and len(t.qr_token) == 16 and t.code_version == 2 and t.ticket_code == t.qr_token)
+        check("su pdf_url apunta al código nuevo", t.qr_token in (t.pdf_url or ""))
+        check("el código viejo queda ANULADO", s.query(InvitationVoidedCode).filter(InvitationVoidedCode.qr_token == tok_num).count() == 1)
+        check("su map_key y su butaca se conservan", (t.map_key or "").startswith("s1|") and t.sector == "Grada")
+        tok_new = t.qr_token
+    finally:
+        s.close()
+    check("el PDF del código viejo ya no se sirve (410)", anon.get(f"/invitaciones/entrada/{tok_num}.pdf").status_code == 410)
+    check("… y el nuevo sí", anon.get(f"/invitaciones/entrada/{tok_new}.pdf").status_code == 200)
+    r = cl.post(f"/invitaciones/tickets/{tid_num2}/liberar", data={"ajax": "1", "mode": "lost"})
+    check("descartar una enviada", r.status_code == 200 and r.get_json()["ok"])
+    s = A.db()
+    try:
+        t2 = s.get(InvitationTicket, A.to_uuid(tid_num2))
+        check("queda LOST con su código anulado y sin renacer", t2.status == "LOST" and t2.code_version == 1 and s.query(InvitationVoidedCode).filter(InvitationVoidedCode.qr_token == t2.qr_token).count() == 1)
+        tok_lost = t2.qr_token
+        # el recuperar EN BLOQUE (compromiso/solicitud) pasa por _invitation_release_apply
+        t3 = [x for x in s.query(InvitationTicket).filter(InvitationTicket.concert_id == A.to_uuid(cid), InvitationTicket.is_generated.is_(True), InvitationTicket.status == "AVAILABLE").all() if not x.is_numbered][0]
+        t3.status = "SENT"; t3.sent_at = A._now_madrid(); s.flush()
+        tok3 = t3.qr_token
+        rec, disc = A._invitation_release_apply([t3], mode="recover", entity_label="la prueba")
+        s.commit()
+        check("el recuperar en bloque también renace el código", rec == 1 and t3.qr_token != tok3 and s.query(InvitationVoidedCode).filter(InvitationVoidedCode.qr_token == tok3).count() == 1)
+        # una NO enviada que se libera no cambia de código (nadie lo tenía)
+        t4 = [x for x in s.query(InvitationTicket).filter(InvitationTicket.concert_id == A.to_uuid(cid), InvitationTicket.is_generated.is_(True), InvitationTicket.status == "AVAILABLE").all() if not x.is_numbered and x.id != t3.id][0]
+        t4.status = "ASSIGNED"; t4.assigned_label = "Alguien"; s.flush(); tok4 = t4.qr_token
+        A._invitation_release_apply([t4], mode="recover", entity_label="la prueba"); s.commit()
+        check("una asignada sin enviar conserva su código al liberarla", t4.qr_token == tok4 and t4.status == "AVAILABLE")
+        tid4 = str(t4.id)
+    finally:
+        s.close()
+    check("el PDF de la descartada da 410", anon.get(f"/invitaciones/entrada/{tok_lost}.pdf").status_code == 410)
+    r = cl.post(f"/invitaciones/tickets/{tid_num}/actualizar", data={"ticket_code": "OTRO", "sector": "X"}, follow_redirects=False)
+    s = A.db()
+    try:
+        t = s.get(InvitationTicket, A.to_uuid(tid_num))
+        check("una generada no se edita a mano (se rebota sin tocarla)", r.status_code == 302 and t.ticket_code == tok_new and t.sector == "Grada")
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/tickets/{tid4}/eliminar", follow_redirects=False)
+    s = A.db()
+    try:
+        check("eliminar una generada la borra y anula su código", r.status_code == 302 and s.get(InvitationTicket, A.to_uuid(tid4)) is None and s.query(InvitationVoidedCode).filter(InvitationVoidedCode.qr_token == tok4).count() == 1)
+    finally:
+        s.close()
+
+    print("12 · el Excel de códigos y eliminar la categoría")
+    r = cl.get(f"/invitaciones/evento/{cid}/generar/codigos.xlsx")
+    check("el Excel se descarga", r.status_code == 200 and r.get_data()[:2] == b"PK" and "xlsx" in r.headers.get("Content-Disposition", ""), r.status_code)
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(r.get_data()))
+    ws = wb["Códigos"]; ws2 = wb["Anulados"]
+    codes = [row[0] for row in ws.iter_rows(min_row=2, values_only=True)]
+    check("lleva los códigos vivos y la hoja de anulados con los viejos", tok_new in codes and tok_num not in codes and tok_num in [row[0] for row in ws2.iter_rows(min_row=2, values_only=True)])
+    s = A.db()
+    try:
+        gc = s.query(InvitationGenCategory).filter(InvitationGenCategory.concert_id == A.to_uuid(cid), InvitationGenCategory.name == "InvGen Palco").first()
+        gid = str(gc.id)
+        t = s.get(InvitationTicket, A.to_uuid(tid_num)); t.status = "ASSIGNED"; t.assigned_label = "Pepe"; s.commit()
+        vivos = s.query(InvitationTicket).filter(InvitationTicket.gen_category_id == gc.id).count()
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias/{gid}/eliminar", follow_redirects=False)
+    s = A.db()
+    try:
+        check("con una asignada NO se elimina", r.status_code == 302 and s.query(InvitationGenCategory).get(A.to_uuid(gid)) is not None)
+        t = s.get(InvitationTicket, A.to_uuid(tid_num)); t.status = "AVAILABLE"; t.assigned_label = None; s.commit()
+        n_void_antes = s.query(InvitationVoidedCode).filter(InvitationVoidedCode.concert_id == A.to_uuid(cid)).count()
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias/{gid}/eliminar", follow_redirects=False)
+    s = A.db()
+    try:
+        check("sin asignadas se elimina con sus entradas y su categoría", r.status_code == 302 and s.get(InvitationGenCategory, A.to_uuid(gid)) is None and s.query(InvitationTicket).filter(InvitationTicket.gen_category_id == A.to_uuid(gid)).count() == 0 and s.query(InvitationCategory).filter(InvitationCategory.name == "InvGen Palco").count() == 0)
+        n_void = s.query(InvitationVoidedCode).filter(InvitationVoidedCode.concert_id == A.to_uuid(cid)).count()
+        check("y todos sus códigos quedan anulados", n_void == n_void_antes + vivos, (n_void, n_void_antes, vivos))
+    finally:
+        s.close()
+
+    print("13 · permisos del lote 2")
+    with A.app.test_request_context(f"/invitaciones/evento/{cid}/generar/secciones"):
+        check("las secciones resuelven a invitaciones.gestionar", A._resolve_request_resource_key() == "invitaciones.gestionar")
+    with A.app.test_request_context(f"/invitaciones/evento/{cid}/generar/categorias", method="POST"):
+        check("generar resuelve a invitaciones.gestionar", A._resolve_request_resource_key() == "invitaciones.gestionar")
+    with A.app.test_request_context(f"/invitaciones/entrada/{tok_new}.pdf"):
+        check("el PDF público resuelve a None", A._resolve_request_resource_key() is None)
+    check("el PDF público está en las listas de públicos", "public_invitation_ticket_pdf" in A.PUBLIC_ENDPOINTS_EXTRA)
+    check("sin acceso: las secciones no se ven", cl2.get(f"/invitaciones/evento/{cid}/generar/secciones").status_code in (302, 403))
 
     print()
     print(f"OK: {OK} · FALLOS: {FALLOS}")

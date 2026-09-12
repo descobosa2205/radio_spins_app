@@ -1,0 +1,160 @@
+{# GENERACIÓN DE INVITACIONES · el asistente de UNA CATEGORÍA (step_wizard.js): nombre · extras · sector
+   (el plano de las secciones del formato del recinto, o un sector a mano) · las butacas (numerada) o la
+   cantidad (sin numerar) · la puerta · resumen, con «Añadir otro sector» para repetir. Lo que llega al
+   servidor va en JSON (`invitation_gen_category_create`): la pantalla monta los sectores en memoria
+   (invgen.js) y solo al «Generar» los manda todos de una vez. Los pasos 4 y 5 son condicionales
+   (`data-sw-when`): el modo NUM/QTY lo pone el JS al elegir el sector. #}
+<div class="modal fade" id="invGenCatModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('invitation_gen_category_create', concert_id=concert.id) }}"
+          id="invGenCatForm" data-step-wizard data-check-manual="1" autocomplete="off" data-no-autosave data-invgen-cat-form
+          data-sections-url="{{ url_for('invitation_gen_sections', concert_id=concert.id) }}"
+          data-create-url="{{ url_for('invitation_gen_category_create', concert_id=concert.id) }}" data-sw-mode="">
+      <div class="modal-header invgen-wiz-head">
+        <div class="invgen-wiz-title"><i class="fa fa-layer-group"></i><span>Añadir categoría</span></div>
+        <ol class="invgen-wiz-steps" data-invgen-steps>
+          <li data-for="1"><i class="fa fa-tag"></i><span>Nombre</span></li>
+          <li data-for="2"><i class="fa fa-star"></i><span>Extras</span></li>
+          <li data-for="3"><i class="fa fa-map"></i><span>Sector</span></li>
+          <li data-for="4,5"><i class="fa fa-chair"></i><span>Butacas</span></li>
+          <li data-for="6"><i class="fa fa-door-open"></i><span>Puerta</span></li>
+          <li data-for="7"><i class="fa fa-check"></i><span>Resumen</span></li>
+        </ol>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sw-progress></div>
+
+        {# ---- 1 · NOMBRE ---- #}
+        <section class="sw-step" data-step="1" data-title="Nombre">
+          <div class="sw-step__q"><i class="fa fa-tag me-2 text-danger"></i>¿Cómo se llama la categoría?</div>
+          <div class="sw-step__h">Es el nombre con el que se verá en la gestión de invitaciones y en la entrada («Invitación Pista», «Palco VIP», «Prensa»…).</div>
+          <div class="row g-3">
+            <div class="col-md-7">
+              <label class="form-label small mb-1">Nombre de la categoría</label>
+              <input type="text" class="form-control form-control-lg" name="name" maxlength="120" required data-cat-name placeholder="Por ejemplo: Invitación Pista">
+            </div>
+          </div>
+        </section>
+
+        {# ---- 2 · EXTRAS ---- #}
+        <section class="sw-step" data-step="2" data-title="Extras">
+          <div class="sw-step__q"><i class="fa fa-star me-2 text-danger"></i>¿Qué extras incluye?</div>
+          <div class="sw-step__h">Los configurados en los datos de la entrada. Pincha los que lleven las invitaciones de esta categoría: salen en la entrada y su mismo QR vale para ellos en el control de accesos.</div>
+          {% if extras %}
+          <div class="invgen-presets" data-cat-extras>
+            {% for x in extras %}
+            <label class="invgen-preset" data-cat-extra><input type="checkbox" class="d-none" name="extra_ids[]" value="{{ x.id }}"><i class="fa {{ x.icon }}"></i><span>{{ x.name }}</span></label>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Esta actividad no tiene extras configurados: la categoría solo da acceso. Los extras se añaden en «Datos de la entrada».</div>
+          {% endif %}
+        </section>
+
+        {# ---- 3 · SECTOR ---- #}
+        <section class="sw-step" data-step="3" data-title="Sector">
+          <div class="sw-step__q"><i class="fa fa-map me-2 text-danger"></i>¿De qué sector son?</div>
+          <div class="sw-step__h">Pincha una sección del formato del recinto que usa la actividad. Si es numerada elegirás las butacas; si es de pie, cuántas invitaciones se generan.</div>
+          <div class="small text-muted mb-2 d-none" data-cat-staged-hint></div>
+          <div class="text-muted small" data-cat-loading><i class="fa fa-spinner fa-spin me-1"></i>Cargando el formato del recinto…</div>
+          <div class="d-none" data-cat-mapwrap>
+            <div class="invgen-map" data-cat-map></div>
+            <div class="invgen-secbtns mt-2" data-cat-sections></div>
+          </div>
+          <div class="alert alert-warning small d-none mt-2" data-cat-nomap><i class="fa fa-triangle-exclamation me-1"></i>La actividad no tiene un formato de recinto con secciones: escribe el sector a mano.</div>
+          <div class="mt-3">
+            <button type="button" class="invgen-preset invgen-preset--new" data-cat-manual-toggle><i class="fa fa-pen"></i><span>Escribir el sector a mano</span></button>
+          </div>
+          <div class="invgen-newextra d-none" data-cat-manual>
+            <div class="row g-2 align-items-end">
+              <div class="col-md-5">
+                <label class="form-label small mb-1">Nombre del sector</label>
+                <input type="text" class="form-control form-control-sm" data-manual-name maxlength="120" placeholder="Por ejemplo: Zona prensa">
+              </div>
+              <div class="col-md-7">
+                <label class="form-label small mb-1 d-block">¿Cómo es?</label>
+                <div class="btn-group btn-group-sm" role="group">
+                  <button type="button" class="btn btn-outline-secondary active" data-manual-kind="QTY"><i class="fa fa-people-group me-1"></i>Sin numerar (una cantidad)</button>
+                  <button type="button" class="btn btn-outline-secondary" data-manual-kind="NUM"><i class="fa fa-chair me-1"></i>Numerado (fila y butaca)</button>
+                </div>
+              </div>
+              <div class="col-12 d-flex justify-content-end">
+                <button type="button" class="btn btn-sm btn-danger" data-cat-manual-use><i class="fa fa-check me-1"></i>Usar este sector</button>
+              </div>
+            </div>
+          </div>
+          <div class="invgen-venuecard mt-3 d-none" data-cat-chosen>
+            <i class="fa fa-location-dot"></i>
+            <div class="flex-grow-1"><strong data-chosen-name></strong><div class="text-muted small" data-chosen-sub></div></div>
+          </div>
+        </section>
+
+        {# ---- 4 · BUTACAS (solo sección NUMERADA) ---- #}
+        <section class="sw-step" data-step="4" data-title="Butacas" data-sw-when="NUM">
+          <div class="sw-step__q"><i class="fa fa-chair me-2 text-danger"></i>Elige las butacas</div>
+          <div class="sw-step__h" data-cat-seats-help>Pincha una butaca (o arrastra por varias) y pincha la letra de una fila para coger la fila entera. Las grises ya están ocupadas por otra invitación o una venta. El escenario está donde se indica.</div>
+          <div data-cat-seatpick-wrap>
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+              <span class="badge text-bg-danger" data-cat-seatcount>0 butacas</span>
+              <div class="invgen-legend"><span><i class="on"></i>elegida</span><span><i></i>libre</span><span><i class="taken"></i>ocupada</span><span><i class="staged"></i>ya en esta categoría</span></div>
+              <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" data-cat-seats-clear><i class="fa fa-eraser me-1"></i>Quitar todas</button>
+            </div>
+            <div class="invgen-seatpick" data-cat-seatpick></div>
+          </div>
+          <div class="d-none" data-cat-manual-seats-wrap>
+            <label class="form-label small mb-1">Las butacas, una por línea: <code>fila butaca</code> (por ejemplo «12 7» o «B 14»)</label>
+            <textarea class="form-control form-control-sm" rows="6" data-manual-seats placeholder="12 7&#10;12 8&#10;B 14"></textarea>
+            <div class="small text-muted mt-1"><span data-cat-manual-count>0</span> butacas leídas.</div>
+          </div>
+        </section>
+
+        {# ---- 5 · CANTIDAD (solo SIN NUMERAR) ---- #}
+        <section class="sw-step" data-step="5" data-title="Cantidad" data-sw-when="QTY">
+          <div class="sw-step__q"><i class="fa fa-people-group me-2 text-danger"></i>¿Cuántas invitaciones?</div>
+          <div class="sw-step__h">Es un sector sin numerar: se genera ese número de entradas, cada una con su código.</div>
+          <div class="row g-3 align-items-end">
+            <div class="col-sm-5 col-md-3">
+              <label class="form-label small mb-1">Cantidad</label>
+              <input type="number" class="form-control form-control-lg" name="qty" min="1" max="5000" step="1" required data-cat-qty>
+            </div>
+            <div class="col small text-muted" data-cat-qty-info></div>
+          </div>
+        </section>
+
+        {# ---- 6 · PUERTA ---- #}
+        <section class="sw-step" data-step="6" data-title="Puerta">
+          <div class="sw-step__q"><i class="fa fa-door-open me-2 text-danger"></i>¿Por qué puerta entran?</div>
+          <div class="sw-step__h">Sale en la entrada. Se elige una de las puertas del plano o se escribe otra; se puede dejar sin puerta.</div>
+          <div class="invgen-doorchips mb-2" data-cat-doors></div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <input type="text" class="form-control" name="door_text" maxlength="80" data-cat-door placeholder="Otra puerta (por ejemplo: Puerta 4 · Acceso invitados)">
+            </div>
+          </div>
+        </section>
+
+        {# ---- 7 · RESUMEN ---- #}
+        <section class="sw-step" data-step="7" data-title="Resumen">
+          <div class="sw-step__q"><i class="fa fa-check me-2 text-danger"></i>Resumen</div>
+          <div class="sw-step__h">Lo que se va a generar. Cada invitación nace con su código QR y entra en la gestión de invitaciones como cualquier otra; las numeradas quedan bloqueadas como invitaciones en el plano del ticketing.</div>
+          <div class="alert alert-danger small d-none" data-cat-error></div>
+          <ul class="invgen-facts" data-cat-summary></ul>
+          <div class="mt-3">
+            <div class="small fw-semibold mb-1"><i class="fa fa-map me-1 text-danger"></i>Sectores de la categoría</div>
+            <ul class="invgen-staged" data-cat-staged></ul>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-cat-add-more><i class="fa fa-plus me-1"></i>Añadir otro sector</button>
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Anterior</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-danger" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button type="submit" class="btn btn-danger" data-sw-submit><i class="fa fa-qrcode me-1"></i>Generar <span data-cat-total>0</span> invitaciones</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>

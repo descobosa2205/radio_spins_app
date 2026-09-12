@@ -7690,3 +7690,49 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .invgen-clause__acts .btn{ line-height:1; }
 .invgen-scope{ margin-top:1rem; padding:.9rem 1rem; border-radius:12px; background:#fff8e6; border:1px solid #f1d38a; }
 .invgen-scope .btn.active{ background:var(--brand-primary,#E33D48); color:#fff; border-color:var(--brand-primary,#E33D48); }
+/* --- las CATEGORÍAS generadas: el plano de las secciones, el selector de butacas y las tarjetas --- */
+.invgen-preset.invgen-secbtn span{ display:flex; flex-direction:column; align-items:flex-start; line-height:1.15; }
+.invgen-preset.invgen-secbtn small{ font-weight:500; color:#6b7683; font-size:.72rem; }
+.invgen-preset.is-on.invgen-secbtn small{ color:#b42318; }
+.invgen-secbtns{ display:flex; flex-wrap:wrap; gap:.4rem; }
+.invgen-map{ background:#f8f9fa; border:1px solid #e5e7eb; border-radius:12px; padding:.4rem; }
+.invgen-map svg{ width:100%; height:auto; max-height:340px; display:block; }
+.invgen-sec rect{ fill:#fff; stroke:#adb5bd; stroke-width:6; cursor:pointer; transition:fill .15s, stroke .15s; }
+.invgen-sec:hover rect{ fill:#fdecee; stroke:#f4a9ae; }
+.invgen-sec.is-on rect{ fill:#fdecee; stroke:var(--brand-primary,#E33D48); }
+.invgen-sec.is-floor rect{ stroke-dasharray:18 12; }
+.invgen-sec text{ font-weight:800; fill:#374151; text-anchor:middle; pointer-events:none; }
+.invgen-sec text.sub{ font-weight:600; fill:#6b7280; }
+.invgen-stage rect{ fill:#1f2937; }
+.invgen-stage text{ fill:#fff; font-weight:800; letter-spacing:.12em; text-anchor:middle; }
+.invgen-door rect{ fill:#fff3a3; stroke:#d4a000; stroke-width:4; }
+.invgen-door text{ fill:#7a5a00; font-weight:700; text-anchor:middle; }
+.invgen-seatpick{ background:#f8f9fa; border:1px solid #e5e7eb; border-radius:12px; padding:.4rem; touch-action:none; user-select:none; -webkit-user-select:none; }
+.invgen-seatpick svg{ width:100%; height:auto; max-height:480px; display:block; }
+.invgen-seat circle{ fill:#fff; stroke:#94a3b8; stroke-width:1.5; cursor:pointer; }
+.invgen-seat text{ fill:#374151; text-anchor:middle; dominant-baseline:central; pointer-events:none; font-weight:600; }
+.invgen-seat:hover circle{ stroke:var(--brand-primary,#E33D48); }
+.invgen-seat.is-on circle{ fill:var(--brand-primary,#E33D48); stroke:#b42318; }
+.invgen-seat.is-on text{ fill:#fff; }
+.invgen-seat.is-taken circle{ fill:#d1d5db; stroke:#9ca3af; cursor:not-allowed; }
+.invgen-seat.is-taken text{ fill:#6b7280; }
+.invgen-seat.is-staged circle{ fill:#f4a9ae; stroke:#e77d86; cursor:not-allowed; }
+.invgen-rowlbl{ fill:#6b7280; font-weight:800; text-anchor:end; cursor:pointer; dominant-baseline:central; }
+.invgen-rowlbl:hover{ fill:var(--brand-primary,#E33D48); }
+.invgen-stageband rect{ fill:#1f2937; }
+.invgen-stageband text{ fill:#fff; font-weight:800; letter-spacing:.14em; text-anchor:middle; dominant-baseline:central; }
+.invgen-legend{ display:flex; gap:.8rem; flex-wrap:wrap; font-size:.8rem; color:#6b7280; align-items:center; }
+.invgen-legend i{ display:inline-block; width:.8rem; height:.8rem; border-radius:50%; border:1.5px solid #94a3b8; background:#fff; vertical-align:-.1rem; margin-right:.25rem; }
+.invgen-legend i.on{ background:var(--brand-primary,#E33D48); border-color:#b42318; }
+.invgen-legend i.taken{ background:#d1d5db; border-color:#9ca3af; }
+.invgen-legend i.staged{ background:#f4a9ae; border-color:#e77d86; }
+.invgen-doorchips{ display:flex; flex-wrap:wrap; gap:.4rem; }
+.invgen-staged{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.5rem; }
+.invgen-staged li{ display:flex; align-items:flex-start; gap:.6rem; border:1px solid #e5e7eb; border-radius:12px; padding:.55rem .7rem; background:#fff; }
+.invgen-staged li > i{ margin-top:.2rem; }
+.invgen-cat{ border:1px solid #e5e7eb; border-radius:14px; padding:.8rem .9rem; background:#fff; }
+.invgen-cat__head{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+.invgen-cat__counts{ display:flex; gap:.35rem; flex-wrap:wrap; }
+.invgen-cat__sectors{ list-style:none; margin:.45rem 0 0; padding:0; display:flex; flex-wrap:wrap; gap:.35rem .9rem; font-size:.86rem; color:#4b5563; }
+.invgen-cat form{ display:inline; }
+@media (max-width: 575.98px){ .invgen-cat__head .ms-auto{ margin-left:0 !important; width:100%; } }

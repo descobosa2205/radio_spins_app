@@ -7882,6 +7882,83 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   comprobaciones con la app real; idempotente). Para ver el PDF en local, rasterizar con PyMuPDF
   (`PYTHONPATH=/tmp/pf`): el panel del navegador lo descarga en vez de enseñarlo.
 
+- ⚠️⚠️ **GENERAR INVITACIONES · lote 2: las CATEGORÍAS y la generación de las entradas** (sep 2026).
+  Una **categoría generada** (`InvitationGenCategory`: nombre + extras) tiene uno o varios
+  **SECTORES** (`InvitationGenSector`: una sección del formato del recinto —numerada, con sus
+  butacas elegidas en el plano, o de pie, con una cantidad— o un sector **escrito a mano**), cada
+  uno con su **puerta**. Al crearla (`invitation_gen_category_create`, JSON) se crea su
+  `InvitationCategory` de siempre (`source='GENERADA'`, `qty_contract` = el total, la zona de su
+  sección) y **UNA `InvitationTicket` por invitación**, GENERADA: `is_generated`, **`qr_token`** (16
+  caracteres de `INVGEN_QR_ALPHABET`, = `ticket_code`), `pdf_url` = **nuestro endpoint público**,
+  `map_key`, `door`, `gen_category_id`/`gen_sector_id`. Con eso **entran en la gestión de
+  invitaciones —planos, asignar, enviar, descargar— como si se hubieran subido**.
+  · ⚠️⚠️ **EL PDF SE COMPONE AL VUELO, no se sube a Storage**: **`_invitation_ticket_pdf_bytes(t)`**
+  es el punto único por el que pasan el **PDF unido**, el **ZIP** y el enlace público
+  (`public_invitation_ticket_pdf`, `/invitaciones/entrada/<código>.pdf`, en las tres listas de
+  públicos): una generada se compone (`_invgen_ticket_context(..., ticket=t)` +
+  `_invgen_ticket_pdf_bytes`) y una subida se baja de su `pdf_url` con reintentos. Así, **anular un
+  código deja sin valor la entrada vieja sin tocar ningún fichero**: un código ANULADO o una entrada
+  DESCARTADA responden **410** («se ha anulado»); uno que no existe, 404. El código se acepta con
+  guiones o en minúsculas (`_invgen_norm_code`).
+  · **EL CICLO DEL CÓDIGO** (el punto único es **`_invgen_after_release`**, al liberar una entrada):
+  enviada y **RECUPERADA** → **renace con OTRO código** (`_invgen_rotate_code`: el viejo a
+  `InvitationVoidedCode`, `code_version` +1, `pdf_url` nuevo, sin usos de acceso) — el PDF que tenga
+  el invitado deja de valer; enviada y **DESCARTADA** → su código se **anula** (`_invgen_void_code`);
+  **no enviada → nada** (nadie lo tenía). Enganchado en el liberar individual
+  (`invitation_ticket_release`, que además lo DICE en su mensaje), en el **liberar en bloque**
+  (`_invitation_release_apply`), en **eliminar** una entrada (se anula) y en **eliminar la
+  categoría** (se anulan todos). `_invgen_mint_token` comprueba que un código nuevo no esté **ni en
+  uso ni anulado**.
+  ⚠️ **Una generada NO se edita a mano, NO se reemplaza su PDF, NO se mueve a otra categoría** (su
+  butaca y su código los pone su categoría generada; `invitation_tickets_bulk` las salta y lo dice)
+  y **`invitation_tickets_redetect` no la relee**. Y una categoría generada **solo se elimina sin
+  ninguna asignada ni enviada** (una entrada que alguien tiene no se borra por debajo: se recupera
+  antes); su `InvitationCategory` se borra si se queda vacía.
+  · ⚠️⚠️ **`map_key` = LA BUTACA DEL PLANO YA RESUELTA** («sec|fila|slot»): **`_invgen_valid_map_key`**
+  (que comprueba que la sección siga en ESTE mapa) manda **antes** que el casado por texto
+  (`seatmap_calc.match_ticket`) en los TRES sitios que ponen invitaciones en el plano: el visor de
+  invitaciones del evento (`_invitation_venue_map_payload`), el **asignador**
+  (`_invitation_assign_context`) y el **plano en vivo de Enterticket** (`_et_venue_map_payload`). Así
+  una generada cae exactamente donde se eligió, y en el plano del ticketing sale **bloqueada como
+  invitación**.
+  · **QUÉ SE PUEDE ELEGIR** (`invitation_gen_sections` → **`_invgen_sections_payload`**, JSON): las
+  secciones del formato del recinto que usa la actividad (`_concert_seatmap`, el punto único de
+  siempre) con **sus butacas** —**`seatmap_calc.section_seats`** + `row_label`, sacados de
+  `_row_states`/`_row_numbering`, **la MISMA numeración que casa las entradas**—, las **OCUPADAS**
+  (`_invgen_taken_keys`: las invitaciones de la actividad salvo las descartadas, lo **vendido en
+  Enterticket** y los **bloqueos técnicos** del mapa), cuántas SIN NUMERAR van ya en cada sección de
+  pie (`_invgen_unnumbered_used`, para no pasarse del aforo), las **puertas** (los elementos `door`
+  del plano + las ya usadas) y el layout **sin la imagen de fondo** para dibujarlo. ⚠️ Lo comprueba
+  todo **también el SERVIDOR** (`_invgen_parse_sectors`: butaca que exista en el plano, que no esté
+  ocupada ni repetida, cantidad ≤ aforo − ya generadas, nombre repetido de categoría).
+  · **EL ASISTENTE** (`_invgen_category_modal.html` + `initCategoryWizard` en `invgen.js`, con
+  `step_wizard.js`): Nombre → Extras (los configurados en los datos de la entrada) → **Sector** (un
+  **SVG con las secciones, el escenario y las puertas**, dibujado con **`window.VenueMapGeom`** de
+  `venue_map.js` —la MISMA geometría del visor, así una butaca está donde está en el mapa; por eso
+  la página carga `venue_map.js` aunque no tenga `[data-venue-map]`— o «escribir el sector a mano»)
+  → **Butacas** (se pinchan o se **arrastran** con captura de puntero, la **letra de la fila** coge la
+  fila entera, y una **franja de ESCENARIO** dice en qué lado está; las grises están ocupadas y las
+  rosas ya van en esta categoría) **o Cantidad** (con el aforo que cabe) → **Puerta** (las del plano
+  como chips, u otra) → **Resumen** con **«Añadir otro sector»**, que vuelve al paso del sector con lo
+  ya puesto en memoria (`staged`) y **manda todo de una vez** al Generar.
+  ⚠️ Los pasos de butacas y de cantidad son **condicionales** (`data-sw-when="NUM"` / `"QTY"`): el
+  modo lo pone el JS en `data-sw-mode` al elegir el sector (`setMode` + `swRefresh`).
+  ⚠️⚠️ **EL DESTINO DEL GENERAR ES LA MISMA PÁGINA CON UN `#`**: asignar `location.href` solo mueve el
+  ancla y **NO RECARGA** (la categoría nueva no aparecía y el loader se quedaba puesto). Se hace
+  `location.replace(to)` + `location.reload()` (bug real, visto en el navegador).
+  · **La pantalla** (`invitaciones_generar.html`, módulo 2): una tarjeta por categoría con sus
+  contadores por estado (`_invgen_gen_categories_payload`, UNA consulta agrupada), sus sectores con
+  su puerta, «Gestionar» (a la gestión de invitaciones), eliminar (solo si `can_delete`) y
+  **«Descargar códigos»** (`invitation_gen_codes_xlsx`: hoja **Códigos** —código, categoría, sector,
+  fila, butaca, puerta, extras, estado, invitado— y hoja **Anulados**, para un control de acceso
+  externo, que tiene que rechazar esos).
+  ⚠️ Los endpoints se llaman `invitation_gen_*` y caen en `invitaciones.gestionar` por el prefijo en
+  los DOS mapeos; `public_invitation_ticket_pdf` va en `allowed` ×2 y en `PUBLIC_ENDPOINTS_EXTRA`.
+  · La prueba `tools/check_invitaciones_generadas.py` cubre ya el lote 2 (apartados 8-13: **126
+  comprobaciones**): secciones, generar (plano + de pie + a mano), rechazos, PDF al vuelo y público,
+  las generadas en la gestión (asignador con `map_key`, PDF unido, ZIP, redetectar), recuperar →
+  código nuevo, descartar → anulado, eliminar → anulado, el Excel y los permisos.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

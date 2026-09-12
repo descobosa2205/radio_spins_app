@@ -359,6 +359,513 @@
     }, true);
   }
 
-  function boot() { renderPreview(); initWizard(); }
+  /* ------------------------------------------------------------ asistente de CATEGORÍAS */
+  /* Una categoría = nombre + extras + uno o varios SECTORES, cada uno con sus butacas (numerado) o su
+     cantidad (de pie) y su puerta. El formato del recinto llega en JSON al abrir el pop-up
+     (`data-sections-url`) y el plano se dibuja con la geometría del visor (`window.VenueMapGeom`, la
+     misma de venue_map.js: así una butaca está donde está en el mapa del recinto). Los sectores se
+     montan en memoria (`staged`) y se mandan todos de una vez al «Generar» (`data-create-url`). */
+  function initCategoryWizard() {
+    var form = document.querySelector('[data-invgen-cat-form]');
+    if (!form) return;
+    var modalEl = form.closest('.modal');
+    var sectionsUrl = form.getAttribute('data-sections-url');
+    var createUrl = form.getAttribute('data-create-url');
+    var Q = function (sel) { return form.querySelector(sel); };
+    function esc(s) { return String(s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function num(n) { return Number(n || 0).toLocaleString('es-ES'); }
+
+    var data = null;        // lo que devuelve el servidor: has_map, layout, sections, taken, doors
+    var geom = null;        // VenueMapGeom(layout): pos["sec|fila|slot"] = {x,y}, secs, stage, pitch, bbox
+    var secByKey = {};
+    var draft = null;       // el sector que se está configurando ahora
+    var staged = [];        // los sectores ya añadidos a la categoría
+    var stagedKeys = {};    // butacas ya cogidas por los sectores añadidos (no se pueden repetir)
+    var seq = 0;
+
+    var errBox = Q('[data-cat-error]');
+    var loading = Q('[data-cat-loading]'), mapWrap = Q('[data-cat-mapwrap]'), mapHost = Q('[data-cat-map]');
+    var secBtns = Q('[data-cat-sections]'), noMap = Q('[data-cat-nomap]');
+    var manualBox = Q('[data-cat-manual]'), manualName = Q('[data-manual-name]');
+    var chosenBox = Q('[data-cat-chosen]');
+    var seatHost = Q('[data-cat-seatpick]'), seatCount = Q('[data-cat-seatcount]');
+    var seatWrap = Q('[data-cat-seatpick-wrap]'), manualSeatsWrap = Q('[data-cat-manual-seats-wrap]'), manualSeats = Q('[data-manual-seats]');
+    var qtyInput = Q('[data-cat-qty]'), qtyInfo = Q('[data-cat-qty-info]');
+    var doorsBox = Q('[data-cat-doors]'), doorInput = Q('[data-cat-door]');
+    var stagedList = Q('[data-cat-staged]'), summary = Q('[data-cat-summary]'), totalEl = Q('[data-cat-total]');
+    var stagedHint = Q('[data-cat-staged-hint]');
+    var manualKind = 'QTY';
+
+    /* --- la cabecera con un icono por paso (un icono puede cubrir DOS pasos: butacas o cantidad) --- */
+    var stepIcons = form.querySelectorAll('[data-invgen-steps] li');
+    function activeStep() { var a = form.querySelector('.sw-step.active'); return a ? parseInt(a.getAttribute('data-step'), 10) : 1; }
+    function syncSteps() {
+      var n = activeStep();
+      stepIcons.forEach(function (li) {
+        var ks = (li.getAttribute('data-for') || '').split(',').map(function (x) { return parseInt(x, 10); });
+        li.classList.toggle('is-active', ks.indexOf(n) >= 0);
+        li.classList.toggle('is-done', Math.max.apply(null, ks) < n);
+      });
+      if (n === 7) { commitDraft(); renderSummary(); }
+      if (n === 6) renderDoors();
+      if (n === 5) renderQty();
+      if (n === 4) renderSeatsStep();
+    }
+    var mo = new MutationObserver(function () { syncSteps(); });
+    form.querySelectorAll('.sw-step').forEach(function (s) { mo.observe(s, { attributes: true, attributeFilter: ['class'] }); });
+
+    /* --- abrir: se empieza de cero y se pide el formato del recinto --- */
+    function reset() {
+      data = null; geom = null; secByKey = {}; draft = null; staged = []; stagedKeys = {}; seq = 0;
+      form.reset();
+      form.querySelectorAll('[data-cat-extra]').forEach(function (l) { l.classList.remove('is-on'); });
+      form.setAttribute('data-sw-mode', '');
+      if (form.swRefresh) form.swRefresh();
+      if (errBox) { errBox.classList.add('d-none'); errBox.textContent = ''; }
+      loading.classList.remove('d-none'); mapWrap.classList.add('d-none'); noMap.classList.add('d-none');
+      manualBox.classList.add('d-none'); chosenBox.classList.add('d-none'); stagedHint.classList.add('d-none');
+      mapHost.innerHTML = ''; secBtns.innerHTML = ''; seatHost.innerHTML = '';
+      renderStagedHint(); updateTotal();
+    }
+    function load() {
+      fetch(sectionsUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || !j.ok) throw new Error((j && j.error) || 'No se pudo cargar el formato del recinto.');
+          data = j; secByKey = {};
+          (data.sections || []).forEach(function (s) { secByKey[s.key] = s; });
+          loading.classList.add('d-none');
+          if (data.has_map && window.VenueMapGeom) {
+            try { geom = window.VenueMapGeom(data.layout || {}); } catch (e) { geom = null; }
+          }
+          if (data.has_map && (data.sections || []).length) {
+            mapWrap.classList.remove('d-none');
+            renderOverview(); renderSectionButtons();
+          } else {
+            noMap.classList.remove('d-none');
+            manualBox.classList.remove('d-none');
+          }
+        })
+        .catch(function (e) {
+          loading.innerHTML = '<i class="fa fa-triangle-exclamation me-1 text-warning"></i>' + esc(e.message || 'No se pudo cargar el formato del recinto.');
+          manualBox.classList.remove('d-none');
+        });
+    }
+    document.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-invgen-cat-open]')) { reset(); load(); if (form.swGo) form.swGo(0); }
+    });
+
+    /* --- 2 · EXTRAS: la etiqueta se enciende con su casilla --- */
+    form.addEventListener('change', function (ev) {
+      var cb = ev.target.closest('[data-cat-extra] input[type="checkbox"]');
+      if (cb) cb.closest('[data-cat-extra]').classList.toggle('is-on', cb.checked);
+    });
+
+    /* --- 3 · SECTOR: el plano de las secciones (con el escenario) y su lista --- */
+    function secBox(sec) {
+      // El rectángulo que envuelve las butacas de una sección numerada (de la geometría del visor).
+      if (sec.kind === 'floor' && sec.floor) {
+        var f = sec.floor;
+        return { x: (+f.x || 0) - (+f.w || 0) / 2, y: (+f.y || 0) - (+f.h || 0) / 2, w: +f.w || 0, h: +f.h || 0, rot: +f.rot || 0, cx: +f.x || 0, cy: +f.y || 0 };
+      }
+      if (!geom) return null;
+      var xs = [], ys = [], pfx = sec.key + '|';
+      Object.keys(geom.pos).forEach(function (k) { if (k.indexOf(pfx) === 0) { xs.push(geom.pos[k].x); ys.push(geom.pos[k].y); } });
+      if (!xs.length) return null;
+      var pad = (geom.pitch || 26) * .8;
+      var x0 = Math.min.apply(null, xs) - pad, y0 = Math.min.apply(null, ys) - pad;
+      var x1 = Math.max.apply(null, xs) + pad, y1 = Math.max.apply(null, ys) + pad;
+      return { x: x0, y: y0, w: x1 - x0, h: y1 - y0, rot: 0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+    }
+    function renderOverview() {
+      var boxes = {}, xs = [], ys = [];
+      (data.sections || []).forEach(function (s) {
+        var b = secBox(s); if (!b) return; boxes[s.key] = b;
+        var r = Math.max(b.w, b.h) / 2;   // margen holgado por si está girada
+        xs.push(b.cx - r, b.cx + r); ys.push(b.cy - r, b.cy + r);
+      });
+      var stage = geom && geom.stage;
+      if (stage) { xs.push(stage.x - stage.w / 2, stage.x + stage.w / 2); ys.push(stage.y - stage.h / 2, stage.y + stage.h / 2); }
+      var doors = ((data.layout && data.layout.elements) || []).filter(function (e) { return e && e.type === 'door'; });
+      doors.forEach(function (d) { xs.push(+d.x - 80, +d.x + 80); ys.push(+d.y - 50, +d.y + 70); });
+      if (!xs.length) { mapWrap.classList.add('d-none'); return; }
+      var pad = 60, minX = Math.min.apply(null, xs) - pad, minY = Math.min.apply(null, ys) - pad;
+      var W = Math.max.apply(null, xs) + pad - minX, H = Math.max.apply(null, ys) + pad - minY;
+      var fs = Math.max(22, Math.min(W, H) / 22);
+      var h = '<svg viewBox="' + minX + ' ' + minY + ' ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Plano de las secciones del recinto">';
+      if (stage) {
+        h += '<g class="invgen-stage" transform="rotate(' + (stage.rot || 0) + ' ' + stage.x + ' ' + stage.y + ')"><rect x="' + (stage.x - stage.w / 2) + '" y="' + (stage.y - stage.h / 2) + '" width="' + stage.w + '" height="' + stage.h + '" rx="18"/>' +
+             '<text x="' + stage.x + '" y="' + stage.y + '" font-size="' + fs + '" dominant-baseline="central">' + esc(stage.label || 'ESCENARIO') + '</text></g>';
+      }
+      doors.forEach(function (d) {
+        h += '<g class="invgen-door"><rect x="' + (+d.x - 50) + '" y="' + (+d.y - 30) + '" width="100" height="60" rx="10"/><text x="' + (+d.x) + '" y="' + (+d.y + 52 + fs * .4) + '" font-size="' + (fs * .7) + '">' + esc(d.label || 'Puerta') + '</text></g>';
+      });
+      (data.sections || []).forEach(function (s) {
+        var b = boxes[s.key]; if (!b) return;
+        var sub = s.numbered ? (num(s.free) + ' libre' + (s.free === 1 ? '' : 's') + ' de ' + num(s.count)) : ('de pie' + (s.cap ? ' · aforo ' + num(s.cap) : ''));
+        h += '<g class="invgen-sec' + (s.kind === 'floor' ? ' is-floor' : '') + '" data-sec="' + esc(s.key) + '" transform="rotate(' + (b.rot || 0) + ' ' + b.cx + ' ' + b.cy + ')">' +
+             '<rect x="' + b.x + '" y="' + b.y + '" width="' + b.w + '" height="' + b.h + '" rx="22"/>' +
+             '<text x="' + b.cx + '" y="' + (b.cy - fs * .25) + '" font-size="' + fs + '">' + esc(s.name) + '</text>' +
+             '<text class="sub" x="' + b.cx + '" y="' + (b.cy + fs * .95) + '" font-size="' + (fs * .72) + '">' + esc(sub) + '</text></g>';
+      });
+      h += '</svg>';
+      mapHost.innerHTML = h;
+    }
+    function renderSectionButtons() {
+      secBtns.innerHTML = (data.sections || []).map(function (s) {
+        var sub = s.numbered ? (num(s.free) + ' libre' + (s.free === 1 ? '' : 's')) : ('de pie' + (s.cap ? ' · aforo ' + num(s.cap) : ''));
+        return '<button type="button" class="invgen-preset invgen-secbtn" data-sec="' + esc(s.key) + '"><i class="fa ' + (s.numbered ? 'fa-chair' : 'fa-people-group') + '"></i><span>' + esc(s.name) + '<small>' + esc(sub) + '</small></span></button>';
+      }).join('');
+      syncSectionPick();
+    }
+    function syncSectionPick() {
+      var k = draft && !draft.manual ? draft.section_key : '';
+      form.querySelectorAll('[data-sec]').forEach(function (el) { el.classList.toggle('is-on', !!k && el.getAttribute('data-sec') === k); });
+    }
+    function setMode(mode) { form.setAttribute('data-sw-mode', mode); if (form.swRefresh) form.swRefresh(); }
+    function chooseSection(key) {
+      var s = secByKey[key]; if (!s) return;
+      var alreadyQty = staged.some(function (x) { return x.section_key === key && !x.numbered && (!draft || x._id !== draft._id); });
+      if (alreadyQty) { fail(Q('[data-cat-sections]'), '«' + s.name + '» ya está en la categoría: para cambiar la cantidad quítalo del resumen.'); return; }
+      draft = { _id: (draft && draft._id) || (++seq), manual: false, section_key: key, section_name: s.name, numbered: !!s.numbered,
+                seats: [], qty: 0, door: (draft && draft.door) || '' };
+      manualBox.classList.add('d-none');
+      setMode(s.numbered ? 'NUM' : 'QTY');
+      syncSectionPick(); showChosen();
+    }
+    function showChosen() {
+      if (!draft) { chosenBox.classList.add('d-none'); return; }
+      chosenBox.classList.remove('d-none');
+      Q('[data-chosen-name]').textContent = draft.section_name;
+      Q('[data-chosen-sub]').textContent = draft.manual
+        ? ('Sector escrito a mano · ' + (draft.numbered ? 'numerado' : 'sin numerar'))
+        : (draft.numbered ? 'Sección numerada: en el paso siguiente eliges las butacas' : 'Sección de pie: en el paso siguiente dices cuántas');
+    }
+    form.addEventListener('click', function (ev) {
+      var s = ev.target.closest('[data-sec]');
+      if (s && form.contains(s)) { chooseSection(s.getAttribute('data-sec')); return; }
+      if (ev.target.closest('[data-cat-manual-toggle]')) { manualBox.classList.toggle('d-none'); if (!manualBox.classList.contains('d-none')) manualName.focus(); return; }
+      var mk = ev.target.closest('[data-manual-kind]');
+      if (mk) {
+        manualKind = mk.getAttribute('data-manual-kind');
+        form.querySelectorAll('[data-manual-kind]').forEach(function (b) { b.classList.toggle('active', b === mk); });
+        return;
+      }
+      if (ev.target.closest('[data-cat-manual-use]')) {
+        var nm = (manualName.value || '').trim();
+        if (!nm) { fail(manualName, 'Ponle nombre al sector.'); return; }
+        if (window.app33FormCheck) window.app33FormCheck.ok(manualName);
+        draft = { _id: (draft && draft._id) || (++seq), manual: true, section_key: '', section_name: nm, numbered: manualKind === 'NUM',
+                  seats: [], qty: 0, door: (draft && draft.door) || '' };
+        setMode(draft.numbered ? 'NUM' : 'QTY');
+        syncSectionPick(); showChosen();
+        return;
+      }
+      if (ev.target.closest('[data-cat-seats-clear]')) { if (draft) { draft.seats = []; renderSeats(); } return; }
+      var chip = ev.target.closest('[data-door]');
+      if (chip && form.contains(chip)) {
+        if (draft) draft.door = chip.getAttribute('data-door') || '';
+        doorInput.value = draft ? draft.door : '';
+        syncDoorChips();
+        return;
+      }
+      if (ev.target.closest('[data-cat-add-more]')) {
+        commitDraft(); draft = null; showChosen(); syncSectionPick(); setMode('');
+        renderStagedHint(); if (form.swGo) form.swGo(2);
+        return;
+      }
+      var rm = ev.target.closest('[data-staged-remove]');
+      if (rm) {
+        var id = parseInt(rm.getAttribute('data-staged-remove'), 10);
+        staged = staged.filter(function (x) { return x._id !== id; });
+        if (draft && draft._id === id) { draft = null; setMode(''); showChosen(); }
+        rebuildStagedKeys(); renderSummary(); renderStagedHint();
+      }
+    });
+
+    /* --- 4 · BUTACAS: el plano de la sección, con el escenario donde está --- */
+    function seatPositions(sec) {
+      // De la geometría del visor; si una sección no la tiene (un formato raro), una rejilla por fila/slot.
+      var pos = {}, ok = 0;
+      sec.seats.forEach(function (st) {
+        var p = geom && geom.pos[st.key];
+        if (p) { pos[st.key] = { x: p.x, y: p.y }; ok++; }
+      });
+      if (ok !== sec.seats.length) {
+        var pitch = 26;
+        sec.seats.forEach(function (st) { pos[st.key] = { x: st.slot * pitch, y: st.row_idx * pitch }; });
+      }
+      return pos;
+    }
+    function renderSeatsStep() {
+      if (!draft || !draft.numbered) return;
+      if (draft.manual) {
+        seatWrap.classList.add('d-none'); manualSeatsWrap.classList.remove('d-none');
+        manualSeats.value = draft.seats.map(function (s) { return (s.row_label ? s.row_label + ' ' : '') + s.number; }).join('\n');
+        countManualSeats();
+        return;
+      }
+      seatWrap.classList.remove('d-none'); manualSeatsWrap.classList.add('d-none');
+      renderSeats();
+    }
+    var selected = function () { var m = {}; (draft ? draft.seats : []).forEach(function (s) { m[s.key] = true; }); return m; };
+    function renderSeats() {
+      var sec = draft && secByKey[draft.section_key];
+      if (!sec) { seatHost.innerHTML = ''; return; }
+      var pos = seatPositions(sec), keys = Object.keys(pos);
+      if (!keys.length) { seatHost.innerHTML = '<div class="text-muted small p-3">Esta sección no tiene butacas que elegir.</div>'; return; }
+      var xs = keys.map(function (k) { return pos[k].x; }), ys = keys.map(function (k) { return pos[k].y; });
+      var pitch = (geom && geom.pitch) || 26, r = pitch * .42;
+      var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+      var padL = pitch * 2.2, pad = pitch * 1.4, band = pitch * 1.6;
+      // ¿Dónde está el escenario respecto a la sección? Se dibuja una franja en ese lado.
+      var side = null;
+      if (geom && geom.stage) {
+        var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, dx = geom.stage.x - cx, dy = geom.stage.y - cy;
+        side = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'top' : 'bottom');
+      }
+      var x0 = minX - padL - (side === 'left' ? band : 0), y0 = minY - pad - (side === 'top' ? band : 0);
+      var x1 = maxX + pad + (side === 'right' ? band : 0), y1 = maxY + pad + (side === 'bottom' ? band : 0);
+      var sel = selected();
+      var h = '<svg viewBox="' + x0 + ' ' + y0 + ' ' + (x1 - x0) + ' ' + (y1 - y0) + '" xmlns="http://www.w3.org/2000/svg" data-seatsvg>';
+      if (side) {
+        var bw = (side === 'left' || side === 'right') ? band * .6 : (maxX - minX + pad * 2), bh = (side === 'top' || side === 'bottom') ? band * .6 : (maxY - minY + pad * 2);
+        var bx = side === 'left' ? x0 + band * .2 : side === 'right' ? x1 - band * .8 : minX - pad;
+        var by = side === 'top' ? y0 + band * .2 : side === 'bottom' ? y1 - band * .8 : minY - pad;
+        var tx = bx + bw / 2, ty = by + bh / 2, rot = (side === 'left') ? -90 : (side === 'right') ? 90 : 0;
+        h += '<g class="invgen-stageband"><rect x="' + bx + '" y="' + by + '" width="' + bw + '" height="' + bh + '" rx="8"/>' +
+             '<text x="' + tx + '" y="' + ty + '" font-size="' + (pitch * .5) + '" transform="rotate(' + rot + ' ' + tx + ' ' + ty + ')">ESCENARIO</text></g>';
+      }
+      // Etiquetas de fila (pinchar la letra coge la fila entera).
+      var rows = {};
+      sec.seats.forEach(function (st) { var p = pos[st.key]; if (!p) return; var rr = rows[st.row_idx] || (rows[st.row_idx] = { label: st.row_label, ys: [], xs: [] }); rr.ys.push(p.y); rr.xs.push(p.x); });
+      Object.keys(rows).forEach(function (ri) {
+        var rr = rows[ri], ry = rr.ys.reduce(function (a, b) { return a + b; }, 0) / rr.ys.length, rx = Math.min.apply(null, rr.xs) - pitch * 1.1;
+        h += '<text class="invgen-rowlbl" data-row="' + esc(ri) + '" x="' + rx + '" y="' + ry + '" font-size="' + (pitch * .55) + '">' + esc(rr.label) + '</text>';
+      });
+      sec.seats.forEach(function (st) {
+        var p = pos[st.key]; if (!p) return;
+        var taken = data.taken && data.taken[st.key];
+        var cls = 'invgen-seat' + (taken ? ' is-taken' : stagedKeys[st.key] ? ' is-staged' : sel[st.key] ? ' is-on' : '');
+        var title = sec.name + ' · fila ' + st.row_label + ' · butaca ' + st.number + (taken ? ' · ocupada: ' + taken : stagedKeys[st.key] ? ' · ya en esta categoría' : '');
+        h += '<g class="' + cls + '" data-seat="' + esc(st.key) + '"><title>' + esc(title) + '</title><circle cx="' + p.x + '" cy="' + p.y + '" r="' + r + '"/>' +
+             '<text x="' + p.x + '" y="' + p.y + '" font-size="' + (r * .9) + '">' + esc(st.number) + '</text></g>';
+      });
+      h += '</svg>';
+      seatHost.innerHTML = h;
+      updateSeatCount();
+    }
+    function updateSeatCount() {
+      var n = draft ? draft.seats.length : 0;
+      if (seatCount) seatCount.textContent = num(n) + ' butaca' + (n === 1 ? '' : 's');
+      updateTotal();
+    }
+    function seatAt(key, on) {
+      var sec = draft && secByKey[draft.section_key]; if (!sec) return;
+      if (data.taken && data.taken[key]) return;
+      if (stagedKeys[key]) return;
+      var st = null; for (var i = 0; i < sec.seats.length; i++) if (sec.seats[i].key === key) { st = sec.seats[i]; break; }
+      if (!st) return;
+      var idx = -1; for (var j = 0; j < draft.seats.length; j++) if (draft.seats[j].key === key) { idx = j; break; }
+      if (on && idx < 0) draft.seats.push({ key: st.key, row_label: st.row_label, number: st.number });
+      if (!on && idx >= 0) draft.seats.splice(idx, 1);
+      var g = seatHost.querySelector('[data-seat="' + key.replace(/"/g, '\\"') + '"]');
+      if (g) g.classList.toggle('is-on', on);
+      updateSeatCount();
+    }
+    var painting = null;
+    seatHost.addEventListener('pointerdown', function (ev) {
+      var rl = ev.target.closest('.invgen-rowlbl');
+      if (rl) {
+        // La fila entera: si queda alguna libre sin elegir se eligen todas; si no, se sueltan todas.
+        var sec = draft && secByKey[draft.section_key]; if (!sec) return;
+        var ri = rl.getAttribute('data-row'), sel = selected(), anyFree = false;
+        sec.seats.forEach(function (st) { if (String(st.row_idx) === ri && !(data.taken && data.taken[st.key]) && !stagedKeys[st.key] && !sel[st.key]) anyFree = true; });
+        sec.seats.forEach(function (st) { if (String(st.row_idx) === ri) seatAt(st.key, anyFree); });
+        return;
+      }
+      var g = ev.target.closest('[data-seat]');
+      if (!g) return;
+      ev.preventDefault();
+      var on = !g.classList.contains('is-on');
+      painting = { on: on, last: g.getAttribute('data-seat') };
+      seatAt(painting.last, on);
+      try { seatHost.setPointerCapture(ev.pointerId); } catch (e) {}
+    });
+    seatHost.addEventListener('pointermove', function (ev) {
+      if (!painting) return;
+      var el = document.elementFromPoint(ev.clientX, ev.clientY);
+      var g = el && el.closest ? el.closest('[data-seat]') : null;
+      if (!g || !seatHost.contains(g)) return;
+      var k = g.getAttribute('data-seat');
+      if (k === painting.last) return;
+      painting.last = k;
+      seatAt(k, painting.on);
+    });
+    ['pointerup', 'pointercancel'].forEach(function (evn) { seatHost.addEventListener(evn, function () { painting = null; }); });
+
+    function parseManualSeats() {
+      var out = [], seen = {};
+      (manualSeats.value || '').split(/\r?\n/).forEach(function (line) {
+        var t = line.trim(); if (!t) return;
+        var parts = t.split(/[\s,;\-]+/).filter(Boolean);
+        var row = parts.length > 1 ? parts[0] : '', numb = parts.length > 1 ? parts.slice(1).join(' ') : parts[0];
+        var k = (row + '|' + numb).toLowerCase();
+        if (seen[k]) return; seen[k] = true;
+        out.push({ key: '', row_label: row, number: numb });
+      });
+      return out;
+    }
+    function countManualSeats() {
+      if (!draft || !draft.manual) return;
+      draft.seats = parseManualSeats();
+      Q('[data-cat-manual-count]').textContent = num(draft.seats.length);
+      updateTotal();
+    }
+    manualSeats.addEventListener('input', countManualSeats);
+
+    /* --- 5 · CANTIDAD --- */
+    function renderQty() {
+      if (!draft || draft.numbered) return;
+      qtyInput.value = draft.qty || '';
+      var sec = draft.manual ? null : secByKey[draft.section_key];
+      if (sec && sec.cap) {
+        var libre = Math.max(sec.cap - (sec.used_unnumbered || 0), 0);
+        qtyInfo.textContent = 'Aforo de «' + sec.name + '»: ' + num(sec.cap) + (sec.used_unnumbered ? ' · ya generadas ' + num(sec.used_unnumbered) : '') + ' · caben ' + num(libre) + ' más.';
+        qtyInput.max = String(Math.max(libre, 1));
+      } else {
+        qtyInfo.textContent = sec ? 'La sección no tiene aforo apuntado: pon la cantidad que haga falta.' : 'Sector escrito a mano: pon la cantidad que haga falta.';
+        qtyInput.max = '5000';
+      }
+    }
+    qtyInput.addEventListener('input', function () { if (draft) { draft.qty = parseInt(qtyInput.value, 10) || 0; updateTotal(); } });
+
+    /* --- 6 · PUERTA --- */
+    function allDoors() {
+      var out = [], seen = {};
+      ((data && data.doors) || []).concat(staged.map(function (x) { return x.door; })).forEach(function (d) {
+        d = (d || '').trim(); if (!d || seen[d.toLowerCase()]) return; seen[d.toLowerCase()] = true; out.push(d);
+      });
+      return out;
+    }
+    function renderDoors() {
+      var ds = allDoors();
+      doorsBox.innerHTML = '<button type="button" class="invgen-preset" data-door=""><i class="fa fa-ban"></i><span>Sin puerta concreta</span></button>' +
+        ds.map(function (d) { return '<button type="button" class="invgen-preset" data-door="' + esc(d) + '"><i class="fa fa-door-open"></i><span>' + esc(d) + '</span></button>'; }).join('');
+      doorInput.value = draft ? (draft.door || '') : '';
+      syncDoorChips();
+    }
+    function syncDoorChips() {
+      var cur = (draft ? draft.door : '') || '';
+      doorsBox.querySelectorAll('[data-door]').forEach(function (b) { b.classList.toggle('is-on', (b.getAttribute('data-door') || '') === cur); });
+    }
+    doorInput.addEventListener('input', function () { if (draft) draft.door = doorInput.value.trim(); syncDoorChips(); });
+
+    /* --- 7 · RESUMEN: el borrador pasa a la lista de sectores y se dice lo que se va a generar --- */
+    function draftCount(d) { return d.numbered ? d.seats.length : (parseInt(d.qty, 10) || 0); }
+    function commitDraft() {
+      if (!draft) return;
+      if (draft.numbered && draft.manual) draft.seats = parseManualSeats();
+      if (draftCount(draft) < 1) return;
+      var i = -1; for (var k = 0; k < staged.length; k++) if (staged[k]._id === draft._id) { i = k; break; }
+      var copy = JSON.parse(JSON.stringify(draft));
+      if (i >= 0) staged[i] = copy; else staged.push(copy);
+      rebuildStagedKeys();
+    }
+    function rebuildStagedKeys() {
+      stagedKeys = {};
+      staged.forEach(function (x) { (x.seats || []).forEach(function (s) { if (s.key) stagedKeys[s.key] = true; }); });
+      updateTotal();
+    }
+    function totalCount() {
+      var n = 0; staged.forEach(function (x) { n += draftCount(x); });
+      if (draft && !staged.some(function (x) { return x._id === draft._id; })) n += draftCount(draft);
+      return n;
+    }
+    function updateTotal() { if (totalEl) totalEl.textContent = num(totalCount()); }
+    function renderStagedHint() {
+      if (!stagedHint) return;
+      if (!staged.length) { stagedHint.classList.add('d-none'); return; }
+      stagedHint.classList.remove('d-none');
+      stagedHint.innerHTML = '<i class="fa fa-check text-success me-1"></i>Ya en la categoría: ' + staged.map(function (x) { return esc(x.section_name) + ' (' + num(draftCount(x)) + ')'; }).join(' · ') + '. Elige el sector siguiente.';
+    }
+    function renderSummary() {
+      var name = (Q('[data-cat-name]').value || '').trim();
+      var extras = Array.prototype.slice.call(form.querySelectorAll('[data-cat-extra] input:checked')).map(function (cb) { return cb.closest('[data-cat-extra]').querySelector('span').textContent; });
+      summary.innerHTML =
+        '<li><i class="fa fa-tag"></i><div><small>Categoría</small><strong>' + esc(name || '—') + '</strong></div></li>' +
+        '<li><i class="fa fa-star"></i><div><small>Extras incluidos</small><strong>' + (extras.length ? esc(extras.join(' · ')) : '<span class="text-muted">Ninguno</span>') + '</strong></div></li>' +
+        '<li><i class="fa fa-qrcode"></i><div><small>Invitaciones</small><strong>' + num(totalCount()) + '</strong> <span class="text-muted">· cada una con su código QR</span></div></li>';
+      stagedList.innerHTML = staged.length ? staged.map(function (x) {
+        var what = x.numbered ? (num(x.seats.length) + ' butaca' + (x.seats.length === 1 ? '' : 's') + (x.manual ? '' : ' elegidas en el plano')) : (num(x.qty) + ' sin numerar');
+        var seatsTxt = x.numbered ? x.seats.slice(0, 18).map(function (s) { return (s.row_label ? s.row_label + '-' : '') + s.number; }).join(', ') + (x.seats.length > 18 ? '…' : '') : '';
+        return '<li><i class="fa ' + (x.numbered ? 'fa-chair' : 'fa-people-group') + ' text-danger"></i><div class="flex-grow-1 min-w-0"><strong>' + esc(x.section_name) + '</strong>' + (x.manual ? ' <span class="text-muted small">(a mano)</span>' : '') +
+               '<div class="small text-muted">' + esc(what) + (x.door ? ' · <i class="fa fa-door-open"></i> ' + esc(x.door) : ' · sin puerta concreta') + (seatsTxt ? '<br>' + esc(seatsTxt) : '') + '</div></div>' +
+               '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-staged-remove="' + x._id + '" title="Quitar este sector"><i class="fa fa-xmark"></i></button></li>';
+      }).join('') : '<li class="text-muted small">Todavía no hay ningún sector: vuelve atrás y elige uno.</li>';
+      updateTotal();
+    }
+
+    /* --- guardias de paso: lo que step_wizard no sabe comprobar (una elección, no un campo) --- */
+    function fail(el, msg) {
+      if (window.app33FormCheck && el) window.app33FormCheck.fail(form, el, msg);
+      else if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    }
+    form.addEventListener('click', function (ev) {
+      if (!ev.target.closest('[data-sw-next]')) return;
+      var n = activeStep(), stop = false;
+      if (n === 3 && !draft) { fail(mapWrap.classList.contains('d-none') ? manualBox : mapWrap, 'Elige un sector del plano o escribe uno a mano.'); stop = true; }
+      if (n === 4 && draft) {
+        if (draft.manual) draft.seats = parseManualSeats();
+        if (!draft.seats.length) { fail(draft.manual ? manualSeats : seatHost, 'Elige al menos una butaca.'); stop = true; }
+      }
+      if (n === 5 && draft) {
+        var q = parseInt(qtyInput.value, 10) || 0, mx = parseInt(qtyInput.max, 10) || 5000;
+        if (q < 1) { fail(qtyInput, 'Di cuántas invitaciones se generan.'); stop = true; }
+        else if (q > mx) { fail(qtyInput, 'Como mucho ' + num(mx) + ': es lo que cabe en el sector.'); stop = true; }
+        else draft.qty = q;
+      }
+      if (stop) { ev.preventDefault(); ev.stopImmediatePropagation(); }
+    }, true);
+
+    /* --- GENERAR: todo en un JSON, y a la pantalla con lo creado --- */
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      commitDraft();
+      var name = (Q('[data-cat-name]').value || '').trim();
+      if (!name) { if (form.swGo) form.swGo(0); fail(Q('[data-cat-name]'), 'Ponle nombre a la categoría.'); return; }
+      if (!staged.length) { fail(stagedList, 'Añade al menos un sector con sus butacas o su cantidad.'); return; }
+      var body = {
+        name: name,
+        extra_ids: Array.prototype.slice.call(form.querySelectorAll('[data-cat-extra] input:checked')).map(function (cb) { return cb.value; }),
+        sectors: staged.map(function (x) { return { section_key: x.section_key, section_name: x.section_name, numbered: !!x.numbered, door: x.door || '', seats: x.numbered ? x.seats : [], qty: x.numbered ? 0 : (parseInt(x.qty, 10) || 0) }; })
+      };
+      var btn = form.querySelector('[data-sw-submit]'); if (btn) { btn.disabled = true; }
+      if (errBox) errBox.classList.add('d-none');
+      fetch(createUrl, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) })
+        .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+        .then(function (res) {
+          if (res.j && res.j.ok) {
+            // ⚠️ El destino es ESTA misma página con un «#»: asignar `href` solo mueve el ancla y NO
+            // recarga (la categoría nueva no aparecería y el loader se quedaría puesto).
+            var to = res.j.redirect || window.location.href;
+            var mismaPagina = to.split('#')[0] === window.location.href.split('#')[0];
+            if (mismaPagina) { window.location.replace(to); window.location.reload(); } else { window.location.href = to; }
+            return;
+          }
+          throw new Error((res.j && res.j.error) || 'No se pudo generar la categoría.');
+        })
+        .catch(function (e) {
+          if (btn) btn.disabled = false;
+          if (window.appLoader && window.appLoader.hide) setTimeout(function () { window.appLoader.hide(); }, 0);
+          if (errBox) { errBox.textContent = e.message || 'No se pudo generar la categoría.'; errBox.classList.remove('d-none'); errBox.scrollIntoView({ block: 'center' }); }
+        });
+    }, true);
+
+    // Un formulario que se cierra a medias vuelve a empezar de cero la próxima vez.
+    if (modalEl) modalEl.addEventListener('hidden.bs.modal', function () { draft = null; staged = []; stagedKeys = {}; });
+  }
+
+  function boot() { renderPreview(); initWizard(); initCategoryWizard(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

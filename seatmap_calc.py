@@ -383,3 +383,41 @@ def ticketing_template(layout: dict, assignments: dict) -> list:
             rows.append({"zone": "PISTA", "name": f["name"], "qty": f["cap"], "inv": 0, "extras": []})
     rows.sort(key=lambda r: (ZONE_ORDER.get(r["zone"], 9), -r["qty"], r["name"]))
     return rows
+
+
+def row_label(sec: dict, row_idx: int) -> str:
+    """La etiqueta IMPRESA de una fila (paridad con `rowLabelOf` del JS: `rowStart`, `rowScheme`
+    alpha/num y `rowDir` desc). Es la misma lógica que `seat_lookup`, sacada a un punto único."""
+    n_rows = max(1, _i(sec.get("rows"), 1))
+    alpha = (sec.get("rowScheme") == "alpha")
+    row_start = _i(sec.get("rowStart"), 1) if sec.get("rowStart") is not None else 1
+    row_desc = (sec.get("rowDir") == "desc")
+    n_lbl = row_start - 1 + ((n_rows - row_idx + 1) if row_desc else row_idx)
+    return _alpha_label(n_lbl) if alpha else str(n_lbl)
+
+
+def section_seats(sec: dict) -> list:
+    """TODAS las butacas VÁLIDAS de una sección numerada, con su sitio y su etiqueta impresa:
+    [{"key": "sec|fila|slot", "row_idx", "row_label", "slot", "number"}], en el orden del plano.
+    Una sección `floor` (de pie) no tiene butacas: devuelve []. Es lo que necesita quien tiene que
+    ELEGIR butacas (p. ej. generar invitaciones de asientos concretos) sin volver a inventarse la
+    numeración: sale de `_row_states` + `_row_numbering`, los mismos que casan las entradas."""
+    if not isinstance(sec, dict) or (sec.get("kind") or "").lower() == "floor":
+        return []
+    sid = str(sec.get("id") or "")
+    n_rows = max(1, _i(sec.get("rows"), 1))
+    out = []
+    for r in range(1, n_rows + 1):
+        states = _row_states(sec, r)
+        num_to_slot = _row_numbering(sec, r, states)
+        slot_to_num = {}
+        for num, slot in num_to_slot.items():
+            slot_to_num[slot] = num
+        lbl = row_label(sec, r)
+        for i, state in enumerate(states):
+            if state != "seat":
+                continue
+            slot = i + 1
+            out.append({"key": "%s|%s|%s" % (sid, r, slot), "row_idx": r, "row_label": lbl,
+                        "slot": slot, "number": slot_to_num.get(slot, str(slot))})
+    return out

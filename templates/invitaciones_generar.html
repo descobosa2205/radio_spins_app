@@ -76,28 +76,73 @@
   </div>
 
   {# ---------------- MÓDULO 2 · LAS CATEGORÍAS GENERADAS ---------------- #}
+  {% set n_gen = gen_categories|map(attribute='counts.total')|sum %}
   <div class="card mb-3" id="invgen-categorias">
     <div class="card-header bg-white py-2 d-flex align-items-center gap-2 flex-wrap">
       <span class="fw-semibold"><i class="fa fa-layer-group text-danger me-1"></i>Categorías de invitación generadas</span>
+      {% if gen_categories %}<span class="badge text-bg-light border">{{ n_gen|k }} invitaci{{ 'ón' if n_gen == 1 else 'ones' }} · {{ gen_categories|length }} categorí{{ 'a' if gen_categories|length == 1 else 'as' }}</span>{% endif %}
+      <div class="ms-auto d-flex gap-2 flex-wrap">
+        {% if gen_categories %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_gen_codes_xlsx', concert_id=concert.id) }}" data-dl-bar title="Los códigos de todas las invitaciones generadas, para un control de acceso externo"><i class="fa fa-file-excel me-1"></i>Descargar códigos</a>
+        {% endif %}
+        {% if configured %}
+        <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#invGenCatModal" data-invgen-cat-open><i class="fa fa-plus me-1"></i>Añadir categoría</button>
+        {% else %}
+        <button type="button" class="btn btn-sm btn-danger" disabled title="Configura primero los datos de la entrada"><i class="fa fa-plus me-1"></i>Añadir categoría</button>
+        {% endif %}
+      </div>
     </div>
     <div class="card-body">
       {% if gen_categories %}
-        <ul class="list-group list-group-flush">
+        <div class="d-flex flex-column gap-2">
           {% for gc in gen_categories %}
-          <li class="list-group-item px-0"><strong>{{ gc.name }}</strong> <span class="text-muted small">· {{ gc.generated_count }} invitaciones</span></li>
+          <div class="invgen-cat" id="invgen-cat-{{ gc.id }}">
+            <div class="invgen-cat__head">
+              <strong class="fs-6">{{ gc.name }}</strong>
+              <span class="badge text-bg-dark">{{ gc.counts.total|k }} generada{{ '' if gc.counts.total == 1 else 's' }}</span>
+              <span class="invgen-cat__counts">
+                {% if gc.counts.available %}<span class="badge text-bg-success">{{ gc.counts.available|k }} disponible{{ '' if gc.counts.available == 1 else 's' }}</span>{% endif %}
+                {% if gc.counts.assigned %}<span class="badge text-bg-warning">{{ gc.counts.assigned|k }} asignada{{ '' if gc.counts.assigned == 1 else 's' }}</span>{% endif %}
+                {% if gc.counts.sent %}<span class="badge" style="background:#007ca2">{{ gc.counts.sent|k }} enviada{{ '' if gc.counts.sent == 1 else 's' }}</span>{% endif %}
+                {% if gc.counts.blocked %}<span class="badge text-bg-secondary">{{ gc.counts.blocked|k }} bloqueada{{ '' if gc.counts.blocked == 1 else 's' }}</span>{% endif %}
+                {% if gc.counts.lost %}<span class="badge text-bg-light border text-muted">{{ gc.counts.lost|k }} descartada{{ '' if gc.counts.lost == 1 else 's' }}</span>{% endif %}
+              </span>
+              <div class="ms-auto d-flex gap-1 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}#inv-tab-tickets" title="Verlas en la gestión de invitaciones"><i class="fa fa-ticket me-1"></i>Gestionar</a>
+                {% if gc.can_delete %}
+                <form method="post" action="{{ url_for('invitation_gen_category_delete', concert_id=concert.id, gen_id=gc.id) }}" data-confirm="Se eliminan las {{ gc.counts.total }} invitaciones de «{{ gc.name }}» y sus códigos quedan anulados. ¿Seguir?">
+                  <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar la categoría y sus invitaciones"><i class="fa fa-trash"></i></button>
+                </form>
+                {% else %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Tiene invitaciones asignadas o enviadas: recupéralas antes de poder eliminarla"><i class="fa fa-trash"></i></button>
+                {% endif %}
+              </div>
+            </div>
+            {% if gc.extras %}<div class="d-flex flex-wrap gap-1 mt-2">{% for x in gc.extras %}<span class="invgen-chip"><i class="fa {{ x.icon }}"></i>{{ x.name }}</span>{% endfor %}</div>{% endif %}
+            <ul class="invgen-cat__sectors">
+              {% for sc in gc.sectors %}
+              <li><i class="fa {{ 'fa-chair' if sc.numbered else 'fa-people-group' }} text-danger me-1"></i>{{ sc.name }}{% if sc.manual %} <span class="text-muted">(a mano)</span>{% endif %} · <strong>{{ sc.qty|k }}</strong> {{ 'butaca' if sc.numbered else 'sin numerar' }}{{ 's' if sc.numbered and sc.qty != 1 else '' }}{% if sc.door %} · <i class="fa fa-door-open me-1"></i>{{ sc.door }}{% endif %}</li>
+              {% endfor %}
+            </ul>
+            <div class="small text-muted mt-1">Generada{% if gc.created_by %} por {{ gc.created_by }}{% endif %}{% if gc.created_at %} el {{ gc.created_at }}{% endif %}.</div>
+          </div>
           {% endfor %}
-        </ul>
+        </div>
       {% else %}
-        <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Todavía no hay categorías generadas. {% if not configured %}Configura primero los datos de la entrada.{% endif %}</div>
+        <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Todavía no hay categorías generadas. {% if not configured %}Configura primero los datos de la entrada.{% else %}Con «Añadir categoría» eliges el sector del plano, las butacas o la cantidad y la puerta: las invitaciones se generan con su QR y entran en la gestión de invitaciones.{% endif %}</div>
       {% endif %}
     </div>
   </div>
 </div>
 
 {% include '_invgen_config_modal.html' %}
+{% if configured %}{% include '_invgen_category_modal.html' %}{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+{# venue_map.js solo por su `window.VenueMapGeom` (la geometría del plano, la misma que el visor): sin
+   [data-venue-map] en la página, su init no hace nada. #}
+<script src="{{ url_for('static', filename='js/venue_map.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/invgen.js', v=ASSET_V) }}"></script>
 {% endblock %}

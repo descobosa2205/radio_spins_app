@@ -938,7 +938,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -51435,6 +51435,7 @@ def _invitation_venue_map_payload(sm, ticket_payloads) -> dict | None:
     if not (layout.get("sections") or []):
         return None
     lookup = seatmap_calc.seat_lookup(layout)
+    _sec_ids = {str(sx.get("id") or "") for sx in (layout.get("sections") or []) if isinstance(sx, dict)}
     assigned_states = {"ASSIGNED"} | _VENUE_MAP_INV_SENTISH
     guest_cats: dict[str, dict] = {}
     assignments: dict = {}
@@ -51445,7 +51446,7 @@ def _invitation_venue_map_payload(sm, ticket_payloads) -> dict | None:
         if not (t.get("seat_number") or "").strip():
             continue   # sin numerar: no se casan con el plano
         _cstat = by_cat.setdefault(str(t.get("category_id") or ""), {"matched": 0, "unmatched": 0})
-        key = seatmap_calc.match_ticket(lookup, t.get("sector"), t.get("row_label"), t.get("seat_number"))
+        key = _invgen_valid_map_key(t.get("map_key"), _sec_ids) or seatmap_calc.match_ticket(lookup, t.get("sector"), t.get("row_label"), t.get("seat_number"))
         if not key:
             unmatched += 1
             _cstat["unmatched"] += 1
@@ -88989,7 +88990,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "public_invitation_ticket_pdf", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -93597,7 +93598,7 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
-    allowed = {"public_invitation_conditions", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -137116,6 +137117,10 @@ def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | N
         "seat_number": seat,
         "is_numbered": bool(getattr(t, "is_numbered", False)),
         "location": location,
+        # GENERADA por la app: su butaca del plano ya viene resuelta (`map_key`) y su puerta.
+        "is_generated": bool(getattr(t, "is_generated", False)),
+        "map_key": (getattr(t, "map_key", None) or "").strip(),
+        "door": (getattr(t, "door", None) or "").strip(),
         "assigned_label": t.assigned_label or (rinfo.get("guest_name") if rinfo else "") or "",
         "assigned_request_id": rid,
         "assigned_commitment_id": str(t.assigned_commitment_id) if getattr(t, "assigned_commitment_id", None) else "",
@@ -137902,11 +137907,13 @@ def _invitation_assign_context(session_db, concert, categories) -> dict:
             _lay_asg = (_sm_asg.layout_json or {}) if _sm_asg is not None else {}
             if _lay_asg.get('sections'):
                 _lk_asg = seatmap_calc.seat_lookup(_lay_asg)
+                _sec_ids_asg = {str(sx.get('id') or '') for sx in (_lay_asg.get('sections') or []) if isinstance(sx, dict)}
                 _n_match = 0
                 for item in tickets:
                     if not (item.get('seat_number') or '').strip():
                         continue
-                    _mk = seatmap_calc.match_ticket(_lk_asg, item.get('sector'), item.get('row_label'), item.get('seat_number'))
+                    # GENERADA: su butaca del plano ya viene resuelta; subida: se casa por el texto del PDF.
+                    _mk = _invgen_valid_map_key(item.get('map_key'), _sec_ids_asg) or seatmap_calc.match_ticket(_lk_asg, item.get('sector'), item.get('row_label'), item.get('seat_number'))
                     if _mk:
                         item['map_key'] = _mk
                         _n_match += 1
@@ -139391,25 +139398,29 @@ def _invitation_tickets_to_merged_pdf(tickets) -> tuple[bytes | None, int]:
     directamente sin descomprimir un ZIP. Devuelve (bytes|None, nº de entradas incluidas). Si solo hay
     una entrada o pypdf no está disponible, devuelve ese PDF tal cual."""
     blobs = []
+    _cache: dict = {}
     for t in tickets or []:
-        # Entrada principal + (PMR) su acompañante justo detrás: la de acompañante viaja siempre con ella.
-        for url in [(getattr(t, "pdf_url", None) or "").strip(), (getattr(t, "companion_pdf_url", None) or "").strip()]:
-            if not url:
-                continue
-            content = None
+        # Entrada principal (GENERADA → se compone al vuelo; subida → se baja de su pdf_url) + (PMR) su
+        # acompañante justo detrás: la de acompañante viaja siempre con ella.
+        content = _invitation_ticket_pdf_bytes(t, _cache)
+        if content is None:
+            try:
+                app.logger.warning("Invitación PDF único: no se pudo obtener el PDF de %s", getattr(t, "id", "?"))
+            except Exception:
+                pass
+        else:
+            blobs.append(content)
+        comp_url = (getattr(t, "companion_pdf_url", None) or "").strip()
+        if comp_url:
+            comp = None
             for _attempt in range(3):
                 try:
-                    content, _ct = _download_remote_content(url)
+                    comp, _ct = _download_remote_content(comp_url)
                     break
                 except Exception:
-                    content = None
-            if content is None:
-                try:
-                    app.logger.warning("Invitación PDF único: no se pudo bajar %s (%s)", getattr(t, "id", "?"), url)
-                except Exception:
-                    pass
-                continue
-            blobs.append(content)
+                    comp = None
+            if comp is not None:
+                blobs.append(comp)
     if not blobs:
         return None, 0
     if len(blobs) == 1 or not PYPDF_AVAILABLE or PdfWriter is None or PdfReader is None:
@@ -142483,6 +142494,9 @@ def _invitation_release_apply(tickets, *, mode: str, entity_label: str) -> tuple
                 t.previous_assignment_warning = f"Recuperada de {entity_label}."
             t.status = 'AVAILABLE'
             recovered += 1
+        # GENERADA: si estaba enviada, su código se anula (descartada) o renace con otro (recuperada).
+        _invgen_after_release(object_session(t), t, sentish=sentish, lost=(sentish and mode == 'lost'),
+                              reason=(t.previous_assignment_warning or ''))
         t.assigned_request_id = None
         t.assigned_commitment_id = None
         t.assigned_label = None
@@ -143867,23 +143881,18 @@ def _invitation_tickets_to_zip(tickets, archive_label: str = "invitaciones") -> 
     buf = BytesIO()
     used: set = set()
     added = 0
+    _cache: dict = {}
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for idx, t in enumerate(tickets or [], start=1):
             url = (getattr(t, "pdf_url", None) or "").strip()
             if not url:
                 continue
-            content = None
-            for _attempt in range(3):
-                try:
-                    content, _ct = _download_remote_content(url)
-                    break
-                except Exception as exc:
-                    content = None
-                    last_exc = exc
+            # GENERADA → se compone al vuelo; subida → se baja de su pdf_url (con reintentos).
+            content = _invitation_ticket_pdf_bytes(t, _cache)
             if content is None:
                 try:
-                    app.logger.warning("Invitación: no se pudo descargar el PDF de la entrada %s (%s): %s",
-                                       getattr(t, "id", "?"), url, locals().get("last_exc"))
+                    app.logger.warning("Invitación: no se pudo obtener el PDF de la entrada %s (%s)",
+                                       getattr(t, "id", "?"), url)
                 except Exception:
                     pass
                 continue
@@ -144252,6 +144261,7 @@ def invitation_tickets_redetect(concert_id):
         q = session_db.query(InvitationTicket).filter(
             InvitationTicket.concert_id == concert.id,
             InvitationTicket.is_numbered.is_(True),
+            InvitationTicket.is_generated.isnot(True),   # una GENERADA no se relee: su butaca la puso su categoría
         )
         if _cat_id:
             q = q.filter(InvitationTicket.category_id == _cat_id)
@@ -144383,6 +144393,13 @@ def invitation_ticket_release(ticket_id):
                 ticket.previous_assignment_warning = f"Ya había sido asignada a {ticket.assigned_label}."
             ticket.status = 'AVAILABLE'
             msg = 'Invitación recuperada y de nuevo disponible.'
+        # GENERADA: enviada y recuperada → renace con OTRO código (el PDF que tenga el invitado deja de
+        # valer); enviada y descartada → su código queda anulado.
+        if getattr(ticket, 'is_generated', False) and was_sent:
+            _invgen_after_release(session_db, ticket, sentish=True, lost=(mode == 'lost'),
+                                  reason=(ticket.previous_assignment_warning or ''))
+            if mode != 'lost':
+                msg = 'Invitación recuperada y de nuevo disponible, con un código nuevo (el anterior queda anulado).'
         _cmt_rel = session_db.get(InvitationCommitment, ticket.assigned_commitment_id) if getattr(ticket, 'assigned_commitment_id', None) else None
         ticket.assigned_request_id = None
         ticket.assigned_commitment_id = None
@@ -144424,6 +144441,8 @@ def invitation_ticket_update(ticket_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
+        if getattr(ticket, 'is_generated', False):
+            raise ValueError('Esta invitación la ha GENERADO la app: su código y su butaca los pone su categoría generada y no se editan a mano.')
         ticket.ticket_code = (request.form.get('ticket_code') or ticket.ticket_code or '').strip() or None
         ticket.sector = (request.form.get('sector') or '').strip() or None
         ticket.row_label = (request.form.get('row_label') or '').strip() or None
@@ -144451,6 +144470,8 @@ def invitation_ticket_replace(ticket_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
+        if getattr(ticket, 'is_generated', False):
+            raise ValueError('Esta invitación la ha GENERADO la app: su PDF se compone al vuelo y no se reemplaza.')
         file = request.files.get('ticket') or request.files.get('tickets[]')
         fname = (getattr(file, 'filename', '') or '').strip()
         if not file or not fname or not fname.lower().endswith('.pdf'):
@@ -144488,6 +144509,8 @@ def invitation_ticket_move_category(ticket_id):
         new_cat = session_db.get(InvitationCategory, to_uuid(request.form.get('category_id')))
         if not new_cat or new_cat.concert_id != ticket.concert_id:
             raise ValueError('Categoría destino no válida.')
+        if getattr(ticket, 'is_generated', False) and new_cat.id != ticket.category_id:
+            raise ValueError('Una invitación GENERADA es de su categoría generada: no se mueve a otra (elimina la categoría y genera otra).')
         if new_cat.id != ticket.category_id:
             ticket.category_id = new_cat.id
             ticket.is_numbered = (new_cat.ticket_kind or '').upper() == 'PDF_NUMBERED'
@@ -144520,6 +144543,7 @@ def invitation_ticket_delete(ticket_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
+        _invgen_void_code(session_db, ticket, reason='Invitación eliminada', nick=_current_user_email())
         session_db.delete(ticket)
         session_db.commit()
         flash('Entrada eliminada.', 'success')
@@ -144553,7 +144577,9 @@ def invitation_tickets_bulk(concert_id):
         )
         if action == 'delete':
             n = 0
+            _nick_del = _current_user_email()
             for t in tickets:
+                _invgen_void_code(session_db, t, reason='Invitación eliminada', nick=_nick_del)
                 session_db.delete(t)
                 n += 1
             session_db.commit()
@@ -144563,8 +144589,12 @@ def invitation_tickets_bulk(concert_id):
             if not new_cat or new_cat.concert_id != concert.id:
                 raise ValueError('Categoría destino no válida.')
             n = 0
+            _gen_skip = 0
             for t in tickets:
                 if t.category_id == new_cat.id:
+                    continue
+                if getattr(t, 'is_generated', False):
+                    _gen_skip += 1   # una GENERADA es de su categoría generada: no se mueve
                     continue
                 t.category_id = new_cat.id
                 t.is_numbered = (new_cat.ticket_kind or '').upper() == 'PDF_NUMBERED'
@@ -144578,7 +144608,10 @@ def invitation_tickets_bulk(concert_id):
                 t.updated_at = _now_madrid()
                 n += 1
             session_db.commit()
-            flash(f'{n} invitación(es) movida(s) a «{new_cat.name}».', 'success')
+            _msg_mv = f'{n} invitación(es) movida(s) a «{new_cat.name}».'
+            if _gen_skip:
+                _msg_mv += f' {_gen_skip} generada(s) se han dejado en su categoría (una generada no se mueve).'
+            flash(_msg_mv, 'success' if n else 'warning')
         else:
             raise ValueError('Acción no válida.')
         return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
@@ -153874,14 +153907,15 @@ def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | N
         if st in ("SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"):
             return "inv_env"
         return None   # LOST y demás: fuera del plano
-    inv_rows = (s.query(InvitationTicket.sector, InvitationTicket.row_label, InvitationTicket.seat_number, InvitationTicket.status)
+    _sec_ids_et = {str(sx.get("id") or "") for sx in (layout.get("sections") or []) if isinstance(sx, dict)}
+    inv_rows = (s.query(InvitationTicket.sector, InvitationTicket.row_label, InvitationTicket.seat_number, InvitationTicket.status, InvitationTicket.map_key)
                 .filter(InvitationTicket.concert_id == concert.id)
                 .filter(InvitationTicket.seat_number.isnot(None), InvitationTicket.seat_number != "").all())
-    for sector, row_label, seat_num, status in inv_rows:
+    for sector, row_label, seat_num, status, _mkey in inv_rows:
         ckey = _inv_state_cat(status)
         if not ckey:
             continue
-        key = seatmap_calc.match_ticket(lookup, sector, row_label, seat_num)
+        key = _invgen_valid_map_key(_mkey, _sec_ids_et) or seatmap_calc.match_ticket(lookup, sector, row_label, seat_num)
         if not key:
             unmatched += 1
             continue
@@ -165449,7 +165483,8 @@ def _invgen_page_context(session_db, concert) -> dict:
         "conditions_url": _invgen_conditions_url(cfg),
         "icon_choices": INVGEN_ICON_CHOICES,
         "logo_url": _invgen_brand_logo_url(session_db, concert),
-        "gen_categories": list(cfg.gen_categories) if cfg is not None else [],
+        "gen_categories": _invgen_gen_categories_payload(session_db, cfg),
+        "sections_url": None,
     }
 
 
@@ -165709,6 +165744,600 @@ def public_invitation_conditions(token):
             og_image_url=_external_url_for('public_concert_og_image', cid=concert.id) if 'public_concert_og_image' in app.view_functions else "",
             issuer=(getattr(getattr(concert, 'billing_company', None) or getattr(concert, 'group_company', None), 'name', None) or ''),
         )
+    finally:
+        session_db.close()
+
+
+# ----------------------------------------------------------------------------------------------------
+# GENERACIÓN DE INVITACIONES · lote 2: las CATEGORÍAS y la generación de las entradas
+# ----------------------------------------------------------------------------------------------------
+# Una categoría generada (`InvitationGenCategory`) tiene sus extras y uno o varios SECTORES
+# (`InvitationGenSector`: una sección del formato del recinto —numerada, con sus butacas elegidas, o
+# sin numerar, con una cantidad— o un sector escrito a mano) con su puerta de acceso. Al crearla se
+# crea su `InvitationCategory` de siempre y UNA `InvitationTicket` por entrada, GENERADA
+# (`is_generated`, `qr_token`, `pdf_url` = nuestro endpoint público), así que entran en la gestión de
+# invitaciones —planos, asignar, enviar, descargar— como si se hubieran subido. ⚠️ El PDF se compone al
+# vuelo (`_invitation_ticket_pdf_bytes`, que es por donde pasan la descarga unida, el ZIP y la
+# impresión) y el código se ANULA y renace al recuperar una entrada enviada (`_invgen_rotate_code`).
+
+INVGEN_CATEGORY_SOURCE = "GENERADA"
+
+
+def _invgen_norm_code(value) -> str:
+    """El código tal como se guarda: MAYÚSCULAS y solo letras y números. Acepta la URL del PDF de la
+    entrada (se queda con el último tramo) y el código escrito con guiones («ABCD-EFGH…»)."""
+    txt = str(value or "").strip()
+    if "/" in txt:
+        txt = txt.rstrip("/").rsplit("/", 1)[-1]
+    if txt.lower().endswith(".pdf"):
+        txt = txt[:-4]
+    return re.sub(r"[^A-Z0-9]", "", txt.upper())
+
+
+def _invgen_valid_map_key(map_key, section_ids) -> str | None:
+    """La butaca del plano guardada en una entrada GENERADA («sec|fila|slot»), si sigue siendo de una
+    sección de ESTE mapa (si el recinto cambió de formato, se vuelve a casar por el texto)."""
+    mk = (map_key or "").strip() if isinstance(map_key, str) else ""
+    if not mk or mk.count("|") != 2:
+        return None
+    return mk if mk.split("|", 1)[0] in (section_ids or set()) else None
+
+
+def _invgen_ticket_pdf_url(token: str) -> str:
+    try:
+        return _external_url_for("public_invitation_ticket_pdf", token=token)
+    except Exception:
+        return f"{_public_base_url()}/invitaciones/entrada/{token}.pdf"
+
+
+def _invgen_mint_token(session_db) -> str:
+    """Un código nuevo que no esté en uso ni anulado (la probabilidad de choque es ínfima, pero se
+    comprueba igual: un código repetido sería una entrada que vale por dos)."""
+    for _ in range(20):
+        tok = _invgen_new_token()
+        en_uso = session_db.query(InvitationTicket.id).filter(InvitationTicket.qr_token == tok).first()
+        anulado = session_db.query(InvitationVoidedCode.id).filter(InvitationVoidedCode.qr_token == tok).first()
+        if en_uso is None and anulado is None:
+            return tok
+    raise RuntimeError("No se pudo generar un código único para la invitación.")
+
+
+def _invgen_void_code(session_db, ticket, *, reason: str, nick: str = "") -> None:
+    """Apunta el código actual de una entrada generada como ANULADO (en el control de acceso dirá
+    «anulada»). No cambia el código de la entrada: eso lo hace `_invgen_rotate_code`."""
+    if ticket is None or not getattr(ticket, "is_generated", False):
+        return
+    tok = (ticket.qr_token or "").strip()
+    if not tok:
+        return
+    session_db.add(InvitationVoidedCode(concert_id=ticket.concert_id, ticket_id=ticket.id, qr_token=tok,
+                                        reason=(reason or "")[:300], voided_by_nick=(nick or "")[:120] or None))
+
+
+def _invgen_rotate_code(session_db, ticket, *, reason: str, nick: str = "") -> None:
+    """Una entrada generada que se RECUPERA después de enviarla: su código se anula (el PDF que tenga
+    el invitado deja de valer) y la entrada renace con un código NUEVO y, por tanto, otro PDF. Los
+    usos que tuviera en el control de acceso son del código viejo y se borran."""
+    if ticket is None or not getattr(ticket, "is_generated", False):
+        return
+    _invgen_void_code(session_db, ticket, reason=reason, nick=nick)
+    nuevo = _invgen_mint_token(session_db)
+    ticket.qr_token = nuevo
+    ticket.ticket_code = nuevo
+    ticket.code_version = int(ticket.code_version or 1) + 1
+    ticket.pdf_url = _invgen_ticket_pdf_url(nuevo)
+    ticket.pdf_name = f"{nuevo}.pdf"
+    ticket.access_entered_at = None
+    ticket.access_extras_json = {}
+
+
+def _invgen_after_release(session_db, ticket, *, sentish: bool, lost: bool, reason: str) -> None:
+    """Punto único de «qué pasa con el código» al liberar una entrada: enviada y RECUPERADA → renace
+    con otro código; enviada y DESCARTADA → su código se anula; no enviada → nada (nadie lo tenía)."""
+    if ticket is None or not getattr(ticket, "is_generated", False) or not sentish:
+        return
+    nick = ""
+    try:
+        nick = _current_user_email()
+    except Exception:
+        nick = ""
+    if lost:
+        _invgen_void_code(session_db, ticket, reason=reason or "Descartada tras enviarla", nick=nick)
+    else:
+        _invgen_rotate_code(session_db, ticket, reason=reason or "Recuperada tras enviarla: renace con otro código", nick=nick)
+
+
+def _invitation_ticket_pdf_bytes(t, cache: dict | None = None) -> bytes | None:
+    """Los bytes del PDF de UNA entrada: si es GENERADA se compone al vuelo; si no, se baja de su
+    `pdf_url` (con reintentos). Es por donde pasan la descarga unida, el ZIP y la impresión."""
+    if getattr(t, "is_generated", False):
+        try:
+            s = object_session(t)
+            concert = t.concert
+            key = ("cfg", str(t.concert_id))
+            cfg = cache.get(key) if cache is not None and key in cache else None
+            if cfg is None:
+                cfg = _invgen_config(s, concert)
+                if cache is not None:
+                    cache[key] = cfg
+            ctx = _invgen_ticket_context(s, concert, cfg, ticket=t)
+            return _invgen_ticket_pdf_bytes(s, concert, cfg, ctx)
+        except Exception:
+            app.logger.exception("[invgen] no se pudo componer el PDF de la entrada %s", getattr(t, "id", "?"))
+            return None
+    url = (getattr(t, "pdf_url", None) or "").strip()
+    if not url:
+        return None
+    for _attempt in range(3):
+        try:
+            content, _ct = _download_remote_content(url)
+            return content
+        except Exception:
+            continue
+    return None
+
+
+def _invgen_seatmap_for(session_db, concert):
+    """El formato del recinto que usa la actividad (el punto único de siempre), o None."""
+    if not getattr(concert, "venue_id", None):
+        return None
+    try:
+        sm = _concert_seatmap(session_db, concert)
+    except Exception:
+        return None
+    if sm is None or not ((sm.layout_json or {}).get("sections") or []):
+        return None
+    return sm
+
+
+def _invgen_taken_keys(session_db, concert, sm) -> dict:
+    """Las butacas del plano que YA no se pueden generar: las invitaciones de la actividad (subidas o
+    generadas, salvo las descartadas), lo VENDIDO en Enterticket y los bloqueos técnicos del propio
+    mapa. {clave: motivo}."""
+    layout = sm.layout_json or {}
+    lookup = seatmap_calc.seat_lookup(layout)
+    taken: dict[str, str] = {}
+    rows = (session_db.query(InvitationTicket.sector, InvitationTicket.row_label, InvitationTicket.seat_number,
+                             InvitationTicket.status, InvitationTicket.map_key)
+            .filter(InvitationTicket.concert_id == concert.id).all())
+    for sector, row_label, seat_num, status, map_key in rows:
+        if (status or "").upper() == "LOST":
+            continue
+        key = (map_key or "").strip() or None
+        if not key and (seat_num or "").strip():
+            key = seatmap_calc.match_ticket(lookup, sector, row_label, seat_num)
+        if key:
+            taken.setdefault(key, "invitación")
+    try:
+        ev = _et_event_for_concert(session_db, concert)
+    except Exception:
+        ev = None
+    if ev is not None:
+        try:
+            ventas = (session_db.query(EnterticketSale.sector, EnterticketSale.seat, EnterticketSale.is_invitation)
+                      .filter(EnterticketSale.event_id == ev.id, EnterticketSale.cancelled.is_(False),
+                              EnterticketSale.refunded.is_(False))
+                      .filter(EnterticketSale.seat.isnot(None), EnterticketSale.seat != "").all())
+            for sector, seat, is_inv in ventas:
+                r, n = _et_split_seat(sector or "", seat or "")
+                key = seatmap_calc.match_ticket(lookup, sector, r, n)
+                if key:
+                    taken.setdefault(key, "invitación (Enterticket)" if is_inv else "vendida")
+        except Exception:
+            pass
+    try:
+        cats = {str(c.get("id")): c for c in (layout.get("categories") or []) if isinstance(c, dict)}
+        for key, cid in seatmap_calc.seat_categories(layout, sm.assignments_json or {}).items():
+            if (cats.get(str(cid)) or {}).get("kind") == "bloqueo":
+                taken.setdefault(key, "bloqueo técnico del recinto")
+    except Exception:
+        pass
+    return taken
+
+
+def _invgen_unnumbered_used(session_db, concert) -> dict:
+    """Cuántas invitaciones SIN NUMERAR se han generado ya en cada sección del plano (para no pasarse
+    del aforo de pie de la sección)."""
+    out: dict[str, int] = {}
+    rows = (session_db.query(InvitationGenSector.section_key, func.coalesce(func.sum(InvitationGenSector.qty), 0))
+            .join(InvitationGenCategory, InvitationGenCategory.id == InvitationGenSector.gen_category_id)
+            .filter(InvitationGenCategory.concert_id == concert.id, InvitationGenSector.numbered.is_(False),
+                    InvitationGenSector.section_key.isnot(None), InvitationGenSector.section_key != "")
+            .group_by(InvitationGenSector.section_key).all())
+    for k, n in rows:
+        out[str(k)] = int(n or 0)
+    return out
+
+
+def _invgen_sections_payload(session_db, concert) -> dict:
+    """Lo que necesita el asistente de categorías para elegir el SECTOR: las secciones del formato del
+    recinto (con sus butacas etiquetadas y cuáles están ya ocupadas), las puertas del plano y el layout
+    para dibujarlo (las posiciones las calcula el navegador con `VenueMapGeom`, la misma geometría)."""
+    sm = _invgen_seatmap_for(session_db, concert)
+    if sm is None:
+        return {"has_map": False, "sections": [], "taken": {}, "doors": _invgen_doors_used(session_db, concert), "layout": None}
+    layout = sm.layout_json or {}
+    taken = _invgen_taken_keys(session_db, concert, sm)
+    used_unnum = _invgen_unnumbered_used(session_db, concert)
+    sections = []
+    for sec in layout.get("sections") or []:
+        if not isinstance(sec, dict):
+            continue
+        sid = str(sec.get("id") or "")
+        kind = (sec.get("kind") or "").lower()
+        seats = seatmap_calc.section_seats(sec) if kind != "floor" else []
+        free = sum(1 for st in seats if st["key"] not in taken)
+        cap = seatmap_calc._i(sec.get("cap"), 0) if kind == "floor" else 0
+        sections.append({
+            "key": sid, "name": (sec.get("name") or sid or "Sección").strip(), "kind": kind,
+            "numbered": kind != "floor", "zone": seatmap_calc.section_zone(sec),
+            "count": len(seats), "free": free, "cap": cap,
+            "used_unnumbered": used_unnum.get(sid, 0),
+            "seats": seats,
+            "floor": ({"x": sec.get("x"), "y": sec.get("y"), "w": sec.get("w"), "h": sec.get("h"), "rot": sec.get("rot")} if kind == "floor" else None),
+        })
+    doors = []
+    for el in layout.get("elements") or []:
+        if isinstance(el, dict) and (el.get("type") or "") == "door" and (el.get("label") or "").strip():
+            doors.append(el["label"].strip())
+    for d in _invgen_doors_used(session_db, concert):
+        if d not in doors:
+            doors.append(d)
+    slim_layout = {"sections": layout.get("sections") or [], "elements": [e for e in (layout.get("elements") or []) if isinstance(e, dict) and e.get("type") != "bgimage"]}
+    return {"has_map": True, "map": {"id": str(sm.id), "name": sm.name or ""}, "layout": slim_layout,
+            "sections": sections, "taken": taken, "doors": doors}
+
+
+def _invgen_doors_used(session_db, concert) -> list[str]:
+    rows = (session_db.query(InvitationGenSector.door)
+            .join(InvitationGenCategory, InvitationGenCategory.id == InvitationGenSector.gen_category_id)
+            .filter(InvitationGenCategory.concert_id == concert.id).all())
+    out = []
+    for (d,) in rows:
+        d = (d or "").strip()
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def _invgen_gen_categories_payload(session_db, cfg) -> list[dict]:
+    """Las categorías generadas de la actividad con sus sectores y el estado de sus entradas (contado
+    en UNA consulta agrupada)."""
+    if cfg is None:
+        return []
+    gcs = list(cfg.gen_categories or [])
+    if not gcs:
+        return []
+    ids = [gc.id for gc in gcs]
+    counts: dict[str, dict] = {str(i): {} for i in ids}
+    rows = (session_db.query(InvitationTicket.gen_category_id, InvitationTicket.status, func.count(InvitationTicket.id))
+            .filter(InvitationTicket.gen_category_id.in_(ids))
+            .group_by(InvitationTicket.gen_category_id, InvitationTicket.status).all())
+    for gid, st, n in rows:
+        counts.setdefault(str(gid), {})[(st or "AVAILABLE").upper()] = int(n or 0)
+    extras_by_id = {x["id"]: x for x in [_invgen_extra_payload(e) for e in (cfg.extras or [])]}
+    out = []
+    for gc in gcs:
+        c = counts.get(str(gc.id), {})
+        total = sum(c.values())
+        available = c.get("AVAILABLE", 0)
+        blocked = c.get("BLOCKED", 0)
+        lost = c.get("LOST", 0)
+        sent = sum(v for k, v in c.items() if k in _INVITATION_TICKET_SENTISH)
+        assigned = c.get("ASSIGNED", 0)
+        out.append({
+            "id": str(gc.id), "name": gc.name or "", "invitation_category_id": str(gc.invitation_category_id or ""),
+            "extras": [extras_by_id[x] for x in (gc.extras_json or []) if str(x) in extras_by_id],
+            "sectors": [{"id": str(sc.id), "name": sc.section_name or "", "numbered": bool(sc.numbered),
+                         "qty": int(sc.qty or 0) if not sc.numbered else len(sc.seats_json or []),
+                         "door": sc.door or "", "manual": not (sc.section_key or "").strip()} for sc in (gc.sectors or [])],
+            "counts": {"total": total, "available": available, "assigned": assigned, "sent": sent, "blocked": blocked, "lost": lost},
+            "can_delete": (assigned + sent) == 0,
+            "created_by": gc.created_by_nick or "", "created_at": gc.created_at.strftime("%d/%m/%Y") if gc.created_at else "",
+        })
+    return out
+
+
+@app.get('/invitaciones/evento/<concert_id>/generar/secciones', endpoint='invitation_gen_sections')
+@admin_required
+def invitation_gen_sections(concert_id):
+    """Las secciones del formato del recinto (con sus butacas y cuáles están ocupadas) para el asistente
+    de categorías. JSON."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        return jsonify({"ok": True, **_invgen_sections_payload(session_db, concert)})
+    finally:
+        session_db.close()
+
+
+def _invgen_parse_sectors(payload_sectors, sections_by_key: dict, taken: dict, used_unnum: dict) -> list[dict]:
+    """Valida y normaliza los sectores que llegan del asistente. Devuelve la lista limpia o levanta un
+    ValueError con el motivo (que la pantalla enseña tal cual)."""
+    out = []
+    seen_keys: set[str] = set()
+    for i, raw in enumerate(list(payload_sectors or [])[:40], start=1):
+        if not isinstance(raw, dict):
+            continue
+        skey = str(raw.get("section_key") or "").strip()
+        name = re.sub(r"\s+", " ", str(raw.get("section_name") or "")).strip()[:120]
+        door = re.sub(r"\s+", " ", str(raw.get("door") or "")).strip()[:80]
+        numbered = bool(raw.get("numbered"))
+        sec = sections_by_key.get(skey) if skey else None
+        if skey and sec is None:
+            raise ValueError(f"El sector {i} ya no está en el formato del recinto: vuelve a elegirlo.")
+        if sec is not None:
+            name = sec["name"]
+            numbered = bool(sec["numbered"])
+        if not name:
+            raise ValueError(f"El sector {i} no tiene nombre.")
+        row = {"section_key": skey, "section_name": name, "numbered": numbered, "door": door, "seats": [], "qty": 0}
+        if numbered:
+            valid = {st["key"]: st for st in (sec["seats"] if sec is not None else [])}
+            seats_in = list(raw.get("seats") or [])
+            if not seats_in:
+                raise ValueError(f"En «{name}» no se ha elegido ninguna butaca.")
+            for s in seats_in[:5000]:
+                if not isinstance(s, dict):
+                    continue
+                key = str(s.get("key") or "").strip()
+                if sec is not None:
+                    st = valid.get(key)
+                    if st is None:
+                        raise ValueError(f"Una butaca de «{name}» no está en el plano: vuelve a elegirlas.")
+                    if key in taken:
+                        raise ValueError(f"En «{name}» hay butacas que ya están ocupadas ({taken[key]}): vuelve a elegirlas.")
+                    if key in seen_keys:
+                        raise ValueError(f"La butaca {st['row_label']}-{st['number']} de «{name}» está repetida.")
+                    seen_keys.add(key)
+                    row["seats"].append({"key": key, "row_label": st["row_label"], "number": st["number"]})
+                else:
+                    rl = re.sub(r"\s+", " ", str(s.get("row_label") or "")).strip()[:20]
+                    nm = re.sub(r"\s+", " ", str(s.get("number") or "")).strip()[:20]
+                    if not nm:
+                        continue
+                    dup = (name.lower(), rl.lower(), nm.lower())
+                    if dup in seen_keys:
+                        raise ValueError(f"La butaca {rl}-{nm} de «{name}» está repetida.")
+                    seen_keys.add(dup)
+                    row["seats"].append({"key": "", "row_label": rl, "number": nm})
+            if not row["seats"]:
+                raise ValueError(f"En «{name}» no se ha elegido ninguna butaca.")
+        else:
+            qty = _safe_int(raw.get("qty"), 0)
+            if qty < 1:
+                raise ValueError(f"En «{name}» hay que decir cuántas invitaciones se generan.")
+            if qty > 5000:
+                raise ValueError(f"En «{name}» se piden demasiadas invitaciones de una vez ({qty}).")
+            if sec is not None and int(sec.get("cap") or 0) > 0:
+                ya = int(used_unnum.get(skey, 0))
+                if qty + ya > int(sec["cap"]):
+                    raise ValueError(f"«{name}» tiene un aforo de {sec['cap']} y ya hay {ya} generadas: como mucho {max(int(sec['cap']) - ya, 0)} más.")
+            row["qty"] = qty
+        out.append(row)
+    if not out:
+        raise ValueError("Añade al menos un sector.")
+    return out
+
+
+@app.post('/invitaciones/evento/<concert_id>/generar/categorias', endpoint='invitation_gen_category_create')
+@admin_required
+def invitation_gen_category_create(concert_id):
+    """Crea una categoría generada (nombre · extras · sectores con sus butacas o su cantidad y su puerta)
+    y GENERA sus entradas: su `InvitationCategory` de siempre y una `InvitationTicket` por invitación,
+    con su código QR. JSON."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        if not _invgen_can_generate(session_db, concert):
+            return jsonify({"ok": False, "error": "Esta actividad no la promueve una empresa del grupo: no se generan invitaciones."}), 400
+        cfg = _invgen_config(session_db, concert)
+        if cfg is None or not cfg.configured_at:
+            return jsonify({"ok": False, "error": "Configura primero los datos de la entrada."}), 400
+        data = request.get_json(silent=True) or {}
+        name = re.sub(r"\s+", " ", str(data.get("name") or "")).strip()[:120]
+        if not name:
+            return jsonify({"ok": False, "error": "Ponle nombre a la categoría."}), 400
+        clash = (session_db.query(InvitationCategory)
+                 .filter(InvitationCategory.concert_id == concert.id, func.lower(InvitationCategory.name) == name.lower()).first())
+        if clash is not None:
+            return jsonify({"ok": False, "error": f"Ya hay una categoría de invitaciones que se llama «{name}» en esta actividad: ponle otro nombre."}), 400
+        extras_ok = {str(x.id) for x in (cfg.extras or [])}
+        extra_ids = [str(x) for x in (data.get("extra_ids") or []) if str(x) in extras_ok]
+        payload_sections = _invgen_sections_payload(session_db, concert)
+        sections_by_key = {s["key"]: s for s in payload_sections.get("sections") or []}
+        sectors = _invgen_parse_sectors(data.get("sectors"), sections_by_key, payload_sections.get("taken") or {},
+                                        _invgen_unnumbered_used(session_db, concert))
+        now = _now_madrid()
+        nick = _current_user_email()
+        uid = _safe_uuid(session.get("user_id"))
+        any_numbered = any(s["numbered"] for s in sectors)
+        zone = None
+        for s in sectors:
+            sec = sections_by_key.get(s["section_key"]) if s["section_key"] else None
+            if sec is not None and sec.get("zone"):
+                zone = sec["zone"]
+                break
+        total = sum(len(s["seats"]) if s["numbered"] else s["qty"] for s in sectors)
+        n_exist = session_db.query(func.count(InvitationCategory.id)).filter(InvitationCategory.concert_id == concert.id).scalar() or 0
+        cat = InvitationCategory(concert_id=concert.id, name=name, source=INVGEN_CATEGORY_SOURCE,
+                                 ticket_kind="PDF_NUMBERED" if any_numbered else "PDF_UNNUMBERED",
+                                 qty_contract=total, sort_order=int(n_exist) + 1, zone=zone,
+                                 created_by_user_id=uid, created_by_nick=nick)
+        session_db.add(cat)
+        session_db.flush()
+        gc = InvitationGenCategory(config_id=cfg.id, concert_id=concert.id, invitation_category_id=cat.id, name=name,
+                                   extras_json=extra_ids, created_by_nick=nick)
+        session_db.add(gc)
+        session_db.flush()
+        created = 0
+        for i, s in enumerate(sectors):
+            sector_row = InvitationGenSector(gen_category_id=gc.id, section_key=s["section_key"] or None,
+                                             section_name=s["section_name"], numbered=s["numbered"],
+                                             qty=(len(s["seats"]) if s["numbered"] else s["qty"]),
+                                             seats_json=s["seats"] if s["numbered"] else [], door=s["door"] or None, sort_order=i)
+            session_db.add(sector_row)
+            session_db.flush()
+            unidades = s["seats"] if s["numbered"] else [None] * s["qty"]
+            for u in unidades:
+                tok = _invgen_mint_token(session_db)
+                t = InvitationTicket(
+                    concert_id=concert.id, category_id=cat.id, ticket_code=tok, qr_token=tok,
+                    pdf_url=_invgen_ticket_pdf_url(tok), pdf_name=f"{tok}.pdf", is_numbered=bool(s["numbered"]),
+                    sector=s["section_name"], row_label=(u["row_label"] if u else None), seat_number=(u["number"] if u else None),
+                    map_key=((u.get("key") or None) if u else None), door=s["door"] or None,
+                    is_generated=True, gen_category_id=gc.id, gen_sector_id=sector_row.id,
+                    uploaded_by_user_id=uid, uploaded_by_nick=nick, uploaded_at=now, updated_at=now,
+                )
+                session_db.add(t)
+                created += 1
+            session_db.flush()
+        gc.generated_count = created
+        cat.updated_at = now
+        session_db.commit()
+        flash(f"Categoría «{name}» generada: {created} {'invitación' if created == 1 else 'invitaciones'} con su código QR, ya {'disponible' if created == 1 else 'disponibles'} en la gestión de invitaciones.", "success")
+        return jsonify({"ok": True, "created": created, "category_id": str(cat.id), "gen_category_id": str(gc.id),
+                        "redirect": url_for("invitation_gen_view", concert_id=concert.id) + "#invgen-categorias"})
+    except ValueError as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[invgen] no se pudo generar la categoría")
+        return jsonify({"ok": False, "error": "No se pudo generar la categoría. Vuelve a intentarlo."}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/generar/categorias/<gen_id>/eliminar', endpoint='invitation_gen_category_delete')
+@admin_required
+def invitation_gen_category_delete(concert_id, gen_id):
+    """Quita una categoría generada con sus entradas — solo si NINGUNA está asignada ni enviada (una
+    entrada que alguien tiene no se borra por debajo: se recupera antes). Sus códigos quedan anulados."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        gc = session_db.get(InvitationGenCategory, _safe_uuid(gen_id))
+        if gc is None or gc.concert_id != concert.id:
+            abort(404)
+        tickets = session_db.query(InvitationTicket).filter(InvitationTicket.gen_category_id == gc.id).all()
+        vivas = [t for t in tickets if (t.status or "AVAILABLE").upper() not in ("AVAILABLE", "BLOCKED", "LOST")]
+        if vivas:
+            raise ValueError(f"Hay {len(vivas)} invitación(es) asignadas o enviadas en esta categoría: recupéralas antes de eliminarla.")
+        nick = _current_user_email()
+        for t in tickets:
+            _invgen_void_code(session_db, t, reason="Categoría generada eliminada", nick=nick)
+            session_db.delete(t)
+        session_db.flush()
+        cat = session_db.get(InvitationCategory, gc.invitation_category_id) if gc.invitation_category_id else None
+        if cat is not None:
+            otras = session_db.query(func.count(InvitationTicket.id)).filter(InvitationTicket.category_id == cat.id).scalar() or 0
+            if not otras:
+                session_db.delete(cat)
+        session_db.delete(gc)
+        session_db.commit()
+        flash(f"Categoría «{gc.name}» eliminada ({len(tickets)} invitaciones, con sus códigos anulados).", "success")
+        return redirect(url_for("invitation_gen_view", concert_id=concert.id) + "#invgen-categorias")
+    except ValueError as exc:
+        session_db.rollback()
+        flash(str(exc), "warning")
+        return redirect(url_for("invitation_gen_view", concert_id=concert.id) + "#invgen-categorias")
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/evento/<concert_id>/generar/codigos.xlsx', endpoint='invitation_gen_codes_xlsx')
+@admin_required
+def invitation_gen_codes_xlsx(concert_id):
+    """El fichero de CÓDIGOS para un control de acceso externo: una fila por invitación generada
+    (código, categoría, sector, fila, butaca, puerta, extras, estado, invitado) y, en otra hoja, los
+    códigos anulados (que un lector externo tiene que rechazar)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        cfg = _invgen_config(session_db, concert)
+        extras = {x["id"]: x["name"] for x in [_invgen_extra_payload(e) for e in (cfg.extras or [])]} if cfg is not None else {}
+        gcs = {str(gc.id): gc for gc in (cfg.gen_categories or [])} if cfg is not None else {}
+        tickets = (session_db.query(InvitationTicket)
+                   .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.is_generated.is_(True))
+                   .order_by(InvitationTicket.sector.asc(), InvitationTicket.row_label.asc(), InvitationTicket.seat_number.asc()).all())
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Códigos"
+        head = ["Código QR", "Categoría", "Sector", "Fila", "Butaca", "Puerta", "Extras", "Estado", "Invitado", "Enviada"]
+        ws.append(head)
+        for c in ws[1]:
+            c.font = Font(bold=True)
+        estados = {"AVAILABLE": "Válida (sin asignar)", "ASSIGNED": "Válida (asignada)", "SENT": "Válida (enviada)",
+                   "DELIVERED": "Válida (entregada)", "PICKED_UP": "Válida (recogida)", "PRINTED": "Válida (impresa)",
+                   "BLOCKED": "Bloqueada (no válida)", "LOST": "Descartada (no válida)"}
+        for t in tickets:
+            gc = gcs.get(str(t.gen_category_id or ""))
+            ex = ", ".join([extras[x] for x in (gc.extras_json or []) if x in extras]) if gc is not None else ""
+            ws.append([t.qr_token or "", (gc.name if gc is not None else (t.category.name if t.category else "")), t.sector or "",
+                       t.row_label or "", t.seat_number or "", t.door or "", ex,
+                       estados.get((t.status or "AVAILABLE").upper(), t.status or ""), t.assigned_label or "",
+                       t.sent_at.strftime("%d/%m/%Y %H:%M") if t.sent_at else ""])
+        for col, w in zip("ABCDEFGHIJ", (20, 24, 22, 8, 8, 14, 30, 22, 28, 18)):
+            ws.column_dimensions[col].width = w
+        ws2 = wb.create_sheet("Anulados")
+        ws2.append(["Código QR anulado", "Cuándo", "Motivo"])
+        for c in ws2[1]:
+            c.font = Font(bold=True)
+        for v in (session_db.query(InvitationVoidedCode).filter(InvitationVoidedCode.concert_id == concert.id)
+                  .order_by(InvitationVoidedCode.voided_at.desc()).all()):
+            ws2.append([v.qr_token, v.voided_at.strftime("%d/%m/%Y %H:%M") if v.voided_at else "", v.reason or ""])
+        for col, w in zip("ABC", (22, 18, 50)):
+            ws2.column_dimensions[col].width = w
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        ev = _invitation_event_payload(session_db, concert)
+        nombre = _safe_download_filename(f"Codigos invitaciones {ev.get('title') or ''} {concert.date.strftime('%Y-%m-%d') if concert.date else ''}", "codigos-invitaciones")
+        resp = send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name=f"{nombre}.xlsx")
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/entrada/<token>.pdf', endpoint='public_invitation_ticket_pdf')
+def public_invitation_ticket_pdf(token):
+    """El PDF de una invitación GENERADA, compuesto al vuelo por su código (es el `pdf_url` de la
+    entrada, así que por aquí pasan la descarga del invitado, el correo y la vista previa). Un código
+    ANULADO dice que se ha anulado (410), uno que no existe, 404."""
+    session_db = db()
+    try:
+        tok = _invgen_norm_code(token)
+        t = session_db.query(InvitationTicket).filter(InvitationTicket.qr_token == tok).first() if tok else None
+        if t is None or (t.status or "").upper() == "LOST":
+            anulado = session_db.query(InvitationVoidedCode).filter(InvitationVoidedCode.qr_token == tok).first() if tok else None
+            if anulado is not None or (t is not None and (t.status or "").upper() == "LOST"):
+                return render_template("public_invitation_conditions.html", missing=True, hide_backoffice_nav=True,
+                                       missing_text="Esta invitación se ha anulado: su código ya no es válido."), 410
+            abort(404)
+        pdf = _invitation_ticket_pdf_bytes(t)
+        if not pdf:
+            abort(503)
+        resp = Response(pdf, mimetype="application/pdf")
+        resp.headers["Content-Disposition"] = f'inline; filename="Invitacion-{tok}.pdf"'
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resp
     finally:
         session_db.close()
 

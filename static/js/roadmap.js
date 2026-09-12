@@ -1518,7 +1518,10 @@
       var ordenBtn = '<button class="btn btn-sm btn-outline-secondary py-0 me-1" data-porden title="Cambiar el orden">'
         + '<i class="fa ' + (pOrden === 'rol' ? 'fa-user-tag' : 'fa-arrow-down-a-z') + ' me-1"></i>'
         + (pOrden === 'rol' ? 'Por función' : 'Alfabético') + '</button>';
-      var exportBtns = '<div class="dropdown d-inline-block me-1"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Exportar / compartir</button>'
+      /* ⚠️ En SOLO LECTURA (el enlace público y el portal de externos) NO se ofrece exportar ni
+         compartir: esos endpoints exigen sesión de la casa, así que serían botones muertos —y lo que
+         descargan (el listado con DNIs y teléfonos) tampoco es para quien mira desde fuera. */
+      var exportBtns = RO ? '' : '<div class="dropdown d-inline-block me-1"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Exportar / compartir</button>'
         + '<ul class="dropdown-menu"><li><button class="dropdown-item" data-pexp="pdf"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
         + '<li><button class="dropdown-item" data-pexp="xlsx"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
         + '<li><hr class="dropdown-divider"></li>'
@@ -1693,7 +1696,7 @@
     function drawPrl(resp) {
       if (!resp || !resp.ok) { view.innerHTML = personalSubtabs() + '<div class="rm-empty text-danger">No se pudo cargar el PRL.</div>'; wirePersonalSubtabs(); return; }
       var rows = resp.rows || [];
-      var exportBtns = '<div class="dropdown d-inline-block me-1"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Exportar / compartir</button>'
+      var exportBtns = RO ? '' : '<div class="dropdown d-inline-block me-1"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Exportar / compartir</button>'
         + '<ul class="dropdown-menu"><li><button class="dropdown-item" data-prlexp="pdf"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
         + '<li><button class="dropdown-item" data-prlexp="xlsx"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
         + '<li><hr class="dropdown-divider"></li>'

@@ -1,0 +1,61 @@
+{% extends "externos_layout.html" %}
+{% block content %}
+
+<div class="mb-2"><a class="btn-volver" href="{{ url_for('externos_home') }}" title="Volver"><i class="fa fa-arrow-left"></i></a></div>
+
+<div class="dash-hero extp-hero mb-4">
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+    <img src="{{ ext.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" class="home-user-avatar">
+    <div>
+      <h2 class="dash-hero__title mb-1">{{ ext.name }}</h2>
+      <div class="text-muted">Tus datos y tus documentos</div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Sus datos ---------- #}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-address-card text-danger"></i><h5 class="mb-0">Tus datos</h5>
+    </div>
+    <div class="psum-list psum-list--2col">
+      {% for f in identity_fields %}
+        <div><span class="psum-k">{{ f.label }}</span><span class="psum-v">{{ f.value }}{% if f.source %} <span class="text-muted small fw-normal">({{ f.source }})</span>{% endif %}</span></div>
+      {% endfor %}
+      {% if correos|length > 1 %}
+        <div><span class="psum-k">Otros correos</span><span class="psum-v">{{ correos[1:]|join(' · ') }}</span></div>
+      {% endif %}
+      {% if telefonos|length > 1 %}
+        <div><span class="psum-k">Otros teléfonos</span><span class="psum-v">{{ telefonos[1:]|join(' · ') }}</span></div>
+      {% endif %}
+    </div>
+    <div class="alert alert-light border small mt-3 mb-0">
+      <i class="fa fa-circle-info me-1"></i>
+      ¿Hay algo que corregir? Escríbenos y lo cambiamos. Los <strong>documentos</strong> sí los
+      puedes actualizar tú mismo aquí abajo.
+    </div>
+  </div>
+</div>
+
+{# ---------- Sus documentos (el MISMO panel que en su ficha de dentro) ---------- #}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-id-card text-danger"></i><h5 class="mb-0">Tus documentos</h5>
+    </div>
+    <p class="text-muted small">
+      Sube tu DNI o tu pasaporte, tu carnet de conducir, tus tarjetas de fidelización y tus
+      matrículas. Se leen solos del documento, así que no hay que escribir nada.
+    </p>
+    {% include '_person_documents_panel.html' %}
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/doc_scan.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/doc_camera.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/person_docs.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/file_drop.js', v=ASSET_V) }}"></script>
+{% endblock %}

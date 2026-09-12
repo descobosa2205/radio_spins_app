@@ -1,0 +1,76 @@
+{% extends "externos_layout.html" %}
+{% block content %}
+
+<div class="mb-2"><a class="btn-volver" href="{{ url_for('externos_home') }}" title="Volver"><i class="fa fa-arrow-left"></i></a></div>
+
+<div class="ficha-hero extp-heroact mb-4">
+  <div class="ficha-hero__media extp-heroact__media">
+    {% if artist_photo %}<img src="{{ artist_photo }}" alt="" data-avatar="1">
+    {% else %}<span class="extp-heroact__icon"><i class="fa fa-microphone-lines"></i></span>{% endif %}
+  </div>
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow"><i class="fa fa-microphone-lines me-1"></i>Promoción</div>
+    <h1 class="ficha-hero__title">
+      {{ p.name or 'Promoción' }}
+      {% if status[0] %}<span class="badge {{ status[1] }} align-middle ms-2">{{ status[0] }}</span>{% endif %}
+    </h1>
+    <div class="ficha-hero__facts">
+      {% if artista %}<span><i class="fa fa-guitar"></i>{{ artista }}</span>{% endif %}
+      {% if fechas %}<span><i class="fa fa-calendar-day"></i>{{ fechas }}</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if acts %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-list-check text-danger"></i><h5 class="mb-0">Las entrevistas</h5>
+      <span class="badge text-bg-light border ms-1">{{ acts|length }}</span>
+    </div>
+    <div class="extp-rows">
+      {% for a in acts %}
+      <div class="extp-row extp-row--static">
+        <span class="rm-cal extp-row__cal">
+          {% if a.date %}
+            <span class="wd">{{ ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][a.date.weekday()] }}</span>
+            <span class="num">{{ a.date.day }}</span>
+            <span class="mo">{{ ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][a.date.month-1] }}</span>
+          {% else %}<span class="wd">—</span><span class="num"><i class="fa fa-calendar"></i></span><span class="mo"></span>{% endif %}
+        </span>
+        <span class="extp-row__main">
+          <span class="extp-row__head">
+            {% if a.media_logo_url %}<img src="{{ a.media_logo_url }}" alt="" class="extp-row__logo">{% endif %}
+            <span class="extp-row__title">{{ a.media_name or a.program_name or 'Entrevista' }}</span>
+            {% if a.time_label %}<span class="badge text-bg-light border">{{ a.time_label }}</span>{% endif %}
+            {% if a.status_label %}<span class="badge {{ a.status_badge }}">{{ a.status_label }}</span>{% endif %}
+          </span>
+          <span class="extp-row__sub">
+            {% if a.program_name %}<span><i class="fa fa-headphones me-1"></i>{{ a.program_name }}</span>{% endif %}
+            {% if a.modality_label %}<span><i class="fa {{ a.modality_icon }} me-1"></i>{{ a.modality_label }}</span>{% endif %}
+            {% if a.location_label %}<span><i class="fa fa-location-dot me-1"></i>{{ a.location_label }}</span>{% endif %}
+            {% if a.sings %}<span><i class="fa fa-music me-1"></i>Canta{% if a.songs %}: {{ a.songs|join(', ') }}{% endif %}</span>{% endif %}
+          </span>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% for h in hojas %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa {{ h.icon }} text-danger"></i><h5 class="mb-0">{{ h.label }}</h5>
+      <span class="badge text-bg-light border ms-auto"><i class="fa fa-eye me-1"></i>Solo lectura</span>
+    </div>
+    {% set rm = h.rm %}
+    {% set roadmap_ctx = h.rm %}
+    {% include '_roadmap_panel.html' %}
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}

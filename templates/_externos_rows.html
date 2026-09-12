@@ -1,0 +1,46 @@
+{# Una ACTIVIDAD (o una promoción) tal como se lee en la app: su hoja de calendario, qué es, de
+   quién, dónde, en qué estado, si se puede anunciar y cómo va la venta. #}
+{% macro ext_row(r) %}
+<a class="extp-row{{ ' is-past' if r.past }}" href="{{ r.url }}">
+  <span class="rm-cal extp-row__cal">
+    {% if r.cal %}
+      <span class="wd">{{ r.cal.wd }}</span><span class="num">{{ r.cal.num }}</span><span class="mo">{{ r.cal.mo }}</span>
+    {% else %}
+      <span class="wd">—</span><span class="num"><i class="fa fa-calendar"></i></span><span class="mo"></span>
+    {% endif %}
+  </span>
+  <span class="extp-row__main">
+    <span class="extp-row__head">
+      <span class="extp-row__kind"><i class="fa {{ r.icon }} me-1"></i>{{ r.kind_label }}</span>
+      <span class="extp-row__title">{{ r.title }}</span>
+      {% if r.status_label %}<span class="badge {{ r.status_class }}">{{ r.status_label }}</span>{% endif %}
+      {% if r.announce_label %}
+        <span class="extp-an extp-an--{{ r.announce_class }}">
+          <i class="fa {{ 'fa-bullhorn' if r.announce_class == 'ok' else ('fa-ban' if r.announce_class == 'off' else 'fa-clock') }} me-1"></i>{{ r.announce_label }}
+        </span>
+      {% endif %}
+      {% if r.only_roadmap %}<span class="extp-an extp-an--wait"><i class="fa fa-route me-1"></i>Estás en la hoja de ruta</span>{% endif %}
+    </span>
+    <span class="extp-row__sub">
+      {% if r.artist %}
+        <span class="extp-row__artist">
+          {% if r.artist_photo %}<img src="{{ r.artist_photo }}" alt="" data-avatar="1">{% endif %}{{ r.artist }}
+        </span>
+      {% endif %}
+      {% if r.venue %}<span><i class="fa fa-location-dot me-1"></i>{{ r.venue }}</span>{% endif %}
+      {% if r.place %}<span>{{ r.place }}</span>{% endif %}
+    </span>
+    {% if r.sales %}
+    <span class="extp-sales">
+      <span class="extp-sales__bar"><span class="extp-sales__fill" style="width:{{ r.sales.pct }}%"></span></span>
+      <span class="extp-sales__txt">
+        <strong>{{ r.sales.qty|k }}</strong> entradas vendidas
+        {% if r.sales.capacity %}<span class="text-muted">de {{ r.sales.capacity|k }} · {{ r.sales.pct }}%</span>{% endif %}
+        {% if r.sales.sold_out %}<span class="badge text-bg-danger ms-1">SOLD OUT</span>{% endif %}
+      </span>
+    </span>
+    {% endif %}
+  </span>
+  <span class="extp-row__go"><i class="fa fa-chevron-right"></i></span>
+</a>
+{% endmacro %}

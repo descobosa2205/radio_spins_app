@@ -7312,3 +7312,146 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .rmmsg-sms { white-space: pre-wrap; background: #e9f3ff; border: 1px solid #cfe3fb; border-radius: 14px;
   padding: .7rem .9rem; font-size: .9rem; max-width: 22rem; }
 .rmmsg-mail { zoom: .82; }
+
+/* =================================================================================================
+   PORTAL DE EXTERNOS (/externos)
+   Lo que ven los terceros y los artistas. Misma marca y mismos componentes que el back office, pero
+   más aireado y pensado para el MÓVIL, que es desde donde lo van a abrir casi siempre.
+   ================================================================================================= */
+.extp-body{background:#f7f8fa;}
+.extp-main{max-width:1100px;}
+.extp-nav .navbar-brand img{height:32px;}
+.extp-user{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:#212529;font-weight:600;}
+.extp-user:hover{color:var(--brand-primary,#e33d48);}
+.extp-bell{position:relative;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;
+  color:var(--brand-primary,#e33d48);background:rgba(227,61,72,.08);text-decoration:none;}
+.extp-bell:hover{background:rgba(227,61,72,.16);color:var(--brand-primary,#e33d48);}
+.extp-bell__dot{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;
+  background:var(--brand-primary,#e33d48);color:#fff;font-size:.68rem;font-weight:700;display:grid;
+  place-items:center;padding:0 4px;border:2px solid #fff;}
+.extp-preview{background:#0f172a;color:#fff;padding:.5rem 1rem;font-size:.9rem;text-align:center;}
+.extp-foot{text-align:center;padding:2rem 1rem 2.5rem;opacity:.75;}
+.extp-foot__logo{height:26px;margin:0 .6rem;filter:grayscale(1);opacity:.6;}
+
+/* ---- Entrar ---- */
+.extp-login{min-height:70vh;display:grid;place-items:center;padding:1rem .25rem;}
+.extp-login__card{width:100%;max-width:420px;background:#fff;border-radius:20px;padding:2rem 1.6rem;
+  box-shadow:0 10px 40px rgba(15,23,42,.10);border:1px solid rgba(0,0,0,.05);}
+.extp-login__brand{display:flex;align-items:center;justify-content:center;gap:1.2rem;margin-bottom:1.4rem;}
+.extp-login__brand img{height:38px;object-fit:contain;}
+.extp-login__title{font-size:1.5rem;font-weight:800;text-align:center;margin:0 0 .5rem;}
+.extp-login__sub{text-align:center;color:#6b7280;font-size:.95rem;margin:0 0 1.2rem;}
+.extp-login__help{margin-top:1.2rem;padding-top:1rem;border-top:1px dashed #e5e7eb;color:#8a9199;font-size:.82rem;}
+/* El campo del número: grande y separado, que es como se lee un código. */
+.extp-code{width:100%;text-align:center;font-size:2rem;font-weight:800;letter-spacing:.6rem;
+  padding:.7rem .5rem;border:2px solid #e5e7eb;border-radius:14px;background:#fff;}
+.extp-code:focus{outline:0;border-color:var(--brand-primary,#e33d48);box-shadow:0 0 0 .25rem rgba(227,61,72,.12);}
+
+/* ---- Cabecera de la persona ---- */
+.extp-hero{background:#fff;border-radius:18px;padding:1.1rem 1.2rem;border:1px solid rgba(0,0,0,.05);
+  box-shadow:0 2px 10px rgba(15,23,42,.05);}
+
+/* ---- Lo que se le pide ---- */
+.extp-tasks{display:flex;flex-direction:column;gap:.6rem;}
+.extp-task{display:flex;align-items:center;gap:.85rem;padding:.75rem .9rem;border-radius:14px;
+  border:1px solid rgba(0,0,0,.07);border-left:5px solid var(--t,#6b7280);background:#fff;
+  text-decoration:none;color:inherit;transition:transform .12s,box-shadow .12s;}
+.extp-task:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.08);color:inherit;}
+.extp-task__ico{flex:0 0 auto;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
+  background:var(--t,#6b7280);color:#fff;font-size:1rem;}
+.extp-task__body{display:flex;flex-direction:column;min-width:0;flex:1 1 auto;}
+.extp-task__kind{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--t,#6b7280);}
+.extp-task__title{font-weight:700;overflow-wrap:anywhere;}
+.extp-task__sub{display:flex;flex-wrap:wrap;gap:.6rem;font-size:.84rem;color:#6b7280;}
+.extp-task__artist{font-weight:600;color:#4b5563;}
+.extp-task__go{flex:0 0 auto;color:#c7ccd1;}
+
+/* ---- Las filas de actividad ---- */
+.extp-rows{display:flex;flex-direction:column;gap:.6rem;}
+.extp-row{display:flex;align-items:flex-start;gap:.85rem;padding:.7rem .85rem;border-radius:14px;
+  border:1px solid rgba(0,0,0,.07);background:#fff;text-decoration:none;color:inherit;
+  transition:transform .12s,box-shadow .12s;}
+.extp-row:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.08);color:inherit;}
+.extp-row.is-past{opacity:.62;}
+.extp-row--static{cursor:default;}
+.extp-row--static:hover{transform:none;box-shadow:none;}
+.extp-row__cal{flex:0 0 auto;}
+.extp-row__main{display:flex;flex-direction:column;gap:.25rem;min-width:0;flex:1 1 auto;}
+.extp-row__head{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;}
+.extp-row__kind{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#8a9199;}
+.extp-row__title{font-weight:700;overflow-wrap:anywhere;}
+.extp-row__logo{height:20px;max-width:70px;object-fit:contain;}
+.extp-row__sub{display:flex;flex-wrap:wrap;gap:.65rem;font-size:.85rem;color:#6b7280;align-items:center;}
+.extp-row__artist{display:inline-flex;align-items:center;gap:.35rem;font-weight:600;color:#4b5563;}
+.extp-row__artist img{width:22px;height:22px;border-radius:50%;object-fit:cover;flex:0 0 auto;}
+.extp-row__go{flex:0 0 auto;color:#c7ccd1;align-self:center;}
+.extp-an{display:inline-flex;align-items:center;font-size:.74rem;font-weight:700;padding:.12rem .5rem;
+  border-radius:999px;border:1px solid transparent;}
+.extp-an--ok{background:rgba(22,163,74,.1);color:#15803d;border-color:rgba(22,163,74,.25);}
+.extp-an--wait{background:rgba(217,119,6,.1);color:#b45309;border-color:rgba(217,119,6,.25);}
+.extp-an--off{background:rgba(107,114,128,.12);color:#4b5563;border-color:rgba(107,114,128,.25);}
+
+/* ---- Cómo va la venta ---- */
+.extp-sales{display:flex;flex-direction:column;gap:.25rem;margin-top:.35rem;}
+.extp-sales__bar{display:block;height:8px;border-radius:99px;background:#eef0f2;overflow:hidden;}
+.extp-sales__fill{display:block;height:100%;border-radius:99px;
+  background:linear-gradient(90deg,var(--brand-accent,#007ca2),var(--brand-primary,#e33d48));}
+.extp-sales__txt{font-size:.84rem;color:#4b5563;}
+.extp-salesbig{display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap;}
+.extp-salesbig__num{font-size:2.2rem;font-weight:800;line-height:1;color:var(--brand-primary,#e33d48);}
+.extp-salesbig__lbl{color:#6b7280;}
+
+/* ---- Cabecera de una actividad ---- */
+.extp-heroact{background:#fff;}
+.extp-heroact__media{display:grid;place-items:center;overflow:hidden;background:#f1f3f5;}
+.extp-heroact__media img{width:100%;height:100%;object-fit:cover;}
+.extp-heroact__icon{font-size:1.8rem;color:#adb5bd;}
+
+/* ---- Cartelería ---- */
+.extp-art{display:flex;flex-wrap:wrap;gap:1rem;}
+.extp-art__item{display:flex;flex-direction:column;align-items:center;gap:.3rem;text-decoration:none;
+  color:inherit;max-width:190px;}
+.extp-art__frame{display:grid;place-items:center;background:#f1f3f5;border-radius:10px;overflow:hidden;
+  border:1px solid rgba(0,0,0,.06);color:#adb5bd;font-size:1.4rem;}
+.extp-art__frame img{width:100%;height:100%;object-fit:cover;}
+.extp-art__name{font-size:.82rem;font-weight:700;text-align:center;overflow-wrap:anywhere;}
+.extp-art__size{font-size:.74rem;color:#8a9199;}
+
+/* ---- Obras (autores) ---- */
+.extp-works{display:flex;flex-direction:column;gap:.5rem;}
+.extp-work{display:flex;align-items:center;gap:.8rem;padding:.5rem .2rem;border-top:1px dashed #eef0f2;}
+.extp-work:first-child{border-top:0;}
+.extp-work__cover{width:48px;height:48px;border-radius:8px;object-fit:cover;flex:0 0 auto;background:#f1f3f5;}
+.extp-work__body{min-width:0;flex:1 1 auto;}
+.extp-work__title{font-weight:700;overflow-wrap:anywhere;}
+.extp-work__sub{display:flex;flex-wrap:wrap;gap:.6rem;font-size:.84rem;color:#6b7280;}
+.extp-work__pct{text-align:right;flex:0 0 auto;}
+
+/* ---- «Acceso terceros» (la pantalla de dirección) ---- */
+.extp-url{background:#f1f3f5;padding:.2rem .5rem;border-radius:6px;font-size:.82rem;}
+.extp-mods{display:flex;flex-direction:column;gap:.65rem;}
+.extp-mod{display:flex;gap:.7rem;align-items:flex-start;}
+.extp-mod__ico{flex:0 0 auto;width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
+  background:rgba(0,124,162,.1);color:var(--brand-accent,#007ca2);}
+.extp-people{display:flex;flex-direction:column;gap:.5rem;}
+.extp-person{display:flex;align-items:center;gap:.8rem;padding:.6rem .2rem;border-top:1px dashed #eef0f2;}
+.extp-person:first-child{border-top:0;}
+.extp-person.is-blocked{opacity:.6;}
+.extp-person>img{width:42px;height:42px;border-radius:50%;object-fit:cover;flex:0 0 auto;}
+.extp-person__body{min-width:0;flex:1 1 auto;}
+.extp-person__actions{display:flex;gap:.35rem;flex:0 0 auto;}
+.extp-find{display:flex;align-items:center;gap:.7rem;padding:.45rem 0;border-top:1px dashed #eef0f2;}
+.extp-find:first-of-type{border-top:0;}
+.extp-find>img{width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto;}
+
+/* ---- MÓVIL: lo que no cabe baja, nunca se estruja ---- */
+@media (max-width:575.98px){
+  .extp-login__card{padding:1.5rem 1.1rem;border-radius:16px;}
+  .extp-code{font-size:1.6rem;letter-spacing:.4rem;}
+  .extp-row{padding:.6rem .65rem;gap:.6rem;}
+  .extp-row__go{display:none;}
+  .extp-task__go{display:none;}
+  .extp-person__actions{flex-direction:column;}
+  .extp-art__item{max-width:46%;}
+  .extp-salesbig__num{font-size:1.8rem;}
+}

@@ -1,0 +1,111 @@
+{# ================================================================================================
+   PORTAL DE EXTERNOS · la base de todas sus pantallas.
+   La cabecera es la MISMA banda del back office (logo, campanita, foto y nombre), pero el menú es
+   el suyo: Inicio y su ficha. No hay nada que editar de la app.
+   ⚠️ Es una plantilla APARTE de `layout.html` a propósito: esa depende de la sesión de la casa
+   (permisos, NAV_MENU, avisos internos) y aquí no hay nada de eso.
+   ================================================================================================ #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ title or "Tu espacio · 33 Producciones" }}</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="33 Producciones">
+  <meta property="og:description" content="Entra con tu correo o tu teléfono.">
+  <meta property="og:image" content="{{ OG_DEFAULT_IMAGE }}">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}" rel="stylesheet">
+  <style>
+    :root{ --brand-primary: {{ BRAND_PRIMARY }}; --brand-accent: {{ BRAND_ACCENT }}; }
+  </style>
+</head>
+<body class="extp-body" data-default-photo-url="{{ DEFAULT_PHOTO_URL }}"
+      data-default-cover-url="{{ DEFAULT_COVER_URL }}" data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}">
+
+<nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top extp-nav">
+  <div class="container-fluid">
+    <a class="navbar-brand d-flex align-items-center" href="{{ url_for('externos_home') if ext else url_for('externos_login') }}">
+      <img src="{{ url_for('static', filename='img/Banner.png') }}" alt="33 Producciones" style="height:32px;">
+    </a>
+    {% if ext %}
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        {# La campanita: solo se ve si hay algo pendiente, y lleva a sus avisos. #}
+        {% if ext_tasks %}
+        <a class="extp-bell" href="{{ url_for('externos_home') }}#avisos" title="Lo que tienes pendiente">
+          <i class="fa fa-bell"></i><span class="extp-bell__dot">{{ ext_tasks|length }}</span>
+        </a>
+        {% endif %}
+        <div class="dropdown">
+          <a class="extp-user dropdown-toggle" href="#" data-bs-toggle="dropdown" aria-expanded="false">
+            <img src="{{ ext.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" class="user-nav-avatar">
+            <span class="d-none d-sm-inline">{{ ext.name }}</span>
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end user-nav-menu">
+            <li class="px-3 py-3">
+              <div class="d-flex gap-3 align-items-center">
+                <img src="{{ ext.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" class="user-nav-avatar user-nav-avatar--lg">
+                <div>
+                  <div class="fw-semibold">{{ ext.name }}</div>
+                  {% if ext.email %}<div class="small text-muted">{{ ext.email }}</div>{% endif %}
+                  {% if ext_profiles %}
+                  <div class="d-flex flex-wrap gap-1 mt-2">
+                    {% for pr in ext_profiles %}
+                      <span class="badge text-bg-light border"><i class="fa {{ pr.icon }} me-1"></i>{{ pr.label }}</span>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('externos_home') }}"><i class="fa fa-house me-2"></i>Inicio</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('externos_profile') }}"><i class="fa fa-id-card me-2"></i>Tu ficha</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('externos_exit') }}"><i class="fa fa-right-from-bracket me-2"></i>Salir</a></li>
+          </ul>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</nav>
+
+{% if ext and ext.preview %}
+{# Dirección viendo el portal de alguien: se dice claramente y se sale de aquí. #}
+<div class="extp-preview">
+  <i class="fa fa-eye me-2"></i>Estás viendo el portal de <strong>{{ ext.name }}</strong> tal como lo ve.
+  <a href="{{ url_for('externos_exit') }}" class="btn btn-sm btn-light ms-2">Salir de la vista</a>
+</div>
+{% endif %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="container-xl pt-3">
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'danger' else ('success' if category == 'success' else ('warning' if category == 'warning' else 'info')) }} py-2">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main class="container-xl py-3 py-md-4 extp-main">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="extp-foot">
+  <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="" class="extp-foot__logo">
+  <img src="{{ url_for('static', filename='img/logo.png') }}" alt="" class="extp-foot__logo">
+  <div class="small text-muted mt-2">33 Producciones · Pies Records</div>
+</footer>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/csrf.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/externos.js', v=ASSET_V) }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

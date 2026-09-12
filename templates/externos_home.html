@@ -1,0 +1,95 @@
+{% extends "externos_layout.html" %}
+{% import '_agenda_calendar.html' as agenda with context %}
+{% import '_externos_rows.html' as filas with context %}
+{% block content %}
+
+{# ---------- Quién eres ---------- #}
+<div class="dash-hero extp-hero mb-4">
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+    <img src="{{ ext.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" class="home-user-avatar">
+    <div>
+      <h2 class="dash-hero__title mb-1">{{ ext.name }}</h2>
+      <div class="d-flex flex-wrap gap-1">
+        {% for pr in ext_profiles %}
+          <span class="badge text-bg-light border"><i class="fa {{ pr.icon }} me-1"></i>{{ pr.label }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm ms-auto" href="{{ url_for('externos_profile') }}">
+      <i class="fa fa-id-card me-1"></i>Tu ficha
+    </a>
+  </div>
+</div>
+
+{# ---------- Lo que te pedimos ---------- #}
+{% include '_externos_tasks.html' %}
+
+{# ---------- Tu calendario ---------- #}
+{% if EXT_AGENDA %}
+<div class="card mb-4" data-ext-module>
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-calendar-day text-danger"></i>
+      <h5 class="mb-0">Tu calendario</h5>
+      <span class="badge text-bg-light border ms-auto"><i class="fa fa-eye me-1"></i>Solo lectura</span>
+    </div>
+    {# ⚠️ Las flechas piden las ventanas a SU endpoint (`data-window-url`): el de Inicio de la casa
+       exige sesión de back office. Sin `item_id` ni `move_url` nada se puede arrastrar ni editar. #}
+    {{ agenda.agenda_calendar(EXT_AGENDA, 'home', url_for('externos_agenda_data')) }}
+  </div>
+</div>
+{% endif %}
+
+{# ---------- Tus actividades ---------- #}
+<div class="card mb-4" data-ext-module>
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-list-check text-danger"></i>
+      <h5 class="mb-0">Tus actividades</h5>
+      {% if rows %}<span class="badge text-bg-light border ms-1">{{ rows|length }}</span>{% endif %}
+    </div>
+    {% if rows %}
+      <div class="extp-rows">
+        {% for r in rows %}{{ filas.ext_row(r) }}{% endfor %}
+      </div>
+    {% else %}
+      <div class="text-muted">Todavía no hay ninguna actividad tuya por aquí.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---------- Tus obras (autores) ---------- #}
+{% if obras %}
+<div class="card mb-4" data-ext-module>
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-pen-nib text-danger"></i>
+      <h5 class="mb-0">Tus obras</h5>
+      <span class="badge text-bg-light border ms-1">{{ obras|length }}</span>
+    </div>
+    <div class="extp-works">
+      {% for o in obras %}
+      <div class="extp-work">
+        <img src="{{ o.cover }}" alt="" class="extp-work__cover">
+        <div class="extp-work__body">
+          <div class="extp-work__title">{{ o.title }}</div>
+          <div class="extp-work__sub">
+            {% if o.artist %}<span>{{ o.artist }}</span>{% endif %}
+            {% if o.date %}<span><i class="fa fa-calendar-day me-1"></i>{{ o.date.strftime('%d/%m/%Y') }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="extp-work__pct">
+          {% if o.pct is not none %}<span class="badge text-bg-light border">{{ o.pct|pct }}%</span>{% endif %}
+          {% if o.publisher %}<div class="small text-muted">{{ o.publisher }}</div>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/agenda_calendar.js', v=ASSET_V) }}"></script>
+{% endblock %}

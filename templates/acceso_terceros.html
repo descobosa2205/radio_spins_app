@@ -1,0 +1,166 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ACCESO TERCEROS · lo que ve cada tipo de acceso, quién lo tiene y el botón para ver su portal
+   tal como lo ve él. Solo dirección. #}
+<div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+  <h3 class="mb-0"><i class="fa fa-door-open text-danger me-2"></i>Acceso terceros</h3>
+  <span class="badge text-bg-light border">Solo dirección</span>
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <span class="small text-muted d-none d-md-inline">Entran por</span>
+    <code class="extp-url">{{ portal_url }}</code>
+    <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ portal_url }}" title="Copiar el enlace">
+      <i class="fa fa-copy"></i>
+    </button>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('externos_login') }}" target="_blank" rel="noopener" title="Abrir el portal">
+      <i class="fa fa-arrow-up-right-from-square"></i>
+    </a>
+  </div>
+</div>
+
+<p class="text-muted">
+  Los terceros y los artistas entran con <strong>su correo o su teléfono</strong> —los que ya estén
+  en su ficha— y un número de verificación que les llega {% if sms_ok %}por email o por SMS{% else %}a su correo{% endif %}.
+  No hay contraseñas y <strong>no pueden editar nada</strong> de la app: solo ven lo suyo.
+</p>
+
+{# Una pestaña por TIPO de acceso. #}
+<ul class="nav nav-tabs contract-tabs mb-3">
+  {% for k, label, icono, desc in perfiles %}
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if tipo == k }}" href="{{ url_for('external_access_view', tipo=k) }}">
+      <i class="fa {{ icono }} me-1"></i>{{ label }}
+      {% if k not in abiertos %}<span class="badge text-bg-secondary ms-1">cerrado</span>{% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+
+{% set actual = (perfiles | selectattr('0', 'equalto', tipo) | list | first) %}
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    {# QUÉ VE ESTE TIPO #}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="fa {{ actual[2] }} text-danger"></i>
+          <h5 class="mb-0">{{ actual[1] }}</h5>
+        </div>
+        <p class="text-muted small">{{ actual[3] }}</p>
+        <div class="extp-mods">
+          {% for ico, titulo, texto in modulos %}
+          <div class="extp-mod">
+            <span class="extp-mod__ico"><i class="fa {{ ico }}"></i></span>
+            <div>
+              <div class="fw-semibold">{{ titulo }}</div>
+              <div class="small text-muted">{{ texto }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <form method="post" action="{{ url_for('external_access_type_toggle') }}" class="mt-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="tipo" value="{{ tipo }}">
+          <input type="hidden" name="valor" value="{{ '0' if tipo in abiertos else '1' }}">
+          {% if tipo == 'THIRD' %}
+            <div class="alert alert-light border small mb-0">
+              <i class="fa fa-circle-info me-1"></i>Este es el acceso básico: sus documentos y aquello
+              en lo que se le incluye. No se cierra.
+            </div>
+          {% elif tipo in abiertos %}
+            <button class="btn btn-outline-danger btn-sm" type="submit">
+              <i class="fa fa-ban me-1"></i>Cerrar este acceso para todos
+            </button>
+          {% else %}
+            <button class="btn btn-success btn-sm" type="submit">
+              <i class="fa fa-door-open me-1"></i>Abrir este acceso
+            </button>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+
+    {# BUSCAR A CUALQUIERA para ver su portal #}
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-magnifying-glass text-danger me-2"></i>Ver el portal de alguien</h6>
+        <form method="get" action="{{ url_for('external_access_view') }}" class="d-flex gap-2 mb-2">
+          <input type="hidden" name="tipo" value="{{ tipo }}">
+          <input class="form-control form-control-sm" name="q" value="{{ buscar }}" placeholder="Nombre, correo, teléfono, CIF…">
+          <button class="btn btn-sm btn-danger" type="submit"><i class="fa fa-magnifying-glass"></i></button>
+        </form>
+        {% for r in resultados %}
+        <div class="extp-find">
+          <img src="{{ r.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+          <div class="flex-grow-1">
+            <div class="fw-semibold">{{ r.name }}</div>
+            <div class="small text-muted">{{ r.email }}{% if r.profiles %} · {{ r.profiles|join(', ') }}{% endif %}</div>
+          </div>
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('external_access_preview', pid=r.id) }}">
+            <i class="fa fa-eye me-1"></i>Ver
+          </a>
+        </div>
+        {% endfor %}
+        {% if buscar and not resultados %}<div class="text-muted small">Nadie con eso.</div>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    {# QUIÉN LO TIENE #}
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <i class="fa fa-users text-danger"></i>
+          <h5 class="mb-0">Quién puede entrar</h5>
+          <span class="badge text-bg-light border ms-1">{{ gente|length }}</span>
+        </div>
+        {% if tipo == 'THIRD' %}
+        <div class="alert alert-light border small">
+          <i class="fa fa-circle-info me-1"></i>Aquí salen los que ya han entrado alguna vez y los
+          marcados como músicos o técnicos. Cualquier otro tercero con correo o teléfono entra
+          igual: búscalo arriba para ver su portal.
+        </div>
+        {% endif %}
+        {% if gente %}
+        <div class="extp-people">
+          {% for g in gente %}
+          <div class="extp-person{{ ' is-blocked' if g.blocked }}">
+            <img src="{{ g.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+            <div class="extp-person__body">
+              <a class="fw-semibold text-reset" href="{{ g.url }}">{{ g.name }}</a>
+              <div class="small text-muted">
+                {% if g.email %}<span><i class="fa fa-envelope me-1"></i>{{ g.email }}</span>{% endif %}
+                {% if g.phone %}<span class="ms-2"><i class="fa fa-phone me-1"></i>{{ g.phone }}</span>{% endif %}
+                {% if not g.can_enter %}<span class="text-danger ms-2"><i class="fa fa-triangle-exclamation me-1"></i>sin correo ni teléfono: no puede entrar</span>{% endif %}
+              </div>
+              <div class="small text-muted">
+                {% if g.last_login %}<i class="fa fa-right-to-bracket me-1"></i>Última vez: {{ g.last_login }} ({{ g.logins }})
+                {% else %}<i class="fa fa-minus me-1"></i>Todavía no ha entrado{% endif %}
+                {% if g.blocked %}<span class="badge text-bg-danger ms-2">Bloqueado</span>{% endif %}
+              </div>
+            </div>
+            <div class="extp-person__actions">
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('external_access_preview', pid=g.id) }}" title="Ver su portal">
+                <i class="fa fa-eye"></i>
+              </a>
+              <form method="post" action="{{ url_for('external_access_block', pid=g.id) }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="valor" value="{{ '0' if g.blocked else '1' }}">
+                <button class="btn btn-sm {{ 'btn-outline-success' if g.blocked else 'btn-outline-danger' }}" type="submit"
+                        title="{{ 'Volver a dejarle entrar' if g.blocked else 'Quitarle el acceso' }}">
+                  <i class="fa {{ 'fa-door-open' if g.blocked else 'fa-ban' }}"></i>
+                </button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+          <div class="text-muted">Todavía no hay nadie de este tipo.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -341,7 +341,11 @@
       if (winCache[key]) { fetching = false; applyWindow(winCache[key], ws, we); return; }
       fetching = true;
       render(); // ventana con "Cargando…" y flechas desactivadas mientras llega
-      var url = '/agenda/inicio.json?start=' + key + '&end=' + iso(we) +
+      /* ⚠️ De dónde se piden las ventanas: normalmente el de Inicio, pero un calendario que vive
+         FUERA del back office (el portal de externos) trae el suyo en `data-window-url` — el de
+         Inicio exige sesión de la casa y ahí la petición moriría en un redirect al login. */
+      var base = container.getAttribute('data-window-url') || '/agenda/inicio.json';
+      var url = base + (base.indexOf('?') >= 0 ? '&' : '?') + 'start=' + key + '&end=' + iso(we) +
                 (artistId ? '&artist_id=' + encodeURIComponent(artistId) : '');
       fetch(url, { noLoader: true, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })

@@ -1,0 +1,115 @@
+{% extends "externos_layout.html" %}
+{% block content %}
+
+<div class="mb-2"><a class="btn-volver" href="{{ url_for('externos_home') }}" title="Volver"><i class="fa fa-arrow-left"></i></a></div>
+
+{# ---------- La cabecera de la actividad ---------- #}
+<div class="ficha-hero extp-heroact mb-4">
+  <div class="ficha-hero__media extp-heroact__media">
+    {% set cartel = (carteles | selectattr('kind', 'equalto', 'IMAGE') | list | first) %}
+    {% if cartel %}
+      <img src="{{ cartel.view_url }}" alt="">
+    {% elif artist_photo %}
+      <img src="{{ artist_photo }}" alt="" data-avatar="1">
+    {% else %}
+      <span class="extp-heroact__icon"><i class="fa {{ icon }}"></i></span>
+    {% endif %}
+  </div>
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow"><i class="fa {{ icon }} me-1"></i>{{ kind_label }}</div>
+    <h1 class="ficha-hero__title">
+      {{ titulo }}
+      {% if status[0] %}<span class="badge {{ status[1] }} align-middle ms-2">{{ status[0] }}</span>{% endif %}
+      {% set an = announce_meta.get(announce) %}
+      {% if an %}
+        <span class="extp-an extp-an--{{ an[1] }} align-middle">
+          <i class="fa {{ 'fa-bullhorn' if an[1] == 'ok' else ('fa-ban' if an[1] == 'off' else 'fa-clock') }} me-1"></i>
+          {{ an[0] % c.announcement_date.strftime('%d/%m') if (announce == 'UPCOMING' and c.announcement_date) else an[0] }}
+        </span>
+      {% endif %}
+    </h1>
+    <div class="ficha-hero__facts">
+      {% for ico, etiqueta, valor in hero_rows %}
+        {% if valor %}<span><i class="fa {{ ico }}"></i>{{ valor }}</span>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# ---------- Cómo va la venta ---------- #}
+{% if ventas %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-ticket text-danger"></i><h5 class="mb-0">Cómo va la venta</h5>
+      {% if ventas.sold_out %}<span class="badge text-bg-danger ms-1">SOLD OUT</span>{% endif %}
+    </div>
+    <div class="extp-salesbig">
+      <div class="extp-salesbig__num">{{ ventas.qty|k }}</div>
+      <div class="extp-salesbig__lbl">entradas vendidas{% if ventas.capacity %} de {{ ventas.capacity|k }}{% endif %}</div>
+    </div>
+    {% if ventas.capacity %}
+    <div class="extp-sales__bar mt-2"><span class="extp-sales__fill" style="width:{{ ventas.pct }}%"></span></div>
+    <div class="d-flex justify-content-between small text-muted mt-1">
+      <span>{{ ventas.pct }}% del aforo</span>
+      <span>Quedan {{ ventas.left|k }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ---------- La cartelería ---------- #}
+{% if carteles %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-image text-danger"></i><h5 class="mb-0">Cartelería</h5>
+      {% if carteles_url %}
+      <a class="btn btn-sm btn-outline-secondary ms-auto" href="{{ carteles_url }}" target="_blank" rel="noopener">
+        <i class="fa fa-arrow-up-right-from-square me-1"></i>Verla y descargarla
+      </a>
+      {% endif %}
+    </div>
+    <div class="extp-art">
+      {% for a in carteles %}
+      <a class="extp-art__item" href="{{ a.download_url }}" title="Descargar {{ a.format_label }}"
+         data-dl-bar>
+        <span class="extp-art__frame" style="width:{{ a.frame_w }}px;height:{{ a.frame_h }}px;">
+          {% if a.kind == 'IMAGE' %}<img src="{{ a.view_url }}" alt="" onerror="this.remove()">
+          {% elif a.poster_url %}<img src="{{ a.poster_url }}" alt="" onerror="this.remove()">
+          {% endif %}
+          {% if a.kind != 'IMAGE' %}<i class="fa {{ 'fa-film' if a.is_video else ('fa-music' if a.is_audio else 'fa-file-lines') }}"></i>{% endif %}
+        </span>
+        <span class="extp-art__name">{{ a.format_label }}</span>
+        <span class="extp-art__size">{{ a.size_label or a.ratio_label or a.ext }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ---------- La hoja de ruta (la de verdad, en solo lectura) ---------- #}
+{% for h in hojas %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa {{ h.icon }} text-danger"></i><h5 class="mb-0">{{ h.label }}</h5>
+      <span class="badge text-bg-light border ms-auto"><i class="fa fa-eye me-1"></i>Solo lectura</span>
+    </div>
+    {% set rm = h.rm %}
+    {% set roadmap_ctx = h.rm %}
+    {% include '_roadmap_panel.html' %}
+  </div>
+</div>
+{% endfor %}
+
+{% if not hojas and not carteles and not ventas %}
+<div class="card"><div class="card-body text-muted">
+  Todavía no hay nada más que enseñar de esta actividad. En cuanto haya hoja de ruta o cartelería,
+  aparecerá aquí.
+</div></div>
+{% endif %}
+
+{% endblock %}

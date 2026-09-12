@@ -416,6 +416,71 @@ def ensure_external_production_schema():
     _exec_ddl_statements(stmts, "external_production")
 
 
+
+class ExternalAccess(Base):
+    """ACCESO AL PORTAL DE EXTERNOS de un TERCERO (artista, promotor, autor…).
+
+    Un tercero entra en `/externos` con **su correo o su teléfono** —los que ya estén en su ficha—
+    y un NÚMERO DE VERIFICACIÓN que le llega por email o por SMS. Desde ahí ve LO SUYO y solo lo
+    suyo: su calendario, sus actividades, lo que se le ha pedido y su ficha. **No puede editar nada
+    del back office.**
+
+    ⚠️ Esta fila NO es la que da el acceso: el acceso lo da tener correo o teléfono en la ficha y
+    algo que ver (`_ext_profiles`). Aquí solo vive el NÚMERO en curso, el registro de entradas y el
+    interruptor con el que dirección puede cerrarle la puerta (`blocked`).
+    """
+
+    __tablename__ = "external_access"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"),
+                         nullable=False, unique=True)
+    # Número de verificación en curso (hash: nunca se guarda en claro).
+    code = Column(Text)
+    code_expires_at = Column(DateTime(timezone=True))
+    code_sent_at = Column(DateTime(timezone=True))
+    code_attempts = Column(Integer, nullable=False, server_default=text("0"))
+    code_channel = Column(Text)          # EMAIL | SMS
+    code_target = Column(Text)           # a dónde se mandó (para decirlo sin enseñarlo entero)
+    # Dirección puede cerrarle la puerta sin tocarle la ficha.
+    blocked = Column(Boolean, nullable=False, server_default=text("false"))
+    blocked_at = Column(DateTime(timezone=True))
+    blocked_by_nick = Column(Text)
+    first_login_at = Column(DateTime(timezone=True))
+    last_login_at = Column(DateTime(timezone=True))
+    login_count = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter", foreign_keys=[promoter_id])
+
+
+def ensure_external_access_schema():
+    """Portal de externos: acceso de un tercero con su correo o su teléfono (idempotente)."""
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS external_access (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL UNIQUE REFERENCES promoters(id) ON DELETE CASCADE,
+            code text,
+            code_expires_at timestamptz,
+            code_sent_at timestamptz,
+            code_attempts integer NOT NULL DEFAULT 0,
+            code_channel text,
+            code_target text,
+            blocked boolean NOT NULL DEFAULT false,
+            blocked_at timestamptz,
+            blocked_by_nick text,
+            first_login_at timestamptz,
+            last_login_at timestamptz,
+            login_count integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_external_access_promoter ON external_access(promoter_id);",
+    ]
+    _exec_ddl_statements(stmts, "external_access")
+
+
 def ensure_artist_notifications_schema():
     """Tabla de contactos de comunicaciones de un artista (idempotente)."""
     stmts = [

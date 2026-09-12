@@ -1,0 +1,67 @@
+{% extends "externos_layout.html" %}
+{% block content %}
+<div class="extp-login">
+  <div class="extp-login__card">
+    <div class="extp-login__brand">
+      <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records">
+    </div>
+
+    {% if paso == 'codigo' %}
+      {# ---------- 2 · EL NÚMERO ---------- #}
+      <h1 class="extp-login__title">Escribe tu número</h1>
+      <p class="extp-login__sub">
+        Te lo hemos mandado {{ 'por SMS a' if canal == 'SMS' else 'al correo' }}
+        <strong>{{ destino }}</strong>. Vale unos minutos.
+      </p>
+      {% if ok %}<div class="alert alert-success py-2">{{ ok }}</div>{% endif %}
+      {% if aviso %}<div class="alert alert-danger py-2">{{ aviso }}</div>{% endif %}
+      <form method="post" action="{{ url_for('externos_enter') }}" class="extp-login__form" data-ext-code-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="contacto" value="{{ contacto }}">
+        <input type="hidden" name="canal" value="{{ canal }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {# ⚠️⚠️ ESTO ES LO QUE HACE QUE EL MÓVIL LO PONGA SOLO: `autocomplete="one-time-code"` es lo
+           que miran iPhone y Android para ofrecer el número del SMS o del correo encima del teclado,
+           sin copiar ni pegar. Un solo campo (no seis casillas), que es lo que reconocen. #}
+        <input class="extp-code" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+               autocomplete="one-time-code" autofocus required placeholder="······"
+               aria-label="Número de verificación" data-ext-code>
+        <button class="btn btn-danger w-100 btn-lg mt-3" type="submit">
+          <i class="fa fa-right-to-bracket me-2"></i>Entrar
+        </button>
+      </form>
+      <div class="text-center mt-3">
+        <a href="{{ url_for('externos_login') }}" class="small text-muted">Usar otro correo o teléfono</a>
+      </div>
+    {% else %}
+      {# ---------- 1 · QUIÉN ERES ---------- #}
+      <h1 class="extp-login__title">Entra en tu espacio</h1>
+      <p class="extp-login__sub">
+        Con el correo o el teléfono que tenemos tuyo. Te mandamos un número y listo:
+        <strong>no hay contraseñas</strong>.
+      </p>
+      {% if aviso %}<div class="alert alert-warning py-2">{{ aviso }}</div>{% endif %}
+      <form method="post" action="{{ url_for('externos_code') }}" class="extp-login__form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="form-label fw-semibold">Tu correo o tu teléfono</label>
+        <input class="form-control form-control-lg" name="contacto" value="{{ contacto }}" required
+               autocomplete="email" inputmode="email" autofocus
+               placeholder="nombre@correo.com   ·   600 00 00 00">
+        <div class="form-text mb-3">
+          {% if sms_ok %}Si escribes un teléfono te llega por SMS; si escribes un correo, por email.
+          {% else %}El número te llegará a tu correo.{% endif %}
+        </div>
+        <button class="btn btn-danger w-100 btn-lg" type="submit">
+          <i class="fa fa-paper-plane me-2"></i>Mandarme el número
+        </button>
+      </form>
+      <div class="extp-login__help">
+        <i class="fa fa-circle-info me-1"></i>
+        Tiene que ser un dato que ya tengamos en tu ficha. Si no lo reconoce, escríbenos y lo
+        configuramos.
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

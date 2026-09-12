@@ -309,6 +309,8 @@ from models import (
     ensure_video_web_schema,
     ExternalProductionAccess,
     ensure_external_production_schema,
+    ExternalAccess,
+    ensure_external_access_schema,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -414,6 +416,10 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=(os.getenv("SESSION_COOKIE_SECURE", "0") == "1"),
+    # ⚠️ Solo afecta a las sesiones PERMANENTES, y la única que lo es es la del PORTAL DE EXTERNOS
+    # (`_ext_session_start`): así su cookie caduca a la vez que la sesión, que dura 24 horas. Las de
+    # la casa son de sesión (se van al cerrar el navegador) y no se tocan.
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=int(os.getenv("EXT_SESSION_HOURS", "24") or 24)),
 )
 # Subidas pesadas (masters WAV muy grandes): SIN límite de tamaño por defecto. Werkzeug interpreta
 # None como "sin tope", así que no se rechaza ninguna subida por tamaño. Se puede fijar un tope por
@@ -79455,6 +79461,7 @@ def _bootstrap_schema_bg():
         (ensure_video_web_schema, "ensure_video_web_schema"),
         (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
         (ensure_external_production_schema, "ensure_external_production_schema"),
+        (ensure_external_access_schema, "ensure_external_access_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
         _safe_ensure(_fn, _name)
@@ -87794,6 +87801,8 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "integraciones", "label": "Integraciones", "section_key": "integraciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 260, "description": "Integraciones con servicios externos (p. ej. Chartmetric)."},
 
+    {"key": "acceso_terceros", "label": "Acceso terceros", "section_key": "acceso_terceros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 262, "description": "Portal de externos: qué ve cada tipo de acceso (artista, promotor, autor, tercero), quién lo tiene y el botón para ver el portal de una persona tal como lo ve ella. Es de DIRECCIÓN."},
+
     {"key": "fotos", "label": "Fotos / Vídeos", "section_key": "fotos", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 265, "description": "Galería global de fotos y vídeos de artistas y actividades."},
     {"key": "databases", "label": "Bases de datos", "section_key": "databases", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 270, "description": "Bases de datos maestras del sistema."},
     {"key": "databases.venues", "label": "Recintos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 271, "description": "Recintos (venues): alta y edición."},
@@ -87841,7 +87850,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -88266,6 +88275,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "sync_supervisor_optout": "syncros",
         "syncros_import_analyze": "syncros.supervisors", "syncros_import_apply": "syncros.supervisors",
         "integrations_view": "integraciones",
+        "external_access_view": "acceso_terceros", "external_access_type_toggle": "acceso_terceros",
+        "external_access_block": "acceso_terceros", "external_access_preview": "acceso_terceros",
         # Pleo se configura por empresa desde Integraciones (los endpoints exigen además dirección).
         "pleo_account_save": "integraciones", "pleo_account_test": "integraciones",
         "pleo_account_sync": "integraciones", "pleo_employee_link_save": "integraciones",
@@ -89073,6 +89084,12 @@ def _resolve_request_resource_key() -> str | None:
         return None
     if endpoint == "home":
         return "home"
+    # PORTAL DE EXTERNOS: la pantalla con la que dirección repasa quién entra y qué ve cada uno.
+    # ⚠️ Va aquí arriba, con las reglas de PREFIJO: metido en el `mapping` de más abajo sería código
+    # muerto (a ese dict solo se llega desde el conjunto de vistas de sección) y el gate no
+    # comprobaría nada.
+    if endpoint.startswith("external_access_"):
+        return "acceso_terceros"
     if endpoint == "summary_view":
         return "radio.reportes"
     if endpoint in {"plays_view", "plays_save", "plays_positions_view", "plays_positions_save",
@@ -89697,6 +89714,7 @@ def _build_current_user_summary() -> dict:
 def _resource_default_url(key: str) -> str:
     mapping = {
         "home": url_for("home"),
+        "acceso_terceros": url_for("external_access_view"),
         "radio": url_for("summary_view"),
         "radio.reportes": url_for("summary_view"),
         "radio.actualizar": url_for("plays_view"),
@@ -89868,6 +89886,7 @@ def _nav_item_usage_score(item: dict, scores: dict[str, int]) -> int:
 # Icono Font Awesome por sección (compartido por el menú principal y la pantalla de accesos).
 SECTION_ICONS = {
     "home": "fa-house",
+    "acceso_terceros": "fa-door-open",
     "mis_gastos": "fa-receipt",
     "radio": "fa-tower-broadcast",
     "ventas": "fa-ticket",
@@ -89969,6 +89988,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "vacaciones", "label": "Vacaciones y días libres", "url": _resource_default_url("vacaciones")},
         {"type": "link", "key": "contabilidad", "label": "Contabilidad", "url": _resource_default_url("contabilidad")},
         {"type": "link", "key": "integraciones", "label": "Integraciones", "url": _resource_default_url("integraciones")},
+        {"type": "link", "key": "acceso_terceros", "label": "Acceso terceros", "url": _resource_default_url("acceso_terceros")},
         # «Personal» y «Terceros» viven aquí dentro aunque su recurso de permisos siga siendo una
         # SECCIÓN propia: el menú agrupa por dónde lo busca la gente, no por el árbol de accesos
         # (renombrar las claves borraría en cascada los permisos ya concedidos).
@@ -161479,6 +161499,1794 @@ def cron_run_now():
     else:
         flash("Se han lanzado %d automatizaciones." % len(salida.get("tareas") or {}), "success")
     return redirect(url_for("integrations_view") + "#tab-automatizaciones")
+
+# =================================================================================================
+# PORTAL DE EXTERNOS  (/externos)
+# -------------------------------------------------------------------------------------------------
+# Los TERCEROS y los ARTISTAS entran en el back office con una pantalla propia y LIMITADA: ven LO
+# SUYO —su calendario, sus actividades, lo que se les ha pedido, su ficha y sus documentos— y **no
+# pueden editar nada** de la app.
+#
+# ⚠️⚠️ CÓMO SE ENTRA: con **su correo o su teléfono**, los que ya estén en su ficha, y un NÚMERO DE
+# VERIFICACIÓN que le llega por email o por SMS. No hay contraseñas: una contraseña más que
+# recordar (y que se nos pida recuperar) para alguien de fuera no la usaría nadie.
+#
+# ⚠️⚠️ LA SESIÓN NO TIENE `user_id`: es una sesión APARTE (`ext_ids`), así que el enforcement de
+# permisos del back office (`_enforce_role_permissions_v2`, que sale en cuanto no hay `user_id`) no
+# la ve y **ninguna pantalla de dentro se le puede abrir jamás**. La puerta de sus pantallas la pone
+# `_ext_required`. Es al revés que la PRODUCCIÓN EXTERNA (`_external_prod_gate`), que sí entra en la
+# app con un usuario espejo porque tiene que TRABAJAR dentro; aquí solo se MIRA.
+#
+# ⚠️ QUIÉN TIENE ACCESO: no se concede uno a uno. Lo tiene quien tenga correo o teléfono en su ficha
+# y **algo que ver** (`_ext_profiles`), que es lo que decide además QUÉ ve. Dirección lo repasa y
+# puede cerrar la puerta de uno (`ExternalAccess.blocked`) o de todo un tipo de acceso, en
+# «Acceso terceros».
+EXT_SESSION_HOURS = int(os.getenv("EXT_SESSION_HOURS", "24") or 24)   # sin volver a identificarse
+# ⚠️ La COOKIE caduca a la vez (`PERMANENT_SESSION_LIFETIME`, arriba): si no, la cookie viviría
+# 31 días (el defecto de Flask) aunque la sesión ya no valiera.
+EXT_CODE_MINUTES = 10             # lo que vale el número de verificación
+EXT_CODE_MAX_TRIES = 6
+EXT_CODE_LEN = 6
+EXT_ACCESS_TYPES_SETTING = "external_portal_types_v1"
+# Un tercero puede ser varias cosas a la vez: se le enseña lo de TODAS las que sea.
+# (clave, cómo se llama, icono, de qué va)
+EXT_PROFILES = [
+    ("ARTIST", "Artista", "fa-guitar",
+     "Lo del artista: su calendario, sus actividades y sus promociones, con la hoja de ruta y la "
+     "cartelería. Acceden sus INTEGRANTES y quien tenga configurado en sus notificaciones."),
+    ("PROMOTER", "Promotores", "fa-handshake",
+     "Las actividades que promueve: cómo va la venta, la hoja de ruta y lo que le pedimos "
+     "(actualizar ventas, la ficha de contratación, los carteles, su factura)."),
+    ("AUTHOR", "Autores", "fa-pen-nib",
+     "Sus obras: en qué canciones consta como autor, con su porcentaje y su editorial, y lo que se "
+     "le pide (entregar materiales, aprobar una mezcla o una portada)."),
+    ("THIRD", "Terceros", "fa-user-tie",
+     "Lo básico de cualquiera: las actividades en las que se le ha incluido en la hoja de ruta, sus "
+     "avisos y su ficha con sus documentos. Sin ventas ni datos económicos."),
+]
+EXT_PROFILE_LABELS = {k: v for k, v, _i, _d in EXT_PROFILES}
+EXT_PROFILE_ICONS = {k: i for k, _v, i, _d in EXT_PROFILES}
+EXT_PROFILE_DESC = {k: d for k, _v, _i, d in EXT_PROFILES}
+# Qué MÓDULOS ve cada tipo (es lo que se enseña en «Acceso terceros», y lo que de verdad se pinta).
+EXT_PROFILE_MODULES = {
+    "ARTIST": [
+        ("fa-calendar-day", "Su calendario", "El de sus artistas, con los mismos filtros y los festivos."),
+        ("fa-guitar", "Sus actividades y promociones", "Con el estado, si se puede anunciar y cómo va la venta."),
+        ("fa-route", "Hoja de ruta", "La general y la técnica de cada actividad, en solo lectura."),
+        ("fa-image", "Cartelería", "Los carteles aprobados, para verlos y descargarlos."),
+        ("fa-bell", "Lo que se le pide", "Confirmar una actividad, aprobar una mezcla o una portada, entregar materiales…"),
+        ("fa-id-card", "Su ficha y sus documentos", "Puede actualizarlos y subir los que falten."),
+    ],
+    "PROMOTER": [
+        ("fa-calendar-day", "Su calendario", "Las actividades que promueve."),
+        ("fa-ticket", "Cómo va la venta", "Las entradas vendidas de cada actividad que promueve."),
+        ("fa-route", "Hoja de ruta", "La de las actividades que promueve, en solo lectura."),
+        ("fa-image", "Cartelería", "Los carteles aprobados, para verlos y descargarlos."),
+        ("fa-bell", "Lo que se le pide", "Actualizar las ventas, la ficha de contratación, los carteles, su factura…"),
+        ("fa-id-card", "Su ficha y sus documentos", "Puede actualizarlos y subir los que falten."),
+    ],
+    "AUTHOR": [
+        ("fa-music", "Sus obras", "Las canciones en las que consta como autor, con su % y su editorial."),
+        ("fa-bell", "Lo que se le pide", "Entregar materiales, aprobar una mezcla, el permiso de edición…"),
+        ("fa-id-card", "Su ficha y sus documentos", "Puede actualizarlos y subir los que falten."),
+    ],
+    "THIRD": [
+        ("fa-calendar-day", "Su calendario", "Los días en los que se le ha incluido en una hoja de ruta."),
+        ("fa-list-check", "Dónde se le ha incluido", "Las actividades y su hoja de ruta. Sin ventas ni economía."),
+        ("fa-bell", "Lo que se le pide", "Sus documentos, el alta y la PRL, su factura…"),
+        ("fa-id-card", "Su ficha y sus documentos", "Puede actualizarlos y subir los que falten."),
+    ],
+}
+
+
+def _ext_types_enabled() -> set:
+    """Qué tipos de acceso tienen el portal ABIERTO (dirección lo decide en «Acceso terceros»).
+
+    Sin nada guardado: TODOS. Es un interruptor de dirección, no un permiso por persona."""
+    crudo = (_get_app_setting(EXT_ACCESS_TYPES_SETTING, "") or "").strip()
+    if not crudo:
+        return {k for k, _v, _i, _d in EXT_PROFILES}
+    return {x.strip().upper() for x in crudo.split(",") if x.strip().upper() in EXT_PROFILE_LABELS}
+
+
+def _ext_access_row(session_db, promoter_id, *, create: bool = False):
+    """La fila de acceso de un tercero (la del número de verificación y el bloqueo)."""
+    pid = to_uuid(str(promoter_id or ""))
+    if not pid:
+        return None
+    fila = (session_db.query(ExternalAccess)
+            .filter(ExternalAccess.promoter_id == pid).first())
+    if fila is None and create:
+        fila = ExternalAccess(promoter_id=pid)
+        session_db.add(fila)
+        session_db.flush()
+    return fila
+
+
+def _ext_promoter_emails(session_db, promoter_id) -> list[str]:
+    """Los correos de un tercero: el de su ficha y los de su pestaña de contacto."""
+    salida, vistos = [], set()
+    try:
+        p = session_db.get(Promoter, to_uuid(str(promoter_id)))
+        crudos = [(getattr(p, "contact_email", None) or "")] if p is not None else []
+        crudos += [(x.email or "") for x in (session_db.query(PromoterEmail)
+                                             .filter(PromoterEmail.promoter_id == to_uuid(str(promoter_id))).all())]
+        for raw in crudos:
+            clave = (raw or "").strip().lower()
+            if clave and clave not in vistos:
+                vistos.add(clave)
+                salida.append((raw or "").strip())
+    except Exception:
+        pass
+    return salida
+
+
+def _ext_find_identity(session_db, *, email: str = "", phone: str = "") -> list:
+    """Los TERCEROS a los que corresponde ese correo o ese teléfono.
+
+    ⚠️ Devuelve una LISTA a propósito: en la base puede haber la MISMA persona con dos fichas (un
+    duplicado que nadie ha fusionado todavía), y quien entra es la persona, no la fila. Todo lo que
+    ve después se consulta con `IN (ids)`, así que ve lo suyo esté donde esté.
+
+    ⚠️ Se buscan solo los datos que YA están en su ficha (los suyos y los de su pestaña de
+    contacto). Los de las personas de contacto de un tercero NO valen: esas son otras personas."""
+    correo = (email or "").strip().lower()
+    clave_tel = _norm_phone_key(phone) if phone else ""
+    encontrados, vistos = [], set()
+
+    def _add(p):
+        if p is None or p.id in vistos:
+            return
+        vistos.add(p.id)
+        encontrados.append(p)
+
+    if correo:
+        for p in (session_db.query(Promoter)
+                  .filter(func.lower(func.trim(Promoter.contact_email)) == correo).all()):
+            _add(p)
+        for fila in (session_db.query(PromoterEmail)
+                     .filter(func.lower(func.trim(PromoterEmail.email)) == correo).all()):
+            _add(session_db.get(Promoter, fila.promoter_id))
+        # Los contactos de NOTIFICACIONES de un artista apuntan a su tercero: con ese correo se
+        # entra como esa persona (es como se le escribe).
+        for fila in (session_db.query(ArtistNotificationContact)
+                     .filter(func.lower(func.trim(ArtistNotificationContact.email)) == correo,
+                             ArtistNotificationContact.promoter_id.isnot(None)).all()):
+            _add(session_db.get(Promoter, fila.promoter_id))
+    if clave_tel:
+        # ⚠️ El teléfono se compara NORMALIZADO (los 9 últimos dígitos): en la base hay «+34 600…»,
+        # «600 00 00 00» y «0034600…» y es el mismo número. No se puede filtrar en SQL, así que se
+        # acota por los últimos dígitos con LIKE y se confirma en Python.
+        patron = "%" + clave_tel[-6:] if len(clave_tel) >= 6 else "%" + clave_tel
+        for p in (session_db.query(Promoter)
+                  .filter(Promoter.contact_phone.isnot(None),
+                          func.replace(func.replace(func.replace(Promoter.contact_phone, " ", ""),
+                                                    "-", ""), ".", "").like(patron + "%")).limit(400).all()):
+            if _norm_phone_key(getattr(p, "contact_phone", "")) == clave_tel:
+                _add(p)
+        # ⚠️ También aquí se acota en SQL (los últimos dígitos) y se confirma en Python: traerse
+        # todos los teléfonos de la base en cada intento de entrar no es aceptable.
+        for fila in (session_db.query(PromoterPhone)
+                     .filter(PromoterPhone.phone.isnot(None),
+                             func.replace(func.replace(func.replace(PromoterPhone.phone, " ", ""),
+                                                       "-", ""), ".", "").like("%" + clave_tel[-6:] + "%"))
+                     .limit(400).all()):
+            if _norm_phone_key(getattr(fila, "phone", "")) == clave_tel:
+                _add(session_db.get(Promoter, fila.promoter_id))
+        for fila in (session_db.query(ArtistNotificationContact)
+                     .filter(ArtistNotificationContact.phone.isnot(None),
+                             ArtistNotificationContact.promoter_id.isnot(None),
+                             func.replace(func.replace(func.replace(ArtistNotificationContact.phone, " ", ""),
+                                                       "-", ""), ".", "").like("%" + clave_tel[-6:] + "%"))
+                     .limit(400).all()):
+            if _norm_phone_key(getattr(fila, "phone", "")) == clave_tel:
+                _add(session_db.get(Promoter, fila.promoter_id))
+    return encontrados
+
+
+def _ext_same_person(a, b) -> bool:
+    """¿Estas dos fichas son LA MISMA PERSONA?
+
+    El criterio es el de la casa (`_promoter_duplicates_of`): el mismo DNI, o el mismo nombre sin un
+    DNI que lo desmienta. Dos personas distintas pueden compartir un teléfono (el de una oficina) y
+    darle a una lo de la otra sería lo peor que podría pasar aquí."""
+    if a is None or b is None:
+        return False
+    if str(getattr(a, "id", "")) == str(getattr(b, "id", "")):
+        return True
+    dni_a = _prl_norm_dni(getattr(a, "tax_id", "") or "")
+    dni_b = _prl_norm_dni(getattr(b, "tax_id", "") or "")
+    if dni_a and dni_b:
+        return dni_a == dni_b
+    claves_a = {k for k in _promoter_person_keys(a) if k.startswith("nom:")}
+    claves_b = {k for k in _promoter_person_keys(b) if k.startswith("nom:")}
+    return bool(claves_a & claves_b)
+
+
+def _ext_group_identity(encontrados) -> tuple[list, list]:
+    """De las fichas que responden a ese correo o teléfono, las que son LA MISMA PERSONA.
+
+    Devuelve `(las suyas, las de otra persona)`. Con fichas de personas DISTINTAS no se entra: ese
+    dato no identifica a nadie y hay que decirlo (y fusionarlas o corregirlas en su ficha)."""
+    if not encontrados:
+        return [], []
+    principal = encontrados[0]
+    suyas = [p for p in encontrados if _ext_same_person(principal, p)]
+    otras = [p for p in encontrados if p not in suyas]
+    return suyas, otras
+
+
+def _ext_artist_ids(session_db, ids) -> list[str]:
+    """De qué ARTISTAS es esta persona: de los que es INTEGRANTE y de los que recibe sus
+    comunicaciones (es a quien se le escribe, así que lo del artista es suyo)."""
+    salida = []
+    for pid in (ids or []):
+        for aid in _promoter_member_artist_ids(session_db, pid):
+            if aid not in salida:
+                salida.append(aid)
+    try:
+        uuids = [to_uuid(str(x)) for x in (ids or []) if to_uuid(str(x))]
+        if uuids:
+            for fila in (session_db.query(ArtistNotificationContact.artist_id)
+                         .filter(ArtistNotificationContact.promoter_id.in_(uuids)).all()):
+                aid = str(fila[0]) if fila and fila[0] else ""
+                if aid and aid not in salida:
+                    salida.append(aid)
+    except Exception:
+        pass
+    return salida
+
+
+def _ext_promoted_concert_ids(session_db, ids) -> set:
+    """Las actividades que PROMUEVE esta persona (como promotor o participando)."""
+    uuids = [to_uuid(str(x)) for x in (ids or []) if to_uuid(str(x))]
+    if not uuids:
+        return set()
+    salida = set()
+    try:
+        for fila in (session_db.query(Concert.id)
+                     .filter(Concert.promoter_id.in_(uuids)).all()):
+            salida.add(fila[0])
+    except Exception:
+        pass
+    try:
+        for fila in (session_db.query(ConcertPromoterShare.concert_id)
+                     .filter(ConcertPromoterShare.promoter_id.in_(uuids)).all()):
+            salida.add(fila[0])
+    except Exception:
+        pass
+    return salida
+
+
+def _ext_roadmap_concert_ids(session_db, ids, *, limit: int = 400) -> set:
+    """En qué actividades se le ha incluido en el PERSONAL de la hoja de ruta.
+
+    ⚠️ El personal vive dentro de `roadmap_payload` (JSONB), así que se busca con el operador de
+    CONTENCIÓN de Postgres (`@>`), no recorriendo las actividades en Python."""
+    salida = set()
+    for pid in (ids or []):
+        if not to_uuid(str(pid)):
+            continue
+        aguja = json.dumps([{"ref_id": str(pid)}])
+        try:
+            filas = session_db.execute(
+                text("SELECT id FROM concerts WHERE roadmap_payload -> 'personnel' @> CAST(:aguja AS jsonb) "
+                     "ORDER BY date DESC NULLS LAST LIMIT :tope"),
+                {"aguja": aguja, "tope": limit}).fetchall()
+            for f in filas:
+                salida.add(f[0])
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[externos] no se pudo buscar el personal de las hojas de ruta")
+    return salida
+
+
+def _ext_author_song_ids(session_db, ids, *, limit: int = 300) -> list:
+    """Las canciones en las que consta como AUTOR."""
+    uuids = [to_uuid(str(x)) for x in (ids or []) if to_uuid(str(x))]
+    if not uuids:
+        return []
+    try:
+        filas = (session_db.query(SongEditorialShare.song_id)
+                 .filter(SongEditorialShare.promoter_id.in_(uuids)).limit(limit).all())
+        salida = []
+        for f in filas:
+            if f[0] and f[0] not in salida:
+                salida.append(f[0])
+        return salida
+    except Exception:
+        return []
+
+
+def _ext_profiles(session_db, ids) -> list[str]:
+    """QUÉ es esta persona para nosotros, y por tanto QUÉ ve. Se CALCULA, no se marca a mano.
+
+    Un tercero puede ser varias cosas (el cantante de un grupo que además promueve sus fechas): se
+    le enseña lo de todas las que sea."""
+    salida = []
+    if _ext_artist_ids(session_db, ids):
+        salida.append("ARTIST")
+    marcadas = set()
+    for pid in (ids or []):
+        p = session_db.get(Promoter, _safe_uuid(str(pid)))
+        for r in _promoter_manual_roles(p):
+            marcadas.add(r)
+    if "PROMOTER" in marcadas or _ext_promoted_concert_ids(session_db, ids):
+        salida.append("PROMOTER")
+    if "AUTHOR" in marcadas or _ext_author_song_ids(session_db, ids, limit=1):
+        salida.append("AUTHOR")
+    # TERCERO es el básico: lo tiene cualquiera (sus documentos y aquello en lo que se le incluye).
+    salida.append("THIRD")
+    return [k for k, _v, _i, _d in EXT_PROFILES if k in salida]
+
+
+def _ext_blocked(session_db, ids) -> bool:
+    """¿Dirección le ha cerrado la puerta a esta persona?"""
+    for pid in (ids or []):
+        fila = _ext_access_row(session_db, pid)
+        if fila is not None and bool(getattr(fila, "blocked", False)):
+            return True
+    return False
+
+
+def _ext_identity_payload(session_db, promoters) -> dict:
+    """Cómo se llama y qué foto tiene quien entra (de la primera ficha que lo diga)."""
+    nombre, foto, correo, telefono = "", "", "", ""
+    for p in promoters:
+        nombre = nombre or _promoter_display_name(p)
+        foto = foto or (getattr(p, "logo_url", None) or "")
+        c, t = _promoter_email_phone(p)
+        correo = correo or c
+        telefono = telefono or t
+    return {"name": nombre or "Tu cuenta", "photo": foto, "email": correo, "phone": telefono}
+
+
+# ---------- LA SESIÓN DEL PORTAL ----------
+def _ext_session_ids() -> list[str]:
+    """Los terceros de ESTA sesión (vacío si no hay sesión externa o si ya ha caducado)."""
+    ids = session.get("ext_ids") or []
+    if not ids:
+        return []
+    desde = session.get("ext_since") or ""
+    try:
+        arranque = datetime.fromisoformat(str(desde))
+    except Exception:
+        arranque = None
+    if arranque is None or (_now_madrid() - arranque) > timedelta(hours=EXT_SESSION_HOURS):
+        # ⚠️ Solo se limpia LO DEL PORTAL: en el mismo navegador puede haber una sesión de la casa
+        # (dirección previsualizando el portal) y un `session.clear()` la cerraría.
+        _ext_session_end()
+        return []
+    return [str(x) for x in ids]
+
+
+def _ext_session_end():
+    for clave in ("ext_ids", "ext_since", "ext_name", "ext_photo", "ext_preview"):
+        session.pop(clave, None)
+
+
+def _ext_session_start(promoters):
+    """Abre la sesión del portal. Dura `EXT_SESSION_HOURS` sin volver a identificarse.
+
+    ⚠️ Los terceros llegan YA cargados de la sesión de quien llama: aquí no se abre otra (lo que se
+    guarda son solo sus ids, su nombre y su foto)."""
+    datos = _ext_identity_payload(None, promoters)
+    # ⚠️ `permanent` es lo que hace que la cookie sobreviva a cerrar el navegador (si no, la sesión
+    # se pierde al cerrarlo y habría que pedir otro número cada vez).
+    session.permanent = True
+    session["ext_ids"] = [str(p.id) for p in promoters]
+    session["ext_since"] = _now_madrid().isoformat()
+    session["ext_name"] = datos["name"]
+    session["ext_photo"] = datos["photo"]
+    session.pop("ext_preview", None)
+
+
+def _ext_context(session_db, *, con_perfiles: bool = True) -> dict | None:
+    """Quién está mirando el portal y qué le toca ver. None si no hay sesión externa."""
+    ids = _ext_session_ids()
+    if not ids:
+        return None
+    promoters = []
+    for pid in ids:
+        p = session_db.get(Promoter, _safe_uuid(str(pid)))
+        if p is not None:
+            promoters.append(p)
+    if not promoters:
+        _ext_session_end()
+        return None
+    datos = _ext_identity_payload(session_db, promoters)
+    ctx = {
+        "ids": [str(p.id) for p in promoters],
+        "uuids": [p.id for p in promoters],
+        "promoters": promoters,
+        "promoter": promoters[0],
+        "name": datos["name"],
+        "photo": datos["photo"] or session.get("ext_photo") or "",
+        "email": datos["email"],
+        "phone": datos["phone"],
+        "preview": bool(session.get("ext_preview")),
+    }
+    if con_perfiles:
+        perfiles = _ext_profiles(session_db, ctx["ids"])
+        abiertos = _ext_types_enabled()
+        # Un tipo que dirección haya cerrado deja de verse (pero TERCERO nunca se cierra: es lo
+        # básico —sus documentos— y sin él el portal no tendría sentido).
+        ctx["profiles"] = [p for p in perfiles if p in abiertos or p == "THIRD"]
+        ctx["artist_ids"] = _ext_artist_ids(session_db, ctx["ids"]) if "ARTIST" in ctx["profiles"] else []
+    return ctx
+
+
+def _ext_required(fn):
+    """Puerta de las pantallas del portal: sin sesión externa, a identificarse.
+
+    ⚠️ DIRECCIÓN puede entrar en el portal de alguien para VER lo que ve (desde «Acceso terceros»):
+    esa sesión lleva `ext_preview` y es de solo lectura como todas."""
+    @wraps(fn)
+    def _wrap(*args, **kwargs):
+        if not _ext_session_ids():
+            nxt = request.full_path if request.query_string else request.path
+            return redirect(url_for("externos_login", next=nxt))
+        # Con el modo trabajo puesto, aquí tampoco se entra (a un externo no se le puede enseñar la
+        # app a medio migrar).
+        if _maintenance_active() and not session.get("ext_preview"):
+            return _render_maintenance_page(503)
+        session_db = db()
+        try:
+            if _ext_blocked(session_db, _ext_session_ids()) and not session.get("ext_preview"):
+                _ext_session_end()
+                flash("Tu acceso está desactivado. Escríbenos si crees que es un error.", "warning")
+                return redirect(url_for("externos_login"))
+        finally:
+            session_db.close()
+        return fn(*args, **kwargs)
+    return _wrap
+
+
+# ---------- EL NÚMERO DE VERIFICACIÓN ----------
+def _ext_code_new(row) -> str:
+    """Un número nuevo (6 cifras) con su caducidad. Nunca se guarda en claro."""
+    code = "".join(secrets.choice("0123456789") for _ in range(EXT_CODE_LEN))
+    row.code = generate_password_hash(code)
+    row.code_expires_at = _now_madrid() + timedelta(minutes=EXT_CODE_MINUTES)
+    row.code_sent_at = _now_madrid()
+    row.code_attempts = 0
+    return code
+
+
+def _ext_otp_domain() -> str:
+    """El dominio con el que se firma el SMS para que el móvil lo rellene solo."""
+    base = (_public_base_url() or "").strip()
+    host = base.split("//")[-1].split("/")[0].split(":")[0]
+    return host or "app.33producciones.es"
+
+
+def _ext_code_sms_text(code: str) -> str:
+    """El SMS del número de verificación.
+
+    ⚠️⚠️ LA ÚLTIMA LÍNEA ES LO QUE HACE QUE EL MÓVIL LO PONGA SOLO: el formato «@dominio #codigo»
+    (WebOTP) es lo que miran iPhone y Android para ofrecer el autorrelleno sin copiar ni pegar. El
+    dominio TIENE que ser el mismo por el que se está entrando, y la línea va la última."""
+    return ("%s es tu numero para entrar en 33 Producciones. Vale %d minutos.\n\n@%s #%s"
+            % (code, EXT_CODE_MINUTES, _ext_otp_domain(), code))
+
+
+def _ext_code_email_html(session_db, code: str, nombre: str) -> str:
+    """El correo del número de verificación, con el estilo de la casa.
+
+    ⚠️ El número va GRANDE y solo, en su propia línea y precedido de «Tu código es»: así es como lo
+    reconocen iPhone y Android para ofrecerlo en el teclado sin tener que copiarlo."""
+    logo = _treinta_y_tres_logo_url(session_db) or _external_url_for(
+        "static", filename="img/logo_33_producciones.png")
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:520px;margin:0 auto;">']
+    partes.append('<div style="text-align:right;margin-bottom:8px;">'
+                  '<img src="%s" alt="" style="max-height:54px;max-width:190px;"></div>' % str(escape(logo)))
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 16px;">Tu número para entrar</h2>')
+    if nombre:
+        partes.append('<div style="font-size:15px;margin:0 0 10px;">Hola %s,</div>' % str(escape(nombre)))
+    partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 10px;">'
+                  'Tu código es:</div>')
+    partes.append('<div style="text-align:center;font-size:38px;letter-spacing:8px;font-weight:bold;'
+                  'margin:0 0 16px;color:#E33D48;">%s</div>' % str(escape(code)))
+    partes.append('<div style="color:#6b7280;font-size:13px;margin:0 0 16px;text-align:center;">'
+                  'Vale durante %d minutos. Si no lo has pedido tú, ignora este correo.</div>'
+                  % EXT_CODE_MINUTES)
+    partes.append('<div style="text-align:center;margin:0 0 16px;">'
+                  '<a href="%s" style="background:#E33D48;color:#fff;text-decoration:none;'
+                  'padding:11px 20px;border-radius:10px;font-weight:bold;display:inline-block;">'
+                  'Entrar</a></div>' % str(escape(_external_url_for("externos_login"))))
+    partes.append('<div style="color:#6b7280;font-size:12px;text-align:center;">33 Producciones · Pies Records</div></div>')
+    return "".join(partes)
+
+
+def _ext_mask(valor: str, *, telefono: bool = False) -> str:
+    """Cómo se dice a dónde se ha mandado el número SIN enseñar el dato entero."""
+    v = (valor or "").strip()
+    if not v:
+        return ""
+    if telefono:
+        limpio = re.sub(r"[^0-9+]", "", v)
+        return ("•" * max(0, len(limpio) - 3)) + limpio[-3:] if len(limpio) > 3 else limpio
+    if "@" not in v:
+        return v
+    usuario, dominio = v.split("@", 1)
+    visible = usuario[:2] if len(usuario) > 3 else usuario[:1]
+    return "%s%s@%s" % (visible, "•" * max(1, len(usuario) - len(visible)), dominio)
+
+
+# ---------- LAS PANTALLAS DE ENTRADA ----------
+_EXT_RATE = defaultdict(deque)
+EXT_RATE_LIMIT = 12          # peticiones de número por IP y minuto
+
+
+def _ext_rate_ok(ip: str) -> bool:
+    """Freno por IP: pedir un número manda un correo o un SMS (que cuesta dinero)."""
+    ahora = time.time()
+    cola = _EXT_RATE[ip or "?"]
+    while cola and ahora - cola[0] > 60:
+        cola.popleft()
+    if len(cola) >= EXT_RATE_LIMIT:
+        return False
+    cola.append(ahora)
+    return True
+
+
+def _ext_client_ip() -> str:
+    return (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+
+
+def _ext_login_render(**kw):
+    ctx = {"paso": "quien", "contacto": "", "canal": "", "destino": "",
+           "sms_ok": _sms_available(), "next_url": (request.args.get("next") or "")}
+    ctx.update(kw)
+    return render_template("externos_login.html", **ctx)
+
+
+@app.get("/externos", endpoint="externos_login")
+def externos_login():
+    """La entrada del portal: su correo o su teléfono."""
+    if _ext_session_ids():
+        return redirect(url_for("externos_home"))
+    return _ext_login_render()
+
+
+@app.post("/externos/codigo", endpoint="externos_code")
+def externos_code():
+    """Manda el NÚMERO DE VERIFICACIÓN al correo o al teléfono que se ha escrito.
+
+    ⚠️ Tiene que ser un dato que YA esté en su ficha: es lo único que demuestra que es esa persona.
+    Si no lo encontramos se DICE (es una herramienta de trabajo con gente conocida, no un registro
+    abierto: callarlo dejaría a alguien esperando un número que no va a llegar)."""
+    if not _ext_rate_ok(_ext_client_ip()):
+        return _ext_login_render(aviso="Demasiados intentos seguidos. Espera un minuto.",
+                                 contacto=(request.form.get("contacto") or "").strip())
+    contacto = (request.form.get("contacto") or "").strip()
+    if not contacto:
+        return _ext_login_render(aviso="Escribe tu correo o tu teléfono.")
+    es_correo = "@" in contacto
+    session_db = db()
+    try:
+        encontrados = (_ext_find_identity(session_db, email=contacto) if es_correo
+                       else _ext_find_identity(session_db, phone=contacto))
+        encontrados, de_otros = _ext_group_identity(encontrados)
+        if de_otros:
+            # ⚠️ Ese dato está en las fichas de VARIAS personas distintas: no identifica a nadie, así
+            # que no se entra por ahí. Se apunta para poder arreglarlo (fusionando o corrigiendo).
+            app.logger.warning("[externos] %s repetido en fichas de personas distintas: %s",
+                               ("correo" if es_correo else "teléfono"),
+                               ", ".join(str(p.id) for p in (encontrados + de_otros)))
+            return _ext_login_render(
+                contacto=contacto,
+                aviso=("Ese %s está en varias fichas distintas, así que no podemos saber quién eres. "
+                       "Prueba con el otro dato o escríbenos y lo arreglamos."
+                       % ("correo" if es_correo else "teléfono")))
+        if not encontrados:
+            return _ext_login_render(
+                contacto=contacto,
+                aviso=("No encontramos ese %s entre los que tenemos. Prueba con el otro o "
+                       "escríbenos para que lo configuremos." % ("correo" if es_correo else "teléfono")))
+        if _ext_blocked(session_db, [p.id for p in encontrados]):
+            return _ext_login_render(contacto=contacto,
+                                     aviso="Tu acceso está desactivado. Escríbenos si crees que es un error.")
+        perfiles = _ext_profiles(session_db, [p.id for p in encontrados])
+        abiertos = _ext_types_enabled()
+        if not [p for p in perfiles if p in abiertos or p == "THIRD"]:
+            return _ext_login_render(contacto=contacto,
+                                     aviso="Ahora mismo no hay nada que enseñarte aquí.")
+        # El número se guarda en la fila del PRIMERO: es la persona, no la ficha.
+        fila = _ext_access_row(session_db, encontrados[0].id, create=True)
+        code = _ext_code_new(fila)
+        fila.code_channel = "EMAIL" if es_correo else "SMS"
+        fila.code_target = contacto
+        session_db.commit()
+        nombre = _ext_identity_payload(session_db, encontrados)["name"]
+        if es_correo:
+            ok, err = _send_optional_email([contacto], "Tu número para entrar · 33 Producciones",
+                                           _ext_code_email_html(session_db, code, nombre),
+                                           auto_submitted=True)
+        else:
+            # ⚠️ `max_segments=0` = no recortar: el sufijo «@dominio #codigo» tiene que llegar
+            # ENTERO o el móvil no ofrece el autorrelleno.
+            ok, err = _send_optional_sms(session_db, contacto, _ext_code_sms_text(code),
+                                         kind="EXTERNOS", max_segments=0)
+            session_db.commit()
+        if not ok:
+            return _ext_login_render(contacto=contacto,
+                                     aviso=("No se pudo mandar el número: %s" % (err or "inténtalo otra vez")))
+        # Quién lo ha pedido viaja en la SESIÓN, no en el formulario: si no, se podría cambiar por
+        # otro id y entrar como otra persona con un número propio.
+        session["ext_pending"] = [str(p.id) for p in encontrados]
+        session["ext_pending_row"] = str(fila.id)
+        return _ext_login_render(paso="codigo", contacto=contacto,
+                                 canal=("EMAIL" if es_correo else "SMS"),
+                                 destino=_ext_mask(contacto, telefono=not es_correo),
+                                 ok="Te hemos mandado un número de %d cifras." % EXT_CODE_LEN)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudo mandar el número de verificación")
+        return _ext_login_render(contacto=contacto,
+                                 aviso="No se pudo mandar el número. Inténtalo otra vez.")
+    finally:
+        session_db.close()
+
+
+@app.post("/externos/entrar", endpoint="externos_enter")
+def externos_enter():
+    """Comprueba el número y abre la sesión del portal (24 horas)."""
+    code = "".join((request.form.get("code") or "").split())
+    pend = session.get("ext_pending") or []
+    fila_id = session.get("ext_pending_row") or ""
+    contacto = (request.form.get("contacto") or "").strip()
+    canal = (request.form.get("canal") or "").strip().upper()
+    destino = _ext_mask(contacto, telefono=(canal == "SMS"))
+    if not pend or not fila_id:
+        return _ext_login_render(aviso="Pide un número nuevo para entrar.")
+    session_db = db()
+    try:
+        fila = session_db.get(ExternalAccess, _safe_uuid(str(fila_id)))
+        if fila is None or not fila.code:
+            return _ext_login_render(aviso="Pide un número nuevo para entrar.")
+        if not fila.code_expires_at or _now_madrid() > fila.code_expires_at:
+            return _ext_login_render(aviso="Ese número ya ha caducado: pide otro.", contacto=contacto)
+        if (fila.code_attempts or 0) >= EXT_CODE_MAX_TRIES:
+            fila.code = None
+            session_db.commit()
+            return _ext_login_render(aviso="Demasiados intentos: pide un número nuevo.", contacto=contacto)
+        if not check_password_hash(fila.code, code):
+            fila.code_attempts = (fila.code_attempts or 0) + 1
+            session_db.commit()
+            return _ext_login_render(paso="codigo", contacto=contacto, canal=canal, destino=destino,
+                                     aviso="Ese número no es. Revísalo.")
+        promoters = [p for p in (session_db.get(Promoter, _safe_uuid(str(x))) for x in pend) if p is not None]
+        if not promoters:
+            return _ext_login_render(aviso="Pide un número nuevo para entrar.")
+        if _ext_blocked(session_db, [p.id for p in promoters]):
+            return _ext_login_render(aviso="Tu acceso está desactivado.")
+        fila.code = None
+        fila.code_attempts = 0
+        fila.last_login_at = _now_madrid()
+        fila.first_login_at = fila.first_login_at or fila.last_login_at
+        fila.login_count = int(fila.login_count or 0) + 1
+        session_db.commit()
+        session.pop("ext_pending", None)
+        session.pop("ext_pending_row", None)
+        _ext_session_start(promoters)
+        return redirect(safe_next_or(request.form.get("next") or url_for("externos_home")))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudo entrar")
+        return _ext_login_render(aviso="No se pudo entrar. Inténtalo otra vez.")
+    finally:
+        session_db.close()
+
+
+@app.get("/externos/salir", endpoint="externos_exit")
+def externos_exit():
+    """Cierra la sesión del portal (y la previsualización de dirección)."""
+    era_preview = bool(session.get("ext_preview"))
+    _ext_session_end()
+    if era_preview and session.get("user_id"):
+        return redirect(url_for("external_access_view"))
+    flash("Has salido.", "success")
+    return redirect(url_for("externos_login"))
+
+
+# ---------- QUÉ ACTIVIDADES SON SUYAS ----------
+# ⚠️⚠️ Lo que NO está confirmado NO se enseña aquí. Es la regla de la casa (una reserva puede caerse
+# y el día no está ocupado todavía) y además es de CONTRATACIÓN, que es quien lo está hablando.
+EXT_CONCERT_STATUSES = ("CONFIRMADO", "CANCELADO", "APLAZADO")
+
+
+def _ext_artist_concert_ids(session_db, artist_ids, *, limit: int = 500) -> set:
+    """Las actividades de SUS artistas (también en las que el artista es uno de varios)."""
+    uuids = [to_uuid(str(x)) for x in (artist_ids or []) if to_uuid(str(x))]
+    if not uuids:
+        return set()
+    salida = set()
+    try:
+        for fila in (session_db.query(Concert.id)
+                     .filter(Concert.artist_id.in_(uuids))
+                     .order_by(Concert.date.desc().nullslast()).limit(limit).all()):
+            salida.add(fila[0])
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las actividades del artista")
+    # ⚠️ `Concert.artist_ids` (los DEMÁS artistas de la actividad) es **JSONB**, no un array de uuid:
+    # se pregunta con `jsonb_exists_any` («¿está alguno de estos?»), que es lo que entiende. Con el
+    # operador de arrays (`&&`) Postgres responde «operator does not exist: jsonb && uuid[]» y —lo
+    # importante— **deja la transacción ABORTADA**, así que todo lo que viniera después reventaba.
+    try:
+        filas = session_db.execute(
+            text("SELECT id FROM concerts WHERE jsonb_exists_any(artist_ids, CAST(:ids AS text[])) "
+                 "ORDER BY date DESC NULLS LAST LIMIT :tope"),
+            {"ids": "{%s}" % ",".join(str(x) for x in uuids), "tope": limit}).fetchall()
+        for f in filas:
+            salida.add(f[0])
+    except Exception:
+        # ⚠️⚠️ SIEMPRE `rollback()` al tragarse un error de SQL: sin él la sesión se queda ABORTADA
+        # («current transaction is aborted») y la pantalla entera se cae en la consulta siguiente.
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las actividades con varios artistas")
+    return salida
+
+
+def _ext_scope(session_db, ctx) -> dict:
+    """TODO lo que esta persona puede ver, resuelto UNA vez por pantalla.
+
+    · `artist`   → las actividades de sus artistas (las ve enteras: son suyas).
+    · `promoted` → las que promueve (las ve con la venta: es él quien la reporta).
+    · `roadmap`  → aquellas en las que se le ha incluido en el personal (solo la hoja de ruta).
+    """
+    clave = "_ext_scope_" + ",".join(ctx.get("ids") or [])
+    try:
+        guardado = getattr(g, clave, None)
+        if guardado is not None:
+            return guardado
+    except Exception:
+        guardado = None
+    perfiles = ctx.get("profiles") or []
+    datos = {
+        "artist": (_ext_artist_concert_ids(session_db, ctx.get("artist_ids") or [])
+                   if "ARTIST" in perfiles else set()),
+        "promoted": (_ext_promoted_concert_ids(session_db, ctx["ids"])
+                     if "PROMOTER" in perfiles else set()),
+        "roadmap": _ext_roadmap_concert_ids(session_db, ctx["ids"]),
+    }
+    datos["all"] = datos["artist"] | datos["promoted"] | datos["roadmap"]
+    try:
+        setattr(g, clave, datos)
+    except Exception:
+        pass
+    return datos
+
+
+def _ext_can_see_concert(session_db, ctx, concert) -> bool:
+    """La puerta de UNA actividad (se comprueba SIEMPRE en el servidor, no solo al pintar la lista)."""
+    if concert is None:
+        return False
+    if (concert.status or "").upper() not in EXT_CONCERT_STATUSES:
+        return False
+    return concert.id in _ext_scope(session_db, ctx)["all"]
+
+
+def _ext_sees_sales(ctx, concert, scope=None) -> bool:
+    """¿Puede ver cómo va la VENTA de esta actividad?
+
+    Sí quien la promueve y quien es del artista; **no** quien solo está en su hoja de ruta (a un
+    técnico no le corresponde la taquilla)."""
+    scope = scope or {}
+    if concert is None:
+        return False
+    return bool(concert.id in (scope.get("artist") or set())
+                or concert.id in (scope.get("promoted") or set()))
+
+
+def _ext_promotion_ids(session_db, ctx, *, limit: int = 200) -> list:
+    """Las PROMOCIONES (prensa) de sus artistas, y aquellas en las que acompaña."""
+    if "ARTIST" not in (ctx.get("profiles") or []):
+        return []
+    uuids = [to_uuid(str(x)) for x in (ctx.get("artist_ids") or []) if to_uuid(str(x))]
+    if not uuids:
+        return []
+    # ⚠️ `Promotion.artist_ids` es **JSONB** (una promoción puede ser de varios artistas): se
+    # pregunta con `jsonb_exists_any`, no con el operador de arrays.
+    try:
+        filas = session_db.execute(
+            text("SELECT id FROM promotions "
+                 "WHERE upper(coalesce(kind,'MARKETING')) = :kind "
+                 "  AND upper(coalesce(status,'ACTIVE')) = 'ACTIVE' "
+                 "  AND upper(coalesce(promo_status,'BORRADOR')) NOT IN ('BORRADOR','CANCELADO') "
+                 "  AND jsonb_exists_any(artist_ids, CAST(:ids AS text[])) "
+                 "ORDER BY created_at DESC LIMIT :tope"),
+            {"kind": PROMO_KIND, "ids": "{%s}" % ",".join(str(x) for x in uuids),
+             "tope": limit}).fetchall()
+        return [f[0] for f in filas]
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las promociones")
+        return []
+
+
+# ---------- EL CALENDARIO ----------
+def _ext_agenda(session_db, ctx, start, end, today) -> dict:
+    """El calendario del portal: el MISMO de Inicio, con lo suyo y **de solo lectura**.
+
+    ⚠️⚠️ Se reutiliza `_agenda_build` (para heredar los festivos, los colores, los cumpleaños y todo
+    lo que se mejore allí) y se FILTRA después: de sus artistas se ve todo, y de los demás solo las
+    actividades que de verdad son suyas (las que promueve o en las que se le ha incluido).
+
+    ⚠️ `target_ids` NUNCA puede ir vacío: `_agenda_build` entiende «vacío» como **TODOS los
+    artistas**, así que sin artistas se pasa un id imposible."""
+    scope = _ext_scope(session_db, ctx)
+    propios = [str(x) for x in (ctx.get("artist_ids") or [])]
+    # Los artistas de las actividades que promueve o en las que trabaja (para que salgan en la
+    # consulta); sus ítems se filtran después uno a uno.
+    otros = set()
+    ajenas = (scope["promoted"] | scope["roadmap"]) - scope["artist"]
+    permitidas = {}
+    if ajenas or scope["artist"]:
+        for c in (session_db.query(Concert)
+                  .filter(Concert.id.in_(list(scope["all"]) or [uuid.uuid4()])).all()):
+            if (c.status or "").upper() in EXT_CONCERT_STATUSES:
+                permitidas[url_for("concert_detail_view", cid=c.id)] = str(c.id)
+            if c.id in ajenas:
+                if c.artist_id:
+                    otros.add(str(c.artist_id))
+                for x in (c.artist_ids or []):
+                    if x:
+                        otros.add(str(x))
+    target = sorted(set(propios) | otros) or [str(uuid.uuid4())]
+    try:
+        data = _agenda_build(session_db, target, start, end, today,
+                             full_details=False, include_personal=False, include_holidays=True)
+    except Exception:
+        app.logger.exception("[externos] no se pudo montar el calendario")
+        return _agenda_empty(start, end, today)
+    # Las promociones que son suyas. ⚠️ En el calendario, una promoción de PRENSA apunta a
+    # `promo_detail_view` (`promotion_detail_view` es la de MARKETING, que es otra sección): con el
+    # endpoint equivocado no se reconocía ni una y se quedaban sin enlace.
+    promos = {}
+    for pid in _ext_promotion_ids(session_db, ctx):
+        for _ep in ("promo_detail_view", "promotion_detail_view"):
+            try:
+                promos[url_for(_ep, promotion_id=pid)] = str(pid)
+            except Exception:
+                pass
+    propios_set = set(propios)
+    dentro = []
+    for it in (data.get("activities") or []):
+        url = it.get("url") or ""
+        if url in permitidas:
+            it["url"] = url_for("externos_activity", cid=permitidas[url])
+        elif url in promos:
+            it["url"] = url_for("externos_promotion", promotion_id=promos[url])
+        elif propios_set & set(it.get("artist_ids") or []):
+            # Algo de SU artista que aquí no tiene pantalla propia (un lanzamiento, un cumpleaños):
+            # se ve en el calendario, pero no lleva a ninguna parte.
+            it["url"] = ""
+        else:
+            continue
+        # De solo lectura: sin `item_id` ni `move_url` el calendario no deja arrastrar ni editar.
+        for k in ("item_id", "move_url", "item_start", "item_end", "note"):
+            it.pop(k, None)
+        dentro.append(it)
+    data["activities"] = dentro
+    # Los calendarios (chips) y los tipos que se quedan sin nada no se pintan.
+    vivos = set()
+    for a in data["activities"]:
+        vivos.update(a.get("artist_ids") or [])
+        if a.get("artist_id"):
+            vivos.add(a["artist_id"])
+    data["artists"] = [a for a in (data.get("artists") or []) if a.get("id") in vivos]
+    tipos = {a.get("kind") for a in data["activities"]}
+    data["kinds"] = [k for k in (data.get("kinds") or []) if k.get("key") in tipos]
+    return data
+
+
+# ---------- LO QUE SE LE PIDE (sus avisos) ----------
+# ⚠️⚠️ NO HAY UNA TABLA DE AVISOS DEL EXTERNO: cada tarea se CALCULA mirando el dato de verdad (la
+# petición que se le mandó y si ya está contestada). Por eso, **si lo contesta por otro sitio —el
+# correo o el SMS que se le mandó— aquí desaparece sola**, que es justo lo que se pide. Es la misma
+# regla que `_notify_resolve` dentro de la app.
+# (clave, cómo se llama, icono, color)
+EXT_TASK_META = {
+    "CONFIRMAR": ("Confirmar la actividad", "fa-circle-check", "#E33D48"),
+    "VENTAS": ("Actualizar las ventas", "fa-ticket", "#007CA2"),
+    "FICHA": ("Ficha de contratación", "fa-file-signature", "#7c3aed"),
+    "CARTELES": ("Subir los carteles", "fa-image", "#d97706"),
+    "FACTURA": ("Mandar la factura", "fa-file-invoice", "#0f766e"),
+    "DOCUMENTO": ("Actualizar un documento", "fa-id-card", "#be123c"),
+    "PRL": ("Alta y prevención", "fa-helmet-safety", "#0369a1"),
+    "APROBAR": ("Dar el visto bueno", "fa-thumbs-up", "#16a34a"),
+    "PORTADA": ("Aprobar la portada", "fa-compact-disc", "#16a34a"),
+    "FOTOS": ("Revisar unas fotos", "fa-camera", "#9333ea"),
+    "PLAYLIST": ("Valorar unos temas", "fa-headphones", "#0ea5e9"),
+}
+
+
+EXT_DOC_LABELS = {"DNI": "Tu DNI", "PASSPORT": "Tu pasaporte", "LICENSE": "Tu carnet de conducir"}
+
+
+def _ext_task(kind: str, *, title: str, url: str, subtitle: str = "", date=None,
+              artist: str = "", photo: str = "") -> dict:
+    etiqueta, icono, color = EXT_TASK_META.get(kind, ("Pendiente", "fa-circle-dot", "#6b7280"))
+    return {"kind": kind, "kind_label": etiqueta, "icon": icono, "color": color,
+            "title": title, "subtitle": subtitle, "url": url, "date": date,
+            "date_label": (date.strftime("%d/%m/%Y") if date else ""),
+            "artist": artist, "photo": photo}
+
+
+def _ext_contacts(session_db, ids) -> tuple[set, set]:
+    """Los correos y los teléfonos de esta persona, para casar lo que se le ha mandado."""
+    correos, telefonos = set(), set()
+    for pid in (ids or []):
+        for c in _ext_promoter_emails(session_db, pid):
+            if c:
+                correos.add(c.strip().lower())
+        for t in _promoter_phone_numbers(session_db, pid):
+            clave = _norm_phone_key(t)
+            if clave:
+                telefonos.add(clave)
+    return correos, telefonos
+
+
+def _ext_concert_label(c) -> tuple[str, str]:
+    """Cómo se llama una actividad y de quién es, tal como se dice en la app."""
+    kind = _activity_kind_key(getattr(c, "activity_type", None)) or "CONCIERTO"
+    titulo = ((getattr(c, "festival_name", None) or "").strip()
+              or _place_label(getattr(getattr(c, "venue", None), "municipality", "") or "",
+                              getattr(getattr(c, "venue", None), "province", "") or "")
+              or _activity_kind_label(kind))
+    artista = (getattr(getattr(c, "artist", None), "name", "") or "")
+    return titulo, artista
+
+
+def _ext_tasks(session_db, ctx) -> list[dict]:
+    """TODO lo que esta persona tiene pendiente con nosotros, de lo más urgente a lo demás."""
+    ids = ctx.get("ids") or []
+    uuids = [to_uuid(str(x)) for x in ids if to_uuid(str(x))]
+    if not uuids:
+        return []
+    perfiles = ctx.get("profiles") or []
+    scope = _ext_scope(session_db, ctx)
+    correos, telefonos = _ext_contacts(session_db, ids)
+    tareas = []
+
+    def _concierto(cid):
+        try:
+            return session_db.get(Concert, cid)
+        except Exception:
+            return None
+
+    # 1 · CONFIRMAR una actividad (lo que se le mandó al artista y todavía no ha contestado).
+    if "ARTIST" in perfiles and scope["artist"]:
+        try:
+            for av in (session_db.query(ConcertArtistNotification)
+                       .filter(ConcertArtistNotification.concert_id.in_(list(scope["artist"])),
+                               func.upper(func.coalesce(ConcertArtistNotification.kind, "")) == "CONFIRMAR",
+                               ConcertArtistNotification.response.is_(None),
+                               ConcertArtistNotification.public_token.isnot(None))
+                       .order_by(ConcertArtistNotification.sent_at.desc()).limit(40).all()):
+                destinos = av.recipients if isinstance(av.recipients, list) else []
+                suyo = any((str(d.get("email") or "").strip().lower() in correos)
+                           or (_norm_phone_key(d.get("phone") or "") in telefonos and d.get("phone"))
+                           for d in destinos if isinstance(d, dict))
+                if not suyo:
+                    continue
+                c = _concierto(av.concert_id)
+                if c is None:
+                    continue
+                titulo, artista = _ext_concert_label(c)
+                tareas.append(_ext_task("CONFIRMAR", title=titulo, artist=artista, date=c.date,
+                                        subtitle="Dinos si la confirmas o no.",
+                                        url=url_for("public_activity_notice_view", token=av.public_token)))
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[externos] no se pudieron leer las confirmaciones pendientes")
+
+    # 2 · ACTUALIZAR LAS VENTAS (lo que se le pide al promotor cada lunes y jueves).
+    if scope["promoted"]:
+        try:
+            for c in (session_db.query(Concert)
+                      .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                      .filter(Concert.id.in_(list(scope["promoted"]))).all()):
+                if not _concert_sales_request_applies(session_db, c):
+                    continue
+                if not (getattr(c, "sales_request_token", "") or ""):
+                    continue
+                # Ya actualizadas HOY: no hay nada pendiente.
+                if getattr(c, "sales_updated_at", None) and \
+                        c.sales_updated_at.astimezone(TZ_MADRID).date() >= today_local():
+                    continue
+                titulo, artista = _ext_concert_label(c)
+                tareas.append(_ext_task("VENTAS", title=titulo, artist=artista, date=c.date,
+                                        subtitle="Dinos cuántas entradas llevas vendidas.",
+                                        url=url_for("public_sales_update", token=c.sales_request_token)))
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[externos] no se pudieron leer las ventas pendientes")
+
+    # 3 · LA FICHA DE CONTRATACIÓN y 4 · LOS CARTELES (las dos son del promotor).
+    if scope["promoted"]:
+        try:
+            for sheet in (session_db.query(ConcertContractSheet)
+                          .filter(ConcertContractSheet.concert_id.in_(list(scope["promoted"]))).all()):
+                estado = _contract_sheet_status(sheet)
+                if estado in ("RECEIVED", "ACCEPTED"):
+                    continue
+                c = _concierto(sheet.concert_id)
+                if c is None or (c.status or "").upper() not in EXT_CONCERT_STATUSES:
+                    continue
+                titulo, artista = _ext_concert_label(c)
+                tareas.append(_ext_task(
+                    "FICHA", title=titulo, artist=artista, date=c.date,
+                    subtitle=("Corrígela y vuelve a enviarla." if estado == "REJECTED"
+                              else "Cumpliméntala para cerrar la contratación."),
+                    url=url_for("concert_contract_public_form", token=sheet.public_token)))
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[externos] no se pudo leer la ficha de contratación")
+        try:
+            for art in (session_db.query(ConcertArtworkRequest)
+                        .filter(ConcertArtworkRequest.concert_id.in_(list(scope["promoted"])),
+                                func.upper(func.coalesce(ConcertArtworkRequest.handled_by, "")) == "PROMOTER",
+                                func.upper(func.coalesce(ConcertArtworkRequest.status, "")).in_(
+                                    ["REQUESTED", "CORRECTIONS"])).all()):
+                c = _concierto(art.concert_id)
+                if c is None:
+                    continue
+                titulo, artista = _ext_concert_label(c)
+                tareas.append(_ext_task("CARTELES", title=titulo, artist=artista, date=c.date,
+                                        subtitle="Súbenos los carteles de la actividad.",
+                                        url=url_for("concert_artwork_public_upload", token=art.public_token)))
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[externos] no se pudo leer la cartelería pendiente")
+
+    # 5 · SU FACTURA.
+    try:
+        for req in (session_db.query(BagInvoiceRequest)
+                    .filter(BagInvoiceRequest.provider_id.in_(uuids),
+                            func.upper(func.coalesce(BagInvoiceRequest.status, "")) == "ACTIVE").all()):
+            tareas.append(_ext_task("FACTURA", title="Nos falta tu factura",
+                                    subtitle="Súbela con los datos que te pedimos.",
+                                    url=url_for("public_bag_invoice_upload", token=req.public_token)))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las facturas pendientes")
+
+    # 6 · UN DOCUMENTO CADUCADO y 7 · EL ALTA / PRL.
+    try:
+        for req in (session_db.query(PersonDocRequest)
+                    .filter(PersonDocRequest.owner_type == "PROMOTER",
+                            PersonDocRequest.owner_id.in_(uuids),
+                            func.upper(func.coalesce(PersonDocRequest.status, "")) == "ACTIVE").all()):
+            etiqueta = EXT_DOC_LABELS.get((req.kind or "").upper(), "Un documento")
+            tareas.append(_ext_task("DOCUMENTO", title=etiqueta,
+                                    subtitle="Está caducado o nos falta: súbelo otra vez.",
+                                    url=url_for("public_document_renew", token=req.token)))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer los documentos pendientes")
+    try:
+        for req in (session_db.query(PrlUploadRequest)
+                    .filter(PrlUploadRequest.person_kind == "PROMOTER",
+                            PrlUploadRequest.person_ref.in_(uuids),
+                            func.upper(func.coalesce(PrlUploadRequest.status, "")) == "ACTIVE").all()):
+            c = _concierto(req.concert_id)
+            titulo, artista = _ext_concert_label(c) if c is not None else ("Alta y prevención", "")
+            tareas.append(_ext_task("PRL", title=titulo, artist=artista,
+                                    date=(getattr(c, "date", None) if c is not None else None),
+                                    subtitle="Nos falta tu documentación para poder trabajar ese día.",
+                                    url=url_for("public_prl_upload", token=req.public_token)))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudo leer la PRL pendiente")
+
+    # 8 · APROBACIONES DEL SELLO (una mezcla, unos materiales, una foto, la portada).
+    try:
+        for v in (session_db.query(DiscoApprovalVoter)
+                  .filter(DiscoApprovalVoter.promoter_id.in_(uuids),
+                          func.upper(func.coalesce(DiscoApprovalVoter.status, "")) == "PENDIENTE",
+                          DiscoApprovalVoter.notified_at.isnot(None)).all()):
+            ap = session_db.get(DiscoApproval, v.approval_id)
+            if ap is None or (ap.status or "").upper() != "OPEN":
+                continue
+            tareas.append(_ext_task("APROBAR", title=(ap.title or "Dinos si te parece bien"),
+                                    subtitle="Te pedimos el visto bueno.",
+                                    url=url_for("public_disco_approval", token=v.token)))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las aprobaciones del sello")
+    try:
+        for v in (session_db.query(DiscoProjectArtworkApprover)
+                  .filter(DiscoProjectArtworkApprover.promoter_id.in_(uuids),
+                          func.upper(func.coalesce(DiscoProjectArtworkApprover.status, "")) == "PENDIENTE",
+                          DiscoProjectArtworkApprover.notified_at.isnot(None)).all()):
+            tareas.append(_ext_task("PORTADA", title="La portada del lanzamiento",
+                                    subtitle="Dinos si te parece bien.",
+                                    url=url_for("public_disco_artwork_approval", token=v.token)))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las portadas pendientes")
+
+    # 9 · UNAS FOTOS QUE SUPERVISAR (se casan por su CORREO: no llevan tercero).
+    if correos:
+        try:
+            for ap in (session_db.query(PhotoApprover)
+                       .filter(func.lower(func.trim(PhotoApprover.email)).in_(list(correos)),
+                               func.upper(func.coalesce(PhotoApprover.status, "")) == "PENDING").all()):
+                req = session_db.get(PhotoApprovalRequest, ap.request_id)
+                if req is None or (req.status or "").upper() != "ACTIVE":
+                    continue
+                tareas.append(_ext_task("FOTOS", title="Unas fotos para revisar",
+                                        subtitle="Dinos cuáles te valen.",
+                                        url=url_for("public_photo_approval", token=ap.token)))
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[externos] no se pudieron leer las fotos pendientes")
+
+    # 10 · VALORAR UNOS TEMAS.
+    try:
+        for v in (session_db.query(PlaylistVoter)
+                  .filter(PlaylistVoter.promoter_id.in_(uuids),
+                          PlaylistVoter.sent_at.isnot(None),
+                          PlaylistVoter.done_at.is_(None),
+                          PlaylistVoter.cancelled_at.is_(None),
+                          PlaylistVoter.token.isnot(None)).all()):
+            pl = session_db.get(Playlist, v.playlist_id)
+            if pl is None or not (getattr(pl, "vote_mode", "") or ""):
+                continue
+            tareas.append(_ext_task("PLAYLIST", title=(pl.name or "Unos temas"),
+                                    subtitle="Nos gustaría saber qué te parecen.",
+                                    date=getattr(pl, "vote_due_date", None),
+                                    url=url_for("public_playlist_vote", token=v.token)))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las valoraciones pendientes")
+
+    # Lo más próximo primero; lo que no tiene fecha, detrás (no se descarta: suele ser lo que más
+    # tiempo lleva esperando).
+    tareas.sort(key=lambda t: (t["date"] is None, t["date"] or date.max))
+    return tareas
+
+
+# ---------- EL LISTADO DE ACTIVIDADES ----------
+EXT_ANNOUNCE_META = {
+    "ANNOUNCED": ("Anunciada", "ok"),
+    "UPCOMING": ("Se anuncia el %s", "wait"),
+    "NONE": ("Sin anunciar", "wait"),
+    "NO_ANNOUNCE": ("No se anuncia", "off"),
+}
+
+
+def _ext_cal_chip(d) -> dict:
+    """La hoja de calendario de una fecha (la misma de las hojas de ruta)."""
+    if not d:
+        return {}
+    dias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    return {"wd": dias[d.weekday()], "num": d.day, "mo": meses[d.month - 1], "year": d.year}
+
+
+def _ext_activity_rows(session_db, ctx, *, limit: int = 200) -> list[dict]:
+    """Las actividades de esta persona, como se leen en la app: qué es, cuándo, dónde, en qué estado,
+    si se puede anunciar y cómo va la venta."""
+    scope = _ext_scope(session_db, ctx)
+    if not scope["all"]:
+        return []
+    concerts = (session_db.query(Concert)
+                .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                         joinedload(Concert.ticket_types))
+                .filter(Concert.id.in_(list(scope["all"])),
+                        func.upper(func.coalesce(Concert.status, "")).in_(EXT_CONCERT_STATUSES))
+                .order_by(Concert.date.desc().nullslast()).limit(limit).all())
+    if not concerts:
+        return []
+    ids = [c.id for c in concerts]
+    try:
+        totals, _hoy, _last, _gross, _gross_hoy = sales_maps_unified(session_db, today_local(), ids)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las ventas")
+        totals = {}
+    hoy = today_local()
+    filas = []
+    for c in concerts:
+        kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
+        titulo, artista = _ext_concert_label(c)
+        venue = c.venue
+        lugar = _place_label((getattr(venue, "municipality", "") or ""),
+                             (getattr(venue, "province", "") or ""),
+                             _concert_country_value(c) or "")
+        estado, clase = CONCERT_STATUS_META.get((c.status or "").upper(), ("", "text-bg-light"))
+        an_estado = _announcement_state(c, hoy)
+        an_txt, an_clase = EXT_ANNOUNCE_META.get(an_estado, ("", "wait"))
+        if an_estado == "UPCOMING" and c.announcement_date:
+            an_txt = an_txt % c.announcement_date.strftime("%d/%m")
+        ventas = None
+        if _ext_sees_sales(ctx, c, scope) and _concert_sells_tickets(c):
+            vendidas = int(totals.get(c.id, 0) or 0)
+            aforo = int(_concert_capacity_from_ticket_types(c) or 0)
+            pct = int(round(vendidas * 100.0 / aforo)) if aforo > 0 else 0
+            ventas = {"qty": vendidas, "capacity": aforo, "pct": min(100, max(0, pct)),
+                      "sold_out": bool(getattr(c, "sold_out", False))}
+        filas.append({
+            "id": str(c.id),
+            "url": url_for("externos_activity", cid=c.id),
+            "date": c.date,
+            "cal": _ext_cal_chip(c.date),
+            "past": bool(c.date and c.date < hoy),
+            "kind": kind,
+            "kind_label": _activity_kind_label(kind),
+            "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
+            "title": titulo,
+            "artist": artista,
+            "artist_photo": (getattr(getattr(c, "artist", None), "photo_url", "") or ""),
+            "venue": (getattr(venue, "name", "") or ""),
+            "place": lugar,
+            "status_label": estado,
+            "status_class": clase,
+            "announce_label": an_txt,
+            "announce_class": an_clase,
+            "sales": ventas,
+            "only_roadmap": bool(c.id in scope["roadmap"] and c.id not in scope["artist"]
+                                 and c.id not in scope["promoted"]),
+        })
+    # Lo que VIENE primero (de lo más próximo a lo más lejano) y detrás lo ya pasado (de lo más
+    # reciente hacia atrás). ⚠️ La clave es siempre del MISMO tipo (enteros): mezclando fechas y
+    # números el orden revienta con un TypeError.
+    filas.sort(key=lambda f: (1 if f["past"] else 0,
+                              abs((f["date"] - hoy).days) if f["date"] else 99999))
+    return filas
+
+
+def _ext_promotion_rows(session_db, ctx, *, limit: int = 60) -> list[dict]:
+    """Las PROMOCIONES (prensa) de sus artistas, con sus fechas."""
+    pids = _ext_promotion_ids(session_db, ctx, limit=limit)
+    if not pids:
+        return []
+    filas = []
+    for p in (session_db.query(Promotion).filter(Promotion.id.in_(pids)).all()):
+        acts = (session_db.query(PromotionActivity)
+                .filter(PromotionActivity.promotion_id == p.id)
+                .order_by(PromotionActivity.activity_date.asc().nullslast()).all())
+        primera = next((a.activity_date for a in acts if a.activity_date), None)
+        estado, clase = CONCERT_STATUS_META.get((getattr(p, "promo_status", "") or "").upper(),
+                                                ("", "text-bg-light"))
+        artista = (getattr(getattr(p, "artist", None), "name", "") or "")
+        filas.append({
+            "id": str(p.id),
+            "url": url_for("externos_promotion", promotion_id=p.id),
+            "date": primera,
+            "cal": _ext_cal_chip(primera),
+            "past": bool(primera and primera < today_local()),
+            "kind": "PROMOCION",
+            "kind_label": "Promoción",
+            "icon": "fa-microphone-lines",
+            "title": (getattr(p, "name", "") or "Promoción"),
+            "artist": artista,
+            "artist_photo": (getattr(getattr(p, "artist", None), "photo_url", "") or ""),
+            "venue": "",
+            "place": _promo_dates_label(acts),
+            "status_label": estado, "status_class": clase,
+            "announce_label": "", "announce_class": "",
+            "sales": None, "only_roadmap": False,
+        })
+    filas.sort(key=lambda f: (f["past"], f["date"] or date.max))
+    return filas
+
+
+def _ext_author_rows(session_db, ctx, *, limit: int = 120) -> list[dict]:
+    """SUS OBRAS: en qué canciones consta como autor, con su % y su editorial."""
+    uuids = [to_uuid(str(x)) for x in (ctx.get("ids") or []) if to_uuid(str(x))]
+    if not uuids:
+        return []
+    try:
+        partes = (session_db.query(SongEditorialShare)
+                  .filter(SongEditorialShare.promoter_id.in_(uuids)).limit(limit).all())
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer las obras")
+        return []
+    if not partes:
+        return []
+    canciones = {}
+    for s in (session_db.query(Song)
+              .filter(Song.id.in_([p.song_id for p in partes if p.song_id])).all()):
+        canciones[s.id] = s
+    filas = []
+    for parte in partes:
+        s = canciones.get(parte.song_id)
+        if s is None:
+            continue
+        editorial = ""
+        try:
+            pub = _share_publisher(session_db, parte)
+            editorial = (getattr(pub, "name", "") or "")
+        except Exception:
+            editorial = ""
+        filas.append({
+            "title": (s.title or "—"),
+            # ⚠️ `DEFAULT_COVER_URL` es un global de PLANTILLA, no una variable de módulo: aquí se
+            # pide con el punto único (`_cover_placeholder`), que además trae su respaldo a mano.
+            "cover": (getattr(s, "cover_url", "") or _cover_placeholder()),
+            "artist": ", ".join(_song_artist_name_list(song=s) or []),
+            "date": getattr(s, "release_date", None),
+            "pct": (float(parte.pct) if getattr(parte, "pct", None) is not None else None),
+            "role": (getattr(parte, "role", "") or ""),
+            "publisher": editorial,
+        })
+    filas.sort(key=lambda f: (f["date"] is None, f["date"] or date.min), reverse=True)
+    return filas
+
+
+# ---------- LAS PANTALLAS DEL PORTAL ----------
+def _ext_base(session_db, ctx, **kw) -> dict:
+    """Lo que necesita la cabecera del portal en TODAS sus pantallas."""
+    datos = {
+        "ext": ctx,
+        "ext_tasks": _ext_tasks(session_db, ctx),
+        "ext_profiles": [{"key": k, "label": EXT_PROFILE_LABELS[k], "icon": EXT_PROFILE_ICONS[k]}
+                         for k in (ctx.get("profiles") or [])],
+    }
+    datos.update(kw)
+    return datos
+
+
+@app.get("/externos/inicio", endpoint="externos_home")
+@_ext_required
+def externos_home():
+    """La portada del portal: sus avisos, su calendario y sus actividades."""
+    session_db = db()
+    try:
+        ctx = _ext_context(session_db)
+        if ctx is None:
+            return redirect(url_for("externos_login"))
+        today, start, end = _agenda_window()
+        # ⚠️ A quien no tiene NADA (un proveedor que solo viene a por sus documentos) no se le pinta
+        # un calendario vacío: solo se monta si de verdad hay algo suyo que enseñar.
+        scope = _ext_scope(session_db, ctx)
+        agenda = (_ext_agenda(session_db, ctx, start, end, today)
+                  if (scope["all"] or ctx.get("artist_ids")) else None)
+        filas = _ext_activity_rows(session_db, ctx) + _ext_promotion_rows(session_db, ctx)
+        filas.sort(key=lambda f: (1 if f["past"] else 0,
+                                  abs((f["date"] - today).days) if f["date"] else 99999))
+        return render_template(
+            "externos_home.html",
+            **_ext_base(session_db, ctx,
+                        # ⚠️ NO se puede llamar `agenda`: la plantilla importa el parcial del
+                        # calendario con ese nombre y el import PISA la variable del contexto (el
+                        # calendario salía vacío, con la ventana en 1900).
+                        EXT_AGENDA=agenda,
+                        rows=filas,
+                        obras=(_ext_author_rows(session_db, ctx)
+                               if "AUTHOR" in (ctx.get("profiles") or []) else []),
+                        title="Tu espacio · 33 Producciones"))
+    finally:
+        session_db.close()
+
+
+@app.get("/externos/agenda.json", endpoint="externos_agenda_data")
+@_ext_required
+def externos_agenda_data():
+    """Otra ventana del calendario (las flechas). Solo lo suyo, como la de Inicio."""
+    try:
+        start = parse_date(request.args.get("start") or "")
+        end = parse_date(request.args.get("end") or "")
+    except Exception:
+        return jsonify({"error": "Rango inválido."}), 400
+    if end < start or (end - start).days > 42:
+        return jsonify({"error": "Rango inválido."}), 400
+    session_db = db()
+    try:
+        ctx = _ext_context(session_db)
+        if ctx is None:
+            return jsonify({"error": "Sin sesión."}), 403
+        return jsonify(_ext_agenda(session_db, ctx, start, end, today_local()))
+    finally:
+        session_db.close()
+
+
+@app.get("/externos/actividad/<cid>", endpoint="externos_activity")
+@_ext_required
+def externos_activity(cid):
+    """Una actividad suya: sus datos, cómo va la venta, su cartelería y su hoja de ruta."""
+    session_db = db()
+    try:
+        ctx = _ext_context(session_db)
+        if ctx is None:
+            return redirect(url_for("externos_login"))
+        # ⚠️ `_safe_uuid` (no `to_uuid`): un id que no sea un UUID reventaría con un 500, que es la
+        # pantalla de «cerrado por mantenimiento» para quien lo abre.
+        _cid = _safe_uuid(str(cid))
+        c = session_db.get(Concert, _cid) if _cid else None
+        # ⚠️ La puerta se comprueba AQUÍ, no solo al pintar la lista: con la URL a mano cualquiera
+        # probaría con el id de otra actividad.
+        if c is None or not _ext_can_see_concert(session_db, ctx, c):
+            abort(404)
+        scope = _ext_scope(session_db, ctx)
+        titulo, artista = _ext_concert_label(c)
+        kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
+        hoy = today_local()
+        ventas = None
+        if _ext_sees_sales(ctx, c, scope) and _concert_sells_tickets(c):
+            try:
+                totals, _t, _l, _g, _gt = sales_maps_unified(session_db, hoy, [c.id])
+            except Exception:
+                totals = {}
+            vendidas = int(totals.get(c.id, 0) or 0)
+            aforo = int(_concert_capacity_from_ticket_types(c) or 0)
+            ventas = {"qty": vendidas, "capacity": aforo,
+                      "pct": (min(100, max(0, int(round(vendidas * 100.0 / aforo)))) if aforo else 0),
+                      "sold_out": bool(getattr(c, "sold_out", False)),
+                      "left": max(0, aforo - vendidas) if aforo else 0}
+        # La CARTELERÍA: lo aprobado, con su miniatura y su descarga (por nuestro dominio).
+        carteles, carteles_url = [], ""
+        try:
+            piezas = _concert_artwork_share_assets(session_db, c)
+            if piezas:
+                token = _ensure_concert_artwork_share_token(session_db, c)
+                session_db.commit()
+                carteles = [_artwork_asset_public_row(session_db, c, a, token) for a in piezas]
+                carteles_url = _concert_artwork_share_url(session_db, c)
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[externos] no se pudo leer la cartelería")
+        # La HOJA DE RUTA: la de verdad, en solo lectura (el mismo panel que el enlace público).
+        hojas = []
+        try:
+            activas = _roadmap_kinds(c)
+            for clave, etiqueta, icono in ROADMAP_KINDS:
+                if not activas.get(clave, True):
+                    continue
+                rm = _roadmap_context(session_db, "concert", c)
+                rm["payload"] = _roadmap_payload_for_kind(rm.get("payload") or {}, clave)
+                rm["days"] = _roadmap_days(c, rm["payload"])
+                rm["readonly"] = True
+                rm["kind"] = clave
+                # ⚠️ Solo se enseña la hoja que tiene ALGO suyo: los puntos de agenda se marcan
+                # para una hoja o para las dos, pero el personal y los hoteles son COMUNES, así que
+                # con ellos la TÉCNICA saldría siempre vacía.
+                tiene_puntos = bool(rm["payload"].get("agenda"))
+                comunes = bool(rm["payload"].get("personnel") or rm["payload"].get("hotels"))
+                if tiene_puntos or (clave == "GENERAL" and comunes):
+                    hojas.append({"key": clave, "label": etiqueta, "icon": icono, "rm": rm})
+        except Exception:
+            app.logger.exception("[externos] no se pudo montar la hoja de ruta")
+        return render_template(
+            "externos_activity.html",
+            **_ext_base(session_db, ctx,
+                        c=c, titulo=titulo, artista=artista,
+                        artist_photo=(getattr(getattr(c, "artist", None), "photo_url", "") or ""),
+                        kind=kind, kind_label=_activity_kind_label(kind),
+                        icon=QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
+                        cal=_ext_cal_chip(c.date),
+                        hero_rows=_contract_sheet_hero_rows(c),
+                        status=CONCERT_STATUS_META.get((c.status or "").upper(), ("", "text-bg-light")),
+                        announce=_announcement_state(c, hoy),
+                        announce_meta=EXT_ANNOUNCE_META,
+                        ventas=ventas, carteles=carteles, carteles_url=carteles_url,
+                        hojas=hojas,
+                        title="%s · 33 Producciones" % titulo))
+    finally:
+        session_db.close()
+
+
+@app.get("/externos/promocion/<promotion_id>", endpoint="externos_promotion")
+@_ext_required
+def externos_promotion(promotion_id):
+    """Una promoción de su artista: sus entrevistas y su hoja de ruta."""
+    session_db = db()
+    try:
+        ctx = _ext_context(session_db)
+        if ctx is None:
+            return redirect(url_for("externos_login"))
+        _pid = _safe_uuid(str(promotion_id))
+        p = session_db.get(Promotion, _pid) if _pid else None
+        if p is None or str(p.id) not in [str(x) for x in _ext_promotion_ids(session_db, ctx)]:
+            abort(404)
+        acts_raw = (session_db.query(PromotionActivity)
+                    .options(joinedload(PromotionActivity.media))
+                    .filter(PromotionActivity.promotion_id == p.id)
+                    .order_by(PromotionActivity.activity_date.asc().nullslast()).all())
+        # La MISMA fila que se pinta dentro (medio con su logo, programa, modalidad, ubicación): un
+        # solo sitio que mantener.
+        acts = [_promo_activity_row(a) for a in acts_raw]
+        hojas = []
+        try:
+            rm = _roadmap_context(session_db, "promotion", p)
+            rm["payload"] = _roadmap_payload_for_kind(rm.get("payload") or {}, "GENERAL")
+            rm["days"] = _roadmap_days(p, rm["payload"])
+            rm["readonly"] = True
+            rm["kind"] = "GENERAL"
+            if rm["days"]:
+                hojas.append({"key": "GENERAL", "label": "Hoja de ruta", "icon": "fa-route", "rm": rm})
+        except Exception:
+            app.logger.exception("[externos] no se pudo montar la hoja de ruta de la promoción")
+        primera = next((a.activity_date for a in acts_raw if a.activity_date), None)
+        return render_template(
+            "externos_promotion.html",
+            **_ext_base(session_db, ctx, p=p, acts=acts, hojas=hojas,
+                        cal=_ext_cal_chip(primera),
+                        fechas=_promo_dates_label(acts_raw),
+                        artista=(getattr(getattr(p, "artist", None), "name", "") or ""),
+                        artist_photo=(getattr(getattr(p, "artist", None), "photo_url", "") or ""),
+                        status=CONCERT_STATUS_META.get((getattr(p, "promo_status", "") or "").upper(),
+                                                       ("", "text-bg-light")),
+                        title="%s · 33 Producciones" % (getattr(p, "name", "") or "Promoción")))
+    finally:
+        session_db.close()
+
+
+@app.get("/externos/ficha", endpoint="externos_profile")
+@_ext_required
+def externos_profile():
+    """Su ficha: sus datos y sus DOCUMENTOS, que puede actualizar y completar."""
+    session_db = db()
+    try:
+        ctx = _ext_context(session_db)
+        if ctx is None:
+            return redirect(url_for("externos_login"))
+        p = ctx["promoter"]
+        documentos = _person_documents_for(session_db, "PROMOTER", p.id)
+        return render_template(
+            "externos_profile.html",
+            **_ext_base(session_db, ctx,
+                        p=p,
+                        correos=_ext_promoter_emails(session_db, p.id),
+                        telefonos=_promoter_phone_numbers(session_db, p.id),
+                        identity_fields=_person_identity_fields({
+                            "full_name": {"label": "Nombre", "value": _promoter_display_name(p)},
+                            "tax_id": {"label": "NIF / CIF", "value": (p.tax_id or "")},
+                            "birth_date": {"label": "Fecha de nacimiento", "value": ""},
+                            "contact_email": {"label": "Email", "value": (p.contact_email or "")},
+                            "contact_phone": {"label": "Teléfono", "value": (p.contact_phone or "")},
+                            "address": {"label": "Domicilio", "value": (p.address or "")},
+                            "fiscal_address": {"label": "Dirección fiscal", "value": _fiscal_address_text(p)},
+                        }, documentos),
+                        person_documents=documentos,
+                        person_docs_owner_type="",
+                        person_docs_owner_name=_promoter_display_name(p),
+                        person_docs_owner_id="",
+                        person_docs_save_url=url_for("externos_document_save"),
+                        person_docs_delete_base=url_for("externos_document_delete", doc_id="__ID__"),
+                        person_docs_can_edit=(not ctx.get("preview")),
+                        loyalty_brands=PERSON_LOYALTY_BRANDS,
+                        title="Tu ficha · 33 Producciones"))
+    finally:
+        session_db.close()
+
+
+@app.post("/externos/ficha/documentos/guardar", endpoint="externos_document_save")
+@_ext_required
+def externos_document_save():
+    """Sube o actualiza un documento SUYO (el mismo motor que en la ficha de dentro).
+
+    ⚠️ El dueño lo pone el SERVIDOR con la sesión: no viaja en el formulario, así que no se puede
+    subir un documento a la ficha de otra persona."""
+    session_db = db()
+    try:
+        ctx = _ext_context(session_db, con_perfiles=False)
+        if ctx is None:
+            return jsonify({"ok": False, "error": "Sin sesión."}), 403
+        if ctx.get("preview"):
+            return jsonify({"ok": False, "error": "Estás viendo el portal, no se puede guardar."}), 403
+        payload, aplicados, conflictos = _person_document_save(session_db, "PROMOTER", ctx["promoter"])
+        return jsonify({"ok": True, "document": payload, "applied": aplicados, "conflicts": conflictos})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudo guardar el documento")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/externos/ficha/documentos/<doc_id>/eliminar", endpoint="externos_document_delete")
+@_ext_required
+def externos_document_delete(doc_id):
+    """Elimina un documento SUYO (por ejemplo, para sustituirlo por el nuevo)."""
+    session_db = db()
+    try:
+        ctx = _ext_context(session_db, con_perfiles=False)
+        if ctx is None:
+            return jsonify({"ok": False, "error": "Sin sesión."}), 403
+        if ctx.get("preview"):
+            return jsonify({"ok": False, "error": "Estás viendo el portal, no se puede borrar."}), 403
+        ok = _person_document_delete_one(session_db, "PROMOTER", ctx["promoter"], doc_id)
+        return jsonify({"ok": ok}) if ok else (jsonify({"ok": False, "error": "No encontrado."}), 404)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudo eliminar el documento")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+# ---------- «ACCESO TERCEROS» (la pantalla de dirección) ----------
+# Una pestaña por TIPO de acceso: lo que ve cada uno, quién lo tiene y el botón para VER SU PORTAL
+# tal como lo ve él. Es de dirección: es quien decide a quién se le abre la puerta.
+def _ext_people_by_profile(session_db, profile: str, *, limit: int = 300) -> list:
+    """Los TERCEROS que tienen ese perfil, EN BLOQUE (una consulta por fuente, no una por persona)."""
+    ids = set()
+    try:
+        if profile == "ARTIST":
+            for f in session_db.query(ArtistPerson.promoter_id).filter(
+                    ArtistPerson.promoter_id.isnot(None)).all():
+                ids.add(f[0])
+            for f in session_db.query(ArtistNotificationContact.promoter_id).filter(
+                    ArtistNotificationContact.promoter_id.isnot(None)).all():
+                ids.add(f[0])
+        elif profile == "PROMOTER":
+            for f in session_db.query(Concert.promoter_id).filter(
+                    Concert.promoter_id.isnot(None)).distinct().all():
+                ids.add(f[0])
+            for f in session_db.query(ConcertPromoterShare.promoter_id).distinct().all():
+                ids.add(f[0])
+        elif profile == "AUTHOR":
+            for f in session_db.query(SongEditorialShare.promoter_id).filter(
+                    SongEditorialShare.promoter_id.isnot(None)).distinct().all():
+                ids.add(f[0])
+        elif profile == "THIRD":
+            # ⚠️ TERCEROS lo es cualquiera: listarlos todos no diría nada. Se listan los que YA han
+            # entrado (o lo han intentado) y los que trabajan con nosotros (músicos y técnicos), y
+            # se dice que el resto entra igual con su correo.
+            for f in session_db.query(ExternalAccess.promoter_id).all():
+                ids.add(f[0])
+            for p in session_db.query(Promoter).filter(
+                    Promoter.roles_manual.isnot(None)).limit(1200).all():
+                if {"MUSICIAN", "TECH"} & set(_promoter_manual_roles(p)):
+                    ids.add(p.id)
+    except Exception:
+        app.logger.exception("[acceso terceros] no se pudo listar el perfil %s", profile)
+    if profile in ("PROMOTER", "AUTHOR"):
+        try:
+            clave = {"PROMOTER": "PROMOTER", "AUTHOR": "AUTHOR"}[profile]
+            for p in session_db.query(Promoter).filter(Promoter.roles_manual.isnot(None)).limit(1200).all():
+                if clave in _promoter_manual_roles(p):
+                    ids.add(p.id)
+        except Exception:
+            pass
+    ids = {x for x in ids if x}
+    if not ids:
+        return []
+    filas = (session_db.query(Promoter)
+             .filter(Promoter.id.in_(list(ids)[:1500]))
+             .order_by(func.lower(func.coalesce(Promoter.nick, ""))).limit(limit).all())
+    accesos = {}
+    for a in (session_db.query(ExternalAccess)
+              .filter(ExternalAccess.promoter_id.in_([p.id for p in filas] or [uuid.uuid4()])).all()):
+        accesos[a.promoter_id] = a
+    salida = []
+    for p in filas:
+        correo, telefono = _promoter_email_phone(p)
+        correos = _ext_promoter_emails(session_db, p.id)
+        telefonos = _promoter_phone_numbers(session_db, p.id)
+        acc = accesos.get(p.id)
+        salida.append({
+            "id": str(p.id),
+            "name": _promoter_display_name(p) or (p.nick or "—"),
+            "nick": (p.nick or ""),
+            "photo": (getattr(p, "logo_url", "") or ""),
+            "email": (correos[0] if correos else correo),
+            "phone": (telefonos[0] if telefonos else telefono),
+            "can_enter": bool(correos or telefonos),
+            "blocked": bool(getattr(acc, "blocked", False)),
+            "last_login": (acc.last_login_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                           if (acc is not None and acc.last_login_at) else ""),
+            "logins": int(getattr(acc, "login_count", 0) or 0),
+            "url": url_for("promoter_detail_view", pid=p.id),
+        })
+    return salida
+
+
+@app.get("/acceso-terceros", endpoint="external_access_view")
+@admin_required
+def external_access_view():
+    """Lo que ve cada tipo de acceso y quién lo tiene. Solo dirección."""
+    if not is_master():
+        return forbid("«Acceso terceros» es solo de dirección.")
+    tipo = (request.args.get("tipo") or "ARTIST").strip().upper()
+    if tipo not in EXT_PROFILE_LABELS:
+        tipo = "ARTIST"
+    session_db = db()
+    try:
+        abiertos = _ext_types_enabled()
+        gente = _ext_people_by_profile(session_db, tipo)
+        buscar = (request.args.get("q") or "").strip()
+        resultados = []
+        if buscar:
+            try:
+                q = session_db.query(Promoter).filter(_promoter_search_clause(session_db, buscar))
+                for p in q.order_by(func.lower(func.coalesce(Promoter.nick, ""))).limit(20).all():
+                    correos = _ext_promoter_emails(session_db, p.id)
+                    resultados.append({"id": str(p.id), "name": _promoter_display_name(p) or (p.nick or "—"),
+                                       "photo": (getattr(p, "logo_url", "") or ""),
+                                       "email": (correos[0] if correos else ""),
+                                       "profiles": [EXT_PROFILE_LABELS[k]
+                                                    for k in _ext_profiles(session_db, [p.id])]})
+            except Exception:
+                app.logger.exception("[acceso terceros] no se pudo buscar")
+        return render_template(
+            "acceso_terceros.html",
+            tipo=tipo, perfiles=EXT_PROFILES, abiertos=abiertos,
+            modulos=EXT_PROFILE_MODULES.get(tipo, []),
+            gente=gente, buscar=buscar, resultados=resultados,
+            portal_url=_external_url_for("externos_login"),
+            sms_ok=_sms_available(),
+            title="Acceso terceros")
+    finally:
+        session_db.close()
+
+
+@app.post("/acceso-terceros/tipo", endpoint="external_access_type_toggle")
+@admin_required
+def external_access_type_toggle():
+    """Abre o cierra un TIPO de acceso entero (solo dirección)."""
+    if not is_master():
+        return forbid("«Acceso terceros» es solo de dirección.")
+    clave = (request.form.get("tipo") or "").strip().upper()
+    if clave not in EXT_PROFILE_LABELS:
+        flash("Ese tipo de acceso no existe.", "warning")
+        return redirect(url_for("external_access_view"))
+    abiertos = set(_ext_types_enabled())
+    if (request.form.get("valor") or "") == "1":
+        abiertos.add(clave)
+    else:
+        abiertos.discard(clave)
+    _set_app_setting(EXT_ACCESS_TYPES_SETTING, ",".join(sorted(abiertos)) or "NINGUNO")
+    flash("Listo: «%s» %s." % (EXT_PROFILE_LABELS[clave],
+                               "ya puede entrar" if clave in abiertos else "ya no entra"), "success")
+    return redirect(url_for("external_access_view", tipo=clave))
+
+
+@app.post("/acceso-terceros/<pid>/bloquear", endpoint="external_access_block")
+@admin_required
+def external_access_block(pid):
+    """Le cierra (o le vuelve a abrir) la puerta a UNA persona."""
+    if not is_master():
+        return forbid("«Acceso terceros» es solo de dirección.")
+    session_db = db()
+    try:
+        p = session_db.get(Promoter, _safe_uuid(str(pid)))
+        if p is None:
+            abort(404)
+        fila = _ext_access_row(session_db, p.id, create=True)
+        bloquear = (request.form.get("valor") or "") == "1"
+        fila.blocked = bloquear
+        fila.blocked_at = _now_madrid() if bloquear else None
+        fila.blocked_by_nick = ((_current_user_state() or {}).get("nick") or "") if bloquear else None
+        session_db.commit()
+        flash("%s ya %s entrar." % (_promoter_display_name(p) or "Esa persona",
+                                    "NO puede" if bloquear else "puede"), "success")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[acceso terceros] no se pudo cambiar el acceso")
+        flash("No se pudo cambiar el acceso.", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.referrer or url_for("external_access_view"))
+
+
+@app.get("/acceso-terceros/<pid>/ver", endpoint="external_access_preview")
+@admin_required
+def external_access_preview(pid):
+    """VER EL PORTAL de esa persona, tal como lo ve ella (solo dirección).
+
+    ⚠️ No toca su sesión de dirección: se añaden las claves del portal a la MISMA sesión y se marca
+    como previsualización, así que sigue siendo de solo lectura y al salir se vuelve aquí."""
+    if not is_master():
+        return forbid("«Acceso terceros» es solo de dirección.")
+    session_db = db()
+    try:
+        p = session_db.get(Promoter, _safe_uuid(str(pid)))
+        if p is None:
+            abort(404)
+        _ext_session_start([p])
+        session["ext_preview"] = True
+        return redirect(url_for("externos_home"))
+    finally:
+        session_db.close()
+
 
 # ⚠️⚠️ LAS EXENCIONES DE CSRF VAN AL FINAL DEL FICHERO, cuando ya están registradas TODAS las
 # rutas: se aplican buscando la view function en `app.view_functions`, así que un endpoint definido

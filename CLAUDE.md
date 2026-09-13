@@ -1263,11 +1263,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto de la ficha (`date_state`, `production`, `materials_recipients`,
   `promoters`, `production_people`, `has_audio`) hay que quitarlo del contexto de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
-  · **PENDIENTE (siguientes lotes)**: subir demo vinculada al proyecto · portada (nosotros / artista /
-  tercero, con foto, idea, solicitud, PSD+JPG y **aprobación del artista**) · otras creatividades
-  (encargo a diseño con formatos y tamaños) · **IDs** de plataformas (subirlos o pedírselos al
-  artista) · **plan de lanzamiento** (estrategia, acciones, marketing, promoción, contenidos y
-  cronograma, con el OK de dirección y sello y los **recordatorios de publicación**).
+  · Los lotes que quedaban de aquí (la demo vinculada al proyecto, la portada con su aprobación, las
+  creatividades, los IDs de plataforma y el plan de lanzamiento con sus recordatorios) **ya están
+  hechos**: ver sus apartados «PROYECTO · …» más abajo.
 
 - ⚠️⚠️ **EL CORREO DE UN TERCERO ES `contact_email`, NO `email`** (bug real, ago 2026). En
   `Promoter` los campos son **`contact_email`** y **`contact_phone`**: `p.email` y `p.phone` **no
@@ -8435,7 +8433,7 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️⚠️ **La pestaña ARCHIVADAS colgaba de un `{% else %}`**, así que al añadir pestañas nuevas el
   archivo se pintaba **debajo de ellas** (visto en pantalla). Ahora es `{% elif tab == 'archivadas' %}`:
   una pestaña nueva no puede heredar el contenido de otra.
-  · **PENDIENTE (siguiente lote)**: los **RIDERS** por secciones.
+  · Los **RIDERS** por secciones **ya están hechos**: ver «PRODUCCIÓN · RIDERS, POR SECCIONES».
 
 - ⚠️⚠️ **PERSONAL DE LA HOJA DE RUTA · QUIÉN VA, CON QUÉ FUNCIÓN Y CON QUÉ DATOS** (sep 2026).
   ⚠️⚠️ **Los datos de una persona NO se duplican aquí**: viven en su ficha (un tercero, alguien de

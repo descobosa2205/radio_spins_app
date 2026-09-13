@@ -89,13 +89,15 @@
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" enctype="multipart/form-data" id="newMediaForm">
-        <div class="modal-header">
-          <h5 class="modal-title">Nuevo medio</h5>
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-newspaper me-2"></i>Nuevo medio</h5>
+          <ol class="sw-head__steps" id="mediaHeadSteps"></ol>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+          <div class="sw-progress" id="mediaProgress"></div>
           <div class="media-step" data-step="1">
-            <h6 class="mb-3">1. ¿Qué tipo de medio es?</h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-newspaper me-2 text-danger"></i>¿Qué tipo de medio es?</div>
             <div class="row g-3">
               {% for media_type in media_types %}
                 <div class="col-6 col-md-4 col-lg-2">
@@ -124,7 +126,7 @@
           </div>
           <div class="media-step d-none" data-step="2">
             <div class="d-flex justify-content-between align-items-center mb-3">
-              <h6 class="m-0">2. Contactos del medio</h6>
+              <div class="sw-step__q m-0"><i class="fa fa-address-book me-2 text-danger"></i>Contactos del medio</div>
               <button type="button" class="btn btn-sm btn-outline-secondary" id="addMediaContactRow"><i class="fa fa-plus me-1"></i>Añadir contacto</button>
             </div>
             <div id="mediaContactRows">
@@ -139,14 +141,10 @@
             </div>
           </div>
         </div>
-        <div class="modal-footer justify-content-between">
-          <div>
-            <button type="button" class="btn btn-outline-secondary d-none" id="mediaPrevStep">Volver</button>
-          </div>
-          <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-primary" id="mediaNextStep">Siguiente</button>
-            <button type="submit" class="btn btn-primary d-none" id="mediaSubmitButton">Crear medio</button>
-          </div>
+        <div class="modal-footer sw-foot">
+          <button type="button" class="btn btn-link px-0 me-auto d-none" id="mediaPrevStep"><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+          <button type="button" class="btn btn-outline-secondary" id="mediaNextStep">Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button type="submit" class="btn btn-danger d-none" id="mediaSubmitButton"><i class="fa fa-check me-1"></i>Crear medio</button>
         </div>
       </form>
     </div>
@@ -203,6 +201,12 @@
     prevBtn.classList.toggle('d-none', currentStep === 1);
     nextBtn.classList.toggle('d-none', currentStep === 2);
     submitBtn.classList.toggle('d-none', currentStep !== 2);
+    /* la cabecera roja con un icono por paso y las pastillas (el pintor común de la casa) */
+    if (window.app33WizHead) {
+      const items = [{title:'Tipo de medio', icon:'fa-newspaper'}, {title:'Contactos', icon:'fa-address-book'}];
+      window.app33WizHead.paint(document.getElementById('mediaHeadSteps'), items, currentStep - 1, (k) => { currentStep = k + 1; syncSteps(); });
+      window.app33WizHead.pills(document.getElementById('mediaProgress'), items.length, currentStep - 1);
+    }
   }
   nextBtn?.addEventListener('click', () => { currentStep = 2; syncSteps(); });
   prevBtn?.addEventListener('click', () => { currentStep = 1; syncSteps(); });

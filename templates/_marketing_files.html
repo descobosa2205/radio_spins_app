@@ -115,7 +115,7 @@
           action="{{ url_for('marketing_file_upload', promotion_id=promotion.id) }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
       <input type="hidden" name="kind" value="{{ mf.kind }}">
-      <div class="modal-header"><h5 class="modal-title">
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i>
         Subir {{ 'testigos' if es_testigo else 'materiales' }}</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">

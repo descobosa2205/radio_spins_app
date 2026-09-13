@@ -8,10 +8,11 @@
 
 {# ============================ AÑADIR SUPERVISOR ============================ #}
 <div class="modal fade" id="supNewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <h5 class="modal-title"><i class="fa fa-user-tie me-2"></i>Añadir supervisor</h5>
+        <ol class="sw-head__steps" data-sup-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="{{ url_for('sync_supervisor_save') }}" id="supNewForm">
@@ -22,16 +23,16 @@
         <div class="modal-body">
 
           {# ---------- PASO 1: quién es ---------- #}
-          <div data-sup-step="1">
-            <label class="form-label fw-semibold">¿Quién es? Búscalo en la base de terceros</label>
+          <div data-sup-step="1" data-sw-head="Quién es" data-sw-icon="fa-user">
+            <div class="sw-step__q"><i class="fa fa-user me-2 text-danger"></i>¿Quién es?</div>
+            <div class="sw-step__h">Búscalo en la base de terceros. Si no está, al final de la lista puedes crearlo con lo que hayas escrito.</div>
             <input type="search" class="form-control" data-sup-search autocomplete="off"
                    placeholder="Escribe su nombre, su email o su teléfono…">
-            <div class="form-text">Si no está, al final de la lista puedes crearlo con lo que hayas escrito.</div>
             <div class="mt-2" data-sup-results></div>
           </div>
 
           {# ---------- PASO 2: los campos de Syncro ---------- #}
-          <div data-sup-step="2" class="d-none">
+          <div data-sup-step="2" class="d-none" data-sw-head="Datos de Syncro" data-sw-icon="fa-sliders">
             <div class="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
               <img data-sup-chosen-photo class="pi-avatar" src="" alt="" data-avatar="1">
               <div class="min-w-0">
@@ -131,16 +132,17 @@
 
 {# ============================ SUBIR DESDE FICHERO ============================ #}
 <div class="modal fade" id="supImportModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <h5 class="modal-title"><i class="fa fa-file-arrow-up me-2"></i>Subir supervisores desde un fichero</h5>
+        <ol class="sw-head__steps" data-si-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
 
         {# ---------- PASO 1: el fichero ---------- #}
-        <div data-si-step="1">
+        <div data-si-step="1" data-sw-head="Fichero" data-sw-icon="fa-file-excel">
           <label class="pi-drop" for="supImportFile" role="button" tabindex="0" data-si-drop data-file-drop="off">
             <i class="fa fa-file-excel pi-drop__icon"></i>
             <div>Arrastra aquí el <strong>Excel (.xlsx)</strong> o el <strong>CSV</strong>, o pincha para elegirlo</div>
@@ -151,7 +153,7 @@
         </div>
 
         {# ---------- PASO 2: las columnas ---------- #}
-        <div data-si-step="2" class="d-none">
+        <div data-si-step="2" class="d-none" data-sw-head="Columnas" data-sw-icon="fa-table-columns">
           <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
             <div><strong data-si-file></strong> <span class="text-muted small" data-si-count></span></div>
             <button type="button" class="btn btn-sm btn-outline-secondary" data-si-restart>
@@ -170,7 +172,7 @@
         </div>
 
         {# ---------- PASO 3: el resultado ---------- #}
-        <div data-si-step="3" class="d-none">
+        <div data-si-step="3" class="d-none" data-sw-head="Resultado" data-sw-icon="fa-list-check">
           <div data-si-result></div>
         </div>
       </div>

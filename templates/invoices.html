@@ -503,7 +503,7 @@
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" enctype="multipart/form-data">
-        <div class="modal-header"><h5 class="modal-title">Nueva factura</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-file-invoice me-2"></i>Nueva factura</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="row g-3">
             <div class="col-md-3"><label class="form-label">Tipo</label><select name="invoice_kind" class="form-select">{% for value, label in invoice_kinds %}<option value="{{ value }}" {% if value == tab %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>

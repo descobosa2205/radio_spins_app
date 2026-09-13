@@ -3,10 +3,11 @@
    "Actividad" reabre el asistente de concierto existente (en /conciertos con el artista preseleccionado).
    Variables de contexto opcionales: `agenda_add_artist` (dict id/name) y `agenda_add_artists` (lista). #}
 <div class="modal fade" id="agendaAddModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-plus text-danger me-2"></i>Añadir al calendario</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-calendar-plus me-2"></i>Añadir al calendario</h5>
+        <ol class="sw-head__steps" id="agendaHeadSteps"></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body" id="agendaAddBody"
@@ -125,6 +126,12 @@
 
   function show(step) {
     Object.keys(steps).forEach(function (k) { steps[k].classList.toggle('d-none', k !== step); });
+    /* la cabecera roja con un icono por paso (el pintor común de la casa): artista · tipo · datos */
+    if (window.app33WizHead) {
+      var items = [{title:'Calendario', icon:'fa-guitar'}, {title:'Tipo', icon:'fa-shapes'}, {title:'Datos', icon:'fa-pen'}];
+      var idx = step === 'artist' ? 0 : (step === 'type' ? 1 : 2);
+      window.app33WizHead.paint(modalEl.querySelector('#agendaHeadSteps'), items, idx, function (k) { show(k === 0 ? 'artist' : 'type'); });
+    }
   }
   function setArtist(id, name) {
     artistId = id || ''; artistName = name || '';

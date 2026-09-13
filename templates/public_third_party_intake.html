@@ -89,6 +89,10 @@
           data-submit-url="{{ url_for('public_intake_submit', token=token) }}"
           data-identify-url="{{ url_for('public_intake_identify', token=token) }}"
           data-upload-url="{{ url_for('public_intake_upload', token=token) }}">
+      <div class="card-header sw-head d-flex">
+        <h5 class="modal-title mb-0"><i class="fa fa-id-card me-2"></i>{{ 'Actualiza tus datos' if kind == 'UPDATE' else 'Alta en nuestra base de datos' }}</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
+      </div>
       <div class="card-body">
         <div data-sw-progress class="mb-3"></div>
 
@@ -265,11 +269,11 @@
       </div>
 
       <div class="card-footer d-flex justify-content-between align-items-center gap-2">
-        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Anterior</button>
-        {# ms-auto: en el primer paso «Anterior» está oculto y si no los botones se irían a la izquierda. #}
+        <button type="button" class="btn btn-link px-0" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        {# ms-auto: en el primer paso «Atrás» está oculto y si no los botones se irían a la izquierda. #}
         <div class="d-flex gap-2 ms-auto">
-          <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
-          <button type="submit" class="btn btn-primary" data-sw-submit>
+          <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button type="submit" class="btn btn-danger" data-sw-submit>
             <i class="fa fa-check me-1"></i>{{ 'Guardar mis datos' if kind == 'UPDATE' else 'Darme de alta' }}
           </button>
         </div>

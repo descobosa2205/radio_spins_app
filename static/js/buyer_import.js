@@ -49,6 +49,8 @@
         el.classList.toggle('d-none', el.getAttribute('data-bi-step') !== name);
       });
       error('');
+      /* la cabecera roja con un icono por paso (el pintor común de la casa) */
+      if (window.app33WizHead) window.app33WizHead.fromSteps(q('[data-bi-steps]'), qa('[data-bi-step]'), q('[data-bi-step="' + name + '"]'));
     }
 
     function post(url, payload) {

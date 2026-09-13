@@ -13,7 +13,6 @@
   .sim-pick__sub{ font-size:.8rem; color:#6c757d; }
   .sim-pick input:checked + .sim-pick__box{ border-color:var(--brand-primary,#E33D48); box-shadow:0 0 0 .15rem rgba(227,61,72,.15); }
   .sim-pick__box:hover{ border-color:var(--brand-accent,#007CA2); }
-  .wiz-title{ font-weight:700; margin-bottom:1rem; }
   .sim-partner-img{ height:34px; max-width:110px; object-fit:contain; background:transparent; }
   .sim-partner-img--ph{ display:inline-flex; align-items:center; justify-content:center; width:34px; background:transparent; color:#adb5bd; }
   .sim-step-dots{ display:flex; gap:.35rem; }
@@ -157,24 +156,20 @@
 {# ============================ ASISTENTE NUEVA SIMULACIÓN ============================ #}
 {% if CAN_EDIT %}
 <div class="modal fade" id="simWizardModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <form id="simWizardForm" method="post" action="{{ url_for('simulation_create') }}">
-        <div class="modal-header">
-          <h5 class="modal-title">Nueva simulación</h5>
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-calculator me-2"></i>Nueva simulación</h5>
+          <ol class="sw-head__steps" id="simHeadSteps"></ol>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
         <div class="modal-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <span class="text-muted small" id="simStepLabel">Paso 1 de 5</span>
-            <div class="sim-step-dots" id="simStepDots">
-              <span class="active"></span><span></span><span></span><span></span><span></span>
-            </div>
-          </div>
+          <div class="sw-progress" id="simStepDots"></div>
 
           {# Paso 1: empresa que gestiona #}
           <section class="wizard-step" data-step="1">
-            <h6 class="wiz-title">¿Qué empresa del grupo gestiona el evento?</h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-building me-2 text-danger"></i>¿Qué empresa del grupo gestiona el evento?</div>
             {% if companies %}
               <div class="sim-card-grid">
                 {% for c in companies %}
@@ -195,7 +190,7 @@
 
           {# Paso: ¿artista o evento? #}
           <section class="wizard-step d-none" data-step="6">
-            <h6 class="wiz-title">¿La simulación es de un artista o de un evento?</h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-shapes me-2 text-danger"></i>¿La simulación es de un artista o de un evento?</div>
             <div class="sim-card-grid sim-card-grid--2">
               <label class="sim-pick">
                 <input type="radio" name="subject_kind" value="ARTIST" class="d-none wiz-subject-radio">
@@ -210,7 +205,7 @@
 
           {# Paso: evento (buscar o crear) #}
           <section class="wizard-step d-none" data-step="7">
-            <h6 class="wiz-title">¿De qué evento es la simulación?</h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-calendar-day me-2 text-danger"></i>¿De qué evento es la simulación?</div>
             <div class="d-flex gap-2 align-items-end">
               <div class="flex-grow-1">
                 <label class="form-label">Evento</label>
@@ -223,7 +218,7 @@
 
           {# Paso 3: artista #}
           <section class="wizard-step d-none" data-step="3">
-            <h6 class="wiz-title">¿De qué artista es la simulación?</h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-guitar me-2 text-danger"></i>¿De qué artista es la simulación?</div>
             <div class="d-flex gap-2 align-items-end">
               <div class="flex-grow-1">
                 <label class="form-label">Artista</label>
@@ -241,7 +236,7 @@
 
           {# Paso 2: qué simular #}
           <section class="wizard-step d-none" data-step="2">
-            <h6 class="wiz-title">¿Qué quieres simular?</h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-sliders me-2 text-danger"></i>¿Qué quieres simular?</div>
             <div class="sim-card-grid sim-card-grid--2">
               <label class="sim-pick">
                 <input type="radio" name="kind" value="CONCERT" class="d-none wiz-kind-radio">
@@ -264,7 +259,7 @@
 
           {# Paso 4: fecha y recinto #}
           <section class="wizard-step d-none" data-step="4">
-            <h6 class="wiz-title">Fecha y recinto <span class="text-muted small fw-normal" id="wizStep4Note"></span></h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-location-dot me-2 text-danger"></i>Fecha y recinto <span class="text-muted small fw-normal" id="wizStep4Note"></span></div>
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label">Fecha</label>
@@ -290,7 +285,7 @@
 
           {# Paso 5: socios #}
           <section class="wizard-step d-none" data-step="5">
-            <h6 class="wiz-title">Socios y reparto</h6>
+            <div class="sw-step__q mb-3"><i class="fa fa-handshake me-2 text-danger"></i>Socios y reparto</div>
             <div class="row g-2 align-items-end mb-3">
               <div class="col">
                 <label class="form-label">Añadir socio (tercero)</label>
@@ -310,10 +305,10 @@
             </div>
           </section>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary d-none" id="wizPrev"><i class="fa fa-arrow-left me-1"></i>Anterior</button>
-          <button type="button" class="btn btn-primary" id="wizNext">Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
-          <button type="submit" class="btn btn-success d-none" id="wizSubmit"><i class="fa fa-check me-1"></i>Crear simulación</button>
+        <div class="modal-footer sw-foot">
+          <button type="button" class="btn btn-link px-0 me-auto d-none" id="wizPrev"><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+          <button type="button" class="btn btn-outline-secondary" id="wizNext">Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button type="submit" class="btn btn-danger d-none" id="wizSubmit"><i class="fa fa-check me-1"></i>Crear simulación</button>
         </div>
       </form>
     </div>
@@ -353,9 +348,17 @@
     var last = idx === SEQ.length - 1;
     nextBtn.classList.toggle('d-none', last);
     submitBtn.classList.toggle('d-none', !last);
-    stepLabel.textContent = 'Paso ' + (idx+1) + ' de ' + SEQ.length;
-    dotsHost.innerHTML = '';
-    SEQ.forEach(function(_s, i){ var sp = document.createElement('span'); if(i <= idx) sp.className = 'active'; dotsHost.appendChild(sp); });
+    if(stepLabel) stepLabel.textContent = 'Paso ' + (idx+1) + ' de ' + SEQ.length;
+    /* la cabecera roja con un icono por paso y las pastillas (el pintor común de la casa) */
+    var META = {1:{title:'Empresa', icon:'fa-building'}, 6:{title:'De quién', icon:'fa-shapes'}, 7:{title:'Evento', icon:'fa-calendar-day'},
+                3:{title:'Artista', icon:'fa-guitar'}, 2:{title:'Qué simular', icon:'fa-sliders'}, 4:{title:'Fecha y recinto', icon:'fa-location-dot'}, 5:{title:'Socios', icon:'fa-handshake'}};
+    if(window.app33WizHead){
+      window.app33WizHead.pills(dotsHost, SEQ.length, idx);
+      window.app33WizHead.paint(document.getElementById('simHeadSteps'), SEQ.map(function(s){ return META[s] || {title:'Paso', icon:'fa-circle'}; }), idx, function(k){ var s = seq()[k]; if(s !== undefined) showStep(s); });
+    } else if(dotsHost){
+      dotsHost.innerHTML = '';
+      SEQ.forEach(function(_s, i){ var sp = document.createElement('span'); sp.className = 'sw-pill' + (i === idx ? ' active' : (i < idx ? ' done' : '')); dotsHost.appendChild(sp); });
+    }
     if(n === 5){ ensureCompanyPartner(); initPartnerSearch(); }
     if(n === 4){ initVenueSearch(); }
     if(n === 7){ initEventSearch(); }

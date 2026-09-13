@@ -6,23 +6,25 @@
       SIN ENVIAR sobre lo mismo se avisa: seguir con esa o crear otra (una ya enviada no cuenta).
    Al terminar se crea en borrador y se abre el editor. El JS vive en static/js/press_list.js. #}
 <div class="modal fade" id="pressCreateModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content" data-pr-wizard{% if press_prefill %} data-prw-prefill="{{ press_prefill|tojson|forceescape }}"{% endif %}
          data-url-about="{{ url_for('promo_press_about_options') }}"
          data-url-create="{{ url_for('promo_press_create') }}"
          data-url-templates="{{ url_for('promo_press_templates') }}">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <div>
-          <h5 class="modal-title"><i class="fa fa-newspaper me-2 text-danger"></i>Nueva nota de prensa</h5>
+          <h5 class="modal-title"><i class="fa fa-newspaper me-2"></i>Nueva nota de prensa</h5>
           <div class="text-muted small" data-prw-sub>¿De quién es la nota? Salen los que tienen algo activo y las empresas del grupo; puedes elegir varios artistas.</div>
         </div>
+        <ol class="sw-head__steps" data-prw-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="alert alert-danger d-none" data-prw-error></div>
 
         {# ── Paso 1 · de quién ── #}
-        <div data-prw-step="subject">
+        <div data-prw-step="subject" data-sw-head="De quién" data-sw-icon="fa-guitar">
+          <div class="sw-step__q mb-2"><i class="fa fa-guitar me-2 text-danger"></i>¿De quién es la nota de prensa?</div>
           <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
             <input type="search" class="form-control form-control-sm" style="max-width:20rem" placeholder="Buscar artista, evento, gira, ciclo o empresa…" data-prw-search>
             <span class="text-muted small ms-auto" data-prw-picked-label>Nadie elegido todavía</span>
@@ -50,12 +52,12 @@
               <i class="fa fa-ellipsis me-1"></i>Ver más artistas, eventos, giras, ciclos y empresas ({{ prw_ocultos }})</button>
           </div>
           <div class="d-flex justify-content-end mt-3">
-            <button class="btn btn-primary" type="button" data-prw-next disabled>Siguiente <i class="fa fa-arrow-right ms-1"></i></button>
+            <button class="btn btn-outline-secondary" type="button" data-prw-next disabled>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
           </div>
         </div>
 
         {# ── Paso 2 · sobre qué ── #}
-        <div class="d-none" data-prw-step="about">
+        <div class="d-none" data-prw-step="about" data-sw-head="Sobre qué" data-sw-icon="fa-bullseye">
           <div class="sw-step__q mb-1"><i class="fa fa-bullseye me-2 text-danger"></i>¿Sobre qué es la nota de prensa?</div>
           <div class="sw-step__h">Al elegir el tipo salen las opciones para dejarla configurada.</div>
           <div class="promo-pick-grid promo-pick-grid--kinds mb-3" data-prw-kinds>
@@ -84,8 +86,8 @@
             </div>
           </div>
           <div class="d-flex justify-content-between mt-3">
-            <button class="btn btn-outline-secondary" type="button" data-prw-back>Atrás</button>
-            <button class="btn btn-success" type="button" data-prw-create disabled><i class="fa fa-pen-ruler me-1"></i>Crear la nota y diseñarla</button>
+            <button class="btn btn-link px-0" type="button" data-prw-back><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+            <button class="btn btn-danger" type="button" data-prw-create disabled><i class="fa fa-pen-ruler me-1"></i>Crear la nota y diseñarla</button>
           </div>
         </div>
       </div>

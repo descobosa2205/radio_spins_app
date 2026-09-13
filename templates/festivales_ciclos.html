@@ -58,11 +58,12 @@
 
 {# ===== Modal nuevo ciclo / festival ===== #}
 <div class="modal fade" id="cfModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('cycle_festival_create') }}" data-step-wizard
           data-autosave="alta-ciclo" data-autosave-title="Nuevo ciclo o festival">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <h5 class="modal-title"><i class="fa {{ 'fa-masks-theater' if only_events else 'fa-star' }} me-2"></i>{{ 'Nueva gira o ciclo de un evento' if only_events else 'Nuevo ciclo / festival' }}</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -178,11 +179,10 @@
           <textarea class="form-control" name="notes" rows="3"></textarea>
         </section>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-outline-primary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
-        <button type="button" class="btn btn-primary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
-        <button type="submit" class="btn btn-primary" data-sw-submit><i class="fa fa-floppy-disk me-1"></i>Crear</button>
+      <div class="modal-footer sw-foot">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button class="btn btn-danger" type="submit" data-sw-submit><i class="fa fa-check me-1"></i>Crear</button>
       </div>
     </form>
   </div>

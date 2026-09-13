@@ -62,8 +62,8 @@
     <form class="modal-content" method="post" enctype="multipart/form-data"
           action="{{ url_for('brand_logo_save', owner_type=logos.owner_type, owner_id=logos.owner_id) }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-shapes me-2 text-danger"></i>Añadir versión del logotipo</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-shapes me-2"></i>Añadir versión del logotipo</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">

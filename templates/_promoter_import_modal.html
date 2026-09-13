@@ -4,7 +4,7 @@
    eligiendo en cada campo qué se queda (o conservar los dos, poniéndoles nombre).
    Los datos van en `data-*` y el JS vive en static/js/promoter_import.js. #}
 <div class="modal fade" id="promoterImportModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content" data-promoter-import
          data-url-analyze="{{ url_for('promoters_import_analyze') }}"
          data-url-prepare="{{ url_for('promoters_import_prepare') }}"
@@ -13,11 +13,12 @@
          data-url-merge="{{ url_for('promoters_import_merge', pid='__PID__') }}"
          data-target-ignore="{{ import_target_ignore }}"
          data-target-alt="{{ import_target_alt }}">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <div>
-          <h5 class="modal-title">Añadir terceros desde un fichero</h5>
+          <h5 class="modal-title"><i class="fa fa-file-import me-2"></i>Añadir terceros desde un fichero</h5>
           <div class="text-muted small" data-pi-subtitle>Excel (.xlsx) o CSV. Se detectan las columnas solas.</div>
         </div>
+        <ol class="sw-head__steps" data-pi-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
 
@@ -25,7 +26,7 @@
         <div class="alert alert-danger d-none" data-pi-error></div>
 
         {# ── Paso 1: el fichero ─────────────────────────────────────────────────────── #}
-        <div data-pi-step="file">
+        <div data-pi-step="file" data-sw-head="Fichero" data-sw-icon="fa-file-import">
           <label class="pi-drop" for="promoterImportFile" role="button" tabindex="0"
                  data-file-drop-for="#promoterImportFile">
             <i class="fa fa-file-import pi-drop__icon"></i>
@@ -43,7 +44,7 @@
         </div>
 
         {# ── Paso 2: las columnas ───────────────────────────────────────────────────── #}
-        <div class="d-none" data-pi-step="columns">
+        <div class="d-none" data-pi-step="columns" data-sw-head="Columnas" data-sw-icon="fa-table-columns">
           <div class="alert alert-warning py-2 px-3 small d-none" data-pi-unknown></div>
           <div class="table-responsive">
             <table class="table table-sm align-middle pi-cols">
@@ -66,7 +67,7 @@
         </div>
 
         {# ── Paso 3: el resumen ─────────────────────────────────────────────────────── #}
-        <div class="d-none" data-pi-step="summary">
+        <div class="d-none" data-pi-step="summary" data-sw-head="Resumen" data-sw-icon="fa-list-check">
           {# Cuántos terceros trae el fichero y cuántas COINCIDENCIAS se han encontrado: es lo
              primero que hay que ver antes de decidir nada. #}
           <div class="pi-total mb-3" data-pi-total></div>
@@ -130,7 +131,7 @@
         </div>
 
         {# ── Paso 4: pantalla partida, uno a uno ────────────────────────────────────── #}
-        <div class="d-none" data-pi-step="merge">
+        <div class="d-none" data-pi-step="merge" data-sw-head="Coincidencias" data-sw-icon="fa-code-merge">
           <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
             <div class="d-flex align-items-center gap-2">
               <img class="pi-avatar" data-pi-merge-logo src="" alt="">

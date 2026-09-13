@@ -7,14 +7,15 @@
 {% import '_promo_activity_fields.html' as pf with context %}
 {% set creator = promo_creator_datasets or {} %}
 <div class="modal fade" id="promoCreateModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('promo_create') }}" id="promoCreateForm"
           data-step-wizard data-sw-mode="ACTION" data-promo-form>
       <input type="hidden" name="next" value="{{ url_for('promo_view', tab='activas') }}">
       <input type="hidden" name="subject_id" id="promoSubjectId">
       <input type="hidden" name="subject_type" id="promoSubjectType" value="ARTIST">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <h5 class="modal-title"><i class="fa fa-microphone-lines me-2"></i>Nueva promoción</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -169,13 +170,10 @@
           <div class="alert alert-light border mt-3 mb-0" id="promoSummary"></div>
         </section>
       </div>
-      <div class="modal-footer d-flex justify-content-between">
-        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Anterior</button>
-        <div class="d-flex gap-2">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
-          <button class="btn btn-primary" data-sw-submit><i class="fa fa-check me-1"></i>Crear promoción</button>
-        </div>
+      <div class="modal-footer sw-foot">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button class="btn btn-danger" data-sw-submit><i class="fa fa-check me-1"></i>Crear promoción</button>
       </div>
     </form>
   </div>

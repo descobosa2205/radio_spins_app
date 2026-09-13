@@ -1327,7 +1327,7 @@
 <div class="modal fade" id="addArtistModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
     <form method="post" action="{{ url_for('simulation_lineup_add', sid=sim.id) }}">
-      <div class="modal-header"><h5 class="modal-title">Añadir artista al festival</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-guitar me-2"></i>Añadir artista al festival</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <label class="form-label">Artista</label>
         <div class="d-flex gap-2"><select name="artist_id" id="lineupArtist" class="form-select select-artists" style="flex:1;min-width:0;"><option value="">— Selecciona —</option>{% for a in all_artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>{% endfor %}</select><button type="button" class="btn btn-outline-secondary flex-shrink-0" data-quick-create="artist" data-target="lineupArtist" title="Crear artista"><i class="fa fa-plus"></i></button></div>

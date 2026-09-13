@@ -1,6 +1,6 @@
 {# GENERACIÓN DE INVITACIONES · el asistente de los DATOS DE LA ENTRADA, por pantallas (step_wizard.js):
-   recinto · horarios · extras · imagen · condiciones · resumen. La cabecera va en el color corporativo
-   con un icono por paso (`[data-invgen-steps]`, que sincroniza invgen.js). Lo que llega al servidor:
+   recinto · horarios · extras · imagen · condiciones · resumen. La cabecera roja con un icono por paso
+   es la del motor (`sw-head` + `[data-sw-steps]`, que pinta step_wizard.js). Lo que llega al servidor:
    `invitation_gen_config_save`. Cada EXTRA activo es una fila con sus ocultos DENTRO (así el orden
    del DOM es el orden que se guarda) y cada CLÁUSULA igual (`cond_title[]` + `cond_body[]`). #}
 <div class="modal fade" id="invGenConfigModal" tabindex="-1" aria-hidden="true">
@@ -11,17 +11,10 @@
           data-invgen-form data-template-url="{{ url_for('invitation_gen_template_json', template_id='__ID__') }}"
           data-template-delete-url="{{ url_for('invitation_gen_template_delete', template_id='__ID__') }}"
           data-template-id="{{ template.id if template else '' }}" data-template-name="{{ template.name if template else '' }}">
-      <div class="modal-header invgen-wiz-head">
-        <div class="invgen-wiz-title"><i class="fa fa-ticket"></i><span>Datos de la entrada</span></div>
-        <ol class="invgen-wiz-steps" data-invgen-steps>
-          <li data-for="1"><i class="fa fa-location-dot"></i><span>Recinto</span></li>
-          <li data-for="2"><i class="fa fa-clock"></i><span>Horarios</span></li>
-          <li data-for="3"><i class="fa fa-star"></i><span>Extras</span></li>
-          <li data-for="4"><i class="fa fa-image"></i><span>Imagen</span></li>
-          <li data-for="5"><i class="fa fa-file-contract"></i><span>Condiciones</span></li>
-          <li data-for="6"><i class="fa fa-check"></i><span>Resumen</span></li>
-        </ol>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-ticket me-2"></i>Datos de la entrada</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div data-sw-progress></div>

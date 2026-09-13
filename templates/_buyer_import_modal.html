@@ -7,7 +7,7 @@
    se reconocen se preguntan o se marcan para omitir) → el resumen de lo que va a pasar → importar.
    El JS vive en static/js/buyer_import.js. #}
 <div class="modal fade" id="buyerImportModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content" data-buyer-import
          data-url-analyze="{{ url_for('buyers_import_analyze') }}"
          data-url-prepare="{{ url_for('buyers_import_prepare') }}"
@@ -16,11 +16,12 @@
          data-scope-event="{{ source.pk if (source and source.kind == 'ET') else '' }}"
          data-scope-list="{{ source.pk if (source and source.kind == 'MANUAL') else '' }}"
          data-scope-label="{{ source.label if source else '' }}">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <div>
-          <h5 class="modal-title"><i class="fa fa-file-import me-2 text-danger"></i>Añadir compradores</h5>
+          <h5 class="modal-title"><i class="fa fa-file-import me-2"></i>Añadir compradores</h5>
           <div class="text-muted small" data-bi-subtitle>Excel (.xlsx) o CSV. Las columnas se reconocen solas.</div>
         </div>
+        <ol class="sw-head__steps" data-bi-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
 
@@ -28,7 +29,7 @@
         <div class="alert alert-danger d-none" data-bi-error></div>
 
         {# ── Paso A · ¿de quién es la actividad? ───────────────────────────────────── #}
-        <div class="d-none" data-bi-step="subject">
+        <div class="d-none" data-bi-step="subject" data-sw-head="De quién" data-sw-icon="fa-guitar">
           <div class="sw-step__q mb-2"><i class="fa fa-guitar me-2 text-danger"></i>¿De quién es la actividad?</div>
           <input class="form-control mb-2" type="search" placeholder="Buscar artista o evento…" data-bi-subject-search>
           <div class="promo-pick-grid" data-bi-subject-grid>
@@ -57,7 +58,7 @@
         </div>
 
         {# ── Paso B · ¿a qué actividad? ────────────────────────────────────────────── #}
-        <div class="d-none" data-bi-step="activity">
+        <div class="d-none" data-bi-step="activity" data-sw-head="Actividad" data-sw-icon="fa-calendar-day">
           <div class="sw-step__q mb-2"><i class="fa fa-calendar-day me-2 text-danger"></i>¿A qué actividad corresponde?</div>
           <div class="text-muted small mb-2" data-bi-activity-of></div>
           <div class="bi-acts" data-bi-activities></div>
@@ -105,7 +106,7 @@
         </div>
 
         {# ── Paso 1 · el fichero ───────────────────────────────────────────────────── #}
-        <div class="d-none" data-bi-step="file">
+        <div class="d-none" data-bi-step="file" data-sw-head="Fichero" data-sw-icon="fa-file-import">
           <div class="pi-total mb-2 d-none" data-bi-target></div>
           <label class="pi-drop" for="buyerImportFile" role="button" tabindex="0" data-file-drop-for="#buyerImportFile">
             <i class="fa fa-file-import pi-drop__icon"></i>
@@ -123,7 +124,7 @@
         </div>
 
         {# ── Paso 2 · las columnas ─────────────────────────────────────────────────── #}
-        <div class="d-none" data-bi-step="columns">
+        <div class="d-none" data-bi-step="columns" data-sw-head="Columnas" data-sw-icon="fa-table-columns">
           <div class="alert alert-warning py-2 px-3 small d-none" data-bi-unknown></div>
           <div class="table-responsive">
             <table class="table table-sm align-middle pi-cols">
@@ -147,7 +148,7 @@
         </div>
 
         {# ── Paso 3 · el resumen ───────────────────────────────────────────────────── #}
-        <div class="d-none" data-bi-step="summary">
+        <div class="d-none" data-bi-step="summary" data-sw-head="Resumen" data-sw-icon="fa-list-check">
           <div class="pi-total mb-3" data-bi-total></div>
           <div class="row g-3">
             <div class="col-12 col-md-6">

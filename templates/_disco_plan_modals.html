@@ -23,7 +23,7 @@
       {% for aid in (plan.subject.artist_ids or []) %}
         <input type="hidden" name="artist_ids" value="{{ aid }}">
       {% endfor %}
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <div>
           <h5 class="modal-title"><i class="fa fa-bullhorn me-2"></i>Añadir acción de marketing</h5>
           <div class="text-muted small">Queda colgada del lanzamiento, así que se ve también en Marketing.</div>
@@ -536,8 +536,8 @@
     <form class="modal-content" method="post" enctype="multipart/form-data"
           action="{{ url_for('disco_plan_promo_upload', project_id=project.id) }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
-      <div class="modal-header">
-        <div><h5 class="modal-title"><i class="fa fa-upload me-2 text-danger"></i>Subir el plan de promoción</h5></div>
+      <div class="modal-header sw-head">
+        <div><h5 class="modal-title"><i class="fa fa-upload me-2"></i>Subir el plan de promoción</h5></div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">

@@ -9,7 +9,7 @@
   <div class="modal fade" id="qcModal-venue" tabindex="-1" aria-hidden="true" data-qc-type="venue">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_venue') }}" data-qc-json="1">
-        <div class="modal-header"><h5 class="modal-title">Nuevo recinto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-location-dot me-2"></i>Nuevo recinto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-3"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Sala, plaza, pabellón…"></div>
 
@@ -64,7 +64,7 @@
   <div class="modal fade" id="qcModal-promoter" tabindex="-1" aria-hidden="true" data-qc-type="promoter">
     <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"><div class="modal-content">
       <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_promoter') }}">
-        <div class="modal-header"><h5 class="modal-title">Nuevo tercero</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-user-tie me-2"></i>Nuevo tercero</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="demo-cards" data-qc-promoter>
 
@@ -208,7 +208,7 @@
   <div class="modal fade" id="qcModal-ticketer" tabindex="-1" aria-hidden="true" data-qc-type="ticketer">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_ticketer') }}">
-        <div class="modal-header"><h5 class="modal-title">Nueva ticketera</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-ticket me-2"></i>Nueva ticketera</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
           <div class="mb-2"><label class="form-label">Enlace (web)</label><input class="form-control" name="link_url" placeholder="https://..."></div>
@@ -223,7 +223,7 @@
   <div class="modal fade" id="qcModal-publishing_company" tabindex="-1" aria-hidden="true" data-qc-type="publishing_company">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_publishing_company') }}">
-        <div class="modal-header"><h5 class="modal-title">Nueva editorial</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-book me-2"></i>Nueva editorial</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
           <div><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
@@ -237,7 +237,7 @@
   <div class="modal fade" id="qcModal-artist" tabindex="-1" aria-hidden="true" data-qc-type="artist">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_artist') }}">
-        <div class="modal-header"><h5 class="modal-title">Nuevo artista</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-guitar me-2"></i>Nuevo artista</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
           <div class="mb-2"><label class="form-label">Origen</label>
@@ -258,7 +258,7 @@
   <div class="modal fade" id="qcModal-distributor" tabindex="-1" aria-hidden="true" data-qc-type="distributor">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_distributor') }}" enctype="multipart/form-data">
-        <div class="modal-header"><h5 class="modal-title">Nueva distribuidora</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-truck-fast me-2"></i>Nueva distribuidora</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Altafonte, The Orchard…"></div>
           <div><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
@@ -273,7 +273,7 @@
   <div class="modal fade" id="qcModal-media" tabindex="-1" aria-hidden="true" data-qc-type="media">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_media_outlet') }}" enctype="multipart/form-data">
-        <div class="modal-header"><h5 class="modal-title">Nuevo medio</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-newspaper me-2"></i>Nuevo medio</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Cadena 100, El País…"></div>
           <div class="mb-2"><label class="form-label">Tipo *</label>
@@ -292,7 +292,7 @@
   <div class="modal fade" id="qcModal-event" tabindex="-1" aria-hidden="true" data-qc-type="event">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_event') }}" enctype="multipart/form-data">
-        <div class="modal-header"><h5 class="modal-title">Nuevo evento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-calendar-day me-2"></i>Nuevo evento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Gala benéfica, Ciclo de verano…"></div>
           <div><label class="form-label">Logo (opcional)</label><input type="file" class="form-control" name="logo" accept="image/*"></div>

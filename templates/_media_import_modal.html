@@ -3,15 +3,16 @@
    omite) → y de ahí a la pantalla de vinculación, donde se arrastra cada contacto a su medio.
    El JS vive en static/js/media_contact_import.js. #}
 <div class="modal fade" id="mediaImportModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content" data-media-import
          data-url-analyze="{{ url_for('media_contacts_import_analyze') }}"
          data-url-create="{{ url_for('media_contacts_import_create') }}">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <div>
-          <h5 class="modal-title"><i class="fa fa-file-import me-2 text-danger"></i>Subir contactos</h5>
+          <h5 class="modal-title"><i class="fa fa-file-import me-2"></i>Subir contactos</h5>
           <div class="text-muted small" data-mi-subtitle>Excel (.xlsx) o CSV. Las columnas se reconocen solas.</div>
         </div>
+        <ol class="sw-head__steps" data-mi-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
 
@@ -19,7 +20,7 @@
         <div class="alert alert-danger d-none" data-mi-error></div>
 
         {# ── Paso 1 · el fichero ───────────────────────────────────────────────── #}
-        <div data-mi-step="file">
+        <div data-mi-step="file" data-sw-head="Fichero" data-sw-icon="fa-file-import">
           <label class="pi-drop" for="mediaImportFile" role="button" tabindex="0" data-file-drop-for="#mediaImportFile">
             <i class="fa fa-file-import pi-drop__icon"></i>
             <div class="fw-semibold">Arrastra aquí el fichero</div>
@@ -50,7 +51,7 @@
         </div>
 
         {# ── Paso 2 · las columnas ─────────────────────────────────────────────── #}
-        <div class="d-none" data-mi-step="columns">
+        <div class="d-none" data-mi-step="columns" data-sw-head="Columnas" data-sw-icon="fa-table-columns">
           <div class="alert alert-warning py-2 px-3 small d-none" data-mi-unknown></div>
           <div class="table-responsive">
             <table class="table table-sm align-middle pi-cols">

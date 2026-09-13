@@ -1,22 +1,90 @@
 /* Asistente por pasos genérico y reutilizable (giras, ciclos/festivales, y lo que venga).
  *
  * Marca el contenedor (normalmente el <form> del modal) con [data-step-wizard] y dentro:
+ *   <div class="modal-header sw-head">                       -> la cabecera ROJA de la casa, con
+ *     <h5 class="modal-title"><i class="fa fa-…"></i> Título</h5>
+ *     <ol class="sw-head__steps" data-sw-steps></ol>          -> UN ICONO POR PASO (lo pinta el motor)
+ *     <button class="btn-close" …>
  *   <div data-sw-progress></div>                 -> se rellena con "pills" de progreso
  *   <section class="sw-step" data-step="1" data-title="Artista"> ... </section>
  *   ... (una por paso, en orden)
  *   <button data-sw-prev>  <button data-sw-next>  <button data-sw-submit>   (en el footer)
  *
+ * - LA CABECERA (sep 2026): la lista `[data-sw-steps]` se pinta a partir de los pasos QUE TOCAN, con
+ *   su `data-title` (o `data-sw-head`, si en la cabecera tiene que decir otra cosa) y el ICONO de su
+ *   pregunta (`.sw-step__q > i`, o `data-sw-icon`). El paso activo va en blanco, los ya hechos se
+ *   pueden PINCHAR para volver (hacia delante no: habría que validar lo de en medio).
+ *   `window.app33WizHead` es el mismo pintor para los asistentes con motor propio (el de actividad,
+ *   el de peticiones, los de invitaciones, las importaciones…), así todos se ven igual.
  * - Valida los campos [required] del paso antes de avanzar.
  * - Auto-avance: un control con [data-sw-advance] pasa al siguiente paso al cambiar (menos clics),
  *   siempre que el paso sea válido. Úsalo solo en pasos de UNA elección (artista, tipo, empresa…).
  * - Se reinicia al primer paso cada vez que se abre el modal contenedor.
  * - PASOS CONDICIONALES: un paso con [data-sw-when="EMPRESA"] (o varios valores separados por
  *   comas) solo cuenta cuando el contenedor tiene data-sw-mode con ese valor. Los pasos que no
- *   tocan se saltan, no salen en la barra de progreso y sus campos se DESHABILITAN (si no, el
- *   navegador se pararía a validar un [required] que está oculto y no llegaría a enviarse nunca).
+ *   tocan se saltan, no salen en la barra de progreso ni en la cabecera y sus campos se DESHABILITAN
+ *   (si no, el navegador se pararía a validar un [required] que está oculto y no llegaría a enviarse).
  *   Al cambiar el modo hay que llamar a root.swRefresh().
  */
 (function () {
+  /* ---------- EL PINTOR DE LA CABECERA (común a todos los asistentes de la app) ---------- */
+  var ICON_SKIP = /^fa-(solid|regular|brands|light|thin|duotone|fw|lg|sm|xs|xl|2xl|\dx|spin|pulse|beat|fade|flip|shake|bounce|stack|inverse|ul|li)$/;
+  function iconOf(el) {
+    /* El icono de un elemento: la primera clase `fa-…` que sea un icono de verdad (no la familia ni
+       un tamaño). Sirve para leerlo de la pregunta de un paso sin tener que declararlo dos veces. */
+    if (!el) return '';
+    var i = el.matches && el.matches('i,svg') ? el : el.querySelector('.sw-step__q i, .sw-step__q svg, .wizard-card__title i, h5 i, h6 i, i');
+    if (!i) return '';
+    var cls = Array.prototype.slice.call(i.classList || []);
+    for (var k = 0; k < cls.length; k++) if (/^fa-/.test(cls[k]) && !ICON_SKIP.test(cls[k])) return cls[k];
+    return '';
+  }
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  /* paint(ol, items, active, onGoto): items = [{title, icon}], active = índice del paso activo. */
+  function paint(ol, items, active, onGoto) {
+    if (!ol) return;
+    var html = '';
+    (items || []).forEach(function (it, i) {
+      var cls = i === active ? ' class="is-active"' : (i < active ? ' class="is-done"' : '');
+      html += '<li' + cls + ' data-sw-goto="' + i + '" title="' + esc(it.title || '') + '">' +
+              '<i class="fa ' + esc(it.icon || 'fa-circle') + '"></i><span>' + esc(it.title || ('Paso ' + (i + 1))) + '</span></li>';
+    });
+    ol.innerHTML = html;
+    if (onGoto && !ol.__swGoto) {
+      ol.__swGoto = true;
+      ol.addEventListener('click', function (ev) {
+        var li = ev.target.closest('li.is-done'); if (!li) return;
+        var fn = ol.__swGotoFn; if (fn) fn(parseInt(li.getAttribute('data-sw-goto'), 10));
+      });
+    }
+    if (onGoto) ol.__swGotoFn = onGoto;
+  }
+  /* pills(box, total, active): la barra de progreso de debajo de la cabecera (las mismas pastillas). */
+  function pills(box, total, active) {
+    if (!box) return;
+    var html = '';
+    for (var i = 0; i < total; i++) html += '<span class="sw-pill' + (i === active ? ' active' : '') + (i < active ? ' done' : '') + '"></span>';
+    box.innerHTML = html;
+    box.classList.add('sw-progress');
+  }
+  /* fromSteps(ol, stepEls, activeEl): lo mismo, pero leyendo los pasos de sus propios elementos
+     (`data-sw-head`/`data-title`/`data-icon` + el icono de su pregunta). Un paso sin título no cuenta. */
+  function fromSteps(ol, stepEls, activeEl, onGoto) {
+    var items = [], active = -1, idx = 0;
+    Array.prototype.forEach.call(stepEls || [], function (s) {
+      var t = s.getAttribute('data-sw-head') || s.getAttribute('data-title') || s.getAttribute('data-sw-title') || '';
+      if (!t) return;
+      if (s === activeEl) active = idx;
+      items.push({ title: t, icon: s.getAttribute('data-sw-icon') || s.getAttribute('data-icon') || iconOf(s) || 'fa-circle', el: s });
+      idx++;
+    });
+    paint(ol, items, active, onGoto ? function (i) { onGoto(items[i].el, i); } : null);
+    return items;
+  }
+  window.app33WizHead = { paint: paint, pills: pills, fromSteps: fromSteps, iconOf: iconOf };
+
+  /* ---------- EL MOTOR ---------- */
   function initWizard(root) {
     var steps = Array.prototype.slice.call(root.querySelectorAll('.sw-step'));
     if (!steps.length) return;
@@ -26,6 +94,8 @@
     var nextBtn = root.querySelector('[data-sw-next]');
     var submitBtn = root.querySelector('[data-sw-submit]');
     var progress = root.querySelector('[data-sw-progress]');
+    // La cabecera puede estar FUERA del <form> (modal-content > modal-header + form): se busca arriba.
+    var head = root.querySelector('[data-sw-steps]') || (root.closest('.modal-content') || document).querySelector('[data-sw-steps]');
     var idx = 0;
 
     function applicable(i) {
@@ -77,15 +147,13 @@
       if (prevBtn) prevBtn.style.display = idx === primero ? 'none' : '';
       if (nextBtn) nextBtn.style.display = idx === ultimo ? 'none' : '';
       if (submitBtn) submitBtn.style.display = idx === ultimo ? '' : 'none';
-      if (progress) {
-        progress.innerHTML = '';
-        steps.forEach(function (s, i) {
-          if (!applicable(i)) return;                 // los pasos que no tocan no se cuentan
-          var dot = document.createElement('span');
-          dot.className = 'sw-pill' + (i === idx ? ' active' : '') + (i < idx ? ' done' : '');
-          dot.title = s.getAttribute('data-title') || ('Paso ' + (i + 1));
-          progress.appendChild(dot);
-        });
+      var vivos = [], pos = 0;
+      steps.forEach(function (s, i) { if (applicable(i)) { vivos.push(s); if (i === idx) pos = vivos.length - 1; } });
+      if (progress) pills(progress, vivos.length, pos);
+      if (head) {
+        paint(head, vivos.map(function (s) {
+          return { title: s.getAttribute('data-sw-head') || s.getAttribute('data-title') || '', icon: s.getAttribute('data-sw-icon') || iconOf(s) || 'fa-circle' };
+        }), pos, function (k) { var s = vivos[k]; if (s) go(steps.indexOf(s)); });
       }
     }
 

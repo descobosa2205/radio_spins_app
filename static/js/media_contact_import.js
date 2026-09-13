@@ -50,6 +50,8 @@
         el.classList.toggle('d-none', el.getAttribute('data-mi-step') !== nombre);
       });
       error('');
+      /* la cabecera roja con un icono por paso (el pintor común de la casa) */
+      if (window.app33WizHead) { var _a = qa('[data-mi-step]')[0]; var _c = _a && _a.closest('.modal-content'); window.app33WizHead.fromSteps(_c ? _c.querySelector('[data-mi-steps]') : null, qa('[data-mi-step]'), qa('[data-mi-step]').filter(function (el) { return el.getAttribute('data-mi-step') === nombre; })[0]); }
     }
 
     var input = q('#mediaImportFile');

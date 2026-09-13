@@ -10,17 +10,10 @@
           id="invGenCatForm" data-step-wizard data-check-manual="1" autocomplete="off" data-no-autosave data-invgen-cat-form
           data-sections-url="{{ url_for('invitation_gen_sections', concert_id=concert.id) }}"
           data-create-url="{{ url_for('invitation_gen_category_create', concert_id=concert.id) }}" data-sw-mode="">
-      <div class="modal-header invgen-wiz-head">
-        <div class="invgen-wiz-title"><i class="fa fa-layer-group"></i><span>Añadir categoría</span></div>
-        <ol class="invgen-wiz-steps" data-invgen-steps>
-          <li data-for="1"><i class="fa fa-tag"></i><span>Nombre</span></li>
-          <li data-for="2"><i class="fa fa-star"></i><span>Extras</span></li>
-          <li data-for="3"><i class="fa fa-map"></i><span>Sector</span></li>
-          <li data-for="4,5"><i class="fa fa-chair"></i><span>Butacas</span></li>
-          <li data-for="6"><i class="fa fa-door-open"></i><span>Puerta</span></li>
-          <li data-for="7"><i class="fa fa-check"></i><span>Resumen</span></li>
-        </ol>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-layer-group me-2"></i>Añadir categoría</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div data-sw-progress></div>
@@ -91,7 +84,7 @@
         </section>
 
         {# ---- 4 · BUTACAS (solo sección NUMERADA) ---- #}
-        <section class="sw-step" data-step="4" data-title="Butacas" data-sw-when="NUM">
+        <section class="sw-step" data-step="4" data-title="Butacas" data-sw-icon="fa-chair" data-sw-when="NUM">
           <div class="sw-step__q"><i class="fa fa-chair me-2 text-danger"></i>Elige las butacas</div>
           <div class="sw-step__h" data-cat-seats-help>Pincha una butaca (o arrastra por varias) y pincha la letra de una fila para coger la fila entera. Las grises ya están ocupadas por otra invitación o una venta. El escenario está donde se indica.</div>
           <div data-cat-seatpick-wrap>
@@ -110,7 +103,7 @@
         </section>
 
         {# ---- 5 · CANTIDAD (solo SIN NUMERAR) ---- #}
-        <section class="sw-step" data-step="5" data-title="Cantidad" data-sw-when="QTY">
+        <section class="sw-step" data-step="5" data-title="Cantidad" data-sw-head="Butacas" data-sw-icon="fa-chair" data-sw-when="QTY">
           <div class="sw-step__q"><i class="fa fa-people-group me-2 text-danger"></i>¿Cuántas invitaciones?</div>
           <div class="sw-step__h">Es un sector sin numerar: se genera ese número de entradas, cada una con su código.</div>
           <div class="row g-3 align-items-end">
@@ -147,10 +140,10 @@
           </div>
         </section>
       </div>
-      <div class="modal-footer justify-content-between">
-        <button type="button" class="btn btn-outline-secondary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Anterior</button>
+      <div class="modal-footer sw-foot">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
         <div class="d-flex gap-2">
-          <button type="button" class="btn btn-danger" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
           <button type="submit" class="btn btn-danger" data-sw-submit><i class="fa fa-qrcode me-1"></i>Generar <span data-cat-total>0</span> invitaciones</button>
         </div>
       </div>

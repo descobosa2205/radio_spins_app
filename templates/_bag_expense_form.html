@@ -33,8 +33,8 @@
       <form method="post" action="{{ be_action|default(url_for('bag_expense_create', bag_id=bag.id)) }}"
             enctype="multipart/form-data" data-bag-expense-form>
         <input type="hidden" name="next" value="{{ bag_next }}">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="fa fa-receipt me-2 text-danger"></i>{{ be_title|default('Añadir gasto') }}</h5>
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-receipt me-2"></i>{{ be_title|default('Añadir gasto') }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">

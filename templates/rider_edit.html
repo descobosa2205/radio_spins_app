@@ -266,7 +266,7 @@
       <form method="post" action="{{ url_for('rider_section_save', tid=rider.id) }}" autocomplete="off">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-content">
-          <div class="modal-header">
+          <div class="modal-header sw-head">
             <div>
               <h5 class="modal-title"><i class="fa fa-layer-group me-2"></i>Añadir secciones</h5>
               <div class="text-muted small">Cada sección es una pestaña del rider.</div>

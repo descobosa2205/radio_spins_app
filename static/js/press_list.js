@@ -112,7 +112,11 @@
     var st = { kind: '', ids: [], labels: [], about: '', aboutId: '', options: null };
 
     function error(msg) { var e = q('[data-prw-error]'); if (!e) return; e.textContent = msg || ''; e.classList.toggle('d-none', !msg); }
-    function paso(n) { qa('[data-prw-step]').forEach(function (el) { el.classList.toggle('d-none', el.getAttribute('data-prw-step') !== n); }); error(''); }
+    function paso(n) {
+      qa('[data-prw-step]').forEach(function (el) { el.classList.toggle('d-none', el.getAttribute('data-prw-step') !== n); }); error('');
+      /* la cabecera roja con un icono por paso (el pintor común de la casa) */
+      if (window.app33WizHead) window.app33WizHead.fromSteps(q('[data-prw-steps]'), qa('[data-prw-step]'), q('[data-prw-step="' + n + '"]'), function (el) { paso(el.getAttribute('data-prw-step')); });
+    }
 
     function refrescaElegidos() {
       var lab = q('[data-prw-picked-label]');

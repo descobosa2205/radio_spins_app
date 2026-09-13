@@ -12,16 +12,14 @@
    ═══════════════════════════════════════════════════════════════════════════ #}
 {% from '_playlist_picker.html' import playlist_picker with context %}
 <div class="modal fade" id="playlistVoteModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('playlist_vote_create') }}"
           data-step-wizard data-pv-mode-form data-autosave="playlist-seleccion"
           data-autosave-title="la playlist de selección"
           data-picker-url="{{ url_for('playlist_picker_open') }}">
-      <div class="modal-header">
-        <div>
-          <h5 class="modal-title"><i class="fa fa-star-half-stroke me-2 text-danger"></i>Nueva playlist de selección</h5>
-          <div class="small text-muted">Para que quien la reciba escuche y decida.</div>
-        </div>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-star-half-stroke me-2"></i>Nueva playlist de selección</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
 
@@ -100,11 +98,10 @@
         </section>
       </div>
 
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Atrás</button>
-        <button type="button" class="btn btn-danger" data-sw-next>Siguiente</button>
-        <button class="btn btn-danger" data-sw-submit>
-          <i class="fa fa-arrow-right me-1"></i>Continuar: a quién se le manda</button>
+      <div class="modal-footer sw-foot">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button class="btn btn-danger" data-sw-submit><i class="fa fa-arrow-right me-1"></i>Continuar: a quién se le manda</button>
       </div>
     </form>
   </div>

@@ -57,6 +57,13 @@
       }, true);
     })();
   </script>
+  {# EL MOTOR DE LOS ASISTENTES POR PASOS y el pintor de su CABECERA ROJA (`app33WizHead`), en el
+     <head> A PROPÓSITO: los asistentes con motor propio (actividad, peticiones, invitaciones,
+     importaciones…) pintan la cabecera desde su script EN LÍNEA, que corre al parsear la página,
+     antes que cualquier script del final del <body>. Es pequeño y no depende de nada; su arranque
+     de verdad espera a DOMContentLoaded. Cada asistente sigue cargándolo también (las páginas
+     públicas no pasan por aquí); la segunda carga no hace nada. #}
+  <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 </head>
 <body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}" data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}"
       {# LO QUE SE ESCRIBE NO SE PIERDE: `data-autosave` enciende `form_autosave.js`, y solo

@@ -1527,7 +1527,7 @@
 <div class="modal fade" id="guestListLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-md modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('invitation_guest_list_link_create', concert_id=event.id) }}">
-      <div class="modal-header"><h5 class="modal-title">Generar link de listado</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-link me-2"></i>Generar link de listado</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <div class="invitation-icon-grid">
           <label class="invitation-radio-option"><input type="radio" name="list_type" value="COMPLETE" checked><i class="fa fa-list"></i><span>Listado completo</span></label>
@@ -1600,7 +1600,7 @@
 <div class="modal fade" id="ticketUploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <form class="modal-content" method="post" action="{{ url_for('invitation_tickets_upload', concert_id=event.id) }}" enctype="multipart/form-data">
-      <div class="modal-header"><h5 class="modal-title">Subir invitaciones <span data-upload-category-label></span></h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-ticket me-2"></i>Subir invitaciones <span data-upload-category-label></span></h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <input type="hidden" name="category_id" data-upload-category-id>
         <div class="invitation-icon-grid mb-3">
@@ -1845,7 +1845,7 @@
 <div class="modal fade" id="cmtCategoryModal" tabindex="-1" aria-hidden="true" data-action-base="{{ url_for('invitation_commitment_set_category', commitment_id='CID') }}">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" data-inv-refresh action="">
-      <div class="modal-header"><h5 class="modal-title" data-cmt-cat-title>Añadir petición</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-inbox me-2"></i><span data-cmt-cat-title>Añadir petición</span></h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <input type="hidden" name="mode" data-cmt-cat-mode value="add">
         <div class="small text-muted mb-2" data-cmt-cat-cmt></div>
@@ -1865,7 +1865,7 @@
 <div class="modal fade" id="commitmentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form class="modal-content" method="post" data-inv-refresh action="{{ url_for('invitation_commitment_save', concert_id=event.id) }}">
-      <div class="modal-header"><h5 class="modal-title">Añadir compromiso</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-handshake me-2"></i>Añadir compromiso</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <input type="hidden" name="commitment_id" value="">
         <div class="small text-muted mb-3" data-cmt-indicator>Paso 1 de 3 · Nombre y motivo</div>
@@ -2166,9 +2166,9 @@
    para comerse un 403 al enviarlo. #}
 {% if has_access_key('invitaciones.pedir', include_descendants=True) %}
 <div class="modal fade" id="invitationRequestModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form class="modal-content invitation-wizard" method="post" action="{{ url_for('invitation_request_create') }}" data-invitation-wizard="request">
-      <div class="modal-header"><h5 class="modal-title">Pedir invitaciones</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-ticket me-2"></i>Pedir invitaciones</h5><ol class="sw-head__steps" data-inv-steps></ol><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <input type="hidden" name="concert_id" data-field="concert_id">
         {# Al pedir DESDE la gestión de un evento, volver a esa misma ficha (no a "pedir") para no moverse de sitio. #}
@@ -2177,10 +2177,11 @@
         <input type="hidden" name="guest_artist_id" data-field="guest_artist_id">
         <input type="hidden" name="guest_user_id" data-field="guest_user_id">
         <input type="hidden" name="guest_promoter_id" data-field="guest_promoter_id">
-        <div class="invitation-step" data-step="1"><h5>1. Selecciona artista</h5><div class="invitation-option-grid" data-artist-options>{% for artist in event_artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
-        <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
+        <div class="sw-progress" data-inv-progress></div>
+        <div class="invitation-step" data-step="1"><div class="sw-step__q"><i class="fa fa-guitar me-2 text-danger"></i>Selecciona el artista</div><div class="invitation-option-grid" data-artist-options>{% for artist in event_artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
+        <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><div class="sw-step__q"><i class="fa fa-calendar-day me-2 text-danger"></i>Selecciona la actividad</div><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
         <div class="invitation-step d-none" data-step="3">
-          <h5>3. ¿Para quién son?</h5>
+          <div class="sw-step__q"><i class="fa fa-user-group me-2 text-danger"></i>¿Para quién son?</div>
           <div class="invitation-icon-grid">
             <button type="button" class="invitation-icon-option" data-guest-type="SELF"><i class="fa fa-user"></i><span>Para mí</span></button>
             <button type="button" class="invitation-icon-option" data-guest-type="THIRD_PARTY"><i class="fa fa-handshake"></i><span>Tercero</span></button>
@@ -2197,7 +2198,7 @@
           <div class="mt-3 d-none" data-artist-guest-panel><div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-guest-artist-id="{{ artist.id }}" data-email="{{ artist.email }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
         </div>
         <div class="invitation-step d-none" data-step="4">
-          <h5>4. Entrega</h5>
+          <div class="sw-step__q"><i class="fa fa-paper-plane me-2 text-danger"></i>Entrega</div>
           <div class="invitation-icon-grid">
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="GUEST" checked><i class="fa fa-paper-plane"></i><span>Enviar al invitado</span></label>
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="BOX_OFFICE"><i class="fa fa-store"></i><span>Dejar en taquilla</span></label>
@@ -2228,9 +2229,9 @@
             <div class="form-text">Si el invitado no tiene correo y lo dejas vacío, las invitaciones se te enviarán a ti (quien las pide) para que se las hagas llegar.</div>
           </div>
         </div>
-        <div class="invitation-step d-none" data-step="5"><h5>5. Cantidades</h5><div class="row g-3" data-category-qty-panel><div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div></div><label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea></div>
+        <div class="invitation-step d-none" data-step="5"><div class="sw-step__q"><i class="fa fa-ticket me-2 text-danger"></i>Cantidades</div><div class="row g-3" data-category-qty-panel><div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div></div><label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea></div>
       </div>
-      <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-inv-prev>Atrás</button><button class="btn btn-outline-danger" type="button" data-inv-next>Siguiente</button><button class="btn btn-danger d-none" data-inv-submit>Enviar solicitud</button></div>
+      <div class="modal-footer"><button class="btn btn-link px-0 me-auto" type="button" data-inv-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button><button class="btn btn-outline-secondary" type="button" data-inv-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button><button class="btn btn-danger d-none" data-inv-submit><i class="fa fa-check me-1"></i>Enviar solicitud</button></div>
     </form>
   </div>
 </div>
@@ -2240,25 +2241,26 @@
 {# Modal enlace · solo a quien GESTIONA (es quien reparte las invitaciones) #}
 {% if has_access_key('invitaciones.gestionar', include_descendants=True) %}
 <div class="modal fade" id="invitationLinkModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form class="modal-content invitation-wizard" method="post" action="{{ url_for('invitation_public_link_create') }}" data-invitation-wizard="link">
-      <div class="modal-header"><h5 class="modal-title">Generar enlace de peticiones</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-link me-2"></i>Generar enlace de peticiones</h5><ol class="sw-head__steps" data-inv-steps></ol><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <input type="hidden" name="concert_id" data-field="concert_id"><input type="hidden" name="target_promoter_id" data-field="target_promoter_id">
-        <div class="invitation-step" data-step="1"><h5>1. Selecciona artista</h5><div class="invitation-option-grid" data-artist-options>{% for artist in event_artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
-        <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
-        <div class="invitation-step d-none" data-step="3"><h5>3. ¿Para quién es el enlace?</h5><div class="invitation-search-picker" data-promoter-picker data-hidden-target="target_promoter_id" data-name-target="target_name" data-email-target="target_email" data-phone-target="target_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div><input type="hidden" name="target_name" required><input type="hidden" name="target_email"><input type="hidden" name="target_phone"></div>
-        <div class="invitation-step d-none" data-step="4"><h5>4. Límites</h5><div class="invitation-icon-grid mb-3" data-limit-mode-group><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Ilimitado</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label></div><div class="row g-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Número total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div><label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label><div class="invitation-icon-grid my-3"><label class="invitation-radio-option"><input type="checkbox" name="show_only_available" value="1"><i class="fa fa-eye"></i><span>Solo categorías con aforo</span></label><label class="invitation-radio-option"><input type="checkbox" name="limit_to_available" value="1"><i class="fa fa-gauge-high"></i><span>Limitar al aforo disponible</span></label></div><div class="small text-muted mb-1"><i class="fa fa-layer-group me-1"></i>Categorías ofrecidas (desactiva las que no quieras permitir):</div><div class="row g-2" data-link-category-panel><div class="text-muted small">Selecciona primero el evento para cargar categorías.</div></div></div>
-        <div class="invitation-step d-none" data-step="5"><h5>5. Límite temporal</h5><div class="invitation-icon-grid mb-3" data-deadline-group><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div><div class="row g-3 d-none" data-deadline-panel><div class="col-md-5"><label class="form-label">Fecha y hora límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div></div><div class="alert alert-light border mt-3 mb-0">Al guardar se genera un enlace único para esta persona.</div></div>
+        <div class="sw-progress" data-inv-progress></div>
+        <div class="invitation-step" data-step="1"><div class="sw-step__q"><i class="fa fa-guitar me-2 text-danger"></i>Selecciona el artista</div><div class="invitation-option-grid" data-artist-options>{% for artist in event_artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
+        <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><div class="sw-step__q"><i class="fa fa-calendar-day me-2 text-danger"></i>Selecciona la actividad</div><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
+        <div class="invitation-step d-none" data-step="3"><div class="sw-step__q"><i class="fa fa-user-tie me-2 text-danger"></i>¿Para quién es el enlace?</div><div class="invitation-search-picker" data-promoter-picker data-hidden-target="target_promoter_id" data-name-target="target_name" data-email-target="target_email" data-phone-target="target_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div><input type="hidden" name="target_name" required><input type="hidden" name="target_email"><input type="hidden" name="target_phone"></div>
+        <div class="invitation-step d-none" data-step="4"><div class="sw-step__q"><i class="fa fa-sliders me-2 text-danger"></i>Límites</div><div class="invitation-icon-grid mb-3" data-limit-mode-group><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Ilimitado</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label></div><div class="row g-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Número total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div><label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label><div class="invitation-icon-grid my-3"><label class="invitation-radio-option"><input type="checkbox" name="show_only_available" value="1"><i class="fa fa-eye"></i><span>Solo categorías con aforo</span></label><label class="invitation-radio-option"><input type="checkbox" name="limit_to_available" value="1"><i class="fa fa-gauge-high"></i><span>Limitar al aforo disponible</span></label></div><div class="small text-muted mb-1"><i class="fa fa-layer-group me-1"></i>Categorías ofrecidas (desactiva las que no quieras permitir):</div><div class="row g-2" data-link-category-panel><div class="text-muted small">Selecciona primero el evento para cargar categorías.</div></div></div>
+        <div class="invitation-step d-none" data-step="5"><div class="sw-step__q"><i class="fa fa-hourglass-half me-2 text-danger"></i>Límite temporal</div><div class="invitation-icon-grid mb-3" data-deadline-group><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div><div class="row g-3 d-none" data-deadline-panel><div class="col-md-5"><label class="form-label">Fecha y hora límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div></div><div class="alert alert-light border mt-3 mb-0">Al guardar se genera un enlace único para esta persona.</div></div>
       </div>
-      <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-inv-prev>Atrás</button><button class="btn btn-outline-danger" type="button" data-inv-next>Siguiente</button><button class="btn btn-danger d-none" data-inv-submit>Generar enlace</button></div>
+      <div class="modal-footer"><button class="btn btn-link px-0 me-auto" type="button" data-inv-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button><button class="btn btn-outline-secondary" type="button" data-inv-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button><button class="btn btn-danger d-none" data-inv-submit><i class="fa fa-check me-1"></i>Generar enlace</button></div>
     </form>
   </div>
 </div>
 {% endif %}
 
 <div class="modal fade" id="newPromoterModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-md modal-dialog-centered"><form class="modal-content" data-create-promoter-form><div class="modal-header"><h5 class="modal-title">Añadir tercero</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-2"><label class="form-label">Nick / nombre</label><input class="form-control" name="nick" required></div><div class="mb-2"><label class="form-label">Email</label><input class="form-control" name="contact_email" type="email"></div><div class="mb-2"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone"></div><div class="alert alert-warning d-none" data-similar-warning></div></div><div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Crear tercero</button></div></form></div>
+  <div class="modal-dialog modal-md modal-dialog-centered"><form class="modal-content" data-create-promoter-form><div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-user-tie me-2"></i>Añadir tercero</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-2"><label class="form-label">Nick / nombre</label><input class="form-control" name="nick" required></div><div class="mb-2"><label class="form-label">Email</label><input class="form-control" name="contact_email" type="email"></div><div class="mb-2"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone"></div><div class="alert alert-warning d-none" data-similar-warning></div></div><div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Crear tercero</button></div></form></div>
 </div>
 
 <div class="modal fade entity-link-modal" id="invitationQuickLinkModal" tabindex="-1" aria-hidden="true" data-source-type="promoter">
@@ -2361,7 +2363,10 @@
     goStep(form, Math.max(getStep(form), 3));
   }
   function getStep(form){ return parseInt(form.dataset.step || '1',10); }
-  function goStep(form, step){ const max = 5; step = Math.max(1, Math.min(step, max)); form.dataset.step = step; form.querySelectorAll('.invitation-step').forEach(el => el.classList.toggle('d-none', parseInt(el.dataset.step,10) !== step)); const prev = form.querySelector('[data-inv-prev]'), next = form.querySelector('[data-inv-next]'), submit = form.querySelector('[data-inv-submit]'); if (prev) prev.disabled = step === 1; if (next) next.classList.toggle('d-none', step === max); if (submit) submit.classList.toggle('d-none', step !== max); if (form.__onStep) form.__onStep(step); }
+  function goStep(form, step){ const max = 5; step = Math.max(1, Math.min(step, max)); form.dataset.step = step; form.querySelectorAll('.invitation-step').forEach(el => el.classList.toggle('d-none', parseInt(el.dataset.step,10) !== step)); const prev = form.querySelector('[data-inv-prev]'), next = form.querySelector('[data-inv-next]'), submit = form.querySelector('[data-inv-submit]'); if (prev) { prev.disabled = false; prev.classList.toggle('d-none', step === 1); } if (next) next.classList.toggle('d-none', step === max); if (submit) submit.classList.toggle('d-none', step !== max); invWizHead(form, step); if (form.__onStep) form.__onStep(step); }
+  /* La cabecera roja con un icono por paso y las pastillas de progreso (el pintor común de la casa):
+     el título de cada paso es su propia pregunta y el icono, el de esa pregunta. */
+  function invWizHead(form, step){ if (!window.app33WizHead) return; const els = Array.from(form.querySelectorAll('.invitation-step')); const items = els.map(el => { const qq = el.querySelector('.sw-step__q'); return { title: qq ? qq.textContent.trim() : ('Paso ' + el.dataset.step), icon: window.app33WizHead.iconOf(qq || el) || 'fa-circle' }; }); window.app33WizHead.paint(form.querySelector('[data-inv-steps]'), items, step - 1, k => goStep(form, k + 1)); window.app33WizHead.pills(form.querySelector('[data-inv-progress]'), items.length, step - 1); }
   // Panel de "marcar nº de invitaciones" por categoría (agrupado por zona, franja de color, aforo de
   // palcos y "Disponibles N"). ÚNICO para PETICIONES y COMPROMISOS, para que siempre se vean igual.
   // opts.blockDisabled: si la categoría no admite peticiones, desactiva el input (solo en peticiones).

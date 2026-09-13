@@ -453,8 +453,8 @@
     <form class="modal-content" method="post" enctype="multipart/form-data"
           action="{{ url_for('disco_video_upload', project_id=project.id) }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-film me-2 text-danger"></i>Subir el videoclip</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-film me-2"></i>Subir el videoclip</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">

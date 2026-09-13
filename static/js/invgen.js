@@ -51,16 +51,10 @@
     var form = document.querySelector('[data-invgen-form]');
     if (!form) return;
 
-    /* --- la cabecera con un icono por paso sigue al paso activo (step_wizard no avisa: se mira) --- */
-    var stepIcons = form.querySelectorAll('[data-invgen-steps] li');
+    /* --- lo que hay que hacer al llegar a cada paso (la cabecera la pinta step_wizard.js) --- */
     function syncSteps() {
       var act = form.querySelector('.sw-step.active');
       var n = act ? parseInt(act.getAttribute('data-step'), 10) : 1;
-      stepIcons.forEach(function (li) {
-        var k = parseInt(li.getAttribute('data-for'), 10);
-        li.classList.toggle('is-active', k === n);
-        li.classList.toggle('is-done', k < n);
-      });
       if (n === 6) { buildSummary(); askScopeIfNeeded(); }
     }
     var mo = new MutationObserver(function () { syncSteps(); });
@@ -396,16 +390,10 @@
     var stagedHint = Q('[data-cat-staged-hint]');
     var manualKind = 'QTY';
 
-    /* --- la cabecera con un icono por paso (un icono puede cubrir DOS pasos: butacas o cantidad) --- */
-    var stepIcons = form.querySelectorAll('[data-invgen-steps] li');
+    /* --- lo que hay que hacer al llegar a cada paso (la cabecera la pinta step_wizard.js) --- */
     function activeStep() { var a = form.querySelector('.sw-step.active'); return a ? parseInt(a.getAttribute('data-step'), 10) : 1; }
     function syncSteps() {
       var n = activeStep();
-      stepIcons.forEach(function (li) {
-        var ks = (li.getAttribute('data-for') || '').split(',').map(function (x) { return parseInt(x, 10); });
-        li.classList.toggle('is-active', ks.indexOf(n) >= 0);
-        li.classList.toggle('is-done', Math.max.apply(null, ks) < n);
-      });
       if (n === 7) { commitDraft(); renderSummary(); }
       if (n === 6) renderDoors();
       if (n === 5) renderQty();

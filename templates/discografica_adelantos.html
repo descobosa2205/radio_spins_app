@@ -456,11 +456,12 @@
 {# ===================== Wizard «Nuevo adelanto» (paso a paso, visual) ===================== #}
 {% if CAN_EDIT_DISCOGRAFICA and adelantos_ctx.distributors %}
 <div class="modal fade" id="advanceWizardModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form class="modal-content" method="post" action="{{ url_for('discografica_advance_create') }}" enctype="multipart/form-data" data-step-wizard
           data-autosave="alta-adelanto" data-autosave-title="Nuevo adelanto">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <h5 class="modal-title"><i class="fa fa-hand-holding-dollar me-2"></i>Nuevo adelanto</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -571,11 +572,10 @@
           <div class="alert alert-light border" data-advw-summary>—</div>
         </section>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-outline-primary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
-        <button type="button" class="btn btn-primary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
-        <button type="submit" class="btn btn-primary" data-sw-submit><i class="fa fa-floppy-disk me-1"></i>Crear adelanto</button>
+      <div class="modal-footer sw-foot">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button class="btn btn-danger" type="submit" data-sw-submit><i class="fa fa-check me-1"></i>Crear adelanto</button>
       </div>
     </form>
   </div>

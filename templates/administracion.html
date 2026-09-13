@@ -1201,7 +1201,7 @@
   <div class="modal fade" id="uploadEmbargoModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg"><div class="modal-content">
       <form method="post" action="{{ url_for('administration_embargo_upload') }}" enctype="multipart/form-data" id="embargoUploadForm">
-        <div class="modal-header"><h5 class="modal-title">Subir órdenes de embargo o levantamiento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-gavel me-2"></i>Subir órdenes de embargo o levantamiento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="fotos-dropzone" id="embargoDropzone" data-file-drop="off">
             <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
@@ -1503,7 +1503,7 @@
     <div class="modal-dialog"><div class="modal-content">
       <form method="post" action="{{ url_for('admin_ita_upload') }}" enctype="multipart/form-data">
         <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='altas') }}">
-        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-shield me-2 text-danger"></i>Subir ITA</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-file-shield me-2"></i>Subir ITA</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <label class="form-label">Empresa del grupo</label>
           <select name="company_id" class="form-select" required>

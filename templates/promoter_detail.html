@@ -728,7 +728,7 @@
 </div>
 
 <div class="modal fade" id="newCompanyModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Añadir sociedad</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-building me-2"></i>Añadir sociedad</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
     <form method="post" action="{{ url_for('promoter_company_create', pid=promoter.id) }}">
       <div class="modal-body row g-3">
         <div class="col-md-6"><label class="form-label">Nombre social</label><input class="form-control" name="legal_name" required></div>
@@ -741,7 +741,7 @@
 </div>
 
 <div class="modal fade" id="newContactModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Añadir persona de contacto</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-address-book me-2"></i>Añadir persona de contacto</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
     <form method="post" action="{{ url_for('promoter_contact_create', pid=promoter.id) }}">
       <input type="hidden" name="next" value="{{ url_for('promoter_detail_view', pid=promoter.id, tab='contactos') }}">
       <div class="modal-body">

@@ -8025,6 +8025,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   anular), la página sin sesión con sus `og:`, las siete lecturas, deshacer, el estado y las marcas
   de Invitados, el QR de una autorización de menores, el correo y los permisos.
 
+- ⚠️⚠️ **TODOS LOS ASISTENTES Y LAS ALTAS SE VEN IGUAL: la cabecera de «Datos de la entrada»** (sep
+  2026, lo pidió Dani). **Cabecera ROJA** (`.modal-header.sw-head`) con el **título y su icono** a la
+  izquierda, **un icono por paso** en el centro (`<ol class="sw-head__steps" data-sw-steps>`: pastilla
+  blanca la activa, las hechas más encendidas y **se pinchan para volver**), la ✕ blanca a la derecha;
+  debajo las **pastillas de progreso** (`.sw-progress`), cada paso con su **pregunta grande**
+  (`.sw-step__q`, icono en el rojo de la casa) y su ayuda (`.sw-step__h`); el **pie** es «Atrás»
+  (`btn-link px-0 me-auto`) · «Siguiente» (`btn-outline-secondary`) · el botón que guarda (`btn-danger`
+  con `fa-check`); y el modal va **`modal-xl modal-dialog-scrollable`**.
+  · **LA CABECERA LA PINTA `step_wizard.js`** en los asistentes del motor (`[data-step-wizard]`), a
+  partir de los `.sw-step` QUE TOCAN (`data-title` y el icono de su `.sw-step__q`; se fijan con
+  `data-sw-head` / `data-sw-icon`): un paso que no aplica (`data-sw-when`) no sale. Un asistente con
+  **motor propio** (actividad, petición, invitaciones, medios, simulaciones, canción, prensa, las
+  importaciones, el «+» del calendario) la pinta con el **pintor común `window.app33WizHead`**
+  (`paint(ol, items, activo, alVolver)` · `pills(caja, total, activo)` · `fromSteps(ol, pasos, activo)`)
+  desde su propia función de paso.
+  ⚠️⚠️ **`step_wizard.js` se carga en el `<head>` del layout A PROPÓSITO**: esos asistentes pintan
+  desde su script EN LÍNEA, que corre al parsear la página, antes que cualquier script del final del
+  `<body>` — con el motor al final, la cabecera salía vacía la primera vez (bug real de esta épica). Y
+  el asistente de petición pinta también en `show.bs.modal`: se abra como se abra, la cabecera está.
+  Cada asistente sigue cargando el motor también (las páginas públicas no pasan por el layout).
+  ⚠️ Un icono dentro de la cabecera va SIN `text-danger` (rojo sobre rojo: desaparece); el CSS lo
+  fuerza a blanco. Y si el JS cambia el TÍTULO (`textContent`), el texto va en un `<span>` con el id
+  o el `data-*-title` y el icono fuera de él, o se borraría al cambiarlo.
+  · **Una ventana de alta de UNA pantalla** («Nuevo artista», «Añadir cuenta», «Subir carteles»…)
+  lleva solo `sw-head` en su `.modal-header` y su icono: mismo color, sin pasos. **Al crear un
+  modal de alta nuevo, esa es la cabecera**; y un asistente nuevo, el patrón entero.
+  · **EL ROJO DE LOS BOTONES ES UNO**: `.btn-danger` y `.btn-outline-danger` van ya en el rojo de la
+  casa (`--brand-primary`), como `.btn-primary`; antes convivían dos rojos (#dc3545 y #E33D48).
+  · Comprobado con la app real en el navegador: la referencia, actividad (13 pasos, secuencia
+  dinámica), petición, proyecto, invitaciones (pedir y enlace), gira, simulación, medio, canción,
+  compradores, categoría de invitaciones, calendario y las altas sencillas; `check_divs` (814
+  pantallas) y `check_botones` en cero.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

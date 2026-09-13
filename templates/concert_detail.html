@@ -2748,7 +2748,7 @@
     <div class="modal fade" id="artworkUploadModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
-          <div class="modal-header">
+          <div class="modal-header sw-head">
             <h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i>Subir <span data-art-cat-label>carteles</span></h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
@@ -3183,7 +3183,7 @@
           <div class="modal-dialog"><div class="modal-content">
             <form method="post" action="{{ url_for('concert_budget_item_create', cid=concert.id) }}">
               <input type="hidden" name="next" value="{{ request.full_path }}">
-              <div class="modal-header"><h5 class="modal-title"><i class="fa fa-plus me-2 text-danger"></i>Añadir gasto al presupuesto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+              <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-plus me-2"></i>Añadir gasto al presupuesto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
               <div class="modal-body">
                 <div class="row g-3">
                   <div class="col-12">

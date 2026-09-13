@@ -7,8 +7,8 @@
   <div class="modal fade" id="songMaterialUploadModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <form class="modal-content" method="post" action="{{ url_for('discografica_song_material_upload', song_id=song.id) }}" enctype="multipart/form-data">
-        <div class="modal-header">
-          <h5 class="modal-title" id="songMaterialUploadModalTitle">Subir material</h5>
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-upload me-2"></i><span id="songMaterialUploadModalTitle">Subir material</span></h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
         <div class="modal-body">

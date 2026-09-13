@@ -433,8 +433,8 @@
 <div class="modal fade" id="incomeEntryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('discografica_income_entry_save') }}">
-      <div class="modal-header">
-        <h5 class="modal-title" id="incomeEntryModalTitle">Añadir ingreso</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-coins me-2"></i><span id="incomeEntryModalTitle">Añadir ingreso</span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
@@ -487,8 +487,8 @@
 <div class="modal fade" id="incomeUploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('discografica_income_upload_csv') }}" enctype="multipart/form-data" data-native-upload>
-      <div class="modal-header">
-        <h5 class="modal-title">Subir ingresos (CSV)</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-coins me-2"></i>Subir ingresos (CSV)</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">

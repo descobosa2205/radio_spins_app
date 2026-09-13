@@ -745,8 +745,8 @@
       <div class="modal fade" id="albumProductCodeModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
           <form class="modal-content" method="post" action="{{ url_for('discografica_album_product_code_save', album_id=album.id) }}">
-            <div class="modal-header">
-              <h5 class="modal-title" id="albumProductCodeModalTitle">Añadir código</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-barcode me-2"></i><span id="albumProductCodeModalTitle">Añadir código</span></h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -798,8 +798,8 @@
       <div class="modal fade" id="albumCertificationModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <form class="modal-content" method="post" action="{{ url_for('discografica_album_certification_save', album_id=album.id) }}">
-            <div class="modal-header">
-              <h5 class="modal-title" id="albumCertificationModalTitle">Añadir certificación</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-award me-2"></i><span id="albumCertificationModalTitle">Añadir certificación</span></h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -1060,8 +1060,8 @@
       <div class="modal fade" id="albumSongSearchModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title">Añadir canciones</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-music me-2"></i>Añadir canciones</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -1338,8 +1338,8 @@
       <div class="modal fade" id="albumRoyaltyBeneficiaryModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <form class="modal-content" id="albumRoyaltyBeneficiaryForm" data-save-url="{{ url_for('discografica_album_royalty_beneficiary_save', album_id=album.id) }}" onsubmit="return submitAlbumRoyaltyBeneficiary(event);" enctype="multipart/form-data">
-            <div class="modal-header">
-              <h5 class="modal-title" id="albumRoyaltyBeneficiaryModalTitle">Añadir beneficiario</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-hand-holding-dollar me-2"></i><span id="albumRoyaltyBeneficiaryModalTitle">Añadir beneficiario</span></h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -1875,8 +1875,8 @@
 <div class="modal fade" id="songLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('discografica_album_set_link', album_id=album.id) }}">
-      <div class="modal-header">
-        <h5 class="modal-title" id="songLinkModalTitle">Añadir enlace</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-link me-2"></i><span id="songLinkModalTitle">Añadir enlace</span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">

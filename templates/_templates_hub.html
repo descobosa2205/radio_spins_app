@@ -174,7 +174,7 @@
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
     <form method="post" action="{{ url_for('artist_template_create', artist_id=templates_owner_id) }}">
       <input type="hidden" name="kind" id="tplNewKind">
-      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-clone me-2"></i>Nueva plantilla <span id="tplNewKindLabel" class="text-muted fw-normal"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-clone me-2"></i>Nueva plantilla <span id="tplNewKindLabel" class="text-muted fw-normal"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <label class="form-label">Nombre *</label>
         <input class="form-control mb-3" name="name" id="tplNewName" required placeholder="Ej: Equipo de gira 2027">

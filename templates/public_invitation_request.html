@@ -125,19 +125,20 @@
 
   {% if open_for_changes %}
   <div class="modal fade" id="publicRequestModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
       <form class="modal-content invitation-wizard" method="post" action="{{ url_for('public_invitation_request_submit', token=link.token) }}" data-create-action="{{ url_for('public_invitation_request_submit', token=link.token) }}" data-edit-action="{{ url_for('public_invitation_request_update', token=link.token, request_id='REQ') }}">
-        <div class="modal-header"><h5 class="modal-title" data-wizard-title>Nueva solicitud</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-ticket me-2"></i><span data-wizard-title>Nueva solicitud</span></h5><ol class="sw-head__steps" data-inv-steps></ol><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
+          <div class="sw-progress" data-inv-progress></div>
           <div class="invitation-step" data-step="1">
-            <h5>1. ¿Para quién es?</h5>
+            <div class="sw-step__q"><i class="fa fa-user me-2 text-danger"></i>¿Para quién es?</div>
             <div class="row g-3">
               <div class="col-md-6"><label class="form-label">Nombre</label><input class="form-control" name="guest_name" required></div>
               <div class="col-md-6"><label class="form-label">Cargo / título / vinculación</label><input class="form-control" name="guest_company" placeholder="p. ej. director de la radio"></div>
             </div>
           </div>
           <div class="invitation-step d-none" data-step="2">
-            <h5>2. Entrega</h5>
+            <div class="sw-step__q"><i class="fa fa-paper-plane me-2 text-danger"></i>Entrega</div>
             <div class="invitation-icon-grid mb-3">
               <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="GUEST" checked><i class="fa fa-paper-plane"></i><span>Al invitado</span></label>
               <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="BOX_OFFICE"><i class="fa fa-store"></i><span>Recoger en taquilla</span></label>
@@ -146,7 +147,7 @@
             <div data-guest-email-wrap><label class="form-label">Email del invitado</label><input class="form-control" name="guest_email" type="email" placeholder="correo@ejemplo.com"><div class="form-text">Necesario para poder enviarle sus invitaciones.</div></div>
           </div>
           <div class="invitation-step d-none" data-step="3">
-            <h5>3. Invitaciones</h5>
+            <div class="sw-step__q"><i class="fa fa-ticket me-2 text-danger"></i>Invitaciones</div>
             {% if link.categorize_requests and limits.categories %}
               <div class="row g-3">
                 {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
@@ -176,9 +177,9 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-outline-secondary" type="button" data-inv-prev disabled>Atrás</button>
-          <button class="btn btn-outline-danger" type="button" data-inv-next>Siguiente</button>
-          <button class="btn btn-danger d-none" type="submit" data-inv-submit>Guardar solicitud</button>
+          <button class="btn btn-link px-0 me-auto d-none" type="button" data-inv-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+          <button class="btn btn-outline-secondary" type="button" data-inv-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button class="btn btn-danger d-none" type="submit" data-inv-submit><i class="fa fa-check me-1"></i>Guardar solicitud</button>
         </div>
       </form>
     </div>
@@ -208,9 +209,16 @@
         n = Math.max(1, Math.min(maxStep, n));
         form.setAttribute('data-step', n);
         form.querySelectorAll('[data-step]').forEach(function(s){ s.classList.toggle('d-none', parseInt(s.getAttribute('data-step'),10)!==n); });
-        form.querySelector('[data-inv-prev]').disabled = (n===1);
+        form.querySelector('[data-inv-prev]').classList.toggle('d-none', n===1);
         form.querySelector('[data-inv-next]').classList.toggle('d-none', n===maxStep);
         form.querySelector('[data-inv-submit]').classList.toggle('d-none', n!==maxStep);
+        /* la cabecera roja con un icono por paso y las pastillas (el pintor común de la casa) */
+        if (window.app33WizHead) {
+          var els = Array.prototype.slice.call(form.querySelectorAll('.invitation-step'));
+          var items = els.map(function(el){ var qq = el.querySelector('.sw-step__q'); return { title: qq ? qq.textContent.trim() : ('Paso ' + el.getAttribute('data-step')), icon: window.app33WizHead.iconOf(qq || el) || 'fa-circle' }; });
+          window.app33WizHead.paint(form.querySelector('[data-inv-steps]'), items, n - 1, function(k){ go(k + 1); });
+          window.app33WizHead.pills(form.querySelector('[data-inv-progress]'), items.length, n - 1);
+        }
       }
       function updateEmail(){
         var mode = form.querySelector('[name="receiver_mode"]:checked');
@@ -284,6 +292,7 @@
     }
   })();
   </script>
+  <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
   <script>
   // Arrastrar solicitudes entre categorías desde el enlace público.
   (function(){

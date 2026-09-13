@@ -1,11 +1,11 @@
 <div class="modal fade" id="concertWizardModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-lg-down">
     <div class="modal-content">
-      <div class="modal-header">
-        <div>
-          <h5 class="modal-title mb-1">+ Actividad</h5>
-          <div class="text-muted small">Asistente visual para conciertos, festivales, acciones promocionales, TV, marca u otras actividades.</div>
-        </div>
+      {# LA CABECERA ROJA DE LA CASA con un icono por paso: la pinta `renderStepPills` con el pintor
+         común (`app33WizHead`, en step_wizard.js) porque la secuencia de pasos es dinámica. #}
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-calendar-plus me-2"></i>Nueva actividad</h5>
+        <ol class="sw-head__steps" id="wizardHeadSteps"></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form autocomplete="off" method="post" action="{{ url_for('concert_wizard_create') }}" enctype="multipart/form-data" id="concertWizardForm">
@@ -16,7 +16,7 @@
           <input type="hidden" name="sheet_skip_email" id="wizard_sheet_skip_email" value="">
           <input type="hidden" name="wizard_simulation_id" id="wizard_simulation_id" value="">
 
-          <div class="d-flex flex-wrap gap-2 mb-3" id="wizardStepPills"></div>
+          <div class="sw-progress" id="wizardStepPills"></div>
 
           {# ============================ PRIMER PASO · De quién es (data-step 12) ============================ #}
           <section class="wizard-step" data-step="12" data-mode="any">
@@ -1218,13 +1218,10 @@
             </div>
           </section>
         </div>
-        <div class="modal-footer d-flex justify-content-between">
-          <button type="button" class="btn btn-outline-secondary" id="wizardPrevBtn">Anterior</button>
-          <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button type="button" class="btn btn-primary" id="wizardNextBtn">Siguiente</button>
-            <button type="submit" class="btn btn-primary d-none" id="wizardSubmitBtn">Finalizar</button>
-          </div>
+        <div class="modal-footer sw-foot">
+          <button type="button" class="btn btn-link px-0 me-auto" id="wizardPrevBtn"><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+          <button type="button" class="btn btn-outline-secondary" id="wizardNextBtn">Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button type="submit" class="btn btn-danger d-none" id="wizardSubmitBtn"><i class="fa fa-check me-1"></i>Crear la actividad</button>
         </div>
       </form>
     </div>
@@ -1874,6 +1871,7 @@
     const modalEl = document.getElementById('concertWizardModal');
     const form = document.getElementById('concertWizardForm');
     const stepPills = document.getElementById('wizardStepPills');
+    const wizardHead = document.getElementById('wizardHeadSteps');
     const prevBtn = document.getElementById('wizardPrevBtn');
     const nextBtn = document.getElementById('wizardNextBtn');
     const submitBtn = document.getElementById('wizardSubmitBtn');
@@ -1993,9 +1991,30 @@
         .catch(() => {});
     }
 
+    /* LA CABECERA ROJA con un icono por paso y las pastillas de progreso: el pintor común de la
+       casa (`app33WizHead`). La secuencia es dinámica, así que se repinta en cada paso; una pastilla
+       ya hecha se puede pinchar para volver a ese paso. */
+    const STEP_META = {
+      12:{t:'De quién', i:'fa-guitar'}, 1:{t:'Tipo', i:'fa-shapes'}, 2:{t:'Empresa', i:'fa-building'},
+      13:{t:'Logística', i:'fa-truck'}, 3:{t:'Fecha y sitio', i:'fa-calendar-day'},
+      4:{t:'Detalle', i:'fa-clipboard-list'}, 5:{t:'Venta', i:'fa-tag'}, 14:{t:'Contactos', i:'fa-address-book'},
+      6:{t:'Caché', i:'fa-euro-sign'}, 8:{t:'Entradas', i:'fa-ticket'}, 9:{t:'Equipamiento', i:'fa-plug'},
+      10:{t:'Gira o ciclo', i:'fa-route'}, 7:{t:'Cartelería', i:'fa-image'}, 11:{t:'Estado', i:'fa-flag'}
+    };
     function renderStepPills(){
       const seq = stepSequence();
-      stepPills.innerHTML = seq.map((s, idx) => `<span class="badge ${s===currentStep ? 'bg-primary' : 'text-bg-light border'}">Paso ${idx+1}</span>`).join('');
+      const idx = Math.max(0, seq.indexOf(currentStep));
+      const items = seq.map(s => {
+        if(s === 4 && modeInput.value === 'request_sheet') return {title:'Ficha', icon:'fa-file-signature'};
+        const m = STEP_META[s] || {t:'Paso', i:'fa-circle'};
+        return {title:m.t, icon:m.i};
+      });
+      if(window.app33WizHead){
+        window.app33WizHead.pills(stepPills, seq.length, idx);
+        window.app33WizHead.paint(wizardHead, items, idx, k => { const s = stepSequence()[k]; if(s !== undefined) showStep(s); });
+      } else if(stepPills){
+        stepPills.innerHTML = seq.map((s, k) => `<span class="sw-pill ${k===idx ? 'active' : (k<idx ? 'done' : '')}"></span>`).join('');
+      }
     }
 
     function showStep(step){

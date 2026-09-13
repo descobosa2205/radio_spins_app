@@ -497,18 +497,20 @@
     {% include '_lc_bulk_modal.html' %}
 
     <div class="modal fade" id="addSongModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <form class="modal-content" method="post" action="{{ url_for('discografica_song_create') }}">
-          <div class="modal-header">
-            <h5 class="modal-title">Añadir canción</h5>
+          <div class="modal-header sw-head">
+            <h5 class="modal-title"><i class="fa fa-music me-2"></i>Añadir canción</h5>
+            <ol class="sw-head__steps" id="songHeadSteps"></ol>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
           </div>
           <div class="modal-body">
+            <div class="sw-progress" id="songProgress"></div>
             <input type="hidden" name="ownership_type" id="songOwnershipType" value="">
 
             {# Paso 1: tipo de canción (iconos) #}
             <div data-song-step="1">
-              <div class="text-muted mb-3">¿Qué tipo de canción es?</div>
+              <div class="sw-step__q mb-3"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué tipo de canción es?</div>
               <div class="row g-3">
                 <div class="col-12 col-md-4">
                   <button type="button" class="btn btn-outline-secondary w-100 h-100 py-4 song-type-card" data-song-type="own">
@@ -670,8 +672,7 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button class="btn btn-primary d-none" data-song-submit><i class="fa fa-save"></i> Guardar</button>
+            <button class="btn btn-danger d-none" data-song-submit><i class="fa fa-check me-1"></i>Guardar la canción</button>
           </div>
         </form>
         <script>
@@ -686,6 +687,12 @@
           function showStep(n){
             modal.querySelectorAll('[data-song-step]').forEach(function(el){ el.classList.toggle('d-none', el.getAttribute('data-song-step') !== String(n)); });
             if(submitBtn) submitBtn.classList.toggle('d-none', n !== 2);
+            /* la cabecera roja con un icono por paso y las pastillas (el pintor común de la casa) */
+            if(window.app33WizHead){
+              var items = [{title:'Tipo', icon:'fa-shapes'}, {title:'Datos', icon:'fa-music'}];
+              window.app33WizHead.paint(modal.querySelector('#songHeadSteps'), items, n - 1, function(k){ showStep(k + 1); });
+              window.app33WizHead.pills(modal.querySelector('#songProgress'), items.length, n - 1);
+            }
           }
           function applyType(t){
             typeInput.value = t;
@@ -853,8 +860,8 @@
       <div class="modal fade" id="addAlbumModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <form class="modal-content" method="post" action="{{ url_for('discografica_album_create') }}">
-            <div class="modal-header">
-              <h5 class="modal-title">Añadir Disco / EP</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-compact-disc me-2"></i>Añadir Disco / EP</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -1610,7 +1617,7 @@
             data-demo-form
             data-sign-url="{{ url_for('discografica_demo_sign') }}"
             data-check-url="{{ url_for('discografica_demo_audio_check') }}">
-        <div class="modal-header">
+        <div class="modal-header sw-head">
           <h5 class="modal-title" id="demoModalTitle"><i class="fa fa-music me-2"></i>Nueva demo</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
@@ -1865,8 +1872,8 @@
     <div class="modal fade" id="playlistNewModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <form class="modal-content" method="post" action="{{ url_for('playlist_create') }}">
-          <div class="modal-header">
-            <h5 class="modal-title"><i class="fa fa-list-ol me-2 text-muted"></i>Nueva Playlist</h5>
+          <div class="modal-header sw-head">
+            <h5 class="modal-title"><i class="fa fa-list-ol me-2"></i>Nueva Playlist</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">

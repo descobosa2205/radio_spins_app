@@ -75,6 +75,8 @@
     root.querySelectorAll('[data-pi-step]').forEach(function (s) {
       s.classList.toggle('d-none', s.getAttribute('data-pi-step') !== name);
     });
+    /* la cabecera roja con un icono por paso (el pintor común de la casa) */
+    if (window.app33WizHead) window.app33WizHead.fromSteps(root.querySelector('[data-pi-steps]'), root.querySelectorAll('[data-pi-step]'), root.querySelector('[data-pi-step="' + name + '"]'));
   }
 
   function showError(msg) {

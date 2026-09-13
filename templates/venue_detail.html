@@ -189,7 +189,7 @@
   <div class="modal fade" id="vtkFormatModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form method="post" action="{{ url_for('venue_ticket_format_create', vid=venue.id) }}">
-        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-layer-group me-2 text-danger"></i>Nuevo formato de ticketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-layer-group me-2"></i>Nuevo formato de ticketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <p class="small text-muted mb-3">Cada formato es una subpestaña con su propio plano y sus categorías/aforos (p. ej. «Concierto pista», «Formato teatro», «Medio aforo», «360»).</p>
           <div class="mb-3"><label class="form-label">Nombre del formato *</label><input type="text" class="form-control" name="name" required placeholder="Ej: Formato teatro"></div>

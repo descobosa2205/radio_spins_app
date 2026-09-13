@@ -13,17 +13,18 @@
      data-semester="{{ royalty_semester_key }}">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <div>
           <h5 class="modal-title mb-0"><i class="fa fa-file-arrow-up me-2"></i>Subir liquidaciones</h5>
           <div class="small text-muted">Las que nos han mandado las compañías. Se leen y se te enseña qué ha casado.</div>
         </div>
+        <ol class="sw-head__steps" data-afavor-up-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
 
         {# ---- Paso 1: los documentos ---- #}
-        <div data-afavor-up-step="1">
+        <div data-afavor-up-step="1" data-sw-head="Documentos" data-sw-icon="fa-file-arrow-up">
           <div class="afavor-pub__drop" data-file-drop-for="#afavorUpFiles">
             <i class="fa fa-cloud-arrow-up me-1"></i>
             Arrastra aquí las liquidaciones o
@@ -52,7 +53,7 @@
         </div>
 
         {# ---- Paso 2: lo que ha casado ---- #}
-        <div class="d-none" data-afavor-up-step="2">
+        <div class="d-none" data-afavor-up-step="2" data-sw-head="Lo que ha casado" data-sw-icon="fa-list-check">
           <div data-afavor-up-results></div>
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
             <button type="button" class="btn btn-outline-secondary btn-sm" data-afavor-up-back>
@@ -98,6 +99,8 @@
   function paso(n) {
     paso1.classList.toggle('d-none', n !== 1);
     paso2.classList.toggle('d-none', n !== 2);
+    /* la cabecera roja con un icono por paso (el pintor común de la casa) */
+    if (window.app33WizHead) window.app33WizHead.fromSteps(raiz.querySelector('[data-afavor-up-steps]'), [paso1, paso2], n === 1 ? paso1 : paso2, function () { paso(1); });
   }
 
   /* El arrastre lo hace el mecanismo global (file_drop.js): aquí solo se escucha el change. */

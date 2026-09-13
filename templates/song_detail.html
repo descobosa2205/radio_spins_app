@@ -1236,8 +1236,8 @@
       <div class="modal fade" id="addIsrcModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <form class="modal-content" method="post" action="{{ url_for('discografica_song_isrc_add', song_id=song.id) }}">
-            <div class="modal-header">
-              <h5 class="modal-title">Añadir ISRC</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-barcode me-2"></i>Añadir ISRC</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -1355,8 +1355,8 @@
       <div class="modal fade" id="songCertificationModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <form class="modal-content" method="post" action="{{ url_for('discografica_song_certification_save', song_id=song.id) }}">
-            <div class="modal-header">
-              <h5 class="modal-title" id="songCertificationModalTitle">Añadir certificación</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-award me-2"></i><span id="songCertificationModalTitle">Añadir certificación</span></h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -2670,8 +2670,8 @@
       <div class="modal fade" id="royaltyBeneficiaryModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <form class="modal-content" id="royaltyBeneficiaryForm" data-save-url="{{ url_for('discografica_song_royalty_beneficiary_save', song_id=song.id) }}" onsubmit="return submitRoyaltyBeneficiary(event);" enctype="multipart/form-data">
-            <div class="modal-header">
-              <h5 class="modal-title" id="royaltyBeneficiaryModalTitle">Añadir beneficiario</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-hand-holding-dollar me-2"></i><span id="royaltyBeneficiaryModalTitle">Añadir beneficiario</span></h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -3091,8 +3091,8 @@
         <div class="modal-dialog modal-lg modal-dialog-centered">
           <form class="modal-content" method="post" id="editorialShareForm"
                 action="{{ url_for('discografica_song_editorial_share_save', song_id=song.id) }}">
-            <div class="modal-header">
-              <h5 class="modal-title" id="editorialShareModalTitle">Añadir autor/compositor</h5>
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-pen-nib me-2"></i><span id="editorialShareModalTitle">Añadir autor/compositor</span></h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
@@ -3572,8 +3572,8 @@
 <div class="modal fade" id="songLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('discografica_song_set_link', song_id=song.id) }}">
-      <div class="modal-header">
-        <h5 class="modal-title" id="songLinkModalTitle">Añadir enlace</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-link me-2"></i><span id="songLinkModalTitle">Añadir enlace</span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">

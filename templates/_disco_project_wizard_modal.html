@@ -9,7 +9,7 @@
    ============================================================================================ #}
 {% set pw = project_wizard or {} %}
 <div class="modal fade" id="discoProjectModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('disco_project_create') }}"
           id="discoProjectForm" data-step-wizard data-sw-mode="ALBUM" data-disco-project>
       <input type="hidden" name="artist_id" id="dpArtistId">
@@ -18,8 +18,9 @@
          «crear otra de todas formas» cuando ya existe una igual. #}
       <input type="hidden" name="existing_song_id" id="dpExistingSongId" value="">
       <input type="hidden" name="duplicate_ok" id="dpDuplicateOk" value="">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-diagram-project text-danger me-2"></i>Nuevo proyecto discográfico</h5>
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-diagram-project me-2"></i>Nuevo proyecto discográfico</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">

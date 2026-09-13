@@ -38,6 +38,8 @@
       paso1.classList.toggle('d-none', n !== 1);
       paso2.classList.toggle('d-none', n !== 2);
       enviar.classList.toggle('d-none', n !== 2);
+      /* la cabecera roja con un icono por paso (el pintor común de la casa) */
+      if (window.app33WizHead) window.app33WizHead.fromSteps(modalNuevo.querySelector('[data-sup-steps]'), [paso1, paso2], n === 1 ? paso1 : paso2, function () { paso(1); });
     }
 
     function elegir(fila) {
@@ -142,6 +144,8 @@
       modalImp.querySelector('[data-si-step="' + i + '"]').classList.toggle('d-none', i !== n);
     });
     btnAplicar.classList.toggle('d-none', n !== 2);
+    /* la cabecera roja con un icono por paso (el pintor común de la casa) */
+    if (window.app33WizHead) window.app33WizHead.fromSteps(modalImp.querySelector('[data-si-steps]'), modalImp.querySelectorAll('[data-si-step]'), modalImp.querySelector('[data-si-step="' + n + '"]'));
   }
 
   function pintarColumnas() {

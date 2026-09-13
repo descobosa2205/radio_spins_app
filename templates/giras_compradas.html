@@ -53,10 +53,11 @@
 
 {# ===== Modal nueva gira ===== #}
 <div class="modal fade" id="tourModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('purchased_tour_create') }}" data-step-wizard>
-      <div class="modal-header">
+      <div class="modal-header sw-head">
         <h5 class="modal-title"><i class="fa fa-route me-2"></i>Nueva gira comprada</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -134,11 +135,10 @@
           <div class="alert alert-light border small mt-3 mb-0"><i class="fa fa-circle-info me-1"></i>Podrás editar todo esto (adelanto, gastos generales, socios, comisionistas) y añadir/vincular las fechas en la ficha de la gira.</div>
         </section>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-outline-primary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
-        <button type="button" class="btn btn-primary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
-        <button type="submit" class="btn btn-primary" data-sw-submit><i class="fa fa-floppy-disk me-1"></i>Crear gira</button>
+      <div class="modal-footer sw-foot">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button class="btn btn-danger" type="submit" data-sw-submit><i class="fa fa-check me-1"></i>Crear gira</button>
       </div>
     </form>
   </div>

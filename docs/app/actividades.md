@@ -1,0 +1,1507 @@
+# Contratación · actividades y conciertos
+
+> Parte de la guía del proyecto. El índice y las reglas que valen para
+> **cualquier** tarea están en `CLAUDE.md`; aquí está el detalle de esta área.
+> Búsqueda rápida en todas las áreas: `grep -rn "lo que sea" docs/app/`
+
+## Qué hay aquí
+
+- Histórico de actividades
+- AGENDA DEL ARTISTA · VOLCAR SU CALENDARIO DE iCLOUD. Cada artista tenía su
+- LO QUE NO ESTÁ CONFIRMADO ES DE CONTRATACIÓN. Una reserva puede caerse, y
+- Calendario de agenda (Inicio + pestaña «Agenda» del artista): componente reutilizable
+- CUMPLEAÑOS de los INTEGRANTES de un artista (corregido ago 2026): salen SIEMPRE (uno o varios,
+- FICHA DE ACTIVIDAD · EDITAR «DATOS» SALEN TODOS LOS CAMPOS. El formulario
+- CABECERA DE UNA BOLSA · la misma de una actividad
+- ⚠️⚠️ UN LOGO DE EMPRESA DEL GRUPO NO LLEVA FONDO BLANCO. Muchos se suben en PNG
+- Simulaciones — conversión y archivado
+- FICHA DE ACTIVIDAD · pestaña «INICIO» con el proceso paso a paso
+- Asistentes por pasos (UX): cuando se pincha una opción de un paso que no requiere más datos,
+- El asistente «+ Actividad» admite ARTISTA o EVENTO: primer paso «¿De quién es la actividad?»
+- Punto de empate de una actividad (_concert_break_even_info, en la pestaña Resultado, que es
+- PROMOCIÓN · la ficha se lee como la de una ACTIVIDAD: misma cabecera
+- CANCELAR o APLAZAR una actividad es un PROCESO, no cambiar una etiqueta.
+- A UN ARTISTA (O A UN EVENTO) SOLO SE LE MANDA LO QUE ESTÉ CONFIGURADO EN SUS
+- AVISO AL ARTISTA DE UNA ACTIVIDAD. Antes de CONFIRMAR una actividad hay que
+- ELIMINAR UNA ACTIVIDAD · la RUEDA de la cabecera
+- FICHA DE CONTRATACIÓN · una sola, y lo del promotor aparte
+- El FORMULARIO del promotor, por módulos (ago 2026, concert_contract_public.html, clases
+- Módulo de CACHÉS solo si hay cachés
+- La RUEDA de la ficha de una actividad va en la FILA DE BOTONES, a la derecha del todo
+- CONTABILIDAD · cada persona lleva SUS EMPRESAS del grupo (ago 2026,
+- EMPRESA DEL GRUPO SIN LOGO → ICONO DE EMPRESA + NOMBRE. Globales
+- UN AUTOR QUE ES INTEGRANTE DE UN ARTISTA = UNA SOLA FICHA (bug de dinero, ago 2026).
+- FICHA DEL ARTISTA · UN SOLO MÓDULO de datos y documentos por integrante (bug real, ago
+- Al renombrar la ficha de un solista con el nombre del artista, el NOMBRE OFICIAL tiene que
+- CONTRATACIÓN · CONCIERTOS: el número de cada artista es el de lo que va a VER (corregido
+- MARKETING · UNA CAMPAÑA DE UNA ACTIVIDAD VA CON LA ACTIVIDAD: su bolsa y su fecha (sep 2026,
+- «A EMPRESA»: EL PROMOTOR ES LA EMPRESA DEL GRUPO QUE FACTURA. En
+- EL ASISTENTE DE ACTIVIDAD LEÍA LOS CAMPOS DE OTRO FORMULARIO (bug real y grave, sep
+- CALENDARIO POR ARTISTA EN EL IPHONE (CalDAV): SE AÑADE Y SE BORRA, Y SE AVISA.
+- CONTABILIDAD · el filtro de empresa
+- FICHA DEL ARTISTA · integrantes y NOTIFICACIONES
+- PERSONAS DEL ARTISTA = TERCEROS que forman parte de él (ArtistPerson.promoter_id): un miembro
+- GASTOS DIRECTOS: de OFICINA o INVERSIÓN de artista
+- Otras actividades · filtros por tipo y listado por sujeto (ago 2026, contracting_view +
+- Actividades de un EVENTO (AppEvent): una actividad (Concert) exige artista (artist_id NOT
+- FUSIÓN de Actividades y Acciones
+- Sección ACTIVIDADES: filtros por tipo y listado por sujeto (ago 2026, activities_view +
+- Filtros de tipo
+- Cuentas bancarias de una empresa del grupo
+- Facturación por empresa
+- Ficha de la empresa del grupo (company_detail, /empresas/<cid>): pestaña Datos (datos de
+- Contratos de actividad
+- FILTRO POR AÑO en Conciertos y Actividades
+- LA FICHA DE UNA ACTIVIDAD SIN CONFIRMAR solo la abren quienes la ven
+- UN TERCERO NUEVO: EMPRESA o PARTICULAR.
+- QUIEN CREA UNA ACTIVIDAD LA VE (_concert_visible_unconfirmed): una actividad nace
+- UNA ACTIVIDAD YA PASADA SE CREA Y YA ESTÁ: no se va a mandar un aviso de algo que ya
+- AL MOSTRAR UN PANEL DEL ASISTENTE HAY QUE VOLVER A HABILITAR SUS CAMPOS: al enviar se
+- EL PROMOTOR DEL ASISTENTE ES UNA BARRA DE BÚSQUEDA, no un desplegable
+- UNA COMISIÓN SE APLICA DE DOS MANERAS Y NO ES LO MISMO (ago 2026,
+- INICIO DE CONTRATACIÓN · el dinero (ago 2026, _home_billing_pending / _home_billing_year +
+- LO CREADO ANTES DEL 2-SEP-2026 SE CONFIRMA SIN COMUNICAR. La comunicación al
+- EN LA CABECERA DE UNA ACTIVIDAD NO VAN LAS PERSONAS VINCULADAS AL ARTISTA: su
+- EL ASISTENTE DE ACTIVIDAD ES UNO, Y SU CONTEXTO SALE DE UN SOLO SITIO. El
+- EL REPERTORIO DE UNA ACTIVIDAD: se busca ESCRIBIENDO y se ordena ARRASTRANDO.
+- QUIEN CREA UNA ACTIVIDAD LA SIGUE VIENDO HASTA QUE SE CONFIRMA: alguien que no es
+- LOS FILTROS Y LA FILA DE UN LISTADO DE ACTIVIDADES SON UN SOLO SITIO. Los
+- LA AGRUPACIÓN POR «GRATUITOS» DESAPARECE, Y LA FILA DICE QUÉ ES CADA ACTIVIDAD.
+- LA FORMA DE PAGO DEL CACHÉ SE CONFIGURA EN LA FICHA, Y SE AVISA SI FALTA.
+- MARKETING · LA EMPRESA LA DICTA LA ACTIVIDAD: en una campaña vinculada a una
+- CADA TAREA DE UNA ACTIVIDAD ES DE UN ÁREA, Y SOLO LA VE QUIEN TRABAJA EN ELLA.
+- EN UN CONCIERTO «VENDIDO» NO SE VEÍAN LOS CACHÉS (bug real, sep 2026). Los módulos de
+- FICHA DE CONTRATACIÓN · RECHAZARLA Y PEDIRLE QUE LA SUBSANE. En la pantalla de
+- EL PROMOTOR CUBRE… · SUELDOS MÚSICOS, BACKLINE y OTROS: tres opciones más en
+- LA CONFIRMACIÓN DEL ARTISTA SE PIDE, Y ÉL LA DA DESDE EL CORREO O LA LANDING.
+- FICHA DE CONTRATACIÓN · LOS DATOS DEL PROMOTOR SON SUYOS, NO LOS DE LA CASA (bug real y
+- LA FICHA DE CONTRATACIÓN SE VA GUARDANDO SOLA: según el promotor escribe, lo
+- EL CORREO DE LA FICHA DE CONTRATACIÓN · el botón, dentro del bocadillo y abajo a la derecha
+- LA FICHA DE CONTRATACIÓN, EL AVISO AL ARTISTA Y LOS BOTONES DESTACADOS (sep 2026, tres
+- QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR. A CUATRO SEMANAS
+
+---
+
+- **Histórico de actividades**: `LEGACY_ACTIVITY_CUTOFF` (28-jul-2026). Las actividades ANTERIORES se
+  conservan en el listado y en su ficha, pero **no generan trabajo**: `_concert_needs_production`
+  devuelve False (ni aviso de producción, ni módulo de Inicio), no salen en el listado de Producción
+  ni para declarar en Registros. Helpers `_concert_is_legacy` / `_is_legacy_activity_date`. Crear una
+  bolsa a mano sigue siendo posible (es un clic deliberado); lo que no se genera es lo automático.
+- **AGENDA DEL ARTISTA · VOLCAR SU CALENDARIO DE iCLOUD** (ago 2026). Cada artista tenía su
+  calendario de iCloud y ahí está su histórico. Desde la pestaña **Agenda** de su ficha (botón de la
+  **nube**, `_artist_calendar_import_modal.html`) se pega el enlace del calendario y **se vuelca a la
+  app**, que **se lo queda**: lo importado pasa a ser un dato nuestro (`ArtistAgendaItem`, kind
+  **NOTE**, así que se ve, se arrastra y se edita como cualquier otra nota, y sale en su iCal y en
+  CalDAV), de modo que el día que se borre el calendario de iCloud el histórico sigue aquí.
+  ⚠️⚠️ **NO es una sincronización viva: es un VOLCADO.** Se puede repetir cuando se quiera —lo que
+  ya entró se reconoce y se ACTUALIZA en vez de duplicarse—, pero la app no le pregunta a iCloud por
+  su cuenta.
+  · **LA FECHA TOPE es lo que evita duplicar** (`ArtistCalendarImport.until_date`): del calendario
+  viejo solo se trae lo ANTERIOR a ella, porque lo de ahora en adelante ya se lleva en la app. Sale
+  por defecto en **hoy** (o la del último volcado) y se dice cuántos se han dejado fuera.
+  · **«Ver qué trae»** (`artist_calendar_import_preview`, JSON) lo enseña ANTES de volcar: el nombre
+  del calendario, cuántos eventos, de cuándo a cuándo, cuántos ya estaban y una muestra.
+  · **NO SE DUPLICA NADA**: cada entrada guarda el **UID del evento de origen** en
+  `ArtistAgendaItem.caldav_uid` —la MISMA columna con la que ya se casan los eventos que llegan del
+  iPhone por CalDAV— y se busca **en bloque** (con cientos de eventos, una consulta por evento sería
+  inaceptable). Reimportar el mismo calendario no crea nada nuevo.
+  · **Se puede DESHACER** (`artist_calendar_import_undo`): borra solo lo que trajo ESE volcado
+  (`ArtistAgendaItem.import_id`), así que **lo que se haya escrito a mano en la agenda no se toca**.
+  Y **volcar otra vez el mismo calendario NO crea otra importación**: actualiza la que ya había (si
+  no, la lista de «calendarios ya volcados» se llenaría de copias del mismo y deshacer una no sabría
+  cuál es la buena).
+  · **El motor de lectura es PURO**: **`ics_import.py`** (ni Flask ni BD), con su prueba de
+  regresión **`tools/check_ics_import.py`** — si se toca, tiene que seguir en verde.
+  ⚠️⚠️ **En iCal, el `DTEND` de un evento de DÍA COMPLETO es EXCLUSIVO**: el último día real es el
+  anterior. Es el error clásico al leer un .ics y hace que TODO dure un día de más.
+  ⚠️ Las líneas largas vienen **partidas a los 75 caracteres** y continúan con un espacio: sin
+  deshacer eso (`unfold`), un título largo llega cortado.
+  ⚠️ Dentro de un VEVENT puede haber un **VALARM** con su propia `DESCRIPTION`: si no se salta, la
+  del recordatorio se cuela como la del evento.
+  ⚠️ La **hora se respeta tal cual**: con `TZID` se deja la hora escrita (que es la que se leía en el
+  calendario) y **solo lo que viene en UTC (`Z`) se pasa a la hora de España**. Un histórico se
+  importa para volver a verlo igual, no para recalcularlo.
+  ⚠️ Los **repetidos (`RRULE`) se expanden** —un calendario de verdad tiene ensayos semanales—, con
+  su `EXDATE` y con las ocurrencias **editadas a mano** (`RECURRENCE-ID`), que mandan sobre la serie.
+  La expansión está **acotada** (`MAX_OCCURRENCES` y la fecha tope): un «todos los lunes, para
+  siempre» no termina nunca, y cuando se corta **se dice**.
+  ⚠️ La identidad de una ocurrencia editada es la de **su hueco en la serie** (`RECURRENCE-ID`), no
+  el día al que se haya movido: si no, al reimportar se duplicaría. Y **la lista de editadas excluye
+  las que pinta la REGLA, nunca al propio evento editado** — con eso se excluía a sí mismo y esa
+  fecha se perdía (bug real que sacó la prueba).
+  ⚠️ `STATUS:CANCELLED` no se importa.
+  ⚠️⚠️ **`requests` NO ES UN NOMBRE GLOBAL EN `app.py`** (bug real, ago 2026): ahí `requests` es una
+  VARIABLE LOCAL en media docena de funciones de invitaciones (`requests.append(...)`), y el módulo
+  no se importa arriba — lo importan `holded_utils`, `pleo_utils` y `chartmetric_utils`, cada uno el
+  suyo. Usarlo en una función de `app.py` sin importarlo DENTRO (`import requests as _rq`, como ya
+  hace `holded_utils`) es un **`NameError` en tiempo de ejecución** → 500 → **la pantalla de
+  mantenimiento**, y luego un «Method Not Allowed» al pulsar «Reintentar ahora» (recarga con GET una
+  URL que solo acepta POST: el 405 es la CONSECUENCIA, no la causa).
+  ⚠️ **Pyflakes NO lo detecta** aquí, porque el nombre sí existe en otros ámbitos del fichero.
+  ⚠️ Y no se vio en las pruebas porque **sustituían la descarga por un texto**: el único camino sin
+  probar era justo el que fallaba. Por eso existe **`tools/check_ics_download.py`**, que baja un
+  calendario público DE VERDAD. Regla: si una función sale a la red, hay que probar **la salida a la
+  red**, no solo lo que se hace con lo que trae.
+  · **Lo descarga el SERVIDOR**, así que la URL se comprueba (`_ical_url_is_safe`): nada de
+  `localhost` ni de IP privadas —sin eso sería una forma de que alguien con sesión le hiciera pedir
+  cosas a la red interna—, solo http/https, con **timeout** y **tope de tamaño**.
+  ⚠️ iCloud da los calendarios publicados como **`webcal://`**, que no se puede descargar: es un
+  `https://` disfrazado (`_ical_normalize_url` lo convierte).
+  ⚠️ Los endpoints (`artist_calendar_import_*`) se mapean a **`artists.agenda`** en los DOS mapeos, y
+  exigen `can_edit_artists_stations()`.
+
+- ⚠️⚠️ **LO QUE NO ESTÁ CONFIRMADO ES DE CONTRATACIÓN** (ago 2026). Una **reserva puede caerse**, y
+  el resto de la oficina dando por ocupado un día que todavía se está hablando genera más ruido que
+  información. Por eso **RESERVADO entra en `_CONCERT_PRIVATE_STATUSES`** (con BORRADOR y HABLADO):
+  · lo ven **CONTRATACIÓN** y **DIRECCIÓN** (`_user_sees_unconfirmed_activities`);
+  · y **quien la PRODUCE**, en cuanto se le ha activado la producción, aunque siga sin confirmarse
+    (es su trabajo). Eso se decide **por ACTIVIDAD**, no por sección: punto único
+    **`_concert_visible_unconfirmed(concert, full_details=, user_id=)`**;
+  · **para el resto NO aparece en el calendario**. ⚠️ Antes se pintaba como «Reserva — consultar con
+    Contratación», ocupando el día: ahora directamente **no se pinta** (lo pidió así dirección).
+  · Quien SÍ la ve, la ve **RAYADA pero CON EL COLOR DE SU ARTISTA** (`tentative` en el ítem →
+    `.agenda-event.is-tentative`): las rayas se hacen con blanco translúcido **encima** del color
+    (`--c`), así valen para cualquier calendario y no hay que inventar un color aparte. Sigue siendo
+    su calendario, solo que la fecha no está cerrada. Al pasar el ratón lo dice.
+  ⚠️ El mismo criterio vale en el **listado de Producción** (`_production_concert_row`) y en las
+  listas ricas de la ficha del artista: los tres miran la MISMA lista de estados.
+  ⚠️ En los calendarios **públicos, iCal y CalDAV** no se pinta nada sin confirmar (van con
+  `full_details=False` y sin sesión).
+  Probado con la app real: dirección ve las cuatro (tres rayadas) · quien produce una reservada ve
+  esa y las confirmadas · promoción solo las confirmadas · el calendario público, solo lo confirmado.
+
+- **Calendario de agenda (Inicio + pestaña «Agenda» del artista)**: componente reutilizable
+  `_agenda_build` (`app.py`, reúne conciertos/acciones/medios/lanzamientos en un formato común; conciertos
+  en BORRADOR fuera) + `templates/_agenda_calendar.html` + `static/js/agenda_calendar.js` + estilos
+  `agenda-*` en `styles.css`. Modo `home` (color por artista, 2 semanas fijas, etiquetas de artista arriba
+  + tipos a la izquierda) y modo `artist` (color por tipo, 4 semanas navegables por meses con flechas,
+  listado de eventos a la izquierda). En Inicio se inyecta como `HOME_AGENDA` (todos los usuarios; sus
+  artistas asignados o todos si no tiene/role 10). La agenda del artista carga ±6 meses y navega también
+  al pasado. El calendario muestra el mes junto a cada día. Además del calendario de actividades reales,
+  `_agenda_build` añade: **bloqueos** y **notas libres** (modelo `ArtistAgendaItem`, kind BLOCK/NOTE,
+  multi-día; los bloqueos marcan los días con rayado) y **cumpleaños** (artista individual →
+  `Artist.birth_date`; grupo `Artist.is_group` → cada `ArtistPerson.birth_date`). **Botón +** arriba a la
+  derecha (Inicio y ficha) → asistente `templates/_agenda_add_modal.html`: elegir artista (en Inicio,
+  vía `AGENDA_ARTIST_OPTIONS`), tipo (Actividad/Bloqueo/Otro) y rango de días. «Actividad» reabre el
+  asistente de concierto (`/conciertos?open_wizard=1&wizard_artist=<id>`, auto-apertura en
+  `_concert_wizard_modal.html`). Endpoints `agenda_block_create` (en `SUPPORT_ACTION_ENDPOINTS`) y
+  `agenda_note_create`/`agenda_item_update`/`agenda_item_delete` (en `REQUEST_ANY_ENDPOINTS`, ver más
+  abajo). Al crear artista se pregunta «¿es un grupo?»; la pestaña Datos edita
+  `is_group`, fecha del artista y fecha por miembro.
+  · **EL ORDEN DEL SELECTOR** (`_agenda_artist_options`, ago 2026): **1º MI CALENDARIO** (con la foto
+  de quien mira), **2º el CALENDARIO GENERAL** y detrás los artistas y eventos **activos**; el resto,
+  tras «Ver más artistas». Los dos primeros no son artistas, así que solo admiten **notas**: lo marca
+  **`data-only-note`** en su tarjeta (`soloOtros()`), no `data-office`, que es solo su estilo.
+  ⚠️ El nombre del general en la tarjeta es `OFFICE_CALENDAR_NAME` («Calendario general»), el MISMO
+  que el de su chip: «Calendario general de oficina» no cabía y salía cortado.
+- **CUMPLEAÑOS de los INTEGRANTES de un artista** (corregido ago 2026): salen SIEMPRE (uno o varios,
+  `ArtistPerson.birth_date`) más la fecha del propio artista si la tiene, sin repetir. Antes los
+  integrantes solo contaban si el artista estaba marcado como **grupo**, así que en uno sin esa marca
+  no aparecía ningún cumpleaños aunque estuvieran puestos.
+- ⚠️⚠️ **FICHA DE ACTIVIDAD · EDITAR «DATOS» SALEN TODOS LOS CAMPOS** (sep 2026). El formulario
+  inline de «Datos» se quedaba corto y —lo grave— **borraba lo que no preguntaba**:
+  ⚠️⚠️ **EL PROMOTOR SE BORRABA AL GUARDAR** en cualquier venta que no fuera VENDIDO, GRATUITO o
+  GIRAS_COMPRADAS: el campo se ESCONDÍA (`applySaleType` en `concert_form.js`) y el guardado hacía
+  `c.promoter_id = … if sale_type in (…) else None`. O sea: en un concierto «a empresa» o
+  «participado» no se podía ni ver quién lo promueve, y al guardar cualquier otra cosa se perdía.
+  **Quién promueve es un dato de la ACTIVIDAD, no del tipo de venta**: ahora se ve y se guarda
+  siempre (y solo se quita si el campo llega vacío a propósito). Lo mismo con el **punto de empate**,
+  que se borraba en los conciertos vendidos y gratuitos.
+  · **El formulario va por MÓDULOS** (`.ed-block`, con su rótulo e icono): **qué es y de quién**
+  (estado · tipo de actividad · artista · festival · gira comprada · ciclo/festival · #) ·
+  **cuándo y dónde** (fecha · **hasta**, para lo que dura varios días · **hora de comienzo** y
+  **apertura de puertas**, las dos con su «por confirmar» · recinto · **el recinto A MANO** con su
+  dirección, CP, municipio y provincia) · **entradas y venta** (aforo · **aforo libre** · salida a
+  la venta con su TBC · **sold out** · tipo o «¿tiene caché?» · punto de empate) · **quién promueve
+  y quién factura** (promotor · **con qué sociedad suya factura** · nuestra empresa) · **anuncio**.
+  ⚠️ **El RECINTO ya no es obligatorio**: vale con escribirlo a mano (es lo que ya hacía el
+  asistente). Lo que no se admite es dejar los dos vacíos.
+  ⚠️ **Sin fecha de salida a la venta NO se bloquea el guardado**: se apunta como «por confirmar».
+  Antes reventaba con «la fecha de salida a la venta es obligatoria» y **no se guardaba nada del
+  resto del formulario**, así que una actividad sin fecha de venta no se podía editar.
+  ⚠️ Los campos que se guardan **solo si el formulario los trae** (`if "x" in request.form`) son los
+  que también se tocan desde otra pantalla (la gira, el ciclo, el tipo de actividad, el promotor):
+  así un guardado parcial de otra sección no los borra.
+
+- **CABECERA DE UNA BOLSA · la misma de una actividad** (ago 2026): donde la bolsa sí lleva cabecera
+  (`/bolsas/<id>` y la pestaña Producción de una actividad) es ya un **`ficha-hero`** como el de la
+  ficha de una actividad: foto redonda, antetítulo con el tipo de bolsa, título con las etiquetas de
+  estado y de liquidación, la línea de datos **con iconos** (artistas, vínculo, fechas, total) y la
+  **empresa del grupo arriba a la derecha** (`.hero-company`, con su icono si no tiene logo).
+  ⚠️⚠️ **La foto del artista salía OVALADA** (bug real): era un `<img>` con un tamaño fijo suelto
+  dentro de un `d-flex`, y **cualquier hijo de un flex se puede encoger** — en cuanto la fila iba
+  justa se comprimía a lo ancho manteniendo el alto. Con `.ficha-hero__media` (que es `flex:0 0 auto`)
+  no puede pasar; comprobado a 375 px, donde sigue midiendo 96×96.
+  · **El ASISTENTE** (`_disco_project_wizard_modal.html`, con `step_wizard.js`): artista (los activos
+  primero y el resto tras «Ver más artistas») → tipo → y según el tipo: **álbum/EP** (nombre, nº de
+  temas → tabla que se genera sola con nombre, colaboración y «tema ya existente» del repertorio;
+  formato DIGITAL / DIGITAL+FÍSICO / SOLO FÍSICO y sus soportes CD/vinilo/casete; y el planteamiento
+  de lanzamiento con la fecha y los temas que salgan en otra) · **single** y **single + videoclip**
+  (nombre, colaboración y fecha) · **videoclip** (de un tema del repertorio, de otro proyecto o suelto).
+  ⚠️ **Un tema YA EXISTENTE no lleva fecha**: sale con la etiqueta «Ya publicado».
+  · **«SINGLE + VIDEOCLIP» es un TIPO, no una casilla** (ago 2026): la casilla «Incluye videoclip» del
+  paso del single se **retiró** y en su lugar hay un tipo propio (`SINGLE_VIDEOCLIP`, «Single +
+  Videoclip»), que hace exactamente lo que hacía la casilla marcada
+  (`includes_videoclip = true`). Se prepara **igual que un single** —punto único
+  **`DISCO_SINGLE_KINDS`**, hermano de `DISCO_TRACKLIST_KINDS`— así que su paso del asistente es el
+  mismo (`data-sw-when="SINGLE,SINGLE_VIDEOCLIP"`; ⚠️ el `data-sw-when` casa por token exacto: hay que
+  nombrar los dos) y crea su `Song` provisional en repertorio.
+  · **¿Lleva vídeo?** lo dice el punto único **`_disco_project_has_videoclip`** (tipo VIDEOCLIP o
+  SINGLE_VIDEOCLIP, o la casilla marcada), y de ahí sale la tarea **«Falta el videoclip»**
+  (`_disco_project_missing_videoclip`): se mira en la canción del lanzamiento, que es donde se sube, y
+  **no reclama nada** si ya hay un material VIDEOCLIP o si la canción está marcada «Sin videoclip»
+  (`Song.no_videoclip`) — eso es una decisión tomada, no algo que falte.
+  ⚠️ En un «Single + Videoclip» la ficha **no ofrece la casilla** (no se puede quitar lo que dice el
+  tipo) y el guardado la fuerza a `true`; en un single a secas sigue estando, para poder decir más
+  adelante que llevará vídeo. Y la etiqueta «Con videoclip» solo se pinta cuando el tipo NO lo dice ya
+  (`row["video_badge"]`): al lado de «Single + Videoclip» sería repetirlo.
+  · **Un tipo que son DOS cosas se dibuja con SUS DOS ICONOS y un + en medio**: punto único
+  **`_disco_kind_icon_html`** (global de plantilla **`disco_kind_icon(kind, cls)`**) +
+  `DISCO_PROJECT_ICON_PARTS` (`SINGLE_VIDEOCLIP` → nota + película) y las clases `.kind-icons` de
+  `styles.css`. Se usa en la tarjeta del asistente, en la fila del listado, en la cabecera de la
+  ficha y en el hito del lanzamiento del calendario (esos dos últimos por `icon_html`, que va en el
+  propio diccionario). El **+ es un icono más** (`fa-plus`), así que hereda el color y el estado —el
+  rojo de la tarjeta elegida— y solo se le baja el tamaño.
+  ⚠️ Los iconos toman el tamaño **del sitio donde van** (`.kind-icons i.fa{font-size:inherit}`) y el
+  + es una fracción DE ELLOS: así la proporción se mantiene igual en la tarjeta grande, en el badge
+  de 42 px del listado y en una línea de texto, sin ajustarla en cada sitio. Con el `em` colgando del
+  contenedor (que es 1 rem) el + salía a 9 px al lado de iconos de 24 y parecía un punto.
+  ⚠️ En el **badge de 42 px** del listado los dos iconos entran justos: ahí van algo más pequeños y
+  más juntos (medido: 36 px, sin desbordar).
+  ⚠️⚠️ **CADA ASISTENTE CARGA SU MOTOR**: el parcial tiene que traer su
+  `<script src=".../js/step_wizard.js">` (como los de promoción, giras y ciclos). Sin él el modal se
+  abre **EN BLANCO y no avanza** —`.sw-step` está oculto por CSS (`display:none`) y es ese JS quien
+  activa el primer paso, pinta el progreso y cablea «Siguiente»— y no salta ningún error: parece que
+  el botón «no hace nada» (bug real del asistente de proyectos).
+  ⚠️ `step_wizard.js` NO expone `swNext`: el auto-avance se pide con **`data-sw-advance`** en el
+  propio control (y los pasos que no tocan se saltan con `data-sw-when`, que además DESHABILITA sus
+  campos: si no, el navegador se para a validar un `required` invisible).
+  ⚠️ Si NINGÚN artista sale como «activo» (nadie con contrato discográfico) se enseñan **todos** desde
+  el principio: la rejilla del primer paso no puede quedarse vacía.
+  ⚠️ **`dict()` sobre las tuplas de tres del catálogo revienta en la plantilla**: el mapa
+  clave→etiqueta se pasa hecho (`kind_labels`).
+  ⚠️ **`DiscoProject.song` necesita `foreign_keys=[song_id]`**: hay DOS caminos a `songs` (el tema del
+  videoclip y `release_song_id`, el lanzamiento creado) y SQLAlchemy no arranca sin decírselo.
+  ⚠️ La sección nueva hay que añadirla a la **lista blanca de `section`** de `discografica_view`, al
+  catálogo de permisos (`discografica.proyectos`) y a los DOS mapeos de endpoints (los suyos se
+  llaman `disco_project_*`, fuera del prefijo `discografica_`).
+
+- - ⚠️⚠️ **UN LOGO DE EMPRESA DEL GRUPO NO LLEVA FONDO BLANCO** (ago 2026). Muchos se suben en PNG
+  con el blanco horneado y en la app se veían como un **rectángulo blanco** sobre el fondo gris —y
+  encima el helper `company_logo()` le ponía `background:#fff`, así que ni un PNG transparente se
+  libraba—. Ahora: sin ese `background`, y el logo se sirve por **`logo_clean_png`**
+  (`/logo-limpio.png?u=…`), que le quita el fondo en TRANSPARENTE.
+  ⚠️ Solo se quita el blanco **CONECTADO A LOS BORDES** (un relleno desde las cuatro esquinas), así
+  que lo blanco de DENTRO del logo —una letra, un hueco— no se toca (comprobado).
+  ⚠️ Solo admite imágenes **NUESTRAS** (`_is_own_media_url`: nuestro Storage o nuestro dominio): sin
+  eso sería un **proxy de imágenes abierto**. Si no se puede limpiar, redirige al original.
+  · Punto único **`_logo_clean_url`**, ya en `company_logo()` y en los logos de Syncros (envío,
+  vista previa y landing, en absoluto porque también van por correo). Cacheado en memoria.
+
+- **Simulaciones — conversión y archivado (jul 2026)**: convertir una simulación **vuelca** los datos,
+  no solo crea el contenedor. `simulation_convert` crea el destino (`PurchasedTour`/`CycleFestival`, o
+  nada en «concierto») y **una fecha simulada = un `Concert` real en BORRADOR** vía
+  `_simulation_dump_activity`: recinto, artista (`_sim_activity_artist_id`), empresa del grupo, aforo y
+  `ConcertTicketType` (`_sim_ticket_rows`, nombres únicos porque hay UNIQUE(concert_id,name) y en la
+  simulación se repite «General» en Pista/Grada), invitaciones en `ticketing_payload.ticket_types`
+  (de ahí las lee `_invitation_category_legacy_rows`), `ConcertCache` (`_sim_cache_rows`: los VARIABLE
+  se traducen a la `config.option` de la ficha —PCT_FROM_TICKETS / PCT_FROM_REVENUE /
+  FIXED_PER_TICKET_FROM— y los matices fiscales que el concierto no modela se guardan en `config`),
+  `ConcertZoneAgent` (`_sim_commission_rows`, un MEDIO se espeja a tercero con
+  `_ensure_promoter_for_media`), participaciones sobre **PROFIT** (`_sim_partner_share_rows`) y
+  `ConcertBudgetItem` (`_sim_budget_rows`). ⚠️ En `ConcertBudgetItem`, `amount_net`/`amount_gross` son
+  el **TOTAL** de la partida (así los suma la ficha); `quantity` es solo informativo — no multiplicar.
+  Los gastos del contenedor `is_shared` van a `payload.general.expenses` del grupo. `sale_type`:
+  GIRAS_COMPRADAS en gira, si no `_sim_sale_type` (PARTICIPADOS si hay socios de verdad).
+  **Archivado**: `Simulation.status='ARCHIVED'` + `settings['converted']` {kind,target_id,target_name,
+  concert_ids,at} (`_simulation_mark_converted`). El listado muestra por defecto solo las activas;
+  botón **«Ver archivadas»** (`?archivadas=1`) y, en los 3 puntitos, **Archivar/Restaurar**
+  (`simulation_archive`, archivar ≠ borrar). `_simulation_converted_info` resuelve el enlace a lo
+  creado y avisa si ya no existe. **Si no se pudo crear NINGUNA fecha** (todas por confirmar o sin
+  artista) se hace rollback: ni se archiva ni queda un contenedor vacío.
+- **FICHA DE ACTIVIDAD · pestaña «INICIO» con el proceso paso a paso** (ago 2026): la PRIMERA
+  pestaña de la ficha, igual que las tareas pendientes de un proyecto discográfico. Motor
+  **`_concert_task_board`** (solo se calcula en su pestaña): las **fases de la petición**
+  (`_peticion_accept_tasks`) con su estado —**hecha** (con cuándo y quién), **pendiente** o
+  **bloqueada** (con el motivo)— más **lo propio de la actividad** (pendiente de confirmar, sin
+  contrato, pendiente de anunciar, sin activar la venta y —si no viene de una petición— activar
+  producción e informar al artista), que son «del departamento» y por eso no llevan dueño.
+  · **LA CAMPANITA** (`concert_task_nudge`, `POST /conciertos/<cid>/tareas/<key>/reclamar`):
+  reclamar una tarea a quien la tiene. Le llega un aviso **«X te reclama una tarea · X te pide que
+  por favor termines «\<tarea\>», que está pendiente»** con enlace a esta pestaña. No cambia nada de
+  la actividad: solo avisa. Solo sale cuando la tarea **es de otra persona** y no está bloqueada; a
+  uno mismo no se le reclama y una tarea sin dueño no se puede reclamar (se dice por qué).
+  ⚠️ El endpoint va en **`SUPPORT_ACTION_ENDPOINTS`**: reclamar es transversal (lo hace producción,
+  el sello, dirección…), no solo contratación.
+  ⚠️ La pestaña nueva hay que añadirla a la **lista blanca de `tab`** de `concert_detail_view`: si no,
+  cae en «general» y el panel no se pinta **sin dar ningún error**.
+
+- **Asistentes por pasos (UX)**: cuando se pincha una opción de un paso que **no requiere más datos**,
+  **auto-avanzar** al siguiente paso sin pulsar "Siguiente" (menos clics). Implementado en el asistente
+  de invitaciones (`invitaciones.html`, helpers `goStep`/`getStep`): pasos de artista, evento,
+  "¿Para quién son?" y "Entrega". **No** aplicar en pasos **multicampo** (asistente de conciertos
+  `_concert_wizard_modal.html`, alta de medios `media_outlets.html`), que conservan "Siguiente".
+- **El asistente «+ Actividad» admite ARTISTA o EVENTO**: primer paso «¿De quién es la actividad?»
+  (`subject_kind` ARTIST|EVENT). Con EVENTO se busca en `api_search_events` o se crea al momento con el
+  `+` (`data-quick-create="event"`), y `concert_wizard_create` espeja el evento como artista
+  (`_ensure_artist_for_event`) y guarda `Concert.event_id`. Los espejos de evento se filtran de los
+  selectores de artista (asistente, /conciertos, Inicio). En los **calendarios** los eventos salen como
+  si fueran artistas (el espejo lleva nombre y logo del evento); en el selector del botón + de la
+  agenda solo aparecen los que tienen algo activo, y al elegir uno el asistente se abre ya en modo
+  EVENTO.
+- **Punto de empate de una actividad** (`_concert_break_even_info`, en la pestaña **Resultado**, que es
+  donde se enseña): manda **lo que ponga contratación a mano** (`Concert.break_even_ticket`); si no, los
+  **gastos CONSOLIDADOS de la bolsa** (`_concert_bag_expense_totals`, se actualiza solo según se
+  consolidan); y si no, el **presupuesto** (`ConcertBudgetItem`). Se calcula con el mismo motor que
+  el Resultado (`_concert_build_calc_data` + `sim_calc`, sustituyendo la producción). Bajo el número se
+  dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
+  con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
+  ticketing ni previsión de ingresos no se muestra nada.
+- **PROMOCIÓN · la ficha se lee como la de una ACTIVIDAD** (ago 2026): misma cabecera
+  (`ficha-hero` con foto redonda del artista —clicable con `data-artist-link`—, «eyebrow» de lo que
+  es, título + **etiqueta de estado que se pincha** para cambiarlo, `ficha-hero__facts` con iconos y
+  la **empresa que factura** arriba a la derecha con su logo) y misma tabla compacta en Información
+  (`psum-list psum-list--2col`). Cancelar sigue aparte, dentro del propio desplegable del estado,
+  porque avisa a quien la produce.
+  · **La FECHA sale de las entrevistas** cuando la promoción no lleva fechas propias
+  (`_promo_dates_label`): antes ponía «Sin fechas» teniendo día. Mismo punto único que usa la
+  previsualización del enlace.
+  · **El MEDIO se enseña solo si es UNO** (`_promo_single_media_label`): con varios ya no identifica
+  nada. Lo usan la cabecera y la previsualización.
+  · **Previsualización al compartir la hoja de ruta** (`public_roadmap_view`): «**Hoja de ruta
+  Promoción · \<artista\>**» y debajo el nombre de la promoción, la fecha y —si es un solo medio— el
+  medio. Sin nombre, solo la fecha. ⚠️ `Promotion` **no tiene relación `activities`**: sus
+  entrevistas se consultan (`PromotionActivity.promotion_id`).
+  · **Si lo que se promociona es EL ARTISTA no se vuelve a preguntar cuál**: ese paso del asistente
+  se salta con **`data-sw-skip="1"`** (dimensión nueva de `step_wizard.js`, independiente de
+  `data-sw-mode`) y el sujeto se apunta solo con el artista ya elegido.
+  · **La empresa del grupo se elige con su LOGO** (`select-with-thumbs` + `data-logo`), en el
+  asistente de promoción, en el de marketing y en la ficha.
+  ⚠️ **El asistente de promoción se incluye en TODAS las bandejas** (pedir promoción lo puede hacer
+  cualquiera): sus datos NO pueden depender de estar en la de Promoción o, al marcar «requiere
+  logística», la lista de producción sale VACÍA (bug real). Y si NADIE tiene el departamento
+  «Producción», `_production_people` ofrece a todo el personal: mejor eso que un panel sin nadie.
+
+- ⚠️⚠️ **CANCELAR o APLAZAR una actividad es un PROCESO, no cambiar una etiqueta** (ago 2026).
+  Estados nuevos **CANCELADO** y **APLAZADO** (`CONCERT_PROCESS_STATUSES`), a los que **no se llega
+  desde el desplegable de estado**: `concert_quick_status` los rebota con un 409 y el enlace a su
+  pantalla (`concert_cancel_view`, `templates/concert_cancel.html`), donde se pregunta:
+  · **EL MOTIVO** (obligatorio: es lo que se le cuenta al artista y a producción);
+  · si hay **CACHÉ**, **¿se cobra?** — total o parcial, con su importe o su %, **enseñando el que
+    está pactado** (`_concert_cache_summary`) para no ir a mirarlo a otra pestaña;
+  · **¿el promotor cubre los gastos?** — todos o una parte, diciendo cuál;
+  · al APLAZAR, **si se sabe la nueva fecha** o queda TBC.
+  ⚠️⚠️ **AVISAR AL ARTISTA ES OBLIGATORIO Y ES LO QUE LO HACE EFECTIVO**: la pantalla NO cambia el
+  estado, solo guarda lo decidido y lleva al aviso de siempre (con la nota **ya escrita** con el
+  motivo y el resumen, `_cancel_notice_note`). El estado cambia en `_cancel_apply`, al enviarlo.
+  · **APLAZADO con fecha nueva**: la actividad **se mueve a ese día y vuelve a ser una RESERVA**
+    (hay que confirmarla otra vez por el camino de siempre, y su firma de aviso se invalida). Sin
+    fecha se queda en APLAZADO (TBC).
+  · **LAS TAREAS DE PRODUCCIÓN** (`CANCEL_TASKS`) son **SUBTAREAS de la tarea de la actividad** en la
+    pestaña «Inicio» de su ficha —lo de una cancelación es UN trabajo con varias partes, no cuatro
+    tareas sueltas—: avisar a los proveedores · **cancelar las reservas** (solo al aplazar) ·
+    informar al personal · **enviar los gastos al promotor** (solo si los cubre) · **cerrar la
+    bolsa** (solo al cancelar), con **15 DÍAS de plazo** (`CANCEL_BAG_DAYS`, en rojo si se pasa).
+  · **Informar al personal** tiene su pop-up con la opción de avisar a **TODA la oficina**; sin
+    marcarla, solo a quien está en la HOJA DE RUTA (a quien de verdad le cambia el día).
+    ⚠️ **Al artista no**: a él se le avisa por su canal y no es personal de la casa.
+  · A producción le llega su aviso (kind `PRODUCCION`, ref `CONCERT_CANCEL`) **con el listado de lo
+    que hay que hacer** y el plazo de la bolsa; se cierra solo cuando no queda nada (`_notify_resolve`).
+  ⚠️ **Una actividad CANCELADA deja de reclamar trabajo**: no sale en las tareas de Contratación ni
+  pide contrato, anuncio o venta en su ficha. Lo único que queda son las tareas de la cancelación.
+  ⚠️ **Se puede DESHACER** (vuelve a RESERVADO) y **no se borra lo que pasó**: queda en `history`
+  con quién y cuándo — una actividad que se canceló y se recuperó es información, no un error.
+  · Todo vive en **`Concert.cancellation_payload`** (JSONB). ⚠️ Se marca con `flag_modified`: el
+  patrón de leer-copiar-reasignar **no escribe la segunda vez en la misma petición** (bug conocido).
+
+- ⚠️⚠️ **A UN ARTISTA (O A UN EVENTO) SOLO SE LE MANDA LO QUE ESTÉ CONFIGURADO EN SUS
+  «NOTIFICACIONES»** (sep 2026, lo pidió Dani). Se acabó el respaldo al **correo suelto del
+  artista**: `_artist_notification_emails` y `_artist_notification_recipients` nacen con
+  **`fallback=False`**, así que quien no esté marcado en un canal **no recibe esa comunicación**.
+  Un correo genérico viejo recibiendo una liquidación es peor que no mandarla.
+  ⚠️ Sin nadie configurado **no se manda nada, pero NO se calla**: la ficha del artista lo avisa en
+  ÁMBAR («no se le manda ninguna comunicación»), la pantalla del aviso lo dice antes de enviar y el
+  envío de liquidaciones responde «no hay nadie configurado… añádelo en Notificaciones».
+  ⚠️ **En el LOG no se avisa**: ese punto único se llama también al PINTAR (la ficha de una canción,
+  la de un álbum), así que un `warning` ahí llena el log de ruido y lo hace inútil. Avisa **quien
+  ENVÍA**, no quien lee.
+  · **LIQUIDACIONES de royalties y CERTIFICACIONES**: los destinatarios por defecto son **solo** los
+  configurados (`only_configured` en `_beneficiary_email_delivery_data`, que respetan también
+  «Enviar todas» y el envío individual: ya no caen a `suggested_recipients`). ⚠️ Los correos que
+  conocemos del artista **se siguen OFRECIENDO** para marcarlos a mano: una cosa es que no se mande
+  solo y otra que no se pueda elegir. ⚠️ Con un **TERCERO** como beneficiario no hay módulo que
+  configurar: ahí se sigue como siempre.
+  · ⚠️⚠️ **EL INTEGRANTE SE ELIGE Y SE RELLENA ENTERO** (bug real: «pinchas en el miembro y pone el
+  nombre pero no el email ni el teléfono, y sí están introducidos»). La tarjeta del integrante solo
+  llevaba el id y el nombre. Punto único **`_artist_notification_suggestions`**: devuelve cada
+  integrante con **su correo y su teléfono** —los de SU ficha de tercero, con `_promoter_email_phone`
+  (en `Promoter` son `contact_email`/`contact_phone`)—, su foto y su nombre, **en BLOQUE** (una
+  consulta, no una por integrante). Se ven en la propia tarjeta y al pincharla se vuelcan.
+  ⚠️ Los integrantes **SIN ficha de tercero se ofrecen igual** (viajan como `artist_person_id`) y se
+  les crea al elegirlos con `_ensure_promoter_for_artist_person`: una persona del artista ES un
+  tercero, y no puede quedarse fuera de las comunicaciones por no tener ficha todavía.
+  · ⚠️⚠️ **UN EVENTO TAMBIÉN TIENE SUS COMUNICACIONES Y SUS INTEGRANTES**, en la pestaña «Datos» de
+  su ficha: son las de su **artista ESPEJO** (es lo que llevan sus actividades en `Concert.artist_id`,
+  así que es donde las busca toda la app). El espejo **se sigue sin ver** (hereda el nombre y el logo
+  del evento) y se prepara al abrir esa pestaña (`_ensure_artist_for_event`).
+  ⚠️ El parcial de integrantes vuelve a donde se pinta (`members_back_url`), no siempre a la ficha
+  del artista. Y **`CAN_EDIT_ARTISTS_STATIONS` NO se pisa** con `can_edit_catalogs()`: es el permiso
+  que EXIGEN esos endpoints, así que pisarlo enseñaría botones que darían un 403.
+  · ⚠️⚠️ **UNA COMUNICACIÓN QUE NO SALE POR ESO SE DICE** (`_artist_notice_missing`, kind
+  **`SIN_NOTIFICACIONES`**): si al ir a mandar algo no hay nadie en ese canal, le llega un aviso por
+  la campanita a **quien lleva al artista** (`_artist_sello_user_ids`) diciendo **QUÉ no ha salido** y
+  con el **enlace a su ficha**. Sin esto, el silencio se descubre semanas después.
+  ⚠️ Lo dispara **quien va a ENVIAR**, pasando **`aviso="el plazo de entrega de materiales"`** a
+  `_artist_notification_emails` / `_recipients`: **sin ese parámetro no se avisa**, porque esos dos
+  puntos únicos se llaman también al PINTAR (la ficha de una canción, la de un álbum) y saldría un
+  aviso por cada carga. Al cablear un envío nuevo a un artista, pasarlo.
+  ⚠️ **No se repite** mientras el aviso siga sin leer (`ref_type='ARTIST_NOTIF'`,
+  `ref_id='<artista>:<canal>'`) y **se cierra solo** al configurar a alguien en ese canal
+  (`_notify_resolve` desde el guardado de «Notificaciones»).
+  ⚠️⚠️ **HACE FALTA UN CONTEXTO DE PETICIÓN** (`_soldout_app_context`), no solo de aplicación:
+  `_notify_user` mira quién actúa con `_current_user_state()` → `session` y revienta desde un CRON o
+  un HILO — que es justo donde más falta hace (los recordatorios de publicación, el plazo de
+  materiales). Y se le pasa **`actor_user_id=""`**: esto lo dispara un envío, no una persona.
+  · **Y se repasan de una vez**: módulo de Inicio **«Artistas sin notificaciones configuradas»**
+  (`HOME_ARTISTS_NO_NOTIF` ← `_home_artists_without_notifications`), con los artistas **ACTIVOS**
+  (`_active_artist_ids`) que no tienen a NADIE, su foto y el botón a su ficha.
+  ⚠️ Va **FUERA de la compuerta de departamento** de `home.html` (con `_home`, no con `_dept`): esto
+  lo tiene que ver también **dirección**, que si no se quedaría sin enterarse. Y en **dos consultas**,
+  no una por artista.
+
+- **AVISO AL ARTISTA DE UNA ACTIVIDAD** (ago 2026). Antes de CONFIRMAR una actividad hay que
+  habérsela comunicado al artista.
+  · **Dos canales nuevos** en la configuración de notificaciones del artista (en cabeza de
+  `ARTIST_NOTIFICATION_CHANNELS`): **ACTIVIDADES_CACHE** («Nuevas actividades con caché») y
+  **ACTIVIDADES_SIN_CACHE** («Actividades sin caché»). Punto único
+  **`_activity_notification_channel`**: si la actividad lleva caché se avisa a los primeros y si no a
+  los segundos. **`_concert_has_cache`**: manda lo apuntado (`ConcertCache` con importe o %) y, si no
+  hay filas, el apunte del alta (`sale_type == 'VENDIDO'` = «¿Tiene caché?» Sí).
+  ⚠️ Decisión de Dani: **NO hay validación del artista**, basta con avisarle.
+  · El contacto tiene ahora **teléfono** (`ArtistNotificationContact.phone`, cae al del tercero) para
+  WhatsApp y SMS, y **`_artist_notification_recipients`** devuelve nombre + correo + teléfono
+  (hermano de `_artist_notification_emails`, que solo da correos).
+  · **UN SOLO MOTOR para los tres canales**: `_activity_notice_html(ctx, note, hidden, preview)`
+  genera el HTML con **estilos en línea**, y ese mismo HTML es el del correo, el de la **página
+  pública** que se manda por WhatsApp/SMS (`public_activity_notice_view`, `/actividad/<token>`) y el
+  de la vista previa. Contenido, en orden: logo de la empresa del grupo arriba a la **derecha** (si la
+  actividad no tiene, el de la casa), título centrado (`ACTIVITY_NOTICE_KINDS`: «Confirmación nueva
+  actividad» · «Cambios en la actividad» · «Actividad cancelada»), la **nota** si la hay, la
+  **cabecera de la actividad** (`_contract_sheet_hero_rows`, la misma de la ficha), la **barra de
+  botones** (de momento solo «Ver hoja de ruta»; los futuros van a su derecha), **«Descripción:»**
+  con lo que tiene que hacer el artista (M&G, ¿canta?, canciones **en orden y con portada**,
+  formación, duración, otros compromisos) y **«Condiciones»** por módulos
+  (`ACTIVITY_NOTICE_MODULES`): **Caché** (si no hay, dice «Sin Caché»), lo que cubre el promotor,
+  formato y equipamiento. ⚠️ En un **concierto** (o sin rellenar) no sale ni la descripción ni su
+  título, como se pidió.
+  ⚠️ **`'<div>' + escape(x)` ESCAPA el HTML de la izquierda** (Markup en la derecha): el aviso salía
+  como texto (bug real). Dentro del motor se escapa con un `esc()` local que devuelve `str`.
+  · ⚠️⚠️ **EL SMS LO MANDA LA APP** (sep 2026): si la pasarela está configurada (**Integraciones →
+  SMS**, la MISMA de los envíos a compradores) el aviso sale del servidor —un SMS por persona, con el
+  teléfono normalizado y el enlace acortado— y **no se abre la app de mensajes de nadie**; sin
+  pasarela se sigue abriendo, que es lo que se hacía antes de tenerla. Lo decide `_sms_available()`
+  y **la pantalla lo DICE** al elegir el canal (`sms_gateway`): elegir SMS tiene que significar lo
+  que se ve. **WhatsApp siempre abre la app** (no hay pasarela).
+  ⚠️ Si el SMS **no sale para nadie** se retira el aviso y se dice el motivo de la pasarela: decir
+  «avisado» sin que le haya llegado a nadie es lo peor que puede pasar aquí. ⚠️ Ahí **NO se hace
+  `rollback()`**: `_sms_log` apunta el intento en ESA sesión y un rollback se llevaría por delante el
+  motivo del fallo — se borra el aviso (`session_db.delete`) y se hace commit.
+  ⚠️ **El TEXTO lo compone el SERVIDOR** (`_activity_notice_sms_text` → `sms_text` en el JSON): antes
+  lo montaba el navegador, así que con la pasarela de por medio habría habido dos textos distintos.
+  · **Vista previa** (`concert_artist_notice_view`, página propia + `concert_artist_notice.html`):
+  canal (correo/WhatsApp/SMS, **con el CORREO marcado por defecto**), destinatarios, **nota** que se
+  pinta bajo el primer título, y un **OJO por módulo** para dejarlo fuera (`data-notice-eye`; en la previa los ocultos se ven atenuados,
+  en el envío no van). Se repinta con `concert_artist_notice_preview` (JSON).
+  · **La COMPUERTA está en los CUATRO caminos** que escriben el estado, no solo en la etiqueta:
+  `concert_quick_status` (409 con `needs_artist_notice` + `notify_url`; el handler de
+  `[data-status-option]` de `scripts.js` **lee el cuerpo** y ofrece avisar), `concert_section_update`
+  sección «datos» (guarda el resto y deja el estado como estaba, con el enlace en el aviso),
+  `concert_wizard_create` y el alta clásica `POST /conciertos` (nacen **RESERVADAS** en vez de tirar
+  el alta). Al avisar con `?confirmar=1` la actividad pasa **sola** a CONFIRMADA.
+  · **Un cambio GORDO invalida el aviso**: `_concert_notice_signature` (fecha, hora, recinto, cachés)
+  se guarda al avisar; si cambia, la etiqueta vuelve a «Notificar al artista» con «hay cambios» y la
+  compuerta salta otra vez. **CANCELAR** (borrar la actividad) también obliga: si el artista estaba
+  avisado, `concert_delete_handler` rebota pidiendo comunicar la cancelación.
+  ⚠️ **Exenciones**: las actividades de **EVENTO** (`event_id`: su `artist_id` es el espejo, no hay a
+  quién avisar) y el **HISTÓRICO** (`_concert_is_legacy`), o no se podrían confirmar nunca.
+  · **Queda apuntado**: `Concert.artist_notified_*` (para la etiqueta «Notificado» con **a quién y
+  cuándo** al pasar el ratón) y el histórico completo en **`ConcertArtistNotification`**, que
+  **congela** en `snapshot` el HTML que se mandó — la página pública enseña eso, no lo de hoy.
+  ⚠️ El `public_token` es **opaco** (`_uuid_token`, con su índice UNIQUE), no firmado: un enlace de
+  hace dos años sigue valiendo (los firmados a un año ya dieron un bug real).
+  · ⚠️ **En ensayos y discográficas se tiraba a la basura** el «¿canta?», las canciones y la
+  formación: el asistente las pregunta pero el servidor solo las guardaba en las promocionales. Punto
+  único **`_activity_has_performance_detail`** (promocionales + `SIMPLE_ACTIVITY_TYPES`), aplicado en
+  los TRES sitios (asistente, `concert_section_update` sección «actividad» y el `is_promo_activity`
+  de la ficha).
+  · **Etiquetas nuevas en Python**: `CACHE_VARIABLE_OPTION_LABELS` (las 6 condiciones de un caché
+  variable, que solo vivían en `concert_form.js` — si se toca una, se toca la otra) y
+  `_concert_equipment_label` (la cadena del equipamiento, que estaba copiada a mano en tres sitios).
+  · **«EL ARTISTA YA FUE INFORMADO»** (ago 2026): en una actividad **que YA HA PASADO** no tiene
+  sentido mandar un aviso de algo que ya ocurrió, así que la compuerta ofrece **dejarlo apuntado y
+  seguir con el estado**. `_concert_notice_can_ack` (el último día —`end_date` o `date`— anterior a
+  hoy; en una futura NO se ofrece y el servidor lo vuelve a comprobar) alimenta `can_ack`/`ack_url`
+  del gate; el endpoint es **`concert_artist_notice_ack`** (`POST
+  /conciertos/<cid>/avisar-artista/ya-informado`), que apunta el aviso con canal **MANUAL**, la misma
+  FIRMA (así un cambio gordo posterior vuelve a pedirlo) y pasa la actividad a CONFIRMADA. Sale como
+  botón en la pantalla del aviso y, al pinchar la etiqueta de estado, en un **pop-up de tres opciones**
+  (`pedirDecisionAviso` en `scripts.js`: con un `confirm()` no caben; sin Bootstrap se cae al de
+  siempre). Queda marcado en `artist_notified_to = [{"manual": true}]` → `_concert_notice_state`
+  devuelve `manual` y la etiqueta dice «Notificado (a mano)».
+
+- **ELIMINAR UNA ACTIVIDAD · la RUEDA de la cabecera** (ago 2026). La ficha tiene arriba a la derecha
+  un botón de **rueda** (`.ficha-hero__gear`) con lo que se hace de tarde en tarde: asignar/cambiar
+  quién lleva la producción, avisar al artista y **Eliminar actividad**.
+  · Borrar exige **escribir ELIMINAR** (`CONCERT_DELETE_WORD`, comprobado también en el servidor: un
+  POST sin la palabra no borra nada) y se dice que se lleva por delante invitaciones, entradas,
+  cachés, contratos, presupuesto, cartelería, hoja de ruta y fotos.
+  · **A quién se le había comunicado ya** lo resuelve **`_concert_notified_parties`** —con FOTO y
+  nombre— mirando los tres sitios desde los que sale la actividad de casa: los avisos al artista
+  (`ConcertArtistNotification`, con la foto resuelta EN VIVO contra los contactos del artista, porque
+  el aviso guardado no la lleva), el promotor al que se le pidió la **ficha de contratación** y a
+  quien se le pidió la **cartelería**. El pop-up ofrece **notificar la cancelación con una nota**
+  (`_activity_cancellation_notify`, el mismo motor de avisos con `kind='CANCELACION'`) y borrar, o
+  **eliminar sin notificar**.
+  ⚠️ Si el correo de cancelación NO sale, **la actividad NO se borra** (si no, se perdería sin que
+  nadie se hubiera enterado). Y si a quien lo sabía no le consta correo, el botón de notificar no se
+  ofrece (`notified_can_email`) en vez de dejar un botón que no puede enviar nada.
+  ⚠️ En una CANCELACIÓN el aviso **no lleva el botón «Ver hoja de ruta»**: la actividad se cae.
+  ⚠️ Las **FOTOS y vídeos** son polimórficos (`owner_type`/`owner_id`, **sin clave ajena**): no
+  cascadean, así que el borrado las limpia a mano. El resto de hijos sí tienen ON DELETE CASCADE.
+  ⚠️ El borrado del listado antiguo (`concerts.html`) es **código muerto** (esa pantalla solo se usa
+  para Facturación); el único camino vivo es el de la ficha.
+
+- **FICHA DE CONTRATACIÓN · una sola, y lo del promotor aparte** (ago 2026). La pestaña «Ficha
+  promotor» se **retiró**: era la misma ficha duplicada (y `?tab=ficha` cae a «general»).
+  · ⚠️ **`ConcertContractSheet` es UNA fila por actividad** y antes el promotor escribía en el MISMO
+  `data` que la casa, así que **se pisaban**. Ahora lo que manda él va a **`promoter_data`** (+
+  `promoter_reviewed_at`), y `data` sigue siendo la ficha de la casa.
+  · En la ficha sale un **aviso amarillo** («El promotor ha cumplimentado la ficha del promotor») con
+  el botón **«Revisar datos»** mientras haya `promoter_data` sin revisar (`promoter_sheet_pending`).
+  · **`concert_contract_sheet_review`** es una **pantalla partida campo a campo**
+  (`concert_contract_merge.html`, clases `.cmp-*`): a la izquierda lo nuestro, a la derecha lo suyo, se
+  pincha la columna que se queda (por defecto lo suyo donde no teníamos nada, lo nuestro donde ya
+  había dato) y al guardar se reemplaza la ficha **y** se aplican al Concert los campos que le tocan.
+  · **Un solo catálogo de campos**: `CONTRACT_SHEET_GROUPS` + `CONTRACT_SHEET_CHOICES` (con
+  `CONTRACT_SHEET_LABELS`) es la fuente de verdad de qué campos hay, cómo se llaman y en qué módulo
+  van; lo usan el formulario, la vista consolidada, el PDF y la comparación. Un campo nuevo se añade
+  UNA vez. Helpers: `_contract_sheet_show` (cómo se enseña cada tipo), `_contract_sheet_compare_rows`
+  y `_contract_sheet_compare_groups`.
+  · ⚠️ Editar la ficha por dentro (`concert_contract_sheet_edit`) **ya no la pone en RECEIVED**: antes
+  hacía pasar por «el promotor la ha enviado» y disparaba el aviso.
+  · Al recibirla se **avisa** a quien la pidió y a Contratación (`_contract_sheet_notify_received`).
+
+- **El FORMULARIO del promotor, por módulos** (ago 2026, `concert_contract_public.html`, clases
+  `.csheet*`): logo de la empresa del grupo arriba a la **derecha**, título centrado «Solicitud ficha
+  de contratación», el texto de contratación y **la MISMA cabecera de la actividad** que su ficha
+  (`_contract_sheet_hero_rows`, compartida con el correo). Seis módulos con su icono:
+  **promotor** (datos que ya tenemos + dirección FISCAL con autocompletado `data-address-autocomplete`
+  + «la factura otra empresa promotora» que busca por CIF con **`public_contract_sheet_company`**) ·
+  **producción local** (quién la hace, con iconos; si es otra empresa, nombre y CIF; y su responsable)
+  · **show** (tipo de concierto con iconos —Concierto/Gratuito/Festival/Ciclo, y el nombre si es
+  festival o ciclo—, aire libre o cubierto, formato, duración, comienzo, apertura y observaciones) ·
+  **ticketing** (aforo; y si NO es gratuito: salida a la venta, puntos de venta, **ticketeras con su
+  logo** + otras a mano + taquilla física, desglose de entradas con filas que se añaden, M&G y su
+  cantidad, y responsable) · **promoción** · **anuncio y cartelería**.
+  ⚠️ Los paneles que se ocultan **DESHABILITAN sus campos** (un campo oculto se envía igual, y un
+  `required` invisible impide enviar el formulario).
+  ⚠️ El correo de solicitud (`_contract_sheet_request_email_html`) lleva el logo a la derecha, el
+  título centrado, el texto y una **viñeta con la cabecera de la actividad** y el botón
+  «Cumplimentar ficha de contratación» dentro.
+  ⚠️ `concert_contract_sheet_request` **fusiona** `request_payload` en vez de reemplazarlo (ahí viven
+  el artista y los datos de la gala que deja el asistente, y `_contract_sheet_prefill` los usa).
+
+- **Módulo de CACHÉS solo si hay cachés**: un evento puede tener artistas con caché o solo socios, así
+  que si la actividad no trae ninguno (ni de la simulación ni del alta) no se pinta el módulo: queda un
+  botón discreto **«Añadir caché»** que abre el formulario (mismo `data-edit-toggle`).
+- **La RUEDA de la ficha de una actividad va en la FILA DE BOTONES**, a la derecha del todo
+  (`.ficha-quick__gear`), no en la cabecera. Dentro: quién lleva la producción, reenviar el acceso al
+  productor externo (solo si lo produce un tercero), avisar al artista y eliminar la actividad.
+
+- **CONTABILIDAD · cada persona lleva SUS EMPRESAS del grupo** (ago 2026,
+  `UserProfile.accounting_company_ids`): a la gente de **Contabilidad** se le asignan las empresas del
+  grupo que le corresponden y **lo PENDIENTE de contabilizar es solo el de sus empresas** —los cuatro
+  tipos (Facturas · Bolsas · Tickets · Sin ticket), sus **contadores** y las **liquidaciones de
+  royalties**—. En los filtros de la pestaña hay **«Mis empresas» / «Todas las empresas»**
+  (`?empresas=todas`), así que puede ver el resto cuando le haga falta; **lo ya CONTABILIZADO y las
+  RETENCIONES se ven siempre completos** (son un archivo y hace falta poder buscar).
+  · Es un **reparto de TRABAJO, no un permiso** (como `admin_responsibilities`): no crea recurso en el
+  catálogo de accesos. **Sin empresas asignadas se ve TODO** y **dirección también**; y lo que **no es
+  de ninguna empresa** (una bolsa sin empresa puesta) lo ven todos — si se filtrara, desaparecería de
+  la pantalla de todo el mundo.
+  · Motor: **`_accounting_company_scope()`** (las empresas de quien mira; vacío = todas) +
+  `company_ids=` en `_accounting_base_query` / `_accounting_counts` / `_accounting_bag_groups` /
+  `_royalty_accounting_pending`. ⚠️ Las **liquidaciones se filtran en Python**
+  (`_royalty_holded_company`: la de la remesa con la que se pagó y, si no, PIES): no es una columna.
+  ⚠️ Los **contadores llevan el mismo filtro** que las filas o el número de la pestaña no cuadraría
+  con lo que se ve debajo.
+  ⚠️ **«Subir todo a Holded» se ciñe a lo que se está viendo**: el formulario lleva el ámbito
+  (`empresas`) y `_accounting_company_scope_from_form` lo aplica, así que nadie sube a Holded los
+  documentos de una empresa que no lleva.
+  · **AVISO** (`_accounting_company_user_ids`): cuando una bolsa se queda sin nada por pagar y pasa a
+  ser cosa de contabilidad (`_bag_close_if_fully_paid`) le llega el aviso a **quien lleva esa empresa**
+  (kind `CONTABILIDAD`, `ref_type='BAG_ACCOUNTING'`); si **nadie la lleva**, a todo el departamento. Al
+  contabilizarla, el aviso **se cierra solo** (`_accounting_bag_close_if_done`).
+  · Se asigna en la **ficha de personal → Datos** (selector múltiple de empresas del grupo), **solo
+  dirección** y solo si la persona está en el departamento Contabilidad. ⚠️ Con **centinela**
+  (`accounting_companies_present`): el formulario de la ficha es monolítico y un POST parcial borraría
+  el reparto. Y el panel **deshabilita** sus campos al ocultarse (ocultar no basta: se envían igual).
+
+- **EMPRESA DEL GRUPO SIN LOGO → ICONO DE EMPRESA + NOMBRE** (ago 2026). Globales
+  **`company_logo(empresa, size=, cls=)`** y **`company_chip(...)`** (en `inject_globals`): pintan el
+  logo y, si la empresa todavía no tiene, un **icono de edificio** (`.co-logo--empty`) conservando el
+  hueco, con el nombre al lado en el chip.
+  ⚠️ Antes se caía al logo de **Treinta y Tres / PIES**, que es PEOR que no enseñar nada: una empresa
+  recién creada aparecía con el logo de OTRA del grupo. Aplicado en `/empresas`, la ficha de la
+  empresa, administración (a favor y remesas), la vista de conciertos y ventas por empresa; en los
+  selectores con miniatura el `data-logo` se queda vacío en vez de apuntar al logo de la casa.
+  ⚠️ En las páginas PÚBLICAS (ficha de contratación, cartelería, correos) el respaldo al logo de la
+  casa SÍ se mantiene a propósito: ahí hay que enseñar una marca.
+
+- ⚠️⚠️ **UN AUTOR QUE ES INTEGRANTE DE UN ARTISTA = UNA SOLA FICHA** (bug de dinero, ago 2026).
+  Los autores de una obra casi nunca son «el artista»: son las PERSONAS que forman parte de él, y el
+  contrato (editorial, discográfico) se firma con el ARTISTA y se les aplica a ellas. Si esa persona
+  tenía **DOS fichas** —la del integrante y otra suelta creada al darla de alta como autora— el
+  autor de la canción apuntaba a la suelta, que no es integrante de nadie, y **no se le detectaban
+  las condiciones del contrato**: se quedaba sin su reparto editorial y sin lo que le toca en
+  facturación y royalties.
+  · Ahora las fichas **se unen solas**: punto único **`_artist_person_unify`** (del integrante a su
+  tercero) y **`_promoter_member_unify`** (al revés), que llaman el alta y la edición de un
+  integrante, el guardado de un autor, el volcado de LC y el relleno puntual
+  **`_artist_members_unify_backfill_once`** (marca `artist_member_unify_v1`).
+  · **La fusión re-apunta todo** con el motor que ya existía (`_merge_repoint_references`) y **solo
+  COMPLETA los huecos** del que se queda: un dato ya escrito no se pisa nunca.
+  · **El NICK pasa a ser el nombre del ARTISTA solo si tiene UN único integrante**
+  (`_artist_solo_name`): con varios, el nombre del artista no identifica a ninguno. El nombre, los
+  apellidos y el DNI son SIEMPRE los oficiales de la persona (es quien firma y quien factura).
+  ⚠️ Si ese nick ya lo tiene otro tercero **no se toca nada**: `Promoter.nick` es único y renombrarlo
+  a «X (2)» sería peor.
+  ⚠️ **Solo se une lo que es la MISMA persona sin lugar a dudas** (`_promoter_duplicates_of`): mismo
+  DNI, o mismo nombre completo **sin un DNI que lo desmienta**. Dos personas distintas pueden
+  llamarse igual, y fundirlas sería mucho peor que dejar el duplicado.
+  · **El buscador de autores busca en terceros Y en integrantes** (`api_search_authors`,
+  `/api/search/autores`, en `SUPPORT_READ_ENDPOINTS`): los que no tienen ficha viajan como
+  `artist_person_id` y se les crea la suya YA VINCULADA al elegirlos. El typeahead admite ahora
+  `opciones.extra` (campos del resultado a otros ocultos) y pinta un **subtítulo** («Integrante de
+  Los Ñus»).
+  ⚠️ **`_promoter_member_artist_ids` usaba `g` sin protección** y reventaba con «Working outside of
+  application context» al llamarlo desde el relleno del arranque o desde un hilo (bug real).
+  · Probado con la app real: el autor integrante de OTRA banda recibía el contrato de la banda de la
+  canción (70/30) y ahora recibe el suyo (40/60); el solista queda con el nick del artista y el
+  nombre oficial intacto; y de dos fichas queda una.
+
+- ⚠️ **FICHA DEL ARTISTA · UN SOLO MÓDULO de datos y documentos por integrante** (bug real, ago
+  2026): se pintaba el módulo común (`_person_identity_summary.html`, el mismo que en personal y en
+  tercero) **y además** un bloque propio con el DNI, el email, el teléfono, las pastillas y las
+  etiquetas de documentos, así que **todo salía dos veces**. Queda solo el módulo común; lo que era
+  del integrante y él no trae (el aviso de que aún no tiene ficha y sus preferencias de viaje) se
+  añade debajo.
+
+- ⚠️ **Al renombrar la ficha de un solista con el nombre del artista, el NOMBRE OFICIAL tiene que
+  quedar escrito** (`_artist_member_apply_nick`): el nick pasa a ser «DePol» y, si el nombre y los
+  apellidos se quedan vacíos, la ficha pierde su única clave de identidad y **deja de casar con su
+  integrante**, así que la unificación no vuelve a funcionar. Antes solo se rellenaban si faltaban
+  LOS DOS; ahora, cada uno por su lado.
+
+- ⚠️ **CONTRATACIÓN · CONCIERTOS: el número de cada artista es el de lo que va a VER** (corregido
+  ago 2026). La rejilla de artistas contaba **todos** sus conciertos, incluidos los ya celebrados,
+  mientras que el listado enseña por defecto **solo los futuros** (`f_when = {"FUTURE"}`): la
+  tarjeta decía «12 conciertos» y dentro había tres. Ahora el contador lleva el **mismo filtro de
+  fechas** que el listado, así que también sigue al chip «Pasados» / «Futuros».
+  ⚠️ Un artista que solo tenga conciertos pasados **no sale** en la rejilla mientras el filtro sea
+  «Futuros» (antes salía y al entrar no había nada); con «Pasados» marcado vuelve a aparecer.
+  ⚠️ **OTRAS ACTIVIDADES va igual** (ago 2026): su rejilla agrupa por **artista o evento** y
+  enseñaba —y contaba— también lo ya celebrado. Ahora, como Conciertos y como la pestaña de
+  Eventos, nace en **«Activas»** (solo lo que está por venir, `Concert.date >= hoy` o sin fecha) con
+  el botón **«Todas (con las pasadas)»** (`?pasadas=1`); los chips de TIPO y el número de cada
+  sujeto se calculan sobre lo que se está viendo, así que no pueden desparejarse. El filtro viaja en
+  los enlaces de la rejilla, de los chips y del «Volver».
+  ⚠️ **Giras compradas** y **Festivales/Ciclos** no se han tocado: agrupan por gira o por ciclo (no
+  por artista) y ahí el listado y el contador ya dicen lo mismo. **Producción → Activas** y la
+  sección **Actividades** ya filtraban por su cuenta.
+  ⚠️ El número de la BARRA de pestañas es otra cosa: son las TAREAS pendientes, que ya solo miran
+  actividades vivas.
+
+- ⚠️⚠️ **MARKETING · UNA CAMPAÑA DE UNA ACTIVIDAD VA CON LA ACTIVIDAD: su bolsa y su fecha** (sep 2026,
+  dos bugs reales: «se cambió la fecha del concierto y no se reflejó en la acción de marketing» y «el
+  gasto de la acción no aparece en Marketing de la bolsa de la actividad»).
+  · **LA BOLSA ES LA DE LA ACTIVIDAD**: antes cada campaña se creaba su propia bolsa («Marketing ·
+  \<artista\>») y el gasto se quedaba en el aire, fuera de la liquidación del concierto. Punto único
+  **`_promotion_link_concert_bag`** (desde `_ensure_promotion_bag`): la campaña apunta a la bolsa del
+  concierto (`_create_bag_for_concert`, get-or-create) y sus gastos van a la categoría **MARKETING** de
+  esa bolsa. Es el MISMO dinero visto desde dos sitios (la acción en Marketing, el gasto en la bolsa) y
+  **la bolsa no se cierra hasta que la factura de la acción esté subida** —la factura se sube desde
+  Marketing (`marketing_action_document_upload`) y consolida el gasto; `bag_close` ya exigía
+  `_bag_expense_is_consolidated`—. Una campaña que ya tenía bolsa propia **mueve sus gastos** a la de
+  la actividad y la vieja, vacía, se archiva. ⚠️ Una bolsa de actividad ya en liquidación o archivada
+  no se toca: la campaña se queda con la suya.
+  ⚠️ Efecto colateral asumido: una acción de marketing sobre un concierto SIN bolsa **le crea la
+  bolsa**, así que ese concierto aparece en el listado de Producción (que conserva «las que ya tienen
+  bolsa»).
+  · **LA FECHA SIGUE A LA ACTIVIDAD**: `_marketing_shift_dates` mueve con el mismo desplazamiento la
+  fecha objetivo, el plazo de la campaña y **las acciones que todavía no han pasado** (las ya hechas y
+  las canceladas se quedan: lo que se hizo, se hizo ese día), con sus oleadas no finalizadas y su
+  `details_json.end_date`; `_marketing_sync_concert_date` lo hace **al guardar la fecha** (la sección
+  «Datos» de la ficha y el aplazamiento) y **`_promotion_refresh_from_subject`** lo hace **al pintar**
+  (la ficha de la campaña, el listado de Marketing y el panel de la ficha del concierto), como red de
+  seguridad para cualquier otro camino. Rehace también el `snapshot` (fecha · recinto).
+  ⚠️ `_promotion_request_snapshot_from_source` usa **`url_for`**: fuera de una petición revienta, así
+  que el resumen se rehace en su propio `try` y el relleno del arranque
+  (`_marketing_concert_bags_relink_once`, marca `marketing_concert_bags_v1`) va con
+  `app.test_request_context`. El relleno pasa las campañas de actividad YA existentes a la bolsa de su
+  actividad y a su fecha.
+  Probado con la app real: la acción va a la bolsa del concierto (MARKETING) · +7 días en el concierto
+  → la acción, el plazo y la fecha objetivo se mueven +7 · un cambio por otro camino se recoge al abrir
+  la campaña · la bolsa no cierra sin la factura y sí la consolida la subida desde Marketing · una
+  campaña vieja con bolsa propia queda enlazada y su bolsa archivada.
+
+- ⚠️⚠️ **«A EMPRESA»: EL PROMOTOR ES LA EMPRESA DEL GRUPO QUE FACTURA** (sep 2026, lo pidió Dani). En
+  un concierto con `sale_type == 'EMPRESA'` lo organiza la casa, así que **no se puede elegir un promotor
+  externo**: en la sección «Datos» de la ficha el promotor y su sociedad se **esconden y se
+  DESHABILITAN** (`applySaleType` en `concert_form.js`; un campo oculto se envía igual) y se dice quién
+  promueve; el **servidor lo impone** al guardar (`promoter_id`/`promoter_company_id` a None y
+  `group_company_id` = la empresa que factura), como ya hacía el asistente. Punto único de **quién
+  promueve tal como se enseña**: **`_concert_promoter_display(concert)`** (global de plantilla
+  `concert_promoter_display`): a empresa → la empresa del grupo con su logo; si no, el tercero. Lo usan
+  la ficha de contratación (`_concert_contracting_general_rows`, «Promotor: X (empresa del grupo)») y la
+  fila del promotor de la pestaña General. `_concert_is_group_promoted` da True también con
+  EMPRESA + empresa que factura. Relleno puntual `_empresa_promoter_backfill_once` (marca
+  `empresa_promoter_v1`): limpia el promotor externo de los conciertos a empresa que ya existían y les
+  pone `group_company_id`.
+
+- ⚠️⚠️⚠️ **EL ASISTENTE DE ACTIVIDAD LEÍA LOS CAMPOS DE OTRO FORMULARIO** (bug real y grave, sep
+  2026: «al configurar un evento promocional ya aprobado te vuelve a preguntar el artista, el tipo
+  de actividad y todo eso»). Su JS buscaba sus campos con **`document.querySelector('[name=…]')`**,
+  y `_concert_wizard_modal.html` se incluye en pantallas donde hay **OTRO formulario con los MISMOS
+  nombres** —la ficha de una PETICIÓN trae también el asistente de peticiones, con su
+  `activity_type`, su `artist_sings`…—: `document.querySelector` coge **el primero del DOCUMENTO**,
+  así que el precumplimentado marcaba el tipo en el asistente de **PETICIONES** y el de la actividad
+  se quedaba en «Concierto» (y su `stepSequence()` se decidía con el tipo de la otra pantalla).
+  · Punto único **`wzQ`/`wzQA`** (expuestos como `window.app33WzQ`/`app33WzQA` para los IIFE de
+  abajo): **todo lo del asistente se busca DENTRO de su propio formulario**. Los 24 selectores por
+  `name` están acotados; **un selector nuevo va con `wzQ`, nunca con `document.querySelector`**.
+  ⚠️⚠️ **Y EL PROMOTOR se elige por la API del asistente** (`app33ConcertWizard.pickPromoter`), no
+  disparando el `change` de su barra de búsqueda: ese listener lo cablea `initPromoterSearch`, que
+  **REINTENTA hasta que exista `initTypeahead`**, así que si todavía no estaba el promotor se
+  quedaba VACÍO —y, peor, el `change` con el oculto limpio llamaba a `clearMainPromoter` y **lo
+  BORRABA**—. Además se le **SIEMBRA lo elegido al buscador** con **`app33TaPick`** (el punto único
+  de la casa): sin eso, el `resolveSelection` siguiente no encuentra el texto en el datalist —que
+  con imagen se vacía a propósito— y **borra el oculto**.
+  · Probado en el navegador con la app real, de punta a punta: una petición de EVENTO PROMOCIONAL
+  aprobada se abre en el **paso 14 («Contactos de la actividad»)**, que es el primero que la
+  petición no puede contestar, con el **artista, el tipo, la fecha, el municipio y la provincia, el
+  promotor, «¿tiene caché?» con su importe, los gastos que cubre y la empresa del grupo YA
+  PUESTOS**; al terminar, la actividad queda creada **como EVENTO PROMOCIONAL · CON CACHÉ** y ligada
+  a su petición. Los pasos anteriores siguen ahí para repasarlos.
+
+- ⚠️⚠️ **CALENDARIO POR ARTISTA EN EL IPHONE (CalDAV): SE AÑADE Y SE BORRA, Y SE AVISA** (sep 2026).
+  Cada persona pone en su iPhone, iPad o Mac una **cuenta CalDAV** con su correo y su contraseña de
+  la app y le aparece **un calendario por cada artista que lleva** (dirección, todos). Lo que se
+  **apunta desde la app de Calendario** entra en la agenda de ese artista y **los demás que lo
+  llevan reciben el aviso**.
+  · **QUÉ SE PUEDE TOCAR**: las **notas libres** («otros») y los **bloqueos** se crean, se editan y
+  **se borran** desde el iPhone (son `ArtistAgendaItem`); lo que **crea la app** —conciertos,
+  promociones, lanzamientos, cumpleaños— es **SOLO LECTURA** y su borrado responde **403**. Lo decide
+  `_caldav_find_item`, que solo busca en `ArtistAgendaItem`: una actividad no está ahí, así que no
+  hay forma de borrarla por error desde el móvil.
+  ⚠️⚠️ **SIN `current-user-privilege-set` EL MAC PONE EL CALENDARIO DE SOLO LECTURA** y no ofrece el
+  «+» (los clientes de Apple preguntan por los privilegios antes de dejar crear nada). Se anuncian
+  en `CALDAV_PRIVILEGE_SET` (`read` · `write` · `write-content` · `write-properties` · `bind` ·
+  `unbind`), junto con `<D:owner>`. El control fino lo hace el servidor, no el cliente.
+  · **LA HORA**: `_ics_parse_vevent` lee la fecha **y la hora** con **`ics_import.parse_dt`** (el
+  punto único: con `TZID` se respeta la hora escrita y **solo lo que viene en UTC (`Z`) se pasa a la
+  hora de España**), y el `PUT` la guarda en `start_time`/`end_time`. Antes solo leía la fecha, así
+  que un evento creado con hora en el iPhone entraba como de **día completo** y la hora se perdía.
+  Se admite también `DURATION` (algunos clientes no mandan `DTEND`).
+  ⚠️ En iCal el `DTEND` de un evento de **día completo es EXCLUSIVO**: el último día real es el
+  anterior. Comprobado ida y vuelta (1→4 oct entra como 1–3 oct y se devuelve como 1→4).
+  · **EL AVISO** (`_caldav_notify`, kind **`AGENDA`**): «Nuevo en la agenda» · «Cambio de fecha en la
+  agenda» (con `_agenda_change_label`) · «Quitado de la agenda», con el artista, el título, cuándo y
+  «desde la app de Calendario». Va a **los IMPLICADOS** (`_agenda_item_involved`: quien lleva a ese
+  artista y quien lo apuntó).
+  ⚠️⚠️ **A quien lo hace NO se le avisa, y hay que decirle quién es A MANO** (`actor_user_id=user.id`):
+  en CalDAV **no hay sesión de Flask**, así que `_notify_user` no puede saber quién actúa y le
+  avisaría también al autor.
+  ⚠️⚠️ **EL IPHONE MANDA UN `PUT` TAMBIÉN AL RESINCRONIZAR**: sin comparar el antes con el ahora
+  (`_caldav_snapshot`) esto sería una **metralleta de avisos**. Solo se avisa de lo que CAMBIA
+  (comprobado: reenviar el mismo evento no genera ninguno).
+  ⚠️ Al borrar se avisa **ANTES** (después no se sabría de qué era) y se **resuelve** el aviso
+  anterior de esa nota (`_notify_resolve`): un aviso de algo que ya no está no puede quedarse
+  esperando. Por correo **no sale de fábrica** (el kind `AGENDA` no está en
+  `NOTICE_EMAIL_DEFAULT_KINDS`): dirección lo enciende en «Configurar notificaciones».
+  ⚠️ El aviso es *best-effort* y va **después** de responder al `PUT`: si falla, la nota ya está
+  guardada y el iPhone no puede quedarse reintentando.
+  · **CADA UNO SOLO VE LO SUYO** (`_caldav_user_artists` / `_caldav_can_access`, por
+  `assigned_artist_ids`): el calendario de un artista que no llevas da **404**. **Mi calendario** y
+  el **Calendario general de oficina** NO salen por CalDAV a propósito (no son artistas, y sus datos
+  son personales de la oficina).
+  ⚠️⚠️⚠️ **PERO EN RENDER NO SE PUEDE USAR: Cloudflare corta `PROPFIND` con un 405** (verificado otra
+  vez en sep 2026) y iOS verifica la cuenta con un `PROPFIND` → «no se puede verificar la cuenta».
+  El servidor está bien; es la infraestructura. Hay que desplegar el MISMO código en un host sin
+  Cloudflare con **`CALDAV_ONLY=1`** — los pasos exactos están en **`DEPLOY_CALDAV.md`** (Fly.io,
+  `Dockerfile.caldav`, `fly.toml`, y `CALDAV_PUBLIC_HOST` en Render para que la guía de `/caldav/guia`
+  diga el host bueno). **Prueba de fuego**: `PROPFIND /caldav/` tiene que dar **207**, no 405.
+
+- **CONTABILIDAD · el filtro de empresa: SOLO EL LOGO** (ago 2026), y el nombre únicamente en las que
+  no lo tienen (la misma regla que la columna «Empresa» de la tabla); en los dos casos, el nombre al
+  pasar el ratón.
+
+- **FICHA DEL ARTISTA · integrantes y NOTIFICACIONES** (ago 2026):
+  · En «Datos» va **primero el módulo INTEGRANTES**: por cada uno, a la izquierda foto + nombre, DNI,
+  nacimiento, email y teléfono, y debajo sus **tarjetas de fidelización y matrículas**; a la derecha
+  **solo el ANVERSO del DNI** (`.mem-dni`) y bajo él las **etiquetas de sus documentos** con icono
+  (`.mem-doc`) y un **+** que abre el panel para subir más. Uno debajo de otro.
+  · **Editar integrantes** (botón arriba del módulo): añadir y quitar solo se ven en modo edición
+  (`[data-members-only]`, que nacen con `d-none`).
+  · Debajo, **NOTIFICACIONES** (`templates/_artist_notifications.html`, antes «Emails adicionales»,
+  que se ha retirado): quién recibe cada comunicación. Modelo **`ArtistNotificationContact`**
+  (`ensure_artist_notifications_schema`): persona (tercero, se sugieren los INTEGRANTES que faltan) +
+  `channels` de `ARTIST_NOTIFICATION_CHANNELS` (LIQUIDACIONES · PRODUCCION · DISCOGRAFICA · EDITORIAL ·
+  PROMOCION · INVITACIONES) + `liquidation_concepts` (los conceptos del contrato del artista, que da
+  `_artist_liquidation_concepts`). **Un canal lo pueden recibir varias personas.** Endpoints
+  `artist_notification_contact_save` / `_delete`.
+  · **Punto ÚNICO para mandar: `_artist_notification_emails(session_db, artist_id, channel,
+  concept=None)`** — lo que se configure manda de ese momento en adelante. En LIQUIDACIONES, quien no
+  haya marcado conceptos recibe todas. ⚠️ Con **nadie** configurado en un canal cae al correo del
+  artista y a sus correos adicionales (`fallback=True`): mejor eso que no llegar a nadie. Ya
+  enganchado en las **liquidaciones de royalties** (`_beneficiary_email_delivery_data`), las
+  **certificaciones de disco** (`_artist_email_delivery_data` → canal DISCOGRAFICA) y el aviso de
+  **registro en SGAE** (canal EDITORIAL). Para cablear otro envío basta llamar a ese helper.
+  · **Eliminar un artista es SOLO de dirección** y vive en el **lápiz de la cabecera** (la «zona
+  peligrosa» de Datos se ha retirado).
+
+- **PERSONAS DEL ARTISTA = TERCEROS que forman parte de él** (`ArtistPerson.promoter_id`): un miembro
+  de un grupo (o el solista) es un **tercero particular** con exactamente los mismos datos (DNI,
+  pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje, cuenta bancaria,
+  dirección fiscal…), que se rellenan en la viñeta **«Integrantes:»** de la pestaña «Datos» de la
+  ficha del artista sin salir (ago 2026: era la pestaña «Personas»; su contenido vive en
+  `templates/_artist_members.html`, incluido desde «Datos», y `?tab=personas` redirige allí).
+  No se duplica nada: los datos viven en su `Promoter` + `PersonDocument`, así que el mismo músico
+  puede estar en dos grupos y, cuando factura, la búsqueda por DNI/CIF lo encuentra.
+  Helpers `_artist_person_full_name` / `_artist_person_promoter` / `_ensure_promoter_for_artist_person`
+  (crea el tercero o **vincula** uno existente por `link_promoter_id`, reutilizando el que tenga ese
+  nombre exacto — mismo patrón que `_ensure_promoter_for_media`) / `_artist_person_cards`. Endpoints
+  `artist_person_data_save` (datos + viaje, crea el tercero si falta), `artist_person_document_save` /
+  `_delete` (delegan en `_person_document_save`/`_delete_one` con owner PROMOTER) — mapeados a
+  `artists` por prefijo `artist_person` en `_resolve_request_resource_key`/`_coarse_endpoint_resource`,
+  y la pestaña `personas` hereda el permiso de `artists.datos` (no hay recurso nuevo que conceder).
+  **Añadir persona = BUSCAR EN TERCEROS**: barra de búsqueda arriba de la pestaña con resultados
+  **en vivo desde el primer carácter** (`/api/search/promoters`, acento-insensible y por palabras, con
+  foto redonda, correo/teléfono y las vinculaciones); quien ya está sale marcado «ya está» y no se
+  puede elegir dos veces (el servidor también lo comprueba); si no hay coincidencias, la última fila
+  ofrece **crear** la persona con lo escrito (y su ficha de tercero). Al elegir un tercero, el nombre
+  lo saca el servidor de su ficha (no hay que teclearlo). Al final de la barra hay **siempre un botón +**
+  que da de alta a la persona con lo escrito, aunque la búsqueda esté trayendo resultados (es para cuando
+  no es ninguna de las que salen). Estilos `.aps*` en `styles.css`, JS en línea
+  en la pestaña. En «Datos» queda solo el listado con el botón *Ver y editar*.
+- **GASTOS DIRECTOS: de OFICINA o INVERSIÓN de artista** (ago 2026). Son gastos de «Mis gastos» que
+  **NO van contra ninguna bolsa**. ⚠️ No confundir con `BagExpense.covered_by='OFICINA'`, que es otra
+  cosa: un gasto que SÍ está en una liquidación pero lo paga la oficina.
+  · **Cómo se mandan**: en `/mis-gastos/asignar`, la columna de destinos se abre con una tarjeta
+  **partida en dos** (`.direct-split`): «Gasto de oficina» e «Inversión de artista». Se arrastra el
+  gasto igual que a una bolsa; en inversión se pregunta el artista (modal con los **asignados**
+  primero y «ver más» para el resto, buscador incluido).
+  · **Requisito**: como no va a ninguna bolsa, hace falta **factura/ticket** o que administración
+  haya aceptado que va **sin factura** (`_personal_expense_has_justification`). Si no, se avisa y no
+  se manda (lo comprueba el JS **y** el backend). Desde los **tres puntitos** de cada gasto en
+  «Mis gastos» se sube la factura/ticket (`my_expense_upload_invoice`) o se pide pasar sin factura
+  (`my_expense_no_invoice`). El **icono** del gasto dice en qué estado está
+  (`_personal_expense_justification_state`).
+  · **Estados** (`PersonalExpense.status`): `VALIDATING` (mandado, sigue viéndose en Mis gastos con
+  su etiqueta «a la espera») → `DIRECT` (aceptado) o vuelta a `PENDING` con `validation_status =
+  RECHAZADO` y el motivo a la vista («no se aceptó: …»). Al aceptarlo, si no estaba pagado
+  (`_personal_expense_is_prepaid`: lo de **Pleo y Cabify ya está pagado** con la tarjeta) queda
+  **pendiente de pago**.
+  · **Dónde se valida**: Administración → Pendiente → **«De oficina»** (subpestaña nueva, con su
+  contador y su responsabilidad `GASTOS_OFICINA`): por validar · piden pasar sin factura · validados
+  pendientes de pago. Endpoints `administration_direct_expense_decision` /
+  `administration_personal_no_invoice_decision` / `administration_direct_expense_mark_paid`
+  (mapeados a mano a `administracion.pendiente`: no llevan prefijo reconocible).
+  · **Balance del artista**: `_artist_investment_rows` pinta en la pestaña **Contratos** del artista
+  lo que se ha invertido en él (solo se calcula en esa pestaña).
+  ⚠️ Los endpoints `my_expense_*` están en **`PERSONAL_ENDPOINTS`** (datos propios: la comprobación
+  de propiedad la hace `_my_expense_or_403` dentro).
+- **Otras actividades · filtros por tipo y listado por sujeto** (ago 2026, `contracting_view` +
+  `templates/contratacion.html`): arriba, **etiquetas de TIPO con su icono** (`type_chips` sobre
+  `OTHER_ACTIVITY_TYPE_KEYS` = evento promocional · TV · marca · otros, con contador y acumulables
+  por `?tipo=`); debajo, la rejilla de **SUJETOS** —artistas **y eventos**— con su nº de actividades
+  (los de evento se agrupan por el `AppEvent`, nunca por su artista espejo, y llevan la pastilla
+  «Evento»); y al entrar, el listado **sin nombre ni foto de artista** (`.oa-row`): icono del tipo ·
+  nombre de la actividad (el festival si lo tiene, y si no el tipo) · municipio · provincia, y
+  **debajo** la fecha y el recinto, con «Con/Sin caché» y el estado a la derecha.
+- **Actividades de un EVENTO** (`AppEvent`): una actividad (`Concert`) exige artista (`artist_id` NOT
+  NULL) y un evento no lo es, así que al convertir una simulación de EVENTO se espeja el evento como
+  artista con `_ensure_artist_for_event` (`Artist.event_id`, único; hereda nombre y logo) y la
+  actividad guarda además `Concert.event_id`. El espejo se excluye del listado `/artistas`. ⚠️ Sigue
+  saliendo en OTROS selectores de artista que consultan `query(Artist)` sin filtrar (~60 sitios): es
+  cosmético, se va filtrando donde moleste. Mismo patrón que `_ensure_promoter_for_media`.
+- **FUSIÓN de Actividades y Acciones** (ago 2026): una sola sección **Actividades** y **un solo
+  botón «+ Actividad»** (el asistente se incluye en `/actividades` y pregunta el tipo). «Acciones»
+  sale del menú; su recurso `acciones` se **conserva** («Acciones (histórico)») porque las
+  `CompanyAction` que ya existían siguen teniendo su ficha —y quitarlo se llevaría por delante sus
+  permisos, que `_sync_access_resources` poda en cascada—.
+  · **Tipos nuevos** en `QUAD_ACTIVITY_CHOICES`: **ENSAYO** y las **DISCOGRÁFICAS**
+  (`DISCOGRAFICA_ACTIVITY_TYPES`: DISC_PREMIOS · DISC_FIRMA · DISC_AUDIO · DISC_VIDEO · DISC_FOTOS ·
+  DISC_COMPOSICION · DISC_REUNION), que en el paso 1 del asistente viven dentro de la tarjeta
+  «Discográficas».
+  · **Rama corta** (`SIMPLE_ACTIVITY_TYPES` = ensayos + discográficas; en el JS `SIMPLE_TYPES`):
+  `stepSequence()` devuelve `[12, 1, 3, 4, 6, 13]` — artista(s) · tipo · días y sitio · qué tiene que
+  hacer el artista (y **¿canta?** solo en `SINGING_ACTIVITY_TYPES`: premios y firmas) · caché · y el
+  paso **13 de LOGÍSTICA**, que si hace falta activa la producción con la persona elegida (le llega el
+  aviso y la actividad le sale en sus Activas). Nada de promotor, entradas, cartelería ni anuncio.
+  · **Varios días**: `Concert.end_date` (la actividad es UNA, del primer día al último).
+  · ⚠️ El tipo de venta de estas actividades es SOLO el apunte de si llevan caché: el asistente lo
+  fuerza a VENDIDO/GRATUITO y `_sale_type_label` ya enseña lo que ES la actividad.
+  · ⚠️ En `concert_wizard_create` (y en los otros dos sitios donde se crea un `Concert`) la variable
+  `session` es la **sesión de la BD**, no la de Flask: el usuario se lee de `_current_user_state()`
+  (usar `session.get("user_id")` ahí revienta con «Session.get() missing 1 required argument»).
+
+- **Sección ACTIVIDADES: filtros por tipo y listado por sujeto** (ago 2026, `activities_view` +
+  `templates/actividades.html`). Igual que la pestaña «Otras actividades» de Contratación pero con
+  TODO (conciertos, festivales, eventos promocionales, TV, marca, otros y **acciones**):
+  · Arriba, **etiquetas de TIPO con su icono** y su contador, acumulables (`?tipo=`, claves en
+    `ACTIVITIES_TYPE_KEYS`; `?type=concert|action` sigue funcionando por los enlaces antiguos).
+  · Debajo, la rejilla de **SUJETOS** —artistas **y eventos**— con su nº de actividades (una actividad
+    de evento se agrupa por el `AppEvent`, nunca por su artista espejo).
+  · Al pinchar uno, el listado **sin nombre ni foto de artista** (`.oa-row`): icono del tipo · nombre
+    de la actividad (el festival si lo tiene) · municipio · provincia, y **debajo** fecha y recinto.
+
+- **Filtros de tipo: solo los que TIENEN actividades** (ago 2026). En `/actividades`, en Contratación →
+  «Otras actividades» y en Producción → «Activas», la etiqueta de un tipo **no se pinta si no hay
+  ninguna actividad de ese tipo** (antes salían todas a cero y había que leerlas para descartarlas).
+  · Los contadores se calculan sobre **lo que se está viendo** (periodo y, si se ha entrado en un
+    artista o evento, solo lo suyo) pero **sin aplicar el propio filtro de tipo**: si no, la etiqueta
+    que acabas de pulsar dejaría a las demás a cero y no podrías combinarlas.
+  · La etiqueta activa se conserva aunque su contador sea 0 (si no, al filtrar desaparecería el botón
+    con el que quitar el filtro).
+- **Cuentas bancarias de una empresa del grupo: VARIAS en el mismo banco.** Lo único que no se repite
+  es el **IBAN** (mismo IBAN = misma cuenta: se actualiza y se **avisa**, para que no parezca que no
+  deja añadirla). En la lista, las cuentas del mismo banco se numeran («cuenta 1 de 2») y el formulario
+  lo dice. Un IBAN que no cuadra en el mod-97 se rechaza con su motivo (era lo único que podía parecer
+  un tope).
+
+- **Facturación por empresa**: `/facturacion_<empresa>` (`_company_slug`/`_find_group_company_by_slug`)
+  muestra solo esa empresa, su logo a la derecha y **oculta el navbar** (`hide_backoffice_nav`, flag
+  que respeta `layout.html`). El paso «¿para quién es la factura?» usa `_invoice_target_people`
+  (personal con departamento; dirección solo si tiene además otro) y `_detect_invoice_meta` lee el
+  nº y la fecha de emisión del PDF para que el proveedor los confirme antes de enviar.
+
+- **Ficha de la empresa del grupo** (`company_detail`, `/empresas/<cid>`): pestaña **Datos** (datos de
+  `GroupCompany` inline + bloque **Logos** —descarga PNG por `company_logo_png`, que baja el original y
+  lo convierte con Pillow, + compartir correo/WhatsApp/SMS— + enlace `/facturacion_<slug>` con copiar,
+  abrir, **copiar el código de inserción (icono `</>`)** vía `company_embed_code` → `_company_embed_snippet`
+  y previsualizar) y pestaña **Documentación**
+  (`GroupCompanyDocument`: nombre + `expiry_date`; `_company_doc_row` da la etiqueta
+  **VALID/EXPIRED/NONE** → `.co-doc-st--valid/--expired/--none`, caducados primero). Guardado/borrado
+  (`company_document_save`/`_delete`) **solo dirección** (`is_master()`), el resto ve/descarga/comparte
+  (correo·WhatsApp·SMS); **editar la empresa y eliminarla también son solo dirección**
+  (`can_edit_company`, el botón *Eliminar empresa* vive dentro del formulario de edición). Permisos: los
+  endpoints `company_*` ya caen en `databases.group_companies` por prefijo en `_coarse_endpoint_resource`,
+  no hay que mapearlos a mano. El **listado** `/empresas` es una lista simple sin botones: cada fila
+  enlaza a su ficha (`companies.html`, clases `.co-row*`).
+- **Contratos de actividad: el PDF va por un endpoint con permiso** (`concert_contract_download`,
+  `/conciertos/<cid>/contratos/<ctid>/ver`): exige sesión y `can_view_concert_contracts()` y sirve el
+  fichero desde el servidor. ⚠️ Los contratos viven en el bucket PÚBLICO de Storage: la ficha ya no
+  publica `pdf_url`, pero **las URL directas de los ya subidos siguen funcionando** para quien las
+  tenga guardadas (cerrarlo del todo pide bucket privado o URLs firmadas, que afecta a todo el resto).
+- **FILTRO POR AÑO en Conciertos y Actividades** (ago 2026): al lado de «Cuándo», etiquetas pequeñas
+  con el **año anterior, el actual y el siguiente** (`YEAR_FILTER_OFFSETS`), acumulables. Puntos
+  únicos `_year_filter_from_request` · **`_year_chips`** · **`_filter_by_year`**.
+  ⚠️ **Un año sin nada NO se ofrece** (la misma regla que los tipos del calendario), pero el que
+  esté marcado se conserva aunque salga a cero: si no, al filtrar desaparecería el botón con el que
+  quitar el filtro.
+  ⚠️ Sus contadores se calculan **sin aplicar el propio filtro de año** (si no, al marcar uno los
+  demás saldrían a cero y no se podrían combinar) y **el filtro se aplica ANTES de contar nada más**:
+  así el número de cada etiqueta de tipo, el de cada tarjeta de artista y el de la cabecera del
+  sujeto dicen lo que se va a ver (si no, la tarjeta seguía diciendo «13 actividades» y dentro había
+  una — el mismo criterio que el filtro de fechas).
+
+- ⚠️⚠️ **LA FICHA DE UNA ACTIVIDAD SIN CONFIRMAR solo la abren quienes la ven** (ago 2026):
+  contratación, dirección y **quien la produce** (con la producción ya activada). Es el MISMO punto
+  único que decide si se pinta en el calendario y en el listado de Producción
+  (`_concert_visible_unconfirmed`), así que no se pueden desparejar: **lo que se ve, se abre**. Al
+  resto se le dice por qué en vez de dejar que llegue a una ficha que no le corresponde.
+
+- **UN TERCERO NUEVO: EMPRESA o PARTICULAR** (ago 2026, alta rápida `data-quick-create="promoter"`).
+  Lo primero es **qué es**, porque los datos no son los mismos: **empresa** (nick · nombre de la
+  empresa · CIF · dirección fiscal · su **representante**) o **particular** (nick · nombre completo ·
+  DNI · dirección fiscal · teléfono · email). Todo opcional menos saber cómo se llama: sin nick se usa
+  el nombre de la empresa o el nombre completo.
+  · **`Promoter.legal_name`** (columna nueva) = el nombre de la empresa / razón social: el `nick` es
+  como la llamamos nosotros y esto es con lo que factura — de ahí lo coge **`_billing_name`**, que es
+  lo que se manda a Holded.
+  · ⚠️⚠️ **EL REPRESENTANTE ES OTRO TERCERO**: `_quick_create_representative` crea los dos en la
+  misma operación y los **vincula** (`ThirdPartyLink`, relación «Representante»), que es
+  bidireccional, así que se ven en las dos fichas. `_promoter_representatives` lo lee en las dos
+  orientaciones.
+  · Todo eso se ve en la **ficha de contratación** de la actividad, bajo el promotor
+  (`_promoter_info_rows`: nombre o razón social, CIF/DNI, dirección fiscal, contacto y representante).
+  Un campo vacío no se pinta.
+  ⚠️ Las dos ramas comparten los nombres de los campos (`nick`, `tax_id`, la dirección fiscal), así
+  que el panel que no toca **se DESHABILITA**: esconderlo no basta, un campo oculto se envía igual.
+
+- ⚠️ **QUIEN CREA UNA ACTIVIDAD LA VE** (`_concert_visible_unconfirmed`): una actividad nace
+  RESERVADA mientras no se le haya avisado al artista, así que sin esto la persona que acababa de
+  darla de alta se comía un **403 al terminar el asistente**, en su propia actividad.
+
+- ⚠️ **UNA ACTIVIDAD YA PASADA SE CREA Y YA ESTÁ**: no se va a mandar un aviso de algo que ya
+  ocurrió, así que no se queda en RESERVADA por eso. El aviso se apunta como hecho **a mano**
+  (`_concert_notice_mark_manual`, el punto único que usan el botón «El artista ya fue informado» y
+  el alta).
+
+- ⚠️⚠️ **AL MOSTRAR UN PANEL DEL ASISTENTE HAY QUE VOLVER A HABILITAR SUS CAMPOS**: al enviar se
+  deshabilita todo lo que está oculto (para que no viaje), y si el envío no llega a navegar —una
+  validación que lo para, un error— esos campos se quedan **muertos** con el modal todavía abierto:
+  no se podía escribir el nº de canciones, ni elegirlas, ni detallar la formación (bug real). Se
+  rehabilitan en `showStep` (por donde se pasa siempre) y al mostrar cada panel.
+
+- **EL PROMOTOR DEL ASISTENTE ES UNA BARRA DE BÚSQUEDA, no un desplegable** (ago 2026): se escribe y
+  salen las coincidencias con su foto o su logo (`initTypeahead` con la opción nueva
+  **`alwaysList`**, que fuerza la lista propia aunque ningún resultado traiga imagen), y el **«+»**
+  de crear uno nuevo se queda a la derecha.
+  ⚠️ `quick_create.js` sabe ya dejar lo creado en un BUSCADOR (input + su oculto), no solo en un
+  `<select>`: se le dice con `data-target-hidden` en el botón «+» o `data-ta-hidden` en el input.
+  ⚠️ El JS de una plantilla corre ANTES que el de `layout.html`, así que `initTypeahead` puede no
+  existir todavía: `initPromoterSearch` **reintenta** hasta que esté (la misma trampa que con
+  Bootstrap y `app33AutoOpenModal`).
+
+- ⚠️⚠️ **UNA COMISIÓN SE APLICA DE DOS MANERAS Y NO ES LO MISMO** (ago 2026,
+  `ConcertZoneAgent.apply_mode` + `COMMISSION_APPLY_MODES`):
+  · **EXPENSE (gasto sobre el caché)** — entra en la BOLSA como un gasto más, en la categoría nueva
+    **«Comisiones»** (`COMMISSION_EXPENSE_CATEGORY`), y se le comunica al artista en su propio
+    módulo del aviso (con su ojo, para poder dejarlo fuera del envío).
+  · **REDUCE (reduce el caché)** — no es un concepto aparte: el caché que se ve
+    (`_concert_cache_summary`) y el que se le comunica ya va con ella **descontada**
+    (`_concert_commission_reduction`), y en la liquidación aparece en la parte del CACHÉ.
+  ⚠️ El gasto de la bolsa y la comisión son el MISMO dinero visto desde dos sitios
+  (`ConcertZoneAgent.bag_expense_id`, el patrón de `_disco_artwork_sync_bag`): si la comisión deja
+  de ser un gasto, su gasto **se retira**. Solo se puede apuntar la de importe FIJO; un porcentaje
+  sobre la recaudación no se sabe hasta liquidar.
+  · **LAS COMISIONES SE VEN SIEMPRE** en la ficha (antes colgaban de `sale_type != 'VENDIDO'`, así
+  que en la mayoría no se podían ni añadir), en la ficha de contratación
+  (`_concert_commission_rows` → `_concert_contracting_general_rows`) y con dos botones: **subir la
+  factura** (`concert_commission_invoice`) o **solicitársela** a quien la cobra
+  (`concert_commission_request_invoice`).
+  · En el asistente cada comisión es su propia **galleta**: a quién se le paga (barra de búsqueda
+  con foto y el «+» al lado), el tipo con iconos, sobre bruto o neto, el concepto y cómo se aplica.
+
+- **INICIO DE CONTRATACIÓN · el dinero** (ago 2026, `_home_billing_pending` / `_home_billing_year` +
+  `templates/_home_billing.html`): **«Pendiente de cobrar»** (las facturas del caché, por EMPRESA
+  del grupo, con su total y el de arriba siempre el de lo que se está viendo; lo que vence en
+  `HOME_COLLECT_DAYS`=14 días y lo ya vencido en rojo, con «Ver más» para verlas todas; el icono
+  dice si la factura ya está subida) y **«Facturado en el año»** (por empresa, de la que más a la
+  que menos, con su barra y flechas para cambiar de año).
+  ⚠️ Van **FUERA de las compuertas de departamento** de `home.html`: los ven contratación **y**
+  dirección, y los módulos ya se calculan solo para ellos — dentro de la compuerta
+  (`HOME_DIRECCION_BOARD is none`) a dirección no le salían.
+
+- ⚠️⚠️ **LO CREADO ANTES DEL 2-SEP-2026 SE CONFIRMA SIN COMUNICAR** (sep 2026). La comunicación al
+  artista desde la app es de septiembre de 2026: lo que se dio de alta ANTES ya se habló en su día
+  por teléfono o por correo, así que **mandar ahora un aviso de algo ya hablado solo haría ruido** y
+  esas actividades no se podían confirmar sin él. Corte **`ARTIST_NOTICE_LEGACY_CREATED_BEFORE`**
+  (2-sep-2026), y es la **FECHA DE CREACIÓN** (`Concert.created_at`), no la de la actividad: una
+  fecha de dentro de seis meses apuntada en agosto también entra.
+  · Punto único **`_concert_notice_ack_reason(concert)`** → **`PASADA`** (su último día ya pasó, lo
+  de siempre) · **`ANTIGUA`** (creada antes del corte) · `""` (hay que avisar de verdad), y
+  **`_artist_notice_ack_texts(motivo)`**, que da la NOTA y cómo se llaman los dos botones. Con eso,
+  al pinchar CONFIRMADO sale el pop-up **«Confirmar sin comunicar»** con la nota —«esta actividad se
+  creó antes del 2 de septiembre de 2026, por lo que la puedes confirmar sin necesidad de
+  comunicársela al artista»— y **«Confirmar»** / **«Confirmar y comunicar»**.
+  ⚠️ Los TEXTOS los manda el SERVIDOR en el JSON de la compuerta (`ack_reason`/`ack_note`/
+  `ack_label`/`notify_label`/`ack_title`): `pedirDecisionAviso` (scripts.js) no repite ninguno, así
+  que cambiar la fecha del corte cambia el pop-up, la pantalla del aviso y el flash a la vez.
+  ⚠️ La fecha del texto sale del propio corte (`_artist_notice_legacy_date_label`), nunca escrita a
+  mano.
+  ⚠️ Confirmar así **queda apuntado igual que un envío** (`_concert_notice_mark_manual`:
+  `ConcertArtistNotification` con canal MANUAL y la misma FIRMA, y la nota dice por qué), así que un
+  cambio gordo posterior (fecha, hora, recinto o caché) vuelve a pedir aviso como en cualquier otra.
+  ⚠️ **El servidor lo vuelve a comprobar** (`concert_artist_notice_ack`): una actividad creada
+  después del corte y sin celebrar no se puede dar por informada ni llamando al endpoint a mano.
+  ⚠️ El ALTA solo se auto-marca con el motivo **PASADA** (`ack_reason == "PASADA"`): una actividad
+  que se está creando AHORA no es antigua, y darlo por hecho en silencio sería confirmar sin avisar
+  sin que nadie lo haya decidido.
+
+- ⚠️ **EN LA CABECERA DE UNA ACTIVIDAD NO VAN LAS PERSONAS VINCULADAS AL ARTISTA** (sep 2026): su
+  hermano, su asistente… eso es de la **ficha del ARTISTA**, no de la actividad, y ahí solo hacía
+  ruido (se veía en cualquier concierto: «Jose Luis — Hermano y Road Manager», «Eva — Asistente»).
+  Misma regla que la cabecera de una canción. Los contactos de ESA actividad están en su ficha de
+  contratación.
+
+- ⚠️⚠️ **EL ASISTENTE DE ACTIVIDAD ES UNO, Y SU CONTEXTO SALE DE UN SOLO SITIO** (sep 2026). El
+  parcial ya era único (`_concert_wizard_modal.html`, incluido en 12 pantallas), pero **Contratación,
+  la vista de conciertos, la ficha de una gira y la de un ciclo se montaban sus propias listas a
+  mano** y se quedaban sin las claves nuevas: el MISMO asistente salía con la tarjeta de
+  «Discográficas» VACÍA, sin gente en «¿quién de producción se encarga?» y sin giras ni ciclos según
+  desde dónde se abriera (bug real). Ahora:
+  · **`_concert_wizard_context`** es el único sitio donde se dice qué necesita el asistente, y
+  · **`_with_concert_wizard(session_db, ctx)`** es por donde pasa **toda** pantalla que lo incluya:
+    añade lo que falta **sin pisar** lo que la pantalla ya pasa (sus propias listas para sus
+    listados y filtros) y pone `wizard_available`.
+  Un dato nuevo del asistente se añade en `_concert_wizard_context` y **aparece en todas a la vez**.
+  · Enganchado en las 12: Inicio · Actividades · Contratación (otras actividades) · vista de
+  conciertos y Facturación · **listado de giras compradas** · **listado de festivales/ciclos** ·
+  Eventos · ficha del artista · ficha de una **gira** y de un **ciclo/festival/evento** · ficha de
+  una petición aprobada.
+  ⚠️ **El botón «+ Actividad» también tiene que estar en todas**: el listado de giras compradas y el
+  de festivales/ciclos eran las únicas pestañas de Contratación sin él (solo tenían «Nueva gira» /
+  «Nuevo ciclo»), así que desde ahí había que irse a otra pantalla para añadir una fecha.
+  ⚠️ En la ficha de una gira/ciclo, «Crear concierto» abre el asistente **en esa misma pantalla**
+  (`url_for(request.endpoint, open_wizard=1, wizard_group=…, **request.view_args)`): la auto-apertura
+  por parámetros vive en el propio parcial, así que funciona en cualquier página que lo incluya —
+  antes te llevaba a `/conciertos` y perdías el contexto de la gira.
+  ⚠️ Con `setdefault` la pantalla manda sobre el helper: en `contracting_view` se retiró su `artists`
+  a propósito (era **todos** los artistas, con los espejos de EVENTO dentro, que no deben salir en el
+  selector; el helper los excluye) y en `concerts_view` se conservan `artists` y `venues`, que son los
+  de su rejilla y sus filtros.
+
+- ⚠️⚠️ **EL REPERTORIO DE UNA ACTIVIDAD: se busca ESCRIBIENDO y se ordena ARRASTRANDO** (sep 2026).
+  Al marcar «Sí, canta», el nº de canciones se podía poner pero **la barra de búsqueda de canciones
+  no funcionaba**: era un `<select multiple>` con **Select2 SIN `dropdownParent`** y dentro del
+  asistente (un modal con scroll) su desplegable **se queda detrás y no se abre** — el clásico de
+  esta app. Ahora:
+  · Parcial ÚNICO **`templates/_performance_songs.html`** + motor **GLOBAL**
+    `static/js/performance_songs.js` (`window.app33PerfSongs`), usados por el **asistente** y por la
+    sección **«Actividad» de la ficha**: se pone igual en los dos y una mejora vale para los dos.
+  · Se escribe y salen las coincidencias del repertorio del artista (sin acentos ni mayúsculas), y lo
+    elegido son **filas que se arrastran**: **ese es el orden del repertorio**.
+  ⚠️ La lista de sugerencias cuelga del `<body>` con **`app33FloatList`** (la misma de todos los
+  buscadores de la casa): dentro del modal, cualquier ancestro con `overflow` la recortaría.
+  ⚠️ **El motor es GLOBAL y por DELEGACIÓN** porque la sección «Actividad» vive dentro de una zona
+  `data-inline-zone` que se REEMPLAZA al guardar: un `<script>` de dentro no se volvería a ejecutar
+  (regla de la casa). Comprobado: tras guardar por AJAX, el buscador sigue funcionando.
+  ⚠️ **Cada fila lleva DENTRO su `<input type="hidden" name="performance_song_ids[]">`**, así que el
+  orden del DOM **es** el orden que se guarda (`_wizard_performance_payload` respeta el orden de la
+  lista): al arrastrar no hay nada que recalcular.
+  ⚠️ El **Nº de canciones** sigue a lo elegido **mientras nadie lo escriba a mano** (`dataset.touched`,
+  el patrón de la casa). Y **Enter añade la primera coincidencia**, no envía el asistente.
+  ⚠️ Al **cambiar de artista** se limpia lo elegido (era de otro repertorio) y se recarga su catálogo
+  desde `api_artist_wizard_meta` (`window.app33PerfSongs.setCatalog/clear`). Si el artista no tiene
+  canciones **se dice**, en vez de no pasar nada al escribir.
+  · **ESAS CANCIONES SON EL REPERTORIO de la actividad**: al crearla se siembran en su set list
+  (`_seed_concert_setlist_from_performance` → `RepertoireTemplate` con owner CONCERT, el mismo que
+  pinta la pestaña «Repertorio»), **en su orden y con sus duraciones**.
+  ⚠️ **Solo SIEMBRA**: si la actividad ya tiene set list (se tocó a mano o se cargó una plantilla) no
+  se pisa nada. Es *best-effort*: un fallo ahí no puede tumbar el alta.
+  ⚠️ El repertorio que se ofrece es el de **TODOS los artistas** de la actividad
+  (`_setlist_concert_artist_ids`), no solo el del primero.
+  ⚠️ **De la MÁS RECIENTE a la MÁS ANTIGUA** (`Song.release_date` desc, y a igualdad el título):
+  al montar un repertorio se busca lo último que ha salido, no la «A» del abecedario. Va en el punto
+  único, así que lo heredan el buscador de la ficha, el del asistente (`api_artist_wizard_meta`) y el
+  del set list. Como la lista de sugerencias se corta en 12, ese orden es lo que hace que se ofrezcan
+  **los 12 últimos lanzamientos**.
+
+- ⚠️ **QUIEN CREA UNA ACTIVIDAD LA SIGUE VIENDO HASTA QUE SE CONFIRMA** (sep 2026): alguien que no es
+  de contratación da de alta una actividad y **la ve en el calendario, en /actividades y en la vista
+  de Contratación** aunque esté RESERVADA; **al confirmarse la ve todo el mundo**. Punto único
+  **`_concert_list_visible`** (usa el MISMO criterio que `_concert_visible_unconfirmed`, así que «lo
+  que se ve en el calendario» y «lo que se ve en los listados» no se pueden desparejar), aplicado en
+  las listas ricas de la ficha del artista, en **`/actividades`** —que antes las enseñaba TODAS, así
+  que una reserva que se estaba hablando salía para toda la oficina— y en la vista de conciertos, a la
+  que llega también quien trabaja en producción.
+
+- ⚠️⚠️ **LOS FILTROS Y LA FILA DE UN LISTADO DE ACTIVIDADES SON UN SOLO SITIO** (sep 2026). Los
+  filtros de la pestaña «Conciertos» de la ficha del ARTISTA y los de Contratación → Conciertos eran
+  dos formularios escritos a mano y se habían desparejado (la ficha solo tenía «Cuándo» y «Estado»,
+  con botón «Filtrar», sin años, sin tipo, sin anuncio y sin etiquetas); y la FILA se pintaba en
+  CUATRO maquetas distintas. Ahora hay dos puntos únicos y dos parciales:
+  · **FILTROS**: `_concert_filters_from_request` · `_concert_filters_apply_sql` ·
+    `_concert_filters_apply_list` · `_concert_filters_context` + **`templates/_concert_filters.html`**.
+    Los nombres de los parámetros NO cambian (`when`, `status`, `type`, `announcement`,
+    `concert_tag`, `year`, `open`), así que los enlaces guardados siguen valiendo.
+  · **FILA**: **`_concert_row`** (y su hermano `_action_row`, con las MISMAS claves) +
+    **`templates/_concert_row.html`**, usados por Contratación → Conciertos, la sección Actividades,
+    la pestaña Conciertos de la ficha del artista y las actividades de un EVENTO.
+  ⚠️⚠️ La macro hay que importarla **`with context`**: `DEFAULT_AVATAR_URL` y `CAN_EDIT_CONCERTS`
+  vienen de un context processor, no son globales del entorno de Jinja. Sin eso la fila sale sin foto
+  y **sin el desplegable de estado**, y no da ningún error.
+  ⚠️ El parcial de filtros trae su propio `<form>`: **no se puede incluir dentro de otro formulario**
+  (un form dentro de otro no es HTML válido). Y su `modal_id` es distinto por pantalla.
+  ⚠️⚠️ **CADA GRUPO DE ETIQUETAS SE CUENTA SIN SU PROPIO FILTRO** (`_concert_filters_apply_list`):
+  los TIPOS con el año puesto y sin el tipo, y los AÑOS con el tipo puesto y sin el año. Antes
+  `type_counts` se calculaba sobre lo ya filtrado por tipo, así que al marcar uno los demás se
+  quedaban a cero, **desaparecían del pop-up** y no se podían ni combinar ni quitar (bug real). Por
+  eso el TIPO DE VENTA se filtra en Python y no en SQL.
+  ⚠️ El bloque de conciertos de la ficha del artista va **guardado por `tab`**: hace su consulta y
+  lee todas las etiquetas de concierto de la base, y corría en las 14 pestañas.
+
+- ⚠️⚠️ **LA AGRUPACIÓN POR «GRATUITOS» DESAPARECE, Y LA FILA DICE QUÉ ES CADA ACTIVIDAD** (sep 2026).
+  Gratuito **no es un tipo de concierto** (es que la entrada es gratis, `_concert_is_free`), así que:
+  · la ficha del artista ya **no agrupa por tipo de venta** (era el bloque «Conciertos — Gratuitos»):
+    la lista va **plana y por fecha**, como en Contratación;
+  · la fila enseña el **TIPO REAL** (a empresa, vendido, participado…) y aparte la **etiqueta verde
+    «Gratuito»**;
+  · se añade el **TIPO DE ACTIVIDAD con su icono** (`QUAD_ACTIVITY_ICONS`) —el icono siempre, y el
+    rótulo solo cuando NO es un concierto, para no repetir lo obvio en un listado de conciertos—;
+  · y la etiqueta **«No anunciar»** mientras no se pueda anunciar, que **desaparece sola** en cuanto
+    se le pone fecha de anuncio o se anuncia (`_announcement_state(...) == 'NO_ANNOUNCE'`).
+  ⚠️ **«GRATUITO» YA NO SE OFRECE COMO TIPO** en ningún filtro ni en ningún selector
+  (`CONCERT_TYPE_CHOICES_ORDER`). Se queda en `CONCERT_SALE_TYPES_ALL` a propósito: hay actividades
+  ANTIGUAS guardadas así y un enlace con `?type=GRATUITO` tiene que seguir valiendo.
+  · El lugar de la fila va en el formato ÚNICO de la casa (`_place_label`: «Recinto · Municipio,
+  Provincia», con el país solo si es de fuera).
+
+- ⚠️⚠️ **LA FORMA DE PAGO DEL CACHÉ SE CONFIGURA EN LA FICHA, Y SE AVISA SI FALTA** (sep 2026).
+  «Forma de pago del caché» **NO es un campo de `ConcertCache`**: es **`Concert.payment_terms_json`**
+  (el plan de pagos: concepto, importe y fecha límite de cada uno), y **solo se podía configurar en
+  el asistente** — en la ficha era de solo lectura y, vacío, ni se pintaba.
+  · Ahora se edita dentro de la sección **«Cachés»** (filas dinámicas `data-rows="payment"` del
+  motor de siempre, `concert_form.js`) y el **plan de facturación se ve aunque esté vacío**, con su
+  botón para configurarlo.
+  · Si no está configurada, al entrar en la ficha sale el **aviso** («Pendiente de configurar la
+  forma de pago del caché», con «Configurarla») y la **tarea** en la pestaña «Inicio». Punto único
+  **`_concert_cache_payment_state`**, así que el aviso y la tarea no pueden decir cosas distintas; no
+  salta en lo CANCELADO ni en el histórico (`_concert_is_legacy`).
+  ⚠️⚠️ **PÉRDIDA DE DATOS EVITADA**: `_parse_payment_terms_rows` crea filas NUEVAS y deja
+  `invoice_url`/`invoiced_at`/`collected_at` a None, así que guardar la sección desde la ficha
+  BORRARÍA las facturas subidas y las marcas de cobrado. La ficha guarda con
+  **`_merge_payment_terms_rows`**: cada fila viaja con su **`payment_idx[]`** y solo se pisan
+  concepto, importe, fecha y a qué caché corresponde. Un pago que ya tiene factura o cobro se pinta
+  **bloqueado y sin papelera** (⚠️ `readonly` SÍ se envía; con `disabled` el pago desaparecería del
+  POST y se perdería).
+  ⚠️ Con **CENTINELA** (`payment_terms_present`): sin él, un POST a la sección desde una pantalla
+  vieja dejaría el plan de pagos vacío (la misma regla que `promoter_costs_present`).
+
+- **MARKETING · LA EMPRESA LA DICTA LA ACTIVIDAD** (sep 2026): en una campaña vinculada a una
+  ACTIVIDAD (o a una gira o un ciclo) la empresa del grupo es **SIEMPRE la que factura esa actividad**
+  y **no se pregunta**: el asistente esconde el selector y enseña cuál es, y `promotion_create` hace
+  que lo del formulario **no mande** cuando el sujeto la dicta. Punto único
+  **`_concert_billing_company_id`** (`billing_company_id` o, si no se ha dicho, `group_company_id` —
+  el mismo criterio que la cabecera de la ficha y que la bolsa). Sobre un artista, una canción o un
+  disco se sigue preguntando.
+  ⚠️ El `<select>` se **DESHABILITA** al esconderlo: un campo oculto se envía igual.
+
+- ⚠️⚠️ **CADA TAREA DE UNA ACTIVIDAD ES DE UN ÁREA, Y SOLO LA VE QUIEN TRABAJA EN ELLA** (sep 2026).
+  El tablero de la pestaña «Inicio» y los avisos de la ficha se le pintaban a TODO EL MUNDO: quien
+  está en producción se encontraba «Sin contrato», «Pendiente de anunciar» o «Configura el
+  responsable de ticketing», que ni es suyo ni puede hacer.
+  · Punto único **`_concert_task_area_ok(area)`** (+ `CONCERT_TASK_AREA_*`): **dirección lo ve todo**;
+    `contratacion` → quien tenga acceso a Contratación · `ticketing` → `can_set_concert_onsale()`
+    (contratación, ticketing, ventas y dirección) · `produccion` → quien tenga Producción ·
+    `administracion` → quien tenga Administración.
+  · `suelta(...)` (las tareas DEL DEPARTAMENTO) gana `area=` —contratación por defecto— y
+    **`ver_siempre=`** para la excepción: **activar la producción es de QUIEN CREÓ la actividad**
+    (`created_by_user_id`), así que a esa persona se le enseña aunque no sea de producción.
+  ⚠️ **Las FASES DE UNA PETICIÓN no se filtran por área**: son de QUIEN LA PIDIÓ (llevan dueño,
+  `mine` y su campanita), y filtrarlas dejaría a esa persona sin ver su propio trabajo.
+  · Y en la ficha, junto al aviso de la forma de pago, sale ahora el de **«Pendiente de configurar el
+  responsable de ticketing»** (con `CAN_SET_ONSALE`, que es quien puede resolverlo).
+  ⚠️ Su pop-up **NO se incluye ahí**: ya está en la pestaña, FUERA de `#concert-general-zone` (esa
+  zona se reemplaza por AJAX). Incluirlo otra vez dejaría **dos ids iguales** en el DOM.
+  Probado con la app real: dirección ve las cinco · contratación las suyas · producción solo
+  «Activar producción» · administración ninguna (y el creador, la suya aunque no sea de producción).
+
+- ⚠️⚠️ **EN UN CONCIERTO «VENDIDO» NO SE VEÍAN LOS CACHÉS** (bug real, sep 2026). Los módulos de
+  **Colaboradores, CACHÉS y Entradas y venta** estaban los tres dentro de `{% if concert.sale_type
+  != 'VENDIDO' %}`, así que en un concierto VENDIDO —que es justo el que tiene caché— **no se
+  pintaban ni el módulo ni su formulario**: el aviso «Pendiente de configurar la forma de pago»
+  apuntaba a `#concert-caches-form`, que **no existía en la página**, y por eso «pinchas y no hace
+  nada» (lo mismo desde el módulo del plan de facturación).
+  · **Cachés y Entradas se ven SIEMPRE**; dentro de ese `if` se queda solo **Colaboradores** (en un
+  concierto vendido no hay socios). Es el mismo error que ya se corrigió con el promotor y con las
+  comisiones: esconder por tipo de venta cosas que no dependen del tipo de venta.
+  · **`data-edit-focus="#id"`** (nuevo, en `ficha_inline.js`): el botón abre el formulario y lleva
+  **directamente a esa parte** (aquí, `#forma-pago-cache`), que destella (`.edit-focus-flash`). Un
+  formulario largo que se abre por arriba obliga a buscar el bloque.
+  · Y el plan de facturación vacío lleva su propio botón **«Configurar la forma de pago»**: un texto
+  que dice «pulsa el lápiz» obliga a buscar el lápiz.
+  ⚠️⚠️ **EL MÓDULO SE VE AUNQUE LA ACTIVIDAD NO RECLAME NADA**: `_concert_cache_payment_state`
+  devolvía el estado VACÍO en lo cancelado y en el HISTÓRICO, así que en lo antiguo no había forma de
+  configurar la forma de pago. Ahora son dos cosas distintas: **`applies`** (el módulo se puede usar)
+  y **`unset`/`mismatch`** (lo que se AVISA, que se callan con `silent`).
+  · **Detector de botones muertos** (vale para cualquier pantalla): pedir el HTML servido y
+  comprobar que cada `data-bs-target="#x"`, `data-edit-toggle="#x"`, `data-view`, `data-inline-target`
+  y `href="#x"` tiene su `id="x"` en esa misma página. Así salió también un `href="#pitch"` que
+  apuntaba a una zona que se llama `#pitch-zone`.
+
+- **FICHA DE CONTRATACIÓN · RECHAZARLA Y PEDIRLE QUE LA SUBSANE** (sep 2026). En la pantalla de
+  **revisión** de lo que ha mandado el promotor (`concert_contract_sheet_review`), **arriba a la
+  derecha**, botón **«Rechazar ficha»** → pop-up que **exige el motivo** (es lo que él va a leer) →
+  se le manda la **subsanación** y **al entrar le sale SU ficha con todo lo que ya había rellenado**:
+  no empieza de cero.
+  ⚠️⚠️ El endpoint `concert_contract_sheet_reject` **ya existía y no había forma de llegar a él**:
+  ninguna plantilla lo enlazaba (un endpoint muerto). Al añadir un endpoint, comprobar que su botón
+  está en la pantalla (`tools/check_botones.py` encuentra lo contrario —un botón sin destino— pero no
+  un destino sin botón: eso se ve con `grep -rn "<endpoint>" templates/`).
+  · **Lo que le deja volver a enviarla es `allow_resubmission`** (lo mira `_contract_sheet_can_submit`:
+  con `status='RECEIVED'` no se puede). El rechazo lo pone a True y sella `rejected_at` +
+  `rejection_reason`.
+  · **El aviso amarillo de «el promotor ha cumplimentado la ficha» se cierra al rechazarla**
+  (`promoter_reviewed_at` + `_notify_resolve`): ya se ha revisado, aunque el resultado sea que la
+  corrija — si no, se quedaba esperando a alguien para siempre.
+  · **El CORREO es el de la casa** (`_contract_sheet_reject_email_html`, el mismo esqueleto que la
+  solicitud): logo de la empresa del grupo arriba a la derecha, título centrado, **el motivo
+  destacado en ámbar**, la cabecera de la actividad (`_contract_sheet_hero_rows`) con el botón
+  **«Subsanar la ficha»** dentro, y la frase de que no empieza de cero. Asunto por el punto único
+  **`_contract_sheet_subject`** (que usa también la solicitud): dice el artista y la fecha.
+  ⚠️ Si el correo NO sale **no se dice que se ha avisado**: el flash da el enlace para mandarlo a
+  mano. Y si la ficha no trae correo se cae al del promotor (**`_promoter_email_phone`**: en
+  `Promoter` el campo es `contact_email`, no `email`).
+  · **El promotor ve QUÉ corregir**: `concert_contract_public.html` pinta el motivo en un aviso
+  arriba cuando el estado es REJECTED. ⚠️ Antes solo se enseñaba en la rama `not can_submit`, o sea
+  **justo cuando NO podía arreglarlo**: al pedirle la subsanación sí puede enviar, así que no lo veía.
+  · El precumplimentado ya funcionaba (`_contract_sheet_prefill` + lo de `promoter_data` encima).
+  Probado con la app real: el botón arriba, sin motivo no se rechaza, el correo con su motivo y su
+  enlace, la página con los datos puestos, y al reenviarla vuelve a quedar pendiente de revisar.
+
+- **EL PROMOTOR CUBRE… · SUELDOS MÚSICOS, BACKLINE y OTROS** (sep 2026): tres opciones más en
+  `PROMOTER_COST_ITEMS`, así que salen solas en los DOS sitios que usan el módulo
+  (`_promoter_costs_module.html`): el asistente de actividad y el de PETICIONES.
+  ⚠️ En **«Otros»** lo importante es la NOTA (es donde se describe el gasto), así que su rótulo
+  pregunta otra cosa: «¿Qué otros gastos cubre?».
+
+- ⚠️⚠️ **LA CONFIRMACIÓN DEL ARTISTA SE PIDE, Y ÉL LA DA DESDE EL CORREO O LA LANDING** (sep 2026).
+  La fase 2 de una petición aprobada («Confirmar con el artista») se marcaba **a mano**. Ahora se le
+  pide con el aviso de siempre —vista previa, nota, canal y los ojos por módulo— pero de tipo
+  **`CONFIRMAR`** (`ACTIVITY_NOTICE_KINDS`, y `ACTIVITY_NOTICE_ASK_KINDS` es el punto único de «este
+  aviso espera respuesta»): el cuerpo lleva **dos botones, Confirmar y Rechazar**, y la landing
+  (`public_activity_notice_view`) enseña **el mismo contenido con las mismas opciones**.
+  · Lo que conteste se guarda en el propio aviso (`ConcertArtistNotification.response` ·
+  `responded_at` · `response_note`), que es **el dato de verdad**: de ahí sale el «confirmada el …»
+  (punto único **`_artist_confirmation_state`**) y de ahí se propaga la fase 2 de la petición
+  (`artist_agreed_at`, con `artist_agreed_by_nick = "el artista"`).
+  · Al contestar se **avisa a quien lo estaba esperando** (quien pidió la actividad y quien mandó el
+  aviso), y un **RECHAZO no confirma nada**: la fase 3 sigue bloqueada y la tarea sale en rojo con
+  el motivo.
+  ⚠️⚠️ **LOS BOTONES DEL CORREO SON ENLACES A LA LANDING, NUNCA LA ACCIÓN**: un cliente de correo
+  puede PREFETCHEAR un enlace, y con un GET que confirmara la actividad quedaría confirmada sin que
+  nadie la hubiera pulsado. La respuesta va por **POST** desde la landing
+  (`public_activity_notice_respond`, en las tres listas de públicos y exento de CSRF), y con `?r=si`
+  la landing **destaca** el botón pero **no lo pulsa sola**.
+  ⚠️⚠️ **EL CUERPO SE COMPONE DESPUÉS DE CREAR EL AVISO**: los botones llevan SU token, así que en
+  `concert_artist_notice_send` hay que crear la fila, hacer flush, asignar `public_token` y ENTONCES
+  llamar a `_activity_notice_html` (antes se componía primero). En la vista previa los botones se
+  pintan igual pero sin enlace: todavía no hay token.
+  ⚠️⚠️ **PEDIR LA CONFIRMACIÓN NO ES EL AVISO FORMAL** de la actividad (la fase 4, «Informar al
+  artista»): `CONFIRMAR` **no toca `artist_notified_at`**. Si lo tocara, esa fase desaparecería sola
+  sin haberse hecho y la compuerta de CONFIRMADO se daría por satisfecha.
+  ⚠️ La landing REHACE el bloque de respuesta sobre el contexto congelado (sin contestar lo quita
+  del cuerpo para no pintarlo dos veces; contestada, enseña qué se contestó). Lo ya contestado **no
+  se pisa**: si el artista cambia de opinión, se le vuelve a pedir y quedan las dos veces.
+  · Marcarlo **a mano** sigue estando (`booking_request_artist_agreed`) como acción secundaria: una
+  conversación por teléfono también vale.
+
+- ⚠️⚠️ **FICHA DE CONTRATACIÓN · LOS DATOS DEL PROMOTOR SON SUYOS, NO LOS DE LA CASA** (bug real y
+  grave, sep 2026). El primer módulo del formulario que rellena el promotor («Datos del promotor»)
+  salía con la **razón social y el CIF de la EMPRESA DEL GRUPO que factura**: la semilla
+  (`_concert_contract_sheet_seed`) volcaba `billing_company.name`/`.tax_info` en `company_legal_name`
+  /`company_tax_id`. O sea, se le enseñaban NUESTROS datos fiscales y se le pedía «completarlos».
+  · Punto único **`_contract_sheet_promoter_seed(concert, session_db=None)`**: manda la **SOCIEDAD
+  con la que factura** (`Concert.promoter_company`) y lo que no diga se completa con su ficha de
+  tercero (`Concert.promoter`) — nombre o razón social, CIF, dirección fiscal en piezas, correo y
+  teléfono (⚠️ con **`_promoter_email_phone`**: en `Promoter` son `contact_email`/`contact_phone`).
+  Lo fusiona `_contract_sheet_prefill(..., session_db=)` **solo donde no haya nada escrito**.
+  · **EL REPRESENTANTE es una SUBSECCIÓN del promotor** y sale de su ficha: es **otro TERCERO
+  vinculado** con la relación «Representante» (`_promoter_representatives`, por eso hace falta la
+  sesión). Su rótulo es **«Nombre completo del representante»** y lleva además su DNI, su correo y su
+  teléfono (`company_representative_email`/`_phone`, campos nuevos del catálogo).
+  · **Lo que YA TENEMOS sale relleno y lo que FALTA va en ÁMBAR** (`.csheet-need` + la pastilla
+  «Nos falta», que las pinta el SERVIDOR al cargar): en una página pública `form_check.js` no actúa,
+  y lo que hay que señalar es el hueco que le toca rellenar. Todo editable, que es como se actualiza.
+  ⚠️ La macro `cfield` del módulo evita repetir el mismo markup diez veces.
+
+- ⚠️⚠️ **LA FICHA DE CONTRATACIÓN SE VA GUARDANDO SOLA** (sep 2026): según el promotor escribe, lo
+  que lleva se manda a **NUESTRO servidor** (`ConcertContractSheet.draft` + `draft_at`, endpoint
+  **`public_contract_sheet_draft`**) con un respiro de 900 ms y con `sendBeacon` al cerrar la
+  pestaña; abajo, la barra **«Se va guardando solo · Guardado a las 12:40»** (`.csheet-save`).
+  Al volver a su enlace **sigue donde lo dejó** y **se le DICE de cuándo es** lo que se le repone
+  (nunca se mezcla nada a la callada). Al ENVIARLA el borrador se limpia.
+  ⚠️⚠️ **NO es un envío**: `draft` no toca `promoter_data`, ni el estado, ni avisa a nadie — para la
+  casa la ficha sigue igual hasta que él le da a «Enviar», y la pantalla de revisión solo enseña lo
+  ENVIADO. `_contract_sheet_draft` descarta el borrador anterior a lo último que mandó.
+  ⚠️ Es la EXCEPCIÓN a «en una página pública no se guarda nada»: esa regla es del guardado LOCAL
+  (`form_autosave.js`, que dejaría datos en el disco de un tercero). Aquí se guarda en su propia
+  ficha de nuestra BD, así que además le vale desde otro dispositivo. Por eso el `<form>` lleva
+  **`data-no-autosave`**: si no, con sesión abierta salían los DOS avisos diciendo lo mismo.
+  ⚠️ Solo se repone lo que TIENE valor: un borrador a medias no puede borrar lo que ya sabemos.
+
+- **EL CORREO DE LA FICHA DE CONTRATACIÓN · el botón, dentro del bocadillo y abajo a la derecha**
+  (sep 2026): punto único **`_contract_sheet_email_card`** (foto y datos arriba, y el botón **abajo
+  a la derecha DENTRO del bocadillo**, la misma maqueta que `_notice_email_html`), usado por la
+  SOLICITUD y por la SUBSANACIÓN — así no se pueden desparejar. Las imágenes van con
+  `_absolute_media_url` (en un correo una ruta relativa no se ve, y de paso recorta el «?» que
+  dejaba storage3).
+  · **Y LA PREVISUALIZACIÓN ES EL CORREO**: el pop-up de solicitar la ficha enseña en un `<iframe>`
+  el MISMO HTML que se manda (`concert_contract_sheet_preview`, que se refresca al escribir el
+  mensaje) con su logo y su bocadillo; antes era un listado de campos. ⚠️ No crea nada: si la ficha
+  aún no tiene enlace se pinta uno de muestra (se genera al enviarla).
+
+- ⚠️⚠️ **LA FICHA DE CONTRATACIÓN, EL AVISO AL ARTISTA Y LOS BOTONES DESTACADOS** (sep 2026, tres
+  cosas que se pidieron juntas porque son el mismo proceso: lo que está pendiente se ve, y lo que ya
+  está hecho deja de ocupar sitio en la barra).
+  · **EL ESTADO DE LA FICHA ES UN PUNTO ÚNICO**: **`_contract_sheet_state(session_db, concert,
+  sheet=None)`** → `exists` · `sent` · `sent_at`/`sent_at_label` · `sent_to`/`sent_to_label` ·
+  `pending` · `received` · `reviewed` · `rejected` · `status`. De él viven la barra de botones, la
+  rueda y los avisos, así que no pueden decir cosas distintas.
+  ⚠️⚠️ **«ENVIADA» ES QUE EL CORREO SALIÓ**: `sent_at` se sella **solo si `ok`**
+  (`_send_optional_email` devuelve `(ok, error)`). Antes se marcaba siempre, así que una ficha que
+  nadie había recibido figuraba como enviada y se esperaba una respuesta que no podía llegar.
+  · **LO QUE SE VE EN LA BARRA**: sin enviar → **«Solicitar ficha al promotor»**; enviada → la
+  etiqueta **«Pendiente de recibir ficha»** (con a quién y cuándo al pasar el ratón) y el botón pasa
+  a **«Reenviar ficha»**; **recibida** → etiqueta «Ficha recibida» y **el botón SALE de los
+  destacados** y se queda en los **tres puntitos** («Volver a enviar la ficha al promotor»), por si
+  hay que pedirla otra vez.
+  · **IGUAL CON EL AVISO AL ARTISTA**: una vez notificado (o confirmado por él), **«Notificar al
+  artista» sale de los destacados en TODAS las actividades** y queda en la rueda («Volver a avisar al
+  artista»); en la barra solo se queda la etiqueta. Vuelve a salir **si hay cambios gordos**
+  (`_concert_notice_signature`: fecha, hora, recinto o cachés) o si se cancela — que es justo cuando
+  hay que volver a decírselo.
+  · **EL ALTA CON «SOLICITAR LA FICHA» LA ENVÍA SOLA**: al terminar el asistente en modo
+  `request_sheet` se crea la actividad en BORRADOR **y sale el correo** con el mismo contenido que el
+  botón de la ficha (`_contract_sheet_subject` + `_contract_sheet_request_email_html`: un solo
+  motor).
+  ⚠️⚠️ **Y SI NO SE SABE EL CORREO DEL PROMOTOR, TAMPOCO SE PIERDE EL ALTA**: al continuar sin él
+  sale un pop-up con las DOS opciones —**«Añadir el correo»** y **«Crearla sin enviar la ficha»**
+  (`sheet_skip_email`)—, y con la segunda la actividad se crea con su ficha **preparada y sin
+  enviar**, llevando a su ficha con el formulario de envío abierto. Sin decidir nada no se crea.
+  ⚠️⚠️ **SI EL CORREO NO SALE, LA ACTIVIDAD NO SE PIERDE**: se crea igual, la ficha **NO** figura
+  como enviada y se redirige a **`?tab=general&open=ficha`** con el flash rojo, o sea a su ficha con
+  **el formulario de enviarla ABIERTO**, para corregir el correo y mandarla — o dejarla sin enviar.
+  Perder el alta entera por un correo que rebota sería lo peor que podría pasar ahí.
+  · **CUANDO EL ARTISTA CONFIRMA, ESO YA ES LA COMUNICACIÓN**: `_concert_notice_gate` abre la
+  compuerta si `_artist_confirmation_state` dice que contestó que sí, y en la ficha sale
+  **«Confirmar la actividad»** (verde, `concert_confirm_after_artist`), que la deja CONFIRMADA de un
+  clic y apunta el aviso a mano con la nota «El artista confirmó la actividad desde el aviso que se
+  le mandó.». Un **rechazo** se ve como tal y **no abre** la compuerta.
+  ⚠️ Ese bloque va **FUERA de `{% if peticion_phases %}`**: metido dentro solo salía en las
+  actividades que venían de una petición (bug real de esta épica).
+  ⚠️ En `concert_detail_view` la sesión se llama **`session`** y la actividad **`c`**: un
+  `session_db`/`concert` copiado de otra función es un **NameError → 500 → pantalla de
+  mantenimiento**, y **pyflakes no lo detecta** porque esos nombres existen en otros ámbitos.
+
+- ⚠️⚠️ **QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR** (sep 2026). A **CUATRO SEMANAS**
+  (`ANNOUNCE_ALERT_DAYS` = 28) de la fecha, una actividad que sigue sin anunciar —o marcada **«No
+  anunciar»**, que a un mes vista es una decisión que hay que repasar— ya es un problema: la entrada
+  no se vende sola. La app avisa ELLA (`_announce_alert_sweep`, del cron único, cada hora):
+  · **a un mes** → aviso (campanita **y correo**) a **quien la GESTIONA**: **quien la creó**
+    (`Concert.created_by_user_id`, o sea contratación o sello según de dónde haya salido) y, si no
+    consta, el departamento de **Contratación** (y si tampoco hay nadie, dirección);
+  · **a los 3 días** (`ANNOUNCE_ALERT_REMIND_DAYS`), si sigue sin anunciarse, **se le insiste**;
+  · **a 15 días** (`ANNOUNCE_ALERT_DIRECTION_DAYS`) → se le dice a **DIRECCIÓN**, con el asunto que
+    pidió Dani: **«Aviso: \<tipo\>, \<nombre o municipio\>, de \<artista\> del \<día de la semana y
+    fecha\>, todavía no se ha anunciado.»** (punto único `_announce_alert_subject`).
+  ⚠️ El escalado **nunca el mismo día** que el primer aviso: a quien la gestiona hay que darle margen
+  (si no, en una actividad que entra ya dentro de los 15 días saldrían los dos avisos a la vez).
+  ⚠️ **`email_repeat=True`**: es un recordatorio que se repite, y la regla de la casa («por correo
+  solo la primera vez») lo dejaría sin salir.
+  · **QUÉ SE ANUNCIA**: lo que tiene público (`ANNOUNCE_ACTIVITY_TYPES`: conciertos, festivales,
+  ciclos, promocionales, TV, marca, premios y firmas). Un ENSAYO, una grabación o una reunión **no**.
+  Tampoco un **BORRADOR** (es un apunte a medias), ni lo cancelado, ni el histórico. Una **RESERVA
+  sí** —a un mes vista una fecha sin cerrar es justo lo que hay que mirar— y el aviso lo DICE.
+  · **ANUNCIAR ES COMUNICARLO**: el aviso lleva a la pantalla de siempre del aviso al artista con el
+  tipo nuevo **`ANUNCIO`** («Ya se puede anunciar»), que es el MISMO contenido de la actividad más
+  dos módulos: **CARTELERÍA** (las piezas aprobadas y el enlace público para descargarlas —nunca la
+  URL de Storage—) y **EL ANUNCIO** (qué día se anuncia y cómo va la venta), con su vista previa, su
+  nota, sus ojos y sus destinatarios. **Al enviarlo, la actividad queda ANUNCIADA** con la fecha que
+  se elija y el reclamo **se cierra solo** (`_notify_resolve`).
+  ⚠️ **SIN CARTELERÍA no se manda de primeras**: se avisa y hay que pulsar «Avisar sin carteles» a
+  propósito (hay actividades que se anuncian sin cartel, pero no puede pasar sin darse cuenta).
+  ⚠️ **ANUNCIO no marca el aviso formal** de la actividad (`artist_notified_at`), como CONFIRMAR: son
+  comunicaciones distintas y la fase «Informar al artista» desaparecería sola sin haberse hecho.
+  · **Dónde se ve**: la **tarea** de la pestaña «Inicio» de la actividad, que a partir de las cuatro
+  semanas dice **cuántos días faltan** y lleva a «Anunciar y avisar al artista»; y la **etiqueta del
+  anuncio** de la cabecera, que gana esa misma opción. Punto único `_announce_alert_state`, así que
+  la tarea, la ficha y el aviso automático no pueden decir cosas distintas.
+  ⚠️ Columnas nuevas en `Concert` (`announce_alert_at` · `_2_at` · `_dir_at`), **cada una en su
+  propia sentencia** del `ensure_*` (la regla de la casa: dentro de un ALTER que ya existe puede no
+  ejecutarse nunca y la app revienta al leerla).
+

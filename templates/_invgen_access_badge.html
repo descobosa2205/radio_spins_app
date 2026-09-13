@@ -1,0 +1,9 @@
+{# CONTROL DE ACCESO · la marca de una petición o de un compromiso en la pestaña «Invitados»: cuántas de
+   sus invitaciones han pasado por la puerta y qué extras han usado. `src` = «request:<id>» o
+   «commitment:<id>». Se pinta con lo que hay ahora y `invgen_access.js` la pone al día en vivo (por eso
+   se emite SIEMPRE, oculta cuando todavía no hay nada). Solo con invitaciones GENERADAS (`access_tab`). #}
+{% set _acc = access_tab.by_source.get(src) %}
+<span class="invacc-src{% if not _acc or not (_acc.entered or _acc.extras) %} d-none{% endif %}" data-access-src="{{ src }}" title="Control de acceso: quién ha entrado y qué extras ha usado">
+  <span class="badge text-bg-success" data-access-entered{% if not _acc or not _acc.entered %} hidden{% endif %}><i class="fa fa-door-open me-1"></i><span data-access-entered-n>{{ _acc.entered if _acc else 0 }}</span>/<span data-access-total-n>{{ _acc.total if _acc else 0 }}</span> dentro</span>
+  <span data-access-extras>{% if _acc %}{% for c in access_tab.controls if not c.is_entry and _acc.extras.get(c.key) %}<span class="badge text-bg-light border" title="{{ c.name }}: usado"><i class="fa {{ c.icon }} me-1"></i>{{ _acc.extras[c.key] }}</span>{% endfor %}{% endif %}</span>
+</span>

@@ -7736,3 +7736,141 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .invgen-cat__sectors{ list-style:none; margin:.45rem 0 0; padding:0; display:flex; flex-wrap:wrap; gap:.35rem .9rem; font-size:.86rem; color:#4b5563; }
 .invgen-cat form{ display:inline; }
 @media (max-width: 575.98px){ .invgen-cat__head .ms-auto{ margin-left:0 !important; width:100%; } }
+
+/* ============================================================================================
+   GENERACIÓN DE INVITACIONES · lote 3 · CONTROL DE ACCESO
+   ·  .invacc-*  → la pestaña «Control de accesos» de la gestión de invitaciones (_invgen_access_tab.html)
+   ·  .acc-*     → la página PÚBLICA del control de acceso (public_invitation_access.html)
+   ·  .accsc-*   → el lector de QR a pantalla completa (static/js/access_scan.js)
+   ============================================================================================ */
+.invacc-card{ background:#fff; border:1px solid #e5e7eb; border-radius:14px; overflow:hidden; }
+.invacc-card.is-open{ border-color:#f4a9ae; box-shadow:0 8px 24px rgba(15,23,42,.06); }
+.invacc-card__head{ display:flex; align-items:center; gap:.8rem; width:100%; border:0; background:#fff; padding:.85rem .95rem; text-align:left; cursor:pointer; }
+.invacc-card__head:hover{ background:#fafbfc; }
+.invacc-card__icon{ flex:0 0 2.6rem; width:2.6rem; height:2.6rem; border-radius:12px; background:#fdecee; color:var(--brand-primary,#E33D48); display:inline-flex; align-items:center; justify-content:center; font-size:1.15rem; }
+.invacc-card.is-entry .invacc-card__icon{ background:var(--brand-primary,#E33D48); color:#fff; }
+.invacc-card__body{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:.2rem; }
+.invacc-card__name{ font-weight:700; font-size:.98rem; }
+.invacc-card__nums{ font-size:.92rem; }
+.invacc-card__nums strong{ font-size:1.25rem; color:#198754; }
+.invacc-bar{ display:block; height:6px; border-radius:999px; background:#eef0f3; overflow:hidden; }
+.invacc-bar > span{ display:block; height:100%; background:#198754; border-radius:999px; transition:width .4s ease; }
+.invacc-card__chev{ color:#adb5bd; transition:transform .2s; flex:0 0 auto; }
+.invacc-card.is-open .invacc-card__chev{ transform:rotate(180deg); }
+.invacc-card__list{ border-top:1px solid #eef0f3; max-height:420px; overflow:auto; padding:.3rem .4rem .4rem; }
+.invacc-row{ display:flex; align-items:center; gap:.6rem; padding:.45rem .5rem; border-radius:10px; }
+.invacc-row + .invacc-row{ border-top:1px dashed #f1f3f5; }
+.invacc-row.is-on{ background:#e9f7ef; }
+.invacc-row.is-off{ opacity:.55; }
+.invacc-row__ava{ width:34px; height:34px; flex:0 0 auto; object-fit:cover; background:#eef0f3; border:1px solid #eef0f3; }
+.invacc-row__ava.is-photo{ border-radius:50%; }
+.invacc-row__ava.is-logo{ border-radius:8px; object-fit:contain; background:#fff; }
+.invacc-row__main{ flex:1 1 auto; min-width:0; }
+.invacc-row__name{ font-weight:600; font-size:.92rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.invacc-row__meta{ font-size:.78rem; color:#6b7683; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.invacc-row__state{ flex:0 0 auto; display:flex; align-items:center; gap:.4rem; }
+.invacc-row__when{ font-size:.78rem; color:#198754; font-weight:600; min-width:2.6rem; text-align:right; }
+.invacc-row__ok{ color:#c8ccd2; font-size:1.15rem; }
+.invacc-row.is-on .invacc-row__ok{ color:#198754; }
+.invacc-row__undo{ color:#adb5bd; display:none; }
+.invacc-row.is-on .invacc-row__undo{ display:inline-block; }
+.invacc-row__undo:hover{ color:var(--brand-primary,#E33D48); }
+.invacc-showoff{ display:block; width:100%; text-align:center; color:#6b7683; text-decoration:none; }
+.invacc-src{ display:inline-flex; align-items:center; gap:.25rem; flex-wrap:wrap; }
+.invacc-src .badge{ font-weight:600; }
+.invacc-thumb{ width:56px; height:56px; object-fit:cover; border-radius:10px; background:#eef0f3; flex:0 0 auto; }
+
+/* --- la página pública --- */
+.acc-body{ background:#f1f3f6; }
+.acc-page{ max-width:640px; margin:0 auto; padding:14px 14px 40px; }
+.acc-head{ background:#fff; border:1px solid #e6e8eb; border-radius:18px; padding:14px 16px; box-shadow:0 10px 30px rgba(15,23,42,.06); }
+.acc-head__row{ display:flex; align-items:flex-start; gap:12px; }
+.acc-head__img{ width:64px; height:64px; border-radius:14px; object-fit:cover; flex:0 0 auto; background:#eef0f3; }
+.acc-head__txt{ flex:1 1 auto; min-width:0; }
+.acc-head__kicker{ font-size:.72rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--brand-primary,#E33D48); }
+.acc-head__title{ font-size:1.25rem; font-weight:800; margin:2px 0 2px; line-height:1.2; }
+.acc-head__sub{ font-size:.9rem; color:#374151; }
+.acc-head__meta{ font-size:.82rem; color:#6b7683; margin-top:2px; }
+.acc-head__meta i{ color:#9aa3ad; }
+.acc-head__logo{ max-height:44px; max-width:110px; object-fit:contain; flex:0 0 auto; }
+.acc-sec{ margin-top:14px; background:#fff; border:1px solid #e6e8eb; border-radius:18px; padding:14px 16px; }
+.acc-sec__title{ font-weight:800; font-size:.95rem; margin-bottom:.6rem; }
+.acc-hint{ font-size:.8rem; color:#6b7683; margin-top:.6rem; }
+.acc-ctls{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:.6rem; }
+.acc-ctl{ position:relative; border:2px solid #e5e7eb; border-radius:14px; background:#fff; padding:.75rem .8rem .9rem; text-align:left; cursor:pointer; display:flex; flex-direction:column; gap:.25rem; transition:border-color .15s, background .15s; }
+.acc-ctl > i{ font-size:1.35rem; color:var(--brand-primary,#E33D48); }
+.acc-ctl__name{ font-weight:700; font-size:.92rem; line-height:1.2; }
+.acc-ctl__nums{ font-size:.85rem; color:#6b7683; }
+.acc-ctl__nums b{ color:#198754; font-size:1.05rem; }
+.acc-ctl__bar{ display:block; height:5px; border-radius:999px; background:#eef0f3; overflow:hidden; margin-top:.15rem; }
+.acc-ctl__bar > span{ display:block; height:100%; background:#198754; transition:width .4s ease; }
+.acc-ctl.is-on{ border-color:var(--brand-primary,#E33D48); background:#fdecee; }
+.acc-ctl.is-on::after{ content:"\f00c"; font-family:"Font Awesome 6 Free"; font-weight:900; position:absolute; top:.5rem; right:.6rem; color:var(--brand-primary,#E33D48); font-size:.85rem; }
+.acc-scan{ margin-top:14px; width:100%; border:0; border-radius:20px; padding:1.5rem 1rem; background:var(--brand-primary,#E33D48); color:#fff; text-align:center; cursor:pointer; box-shadow:0 12px 30px rgba(227,61,72,.30); }
+.acc-scan:active{ transform:scale(.99); }
+.acc-scan > i{ display:block; font-size:2.4rem; margin-bottom:.3rem; }
+.acc-scan > span{ display:block; font-weight:800; font-size:1.25rem; }
+.acc-scan > small{ display:block; opacity:.9; font-size:.82rem; margin-top:.25rem; }
+.acc-manual{ margin-top:12px; }
+.acc-result{ margin-top:14px; border-radius:18px; padding:14px 16px; border:1px solid; }
+.acc-result.is-good{ background:#e9f7ef; border-color:#cdeedd; color:#12622f; }
+.acc-result.is-bad{ background:#fdecee; border-color:#f7c9ce; color:#8f1f26; }
+.acc-result__head{ display:flex; gap:.8rem; align-items:flex-start; }
+.acc-result__head > i{ font-size:2.2rem; flex:0 0 auto; line-height:1; }
+.acc-result__head b{ display:block; font-size:1.1rem; }
+.acc-result__ctl{ font-size:.78rem; opacity:.75; margin-top:.15rem; }
+.acc-result__warn{ font-size:.85rem; color:#7a5a00; margin-top:.2rem; }
+.acc-t{ display:flex; gap:.7rem; align-items:flex-start; margin-top:.7rem; padding-top:.7rem; border-top:1px dashed rgba(0,0,0,.12); color:#212529; }
+.acc-t--minor{ border-top:0; margin-top:.4rem; padding-top:.2rem; }
+.acc-t__ava{ width:44px; height:44px; border-radius:50%; object-fit:cover; flex:0 0 auto; background:#fff; }
+.acc-t__ava.is-logo{ border-radius:10px; object-fit:contain; }
+.acc-t__ava--none{ display:inline-flex; align-items:center; justify-content:center; color:#9aa3ad; background:#eef0f3; }
+.acc-t__body{ flex:1 1 auto; min-width:0; }
+.acc-t__name{ font-weight:800; font-size:1rem; }
+.acc-t__name small{ font-weight:500; color:#6b7683; }
+.acc-t__meta{ font-size:.85rem; color:#4b5563; }
+.acc-t__extras{ display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.35rem; }
+.acc-t__extra{ display:inline-flex; align-items:center; gap:.3rem; padding:.15rem .5rem; border-radius:999px; background:#fff; border:1px solid #e5e7eb; font-size:.76rem; color:#374151; }
+.acc-t__extra.is-used{ background:#e9f7ef; border-color:#cdeedd; color:#12622f; }
+.acc-t__code{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.74rem; color:#6b7683; margin-top:.3rem; letter-spacing:.06em; }
+.acc-minors__btns{ margin-top:.4rem; }
+.acc-log{ list-style:none; margin:0; padding:0; }
+.acc-log li{ display:flex; align-items:center; gap:.5rem; padding:.4rem 0; border-bottom:1px dashed #f1f3f5; font-size:.85rem; }
+.acc-log li:last-child{ border-bottom:0; }
+.acc-log li.is-good > i{ color:#198754; }
+.acc-log li.is-bad > i{ color:#dc3545; }
+.acc-log__who{ font-weight:600; flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.acc-log__what{ color:#6b7683; font-size:.78rem; }
+.acc-log__at{ color:#9aa3ad; font-size:.76rem; font-variant-numeric:tabular-nums; }
+.acc-foot{ text-align:center; color:#9aa3ad; font-size:.78rem; margin-top:18px; }
+
+/* --- el lector de QR a pantalla completa --- */
+body.accsc-open{ overflow:hidden; }
+.accsc{ position:fixed; inset:0; z-index:2000; background:#000; color:#fff; display:flex; flex-direction:column; }
+.accsc__top{ position:absolute; top:0; left:0; right:0; z-index:3; display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:max(10px, env(safe-area-inset-top)) 12px 10px; background:linear-gradient(rgba(0,0,0,.65), rgba(0,0,0,0)); }
+.accsc__ctl{ font-weight:800; font-size:1rem; background:rgba(227,61,72,.92); padding:.45rem .8rem; border-radius:999px; }
+.accsc__topbtns{ display:flex; gap:.4rem; }
+.accsc__ibtn{ width:2.6rem; height:2.6rem; border-radius:50%; border:0; background:rgba(255,255,255,.18); color:#fff; font-size:1.05rem; }
+.accsc__video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.accsc__guide{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+.accsc__guide > span{ width:min(68vw, 320px); aspect-ratio:1; border-radius:22px; box-shadow:0 0 0 9999px rgba(0,0,0,.35); border:3px solid rgba(255,255,255,.85); }
+.accsc__state{ position:absolute; left:12px; right:12px; bottom:calc(84px + env(safe-area-inset-bottom)); z-index:3; text-align:center; font-size:.92rem; background:rgba(0,0,0,.55); border-radius:999px; padding:.5rem .9rem; }
+.accsc__state.is-err{ background:rgba(143,31,38,.92); }
+.accsc__state.is-busy{ background:rgba(0,124,162,.85); }
+.accsc__foot{ position:absolute; left:0; right:0; bottom:0; z-index:3; padding:12px 12px calc(14px + env(safe-area-inset-bottom)); display:flex; justify-content:center; background:linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.6)); }
+.accsc__manual{ border:0; border-radius:999px; padding:.6rem 1.1rem; background:rgba(255,255,255,.16); color:#fff; font-weight:600; }
+.accsc__result{ position:absolute; inset:0; z-index:4; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px 20px; cursor:pointer; }
+.accsc__result.is-good{ background:rgba(25,135,84,.94); }
+.accsc__result.is-bad{ background:rgba(220,53,69,.94); }
+.accsc__result-ico{ font-size:5.2rem; line-height:1; margin-bottom:.4rem; }
+.accsc__result-title{ font-size:1.7rem; font-weight:900; line-height:1.15; }
+.accsc__result-detail{ font-size:1.05rem; margin-top:.4rem; opacity:.95; max-width:34rem; }
+.accsc__result-extra{ margin-top:.9rem; background:rgba(255,255,255,.96); border-radius:16px; padding:.5rem .9rem .8rem; color:#212529; max-width:34rem; width:100%; text-align:left; }
+.accsc__result-extra .acc-t{ border-top:0; margin-top:0; padding-top:.3rem; }
+.accsc__result-hint{ position:absolute; bottom:calc(18px + env(safe-area-inset-bottom)); left:0; right:0; font-size:.8rem; opacity:.8; }
+@media (max-width: 575.98px){
+  /* En un móvil el logo de la casa no puede quitarle el sitio al nombre de la actividad. */
+  .acc-head__logo{ max-width:72px; max-height:34px; }
+  .acc-head__img{ width:52px; height:52px; }
+  .acc-head__title{ font-size:1.1rem; }
+}

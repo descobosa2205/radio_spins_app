@@ -46,7 +46,7 @@
   <div class="wrap">
     <div class="sheet">
       {% if missing %}
-        <div class="missing"><h1>Condiciones de uso</h1><p>Este enlace ya no está disponible.</p></div>
+        <div class="missing"><h1>Condiciones de uso</h1><p>{{ missing_text or "Este enlace ya no está disponible." }}</p></div>
       {% else %}
         <div class="head">{% if logo_url %}<img src="{{ logo_url }}" alt="">{% endif %}</div>
         <h1>Condiciones de uso</h1>

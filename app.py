@@ -546,6 +546,8 @@ _CSRF_EXEMPT_ENDPOINTS = {"public_forecast_report", "public_forecast_report_pdf"
     "public_minor_auth_upload",
     "public_minor_auth_submit",
     "public_minor_auth_check",
+    # La lectura de códigos del CONTROL DE ACCESO de las invitaciones generadas (el token del enlace es la credencial).
+    "public_invitation_access_scan",
 }
 
 
@@ -938,7 +940,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -88990,7 +88992,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "public_invitation_ticket_pdf", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -93598,7 +93600,7 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -141514,6 +141516,7 @@ def invitation_event_detail(concert_id):
             venue_map_inv=venue_map_inv,
             back_to_ficha=back_to_ficha,
             group_promoted=_concert_is_group_promoted(session_db, concert),
+            access_tab=_invgen_access_tab_context(session_db, concert),
             event=_invitation_event_payload(session_db, concert, include_counts=True),
             # Cabecera con los MISMOS contadores que la ficha de la actividad.
             header_counts=_invitation_ficha_header_counts(session_db, concert),
@@ -166340,6 +166343,783 @@ def public_invitation_ticket_pdf(token):
         return resp
     finally:
         session_db.close()
+
+
+# ----------------------------------------------------------------------------------------------------
+# GENERACIÓN DE INVITACIONES · lote 3: el CONTROL DE ACCESO
+# ----------------------------------------------------------------------------------------------------
+# Solo cuando hay invitaciones GENERADAS aparece en la gestión de invitaciones la pestaña «Control de
+# accesos»: cuántas hay, el fichero de códigos para un control externo (el Excel del lote 2) y el
+# CONTROL DE ACCESO PROPIO —un enlace (`InvitationGenConfig.access_token`, OPACO y distinto del de las
+# condiciones: quien está en la puerta no tiene por qué ver ni tocar nada más) con el que cualquiera
+# con un móvil lee los QR de las entradas—. Se elige QUÉ se controla (la entrada o cada extra) y cada
+# lectura dice en VERDE «OK» o en ROJO por qué no («ya usada», «anulada», «no incluye ese extra»).
+#   · Lo que se enseña en caliente vive DESNORMALIZADO en la entrada (`access_entered_at`,
+#     `access_extras_json`) y cada lectura deja su traza en `InvitationAccessLog`.
+#   · Es EN TIEMPO REAL: la pestaña y la página pública preguntan cada pocos segundos por el estado
+#     (`_invgen_access_payload`, el MISMO punto único para las dos).
+#   · Un código ANULADO (`InvitationVoidedCode`: recuperado tras enviarse, descartado, eliminado) dice
+#     «anulada»; una entrada BLOQUEADA (apartada, no se reparte) tampoco vale en la puerta.
+#   · Si la actividad tiene configurado el ACCESO DE MENORES, el mismo lector entiende también el QR
+#     de una autorización (los DOS códigos), y hay un botón para buscar al menor por su DNI o su
+#     nombre (el MISMO `public_minor_auth_check` de siempre, con su propio token).
+
+INVGEN_ACCESS_ENTRY_KEY = "ENTRADA"
+INVGEN_ACCESS_INVALID_STATUSES = {"LOST"}        # anulada: descartada tras enviarla o eliminada
+INVGEN_ACCESS_HELD_STATUSES = {"BLOCKED"}        # apartada: no se ha repartido, así que en la puerta no vale
+INVGEN_ACCESS_POLL_SECONDS = 5                   # cada cuánto pregunta la pantalla por el estado
+
+
+def _invgen_access_token_ensure(session_db, cfg, *, renew: bool = False) -> str:
+    """El token del enlace de control de acceso (se crea la primera vez que hace falta; con `renew`
+    se anula el anterior y se genera otro: el viejo deja de abrir nada)."""
+    if cfg is None:
+        return ""
+    if renew or not (cfg.access_token or "").strip():
+        cfg.access_token = _uuid_token()
+        cfg.access_token_at = _now_madrid()
+        session_db.flush()
+    return cfg.access_token or ""
+
+
+def _invgen_access_url(cfg) -> str:
+    tok = (getattr(cfg, "access_token", None) or "").strip() if cfg is not None else ""
+    if not tok:
+        return ""
+    try:
+        return _external_url_for("public_invitation_access", token=tok)
+    except Exception:
+        return f"{_public_base_url()}/control-acceso/{tok}"
+
+
+def _invgen_access_cfg_by_token(session_db, token: str):
+    tok = (token or "").strip()
+    if not tok:
+        return None
+    return (session_db.query(InvitationGenConfig)
+            .options(joinedload(InvitationGenConfig.concert))
+            .filter(InvitationGenConfig.access_token == tok).first())
+
+
+def _invgen_access_controls(cfg) -> list[dict]:
+    """Lo que se puede controlar: la ENTRADA (siempre, la primera) y cada EXTRA configurado en los datos
+    de la entrada. La clave de un extra es su id; la de la entrada, `INVGEN_ACCESS_ENTRY_KEY`."""
+    out = [{"key": INVGEN_ACCESS_ENTRY_KEY, "name": "Acceso entrada", "icon": "fa-door-open",
+            "is_entry": True, "instructions": ""}]
+    for x in ((getattr(cfg, "extras", None) or []) if cfg is not None else []):
+        out.append({"key": str(x.id), "name": (x.name or "Extra").strip(), "icon": (x.icon or "fa-star"),
+                    "is_entry": False, "instructions": (x.instructions or "").strip()})
+    return out
+
+
+def _invgen_generated_tickets(session_db, concert) -> list:
+    return (session_db.query(InvitationTicket)
+            .options(joinedload(InvitationTicket.gen_category), joinedload(InvitationTicket.category))
+            .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.is_generated.is_(True))
+            .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(),
+                      InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all())
+
+
+def _invgen_ticket_access_status(t) -> str:
+    """VALID · BLOCKED (apartada) · VOIDED (anulada). Es lo que decide si la entrada vale en la puerta."""
+    st = (getattr(t, "status", None) or "AVAILABLE").upper()
+    if st in INVGEN_ACCESS_INVALID_STATUSES:
+        return "VOIDED"
+    if st in INVGEN_ACCESS_HELD_STATUSES:
+        return "BLOCKED"
+    return "VALID"
+
+
+def _invgen_ticket_seat_label(t) -> str:
+    bits = []
+    if (getattr(t, "sector", None) or "").strip():
+        bits.append(t.sector.strip())
+    if getattr(t, "is_numbered", False):
+        if (getattr(t, "row_label", None) or "").strip():
+            bits.append(f"Fila {t.row_label.strip()}")
+        if (getattr(t, "seat_number", None) or "").strip():
+            bits.append(f"Butaca {t.seat_number.strip()}")
+    return " · ".join(bits)
+
+
+def _invgen_access_time_label(value) -> str:
+    """La hora de una lectura: «HH:MM» si es de hoy y «dd/mm HH:MM» si no (una prueba de puertas la
+    víspera se lee con su día)."""
+    if not value:
+        return ""
+    try:
+        v = value
+        if isinstance(v, str):
+            v = datetime.fromisoformat(v)
+        try:
+            v = v.astimezone(TZ_MADRID) if v.tzinfo else v
+        except Exception:
+            pass
+        if v.date() == _now_madrid().date():
+            return v.strftime("%H:%M")
+        return v.strftime("%d/%m %H:%M")
+    except Exception:
+        return str(value)[:16]
+
+
+def _invgen_access_identity_maps(session_db, concert) -> tuple[dict, dict]:
+    """Quién tiene cada entrada: las solicitudes y los compromisos de la actividad con su nombre y su
+    foto (o logo) resueltos EN VIVO (`_invitation_guest_identity`), precargando en bloque las fichas
+    para no hacer una consulta por fila."""
+    reqs = session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).all()
+    cmts = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).all()
+    todos = list(reqs) + list(cmts)
+    pids = {x.guest_promoter_id for x in todos if getattr(x, "guest_promoter_id", None)}
+    aids = {x.guest_artist_id for x in todos if getattr(x, "guest_artist_id", None)}
+    uids = {x.guest_user_id for x in todos if getattr(x, "guest_user_id", None)}
+    if pids:
+        session_db.query(Promoter).filter(Promoter.id.in_(list(pids))).all()
+    if aids:
+        session_db.query(Artist).filter(Artist.id.in_(list(aids))).all()
+    if uids:
+        session_db.query(UserProfile).filter(UserProfile.user_id.in_(list(uids))).all()
+
+    def _idn(row, fallback_name):
+        try:
+            idn = _invitation_guest_identity(session_db, row) or {}
+        except Exception:
+            idn = {}
+        return {"name": (idn.get("name") or fallback_name or "").strip(),
+                "photo": (idn.get("photo") or "").strip(),
+                "is_logo": bool(getattr(row, "guest_promoter_id", None))}
+
+    req_map = {str(r.id): dict(_idn(r, r.guest_name), title=(getattr(r, "guest_title", None) or "").strip()) for r in reqs}
+    cmt_map = {str(c.id): dict(_idn(c, c.name), title=(getattr(c, "reason", None) or "").strip()) for c in cmts}
+    for c in cmts:
+        # Un compromiso se identifica por su NOMBRE («Ayuntamiento», «Radio X»); la ficha del invitado
+        # solo aporta la foto.
+        cmt_map[str(c.id)]["name"] = (c.name or cmt_map[str(c.id)]["name"] or "").strip()
+    return req_map, cmt_map
+
+
+def _invgen_access_ticket_person(t, req_map: dict, cmt_map: dict) -> dict:
+    who, source = None, ""
+    if getattr(t, "assigned_request_id", None) and str(t.assigned_request_id) in req_map:
+        who, source = req_map[str(t.assigned_request_id)], f"request:{t.assigned_request_id}"
+    elif getattr(t, "assigned_commitment_id", None) and str(t.assigned_commitment_id) in cmt_map:
+        who, source = cmt_map[str(t.assigned_commitment_id)], f"commitment:{t.assigned_commitment_id}"
+    name = ((who or {}).get("name") or (getattr(t, "assigned_label", None) or "")).strip()
+    return {"name": name, "photo": (who or {}).get("photo") or "", "is_logo": bool((who or {}).get("is_logo")),
+            "title": (who or {}).get("title") or "", "source": source, "assigned": bool(name)}
+
+
+def _invgen_access_payload(session_db, concert, cfg, *, people: bool = False) -> dict:
+    """El ESTADO del control de acceso, el punto único que leen la pestaña de dentro y la página
+    pública (y lo que preguntan cada pocos segundos): por cada control, cuántas entradas VÁLIDAS lo
+    tienen (las anuladas y las bloqueadas no cuentan) y cuántas se han validado; los totales; y el
+    estado vivo de cada entrada. Con `people`, además, quién tiene cada una (para las listas de la
+    pestaña de dentro)."""
+    controls = _invgen_access_controls(cfg)
+    tickets = _invgen_generated_tickets(session_db, concert) if concert is not None else []
+    issued = {c["key"]: 0 for c in controls}
+    validated = {c["key"]: 0 for c in controls}
+    tmap: dict[str, dict] = {}
+    by_source: dict[str, dict] = {}
+    n_valid = n_blocked = n_voided = n_entered = 0
+    # ⚠️ Las identidades (nombre y foto de cada invitado) solo se resuelven con `people`: el estado se
+    # pide cada pocos segundos desde cada móvil de la puerta y para los números y las marcas por
+    # petición basta con los ids de asignación de la propia entrada.
+    req_map, cmt_map = (_invgen_access_identity_maps(session_db, concert) if people else ({}, {}))
+    rows = []
+    for t in tickets:
+        acc = _invgen_ticket_access_status(t)
+        gc = getattr(t, "gen_category", None)
+        extra_ids = {str(x) for x in (gc.extras_json or [])} if gc is not None else set()
+        used = dict(getattr(t, "access_extras_json", None) or {})
+        entered = getattr(t, "access_entered_at", None)
+        src = ""
+        if getattr(t, "assigned_request_id", None):
+            src = f"request:{t.assigned_request_id}"
+        elif getattr(t, "assigned_commitment_id", None):
+            src = f"commitment:{t.assigned_commitment_id}"
+        if acc == "VALID":
+            n_valid += 1
+            issued[INVGEN_ACCESS_ENTRY_KEY] += 1
+            if entered:
+                validated[INVGEN_ACCESS_ENTRY_KEY] += 1
+                n_entered += 1
+            for c in controls[1:]:
+                if c["key"] in extra_ids:
+                    issued[c["key"]] += 1
+                    if c["key"] in used:
+                        validated[c["key"]] += 1
+        elif acc == "BLOCKED":
+            n_blocked += 1
+        else:
+            n_voided += 1
+        tmap[str(t.id)] = {"acc": acc, "entered": (entered.isoformat() if entered else ""),
+                           "entered_label": _invgen_access_time_label(entered),
+                           "extras": {k: _invgen_access_time_label(v) for k, v in used.items()}}
+        if src and acc == "VALID":
+            agg = by_source.setdefault(src, {"total": 0, "entered": 0, "extras": {}})
+            agg["total"] += 1
+            if entered:
+                agg["entered"] += 1
+            for k in used:
+                if k in issued:
+                    agg["extras"][k] = agg["extras"].get(k, 0) + 1
+        if people:
+            who = _invgen_access_ticket_person(t, req_map, cmt_map)
+            tok = (getattr(t, "qr_token", None) or "").strip()
+            cat = getattr(t, "category", None)
+            rows.append({
+                "id": str(t.id), "code": tok,
+                "code_short": " ".join([tok[i:i + 4] for i in range(0, len(tok), 4)]) if tok else "",
+                "category": ((gc.name if gc is not None else None) or (cat.name if cat is not None else "") or "Invitación"),
+                "seat": _invgen_ticket_seat_label(t), "door": (getattr(t, "door", None) or "").strip(),
+                "guest_name": who["name"] or "Sin asignar", "assigned": who["assigned"],
+                "guest_photo": who["photo"], "guest_is_logo": who["is_logo"], "guest_title": who["title"],
+                "source": who["source"],
+                "status": (t.status or "AVAILABLE").upper(), "status_label": _invitation_ticket_status_label(t.status),
+                "acc": acc, "valid": acc == "VALID",
+                "entered": bool(entered), "entered_label": _invgen_access_time_label(entered),
+                "included": [c["key"] for c in controls[1:] if c["key"] in extra_ids],
+                "used": {k: _invgen_access_time_label(v) for k, v in used.items()},
+            })
+    if people:
+        rows.sort(key=lambda r: (0 if r["valid"] else 1, 0 if r["assigned"] else 1, _norm_text_key(r["guest_name"]),
+                                 _norm_text_key(r["category"]), r["seat"]))
+    voided_codes = 0
+    try:
+        voided_codes = int(session_db.query(func.count(InvitationVoidedCode.id))
+                           .filter(InvitationVoidedCode.concert_id == concert.id).scalar() or 0)
+    except Exception:
+        voided_codes = 0
+    for c in controls:
+        c["issued"] = issued.get(c["key"], 0)
+        c["validated"] = validated.get(c["key"], 0)
+        c["pct"] = int(round(100.0 * c["validated"] / c["issued"])) if c["issued"] else 0
+    return {
+        "ok": True,
+        "at": _now_madrid().strftime("%H:%M:%S"),
+        "controls": controls,
+        "totals": {"generated": len(tickets), "valid": n_valid, "blocked": n_blocked, "voided": n_voided,
+                   "voided_codes": voided_codes, "entered": n_entered},
+        "tickets": tmap,
+        "by_source": by_source,
+        "people": rows if people else None,
+    }
+
+
+def _invgen_access_ticket_info(session_db, concert, cfg, t, req_map=None, cmt_map=None) -> dict:
+    """Lo que se le enseña a quien está en la puerta al leer una entrada: de quién es, su categoría,
+    su butaca y su puerta, y qué extras incluye (y cuáles ya se han usado)."""
+    if req_map is None or cmt_map is None:
+        req_map, cmt_map = _invgen_access_identity_maps(session_db, concert)
+    who = _invgen_access_ticket_person(t, req_map, cmt_map)
+    gc = getattr(t, "gen_category", None)
+    cat = getattr(t, "category", None)
+    extra_ids = {str(x) for x in (gc.extras_json or [])} if gc is not None else set()
+    used = dict(getattr(t, "access_extras_json", None) or {})
+    extras = [{"key": c["key"], "name": c["name"], "icon": c["icon"], "used": c["key"] in used,
+               "used_label": _invgen_access_time_label(used.get(c["key"]))}
+              for c in _invgen_access_controls(cfg)[1:] if c["key"] in extra_ids]
+    tok = (t.qr_token or "").strip()
+    return {
+        "id": str(t.id), "code": tok, "code_short": " ".join([tok[i:i + 4] for i in range(0, len(tok), 4)]),
+        "guest_name": who["name"] or "Sin asignar", "assigned": who["assigned"], "guest_photo": who["photo"],
+        "guest_is_logo": who["is_logo"], "guest_title": who["title"],
+        "category": ((gc.name if gc is not None else None) or (cat.name if cat is not None else "") or "Invitación"),
+        "seat": _invgen_ticket_seat_label(t), "door": (getattr(t, "door", None) or "").strip(),
+        "status_label": _invitation_ticket_status_label(t.status),
+        "entered_label": _invgen_access_time_label(getattr(t, "access_entered_at", None)),
+        "extras": extras,
+    }
+
+
+def _invgen_access_log(session_db, concert, *, ticket, control_key: str, result: str, code: str = "",
+                       device: str = "", ip: str = "", note: str = "") -> None:
+    try:
+        session_db.add(InvitationAccessLog(
+            concert_id=concert.id, ticket_id=(ticket.id if ticket is not None else None),
+            qr_token=((getattr(ticket, "qr_token", None) or code or "")[:64] or None),
+            control_key=(control_key or INVGEN_ACCESS_ENTRY_KEY)[:80], result=(result or "")[:40],
+            device_label=((device or "")[:200] or None), ip=((ip or "")[:64] or None), note=((note or "")[:300] or None)))
+    except Exception:
+        app.logger.exception("[invgen] no se pudo apuntar la lectura del control de acceso")
+
+
+def _invgen_access_scan(session_db, concert, cfg, raw_code, control_key, *, device: str = "", ip: str = "") -> dict:
+    """UNA lectura del control de acceso. Devuelve qué ha pasado, para pintarlo en verde o en rojo:
+      OK · YA_USADA · ANULADA · BLOQUEADA · SIN_EXTRA · DESCONOCIDA · OTRA_ACTIVIDAD ·
+      MENOR_OK / MENOR_KO (el QR de una autorización de menores, si la actividad las tiene).
+    Solo un OK cambia algo: la entrada queda como ENTRADA (o el extra como USADO) y se apunta la traza.
+    Todo lo demás se apunta también: un rechazo en la puerta es información."""
+    controls = {c["key"]: c for c in _invgen_access_controls(cfg)}
+    ctrl = controls.get((control_key or "").strip()) or controls[INVGEN_ACCESS_ENTRY_KEY]
+    raw = str(raw_code or "").strip()
+    seg = raw.rstrip("/").rsplit("/", 1)[-1] if raw else ""
+    now = _now_madrid()
+
+    def salida(result, good, title, detail="", **extra):
+        out = {"ok": True, "result": result, "good": bool(good), "title": title, "detail": detail or "",
+               "control": {"key": ctrl["key"], "name": ctrl["name"], "icon": ctrl["icon"], "is_entry": ctrl["is_entry"]},
+               "at": now.strftime("%H:%M:%S")}
+        out.update(extra)
+        return out
+
+    if not raw:
+        return {"ok": False, "error": "No se ha leído ningún código."}
+
+    # 1) ¿Es el QR de una AUTORIZACIÓN DE MENORES de esta actividad? (los dos códigos se leen con el
+    #    mismo lector). Se mira ANTES de normalizar: ese token no es un código de entrada.
+    try:
+        mcfg = _minor_auth_config(session_db, concert.id)
+    except Exception:
+        mcfg = None
+    if mcfg is not None and seg and len(seg) >= 20:
+        auth = (session_db.query(MinorAuthorization)
+                .options(selectinload(MinorAuthorization.minors))
+                .filter(MinorAuthorization.config_id == mcfg.id, MinorAuthorization.qr_token == seg).first())
+        if auth is not None:
+            ok = (auth.status or "").upper() == "VALID"
+            _invgen_access_log(session_db, concert, ticket=None, control_key=ctrl["key"],
+                               result=("MENOR_OK" if ok else "MENOR_KO"), code=seg, device=device, ip=ip)
+            fila = _minor_auth_row(session_db, auth, header=_minor_concert_header(session_db, concert))
+            nombres = ", ".join([m.get("full_name") or "" for m in (fila.get("minors") or []) if m.get("full_name")])
+            return salida("MENOR_OK" if ok else "MENOR_KO", ok,
+                          "Autorización de menores OK" if ok else "Autorización de menores anulada",
+                          (f"Puede entrar: {nombres}. Comprueba los datos con su documento." if ok
+                           else "Esta autorización se anuló: no vale para entrar."),
+                          kind="minor", minor=fila)
+
+    code = _invgen_norm_code(raw)
+    if not code:
+        return {"ok": False, "error": "El código leído no es una invitación."}
+    t = (session_db.query(InvitationTicket)
+         .options(joinedload(InvitationTicket.gen_category), joinedload(InvitationTicket.category))
+         .filter(InvitationTicket.qr_token == code).first())
+    if t is None:
+        anulado = session_db.query(InvitationVoidedCode).filter(InvitationVoidedCode.qr_token == code).first()
+        if anulado is not None:
+            _invgen_access_log(session_db, concert, ticket=None, control_key=ctrl["key"], result="ANULADA", code=code, device=device, ip=ip)
+            cuando = anulado.voided_at.strftime("%d/%m/%Y %H:%M") if anulado.voided_at else ""
+            motivo = (anulado.reason or "").strip()
+            return salida("ANULADA", False, "Entrada anulada",
+                          "Este código se anuló" + (f" el {cuando}" if cuando else "") + (f": {motivo}" if motivo else ".") +
+                          " No vale para entrar.", code=code, kind="ticket")
+        _invgen_access_log(session_db, concert, ticket=None, control_key=ctrl["key"], result="DESCONOCIDA", code=code, device=device, ip=ip)
+        return salida("DESCONOCIDA", False, "Código no reconocido",
+                      "No es una invitación de esta actividad.", code=code, kind="ticket")
+    if t.concert_id != concert.id:
+        _invgen_access_log(session_db, concert, ticket=t, control_key=ctrl["key"], result="OTRA_ACTIVIDAD", device=device, ip=ip)
+        return salida("OTRA_ACTIVIDAD", False, "Entrada de otra actividad",
+                      "Este código es de otra actividad: aquí no vale.", code=code, kind="ticket")
+
+    info = _invgen_access_ticket_info(session_db, concert, cfg, t)
+    acc = _invgen_ticket_access_status(t)
+    if acc == "VOIDED":
+        _invgen_access_log(session_db, concert, ticket=t, control_key=ctrl["key"], result="ANULADA", device=device, ip=ip)
+        return salida("ANULADA", False, "Entrada anulada", "Esta invitación se descartó: su código ya no vale.",
+                      ticket=info, kind="ticket")
+    if acc == "BLOCKED":
+        _invgen_access_log(session_db, concert, ticket=t, control_key=ctrl["key"], result="BLOQUEADA", device=device, ip=ip)
+        return salida("BLOQUEADA", False, "Entrada bloqueada", "Esta invitación está apartada (no se ha repartido): no vale para entrar.",
+                      ticket=info, kind="ticket")
+    aviso = "" if info["assigned"] else "Esta invitación no está asignada a nadie."
+    if ctrl["is_entry"]:
+        if t.access_entered_at:
+            _invgen_access_log(session_db, concert, ticket=t, control_key=ctrl["key"], result="YA_USADA", device=device, ip=ip)
+            return salida("YA_USADA", False, "Entrada ya usada",
+                          f"Ya entró a las {_invgen_access_time_label(t.access_entered_at)}.", ticket=info, kind="ticket")
+        t.access_entered_at = now
+        _invgen_access_log(session_db, concert, ticket=t, control_key=ctrl["key"], result="OK", device=device, ip=ip)
+        info["entered_label"] = _invgen_access_time_label(now)
+        return salida("OK", True, "Acceso OK", (info["guest_name"] + (" · " + info["seat"] if info["seat"] else "")),
+                      ticket=info, kind="ticket", warn=aviso)
+    key = ctrl["key"]
+    gc = getattr(t, "gen_category", None)
+    extra_ids = {str(x) for x in (gc.extras_json or [])} if gc is not None else set()
+    if key not in extra_ids:
+        _invgen_access_log(session_db, concert, ticket=t, control_key=key, result="SIN_EXTRA", device=device, ip=ip)
+        return salida("SIN_EXTRA", False, f"Sin {ctrl['name']}", f"Esta invitación no incluye {ctrl['name']}.",
+                      ticket=info, kind="ticket")
+    used = dict(t.access_extras_json or {})
+    if key in used:
+        _invgen_access_log(session_db, concert, ticket=t, control_key=key, result="YA_USADA", device=device, ip=ip)
+        return salida("YA_USADA", False, f"{ctrl['name']} ya utilizado",
+                      f"Se usó a las {_invgen_access_time_label(used.get(key))}.", ticket=info, kind="ticket")
+    used[key] = now.isoformat()
+    t.access_extras_json = used
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(t, "access_extras_json")
+    except Exception:
+        pass
+    _invgen_access_log(session_db, concert, ticket=t, control_key=key, result="OK", device=device, ip=ip)
+    for x in info["extras"]:
+        if x["key"] == key:
+            x["used"], x["used_label"] = True, _invgen_access_time_label(now)
+    return salida("OK", True, f"{ctrl['name']} OK", (info["guest_name"] + (" · " + info["seat"] if info["seat"] else "")),
+                  ticket=info, kind="ticket", warn=aviso)
+
+
+def _invgen_access_undo(session_db, concert, cfg, ticket, control_key: str, *, nick: str = "") -> bool:
+    """Deshace una lectura (una entrada marcada por error): quita la ENTRADA o el uso del extra y lo
+    apunta como DESHECHO. Solo desde dentro."""
+    if ticket is None or ticket.concert_id != concert.id:
+        return False
+    key = (control_key or INVGEN_ACCESS_ENTRY_KEY).strip()
+    if key == INVGEN_ACCESS_ENTRY_KEY:
+        if not ticket.access_entered_at:
+            return False
+        ticket.access_entered_at = None
+    else:
+        used = dict(ticket.access_extras_json or {})
+        if key not in used:
+            return False
+        used.pop(key, None)
+        ticket.access_extras_json = used
+        try:
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(ticket, "access_extras_json")
+        except Exception:
+            pass
+    _invgen_access_log(session_db, concert, ticket=ticket, control_key=key, result="DESHECHO", note=(f"por {nick}" if nick else ""))
+    return True
+
+
+def _invgen_access_share_meta(session_db, concert) -> dict:
+    """El título y la línea de debajo de todo lo que se comparte del control de acceso (la tarjeta del
+    enlace, el asunto del correo, el texto del WhatsApp y del SMS): «Control de accesos · <tipo de
+    actividad> · <artista>» y debajo «<festival o municipio> · <fecha>»."""
+    ev = _invitation_event_payload(session_db, concert)
+    tipo = (ev.get("type_label") or "").strip()
+    artista = (ev.get("artist_names") or ev.get("title") or "").strip()
+    try:
+        if getattr(concert, "event_id", None):
+            ae = session_db.get(AppEvent, concert.event_id)
+            if ae is not None and (ae.name or "").strip():
+                artista = ae.name.strip()
+    except Exception:
+        pass
+    lugar = (ev.get("name") or "").strip() or _place_label(ev.get("city") or "", ev.get("province") or "")
+    fecha = (ev.get("date_label") or "").strip()
+    return {
+        "title": " · ".join([x for x in ["Control de accesos", tipo, artista] if x]),
+        "description": " · ".join([x for x in [lugar, fecha] if x]),
+        "artist": artista, "type_label": tipo, "place": lugar, "date_label": fecha,
+    }
+
+
+def _invgen_access_share_texts(session_db, concert, url: str) -> dict:
+    meta = _invgen_access_share_meta(session_db, concert)
+    msg = "\n".join([x for x in [meta["title"], meta["description"], url] if x])
+    return dict(meta, url=url, message=msg,
+                whatsapp_url="https://wa.me/?text=" + quote_plus(msg),
+                sms_url="sms:?&body=" + quote_plus(msg))
+
+
+def _invgen_access_email_html(session_db, concert, cfg, url: str, note: str = "") -> str:
+    """El correo del control de acceso, con el esqueleto de la casa (`_notice_email_html`): el logo
+    arriba a la DERECHA, «Control de acceso» centrado, la cabecera de la actividad (su imagen, qué es,
+    su nombre y sus datos con iconos) y, dentro de ella y abajo a la derecha, el botón."""
+    title, _sub = _invgen_title_parts(session_db, concert)
+    doors, _show = _invgen_times(concert, cfg)
+    facts = list(_contract_sheet_hero_rows(concert))
+    if doors:
+        facts.append(("fa-door-open", "Apertura de puertas", doors))
+    return _notice_email_html(
+        title="Control de acceso",
+        intro=(note or "").strip(),
+        logo_url=_invgen_brand_logo_url(session_db, concert),
+        image_url=_invgen_image_url(session_db, concert, cfg),
+        image_round=False,
+        eyebrow=_invitation_event_type_label(concert),
+        heading=title,
+        facts=facts,
+        button={"label": "Control de acceso", "url": url},
+        note=("Con este enlace, cualquiera con un móvil puede leer los códigos QR de las invitaciones el día "
+              "de la actividad: se elige qué se controla (la entrada o cada extra) y cada lectura dice si es "
+              "correcta o por qué no. Es el enlace de esta actividad: no lo compartas fuera del equipo."),
+    )
+
+
+def _invgen_access_tab_context(session_db, concert) -> dict | None:
+    """Lo que necesita la pestaña «Control de accesos» de la gestión de invitaciones. `None` cuando la
+    actividad no tiene invitaciones GENERADAS: entonces la pestaña no existe."""
+    cfg = _invgen_config(session_db, concert)
+    if cfg is None:
+        return None
+    n = int(session_db.query(func.count(InvitationTicket.id))
+            .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.is_generated.is_(True)).scalar() or 0)
+    if not n:
+        return None
+    payload = _invgen_access_payload(session_db, concert, cfg, people=True)
+    url = _invgen_access_url(cfg)
+    try:
+        mcfg = _minor_auth_config(session_db, concert.id)
+    except Exception:
+        mcfg = None
+    return {
+        "cfg_id": str(cfg.id),
+        "image_url": _invgen_image_url(session_db, concert, cfg),
+        "url": url, "has_link": bool(url),
+        "link_at": _invitation_display_datetime(getattr(cfg, "access_token_at", None)),
+        "share": (_invgen_access_share_texts(session_db, concert, url) if url else None),
+        "meta": _invgen_access_share_meta(session_db, concert),
+        "minors": bool(mcfg),
+        "controls": payload["controls"], "totals": payload["totals"], "people": payload["people"],
+        "by_source": payload["by_source"], "tickets": payload["tickets"],
+        "poll_seconds": INVGEN_ACCESS_POLL_SECONDS,
+        "xlsx_url": url_for("invitation_gen_codes_xlsx", concert_id=concert.id),
+        "state_url": url_for("invitation_gen_access_state", concert_id=concert.id),
+        "link_url": url_for("invitation_gen_access_link", concert_id=concert.id),
+        "send_url": url_for("invitation_gen_access_send", concert_id=concert.id),
+        "undo_url": url_for("invitation_gen_access_undo", concert_id=concert.id),
+        "gen_url": url_for("invitation_gen_view", concert_id=concert.id),
+    }
+
+
+@app.get('/invitaciones/evento/<concert_id>/generar/control/estado.json', endpoint='invitation_gen_access_state')
+@admin_required
+def invitation_gen_access_state(concert_id):
+    """El estado del control de acceso (lo que la pestaña pregunta cada pocos segundos). `?people=1`
+    trae además quién tiene cada entrada."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        cfg = _invgen_config(session_db, concert)
+        resp = jsonify(_invgen_access_payload(session_db, concert, cfg, people=_truthy(request.args.get('people'))))
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/generar/control/enlace', endpoint='invitation_gen_access_link')
+@admin_required
+def invitation_gen_access_link(concert_id):
+    """Crea (o reutiliza) el ENLACE del control de acceso propio; con `renew=1` anula el anterior y
+    genera otro. JSON con el enlace y los textos para compartirlo."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        cfg = _invgen_config(session_db, concert)
+        if cfg is None:
+            return jsonify({'ok': False, 'error': 'Esta actividad no tiene invitaciones generadas.'}), 400
+        renew = _truthy(request.form.get('renew') or (request.get_json(silent=True) or {}).get('renew'))
+        _invgen_access_token_ensure(session_db, cfg, renew=renew)
+        session_db.commit()
+        url = _invgen_access_url(cfg)
+        return jsonify({'ok': True, 'url': url, 'renewed': renew,
+                        'at': _invitation_display_datetime(cfg.access_token_at),
+                        'share': _invgen_access_share_texts(session_db, concert, url)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception('[invgen] no se pudo generar el enlace de control de acceso')
+        return jsonify({'ok': False, 'error': 'No se pudo generar el enlace: %s' % type(exc).__name__}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/generar/control/enviar', endpoint='invitation_gen_access_send')
+@admin_required
+def invitation_gen_access_send(concert_id):
+    """Manda el enlace del control de acceso por CORREO (uno por persona), con el diseño de la casa."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        cfg = _invgen_config(session_db, concert)
+        if cfg is None:
+            return jsonify({'ok': False, 'error': 'Esta actividad no tiene invitaciones generadas.'}), 400
+        payload = request.get_json(silent=True) or {}
+        crudo = payload.get('emails') if isinstance(payload, dict) else None
+        if crudo is None:
+            crudo = request.form.get('emails') or ""
+        if isinstance(crudo, list):
+            crudo = ",".join([str(x) for x in crudo])
+        emails = []
+        for e in re.split(r"[,\s;]+", str(crudo or "")):
+            e = e.strip().lower()
+            if e and "@" in e and e not in emails:
+                emails.append(e)
+        if not emails:
+            return jsonify({'ok': False, 'error': 'Pon al menos un correo.'}), 400
+        note = (payload.get('note') if isinstance(payload, dict) else None) or request.form.get('note') or ""
+        _invgen_access_token_ensure(session_db, cfg)
+        session_db.commit()
+        url = _invgen_access_url(cfg)
+        meta = _invgen_access_share_meta(session_db, concert)
+        html = _invgen_access_email_html(session_db, concert, cfg, url, note=str(note or "").strip()[:2000])
+        ok, err = _send_optional_email(emails, meta["title"], html)
+        if not ok:
+            return jsonify({'ok': False, 'error': 'No se pudo mandar el correo: %s' % (err or 'sin detalle'), 'url': url}), 400
+        return jsonify({'ok': True, 'sent': len(emails), 'url': url, 'warning': (err or "")})
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/generar/control/deshacer', endpoint='invitation_gen_access_undo')
+@admin_required
+def invitation_gen_access_undo(concert_id):
+    """Deshace una lectura marcada por error (desde la pestaña de dentro)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        cfg = _invgen_config(session_db, concert)
+        payload = request.get_json(silent=True) or {}
+        tid = _safe_uuid(payload.get('ticket_id') or request.form.get('ticket_id'))
+        control = (payload.get('control') or request.form.get('control') or INVGEN_ACCESS_ENTRY_KEY).strip()
+        t = session_db.get(InvitationTicket, tid) if tid else None
+        if t is None or t.concert_id != concert.id:
+            return jsonify({'ok': False, 'error': 'Esa invitación no es de esta actividad.'}), 404
+        nick = ""
+        try:
+            nick = _current_user_email()
+        except Exception:
+            nick = ""
+        hecho = _invgen_access_undo(session_db, concert, cfg, t, control, nick=nick)
+        session_db.commit()
+        return jsonify({'ok': True, 'undone': bool(hecho),
+                        'state': _invgen_access_payload(session_db, concert, cfg, people=True)})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)[:200]}), 400
+    finally:
+        session_db.close()
+
+
+def _invgen_access_public_context(session_db, cfg) -> dict:
+    """Lo que pinta la página pública del control de acceso: la cabecera de la actividad, los controles
+    con sus números, el acceso de menores si está configurado y las `og:` del enlace."""
+    concert = cfg.concert
+    title, subtitle = _invgen_title_parts(session_db, concert)
+    venue = _invgen_venue_info(concert)
+    doors, show = _invgen_times(concert, cfg)
+    payload = _invgen_access_payload(session_db, concert, cfg, people=False)
+    meta = _invgen_access_share_meta(session_db, concert)
+    minors = None
+    try:
+        mcfg = _minor_auth_config(session_db, concert.id)
+        if mcfg is not None:
+            _minor_auth_ensure_validate_token(session_db, mcfg)
+            minors = {"check_url": url_for("public_minor_auth_check", token=mcfg.validate_token),
+                      "age_limit": int(getattr(mcfg, "age_limit", None) or 18)}
+    except Exception:
+        minors = None
+    try:
+        og_image = _external_url_for("public_invitation_access_og_image", token=cfg.access_token)
+    except Exception:
+        og_image = ""
+    return {
+        "title": title, "subtitle": subtitle,
+        "date_label": (_vacation_long_date(concert.date)[:1].upper() + _vacation_long_date(concert.date)[1:]) if concert.date else "",
+        "venue": venue, "doors": doors, "show": show,
+        "image_url": _invgen_image_url(session_db, concert, cfg),
+        "logo_url": _invgen_brand_logo_url(session_db, concert),
+        "controls": payload["controls"], "totals": payload["totals"], "state_at": payload["at"],
+        "minors": minors,
+        "og_title": meta["title"], "og_description": meta["description"], "og_image_url": og_image,
+        "scan_url": url_for("public_invitation_access_scan", token=cfg.access_token),
+        "state_url": url_for("public_invitation_access_state", token=cfg.access_token),
+        "poll_seconds": INVGEN_ACCESS_POLL_SECONDS,
+        "entry_key": INVGEN_ACCESS_ENTRY_KEY,
+    }
+
+
+@app.get('/control-acceso/<token>', endpoint='public_invitation_access')
+def public_invitation_access(token):
+    """La página PÚBLICA del control de acceso: con el enlace, cualquiera con un móvil elige qué
+    controla (la entrada o un extra), abre el lector y lee los QR de las invitaciones. Todo en vivo."""
+    session_db = db()
+    try:
+        cfg = _invgen_access_cfg_by_token(session_db, token)
+        if cfg is None or not cfg.concert:
+            return render_template('public_invitation_conditions.html', missing=True, hide_backoffice_nav=True,
+                                   missing_text='Este enlace de control de acceso ya no vale: pide el nuevo a quien gestiona las invitaciones.'), 404
+        ctx = _invgen_access_public_context(session_db, cfg)
+        session_db.commit()   # el token de menores puede haberse creado
+        return render_template('public_invitation_access.html', hide_backoffice_nav=True, **ctx)
+    finally:
+        session_db.close()
+
+
+@app.get('/control-acceso/<token>/estado.json', endpoint='public_invitation_access_state')
+def public_invitation_access_state(token):
+    """El estado en vivo (los números de cada control): lo pregunta la página cada pocos segundos."""
+    session_db = db()
+    try:
+        cfg = _invgen_access_cfg_by_token(session_db, token)
+        if cfg is None or not cfg.concert:
+            return jsonify({'ok': False, 'error': 'Enlace no válido.'}), 404
+        payload = _invgen_access_payload(session_db, cfg.concert, cfg, people=False)
+        payload.pop('by_source', None)
+        payload.pop('people', None)
+        resp = jsonify(payload)
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.post('/control-acceso/<token>/leer', endpoint='public_invitation_access_scan')
+def public_invitation_access_scan(token):
+    """UNA lectura desde la puerta: `{code, control}` → verde o rojo, con el motivo."""
+    session_db = db()
+    try:
+        cfg = _invgen_access_cfg_by_token(session_db, token)
+        if cfg is None or not cfg.concert:
+            return jsonify({'ok': False, 'error': 'Enlace no válido.'}), 404
+        payload = request.get_json(silent=True) or {}
+        code = (payload.get('code') or request.form.get('code') or "").strip()
+        control = (payload.get('control') or request.form.get('control') or INVGEN_ACCESS_ENTRY_KEY).strip()
+        if not code:
+            return jsonify({'ok': False, 'error': 'No se ha leído ningún código.'}), 400
+        device = (request.headers.get('User-Agent') or "")[:200]
+        ip = (request.headers.get('X-Forwarded-For') or request.remote_addr or "").split(",")[0].strip()[:64]
+        out = _invgen_access_scan(session_db, cfg.concert, cfg, code, control, device=device, ip=ip)
+        session_db.commit()
+        if out.get('ok'):
+            out['state'] = {k: v for k, v in _invgen_access_payload(session_db, cfg.concert, cfg).items()
+                            if k in ('controls', 'totals', 'at')}
+        resp = jsonify(out)
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp, (200 if out.get('ok') else 400)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception('[invgen] fallo en una lectura del control de acceso')
+        return jsonify({'ok': False, 'error': 'No se pudo comprobar el código (%s).' % type(exc).__name__}), 500
+    finally:
+        session_db.close()
+
+
+@app.get('/control-acceso/<token>/og.jpg', endpoint='public_invitation_access_og_image')
+def public_invitation_access_og_image(token):
+    """La miniatura del enlace: la imagen de la entrada (la de ticketing) → el cartel → la foto del
+    artista → el logo. Nunca un 404 (en WhatsApp se vería un enlace pelado)."""
+    session_db = db()
+    try:
+        cfg = _invgen_access_cfg_by_token(session_db, token)
+        fuentes = []
+        if cfg is not None and cfg.concert:
+            fuentes.append(_invgen_image_url(session_db, cfg.concert, cfg))
+            try:
+                fuentes.append(_public_share_og_source(session_db, cfg.concert,
+                                                      logo=_invitation_event_logo_url(session_db, cfg.concert, external=True)))
+            except Exception:
+                pass
+            fuentes.append(_invgen_brand_logo_url(session_db, cfg.concert))
+    finally:
+        session_db.close()
+    return _share_og_image_response([f for f in fuentes if f])
 
 
 # ⚠️⚠️ LAS EXENCIONES DE CSRF VAN AL FINAL DEL FICHERO, cuando ya están registradas TODAS las

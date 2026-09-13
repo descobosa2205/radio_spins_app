@@ -1,0 +1,319 @@
+{# CONTROL DE ACCESO de las invitaciones generadas · la página PÚBLICA (lo que abre quien tiene el
+   enlace, con un móvil, en la puerta). Standalone a propósito: hace falta el juego de og: para que al
+   compartir el enlace salga la imagen de la actividad, el «Control de accesos · <tipo> · <artista>» y
+   debajo el festival o el municipio con la fecha.
+   Arriba la cabecera de la actividad; después ¿QUÉ VAS A CONTROLAR? (la entrada o cada extra, con sus
+   números en vivo); el botón grande de ESCANEAR (`static/js/access_scan.js`: lectura continua, verde
+   o rojo encima del vídeo, con su pitido); el código a mano; y, si la actividad tiene configurado el
+   acceso de MENORES, su bloque (el escáner de documentos de siempre, contra `public_minor_auth_check`).
+   Carga Bootstrap, Font Awesome y `styles.css` de la casa (los estilos `.acc-*`, `.accsc-*` y los del
+   escáner de documentos viven ahí). #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="theme-color" content="#111820">
+  <title>{{ og_title }}</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ og_title }}">
+  {% if og_description %}<meta property="og:description" content="{{ og_description }}"><meta name="description" content="{{ og_description }}">{% endif %}
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:secure_url" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ og_title }}">
+    <meta name="twitter:image" content="{{ og_image_url }}">
+  {% endif %}
+  <meta name="robots" content="noindex,nofollow">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}" rel="stylesheet">
+</head>
+<body class="acc-body">
+<div class="acc-page" data-acc data-scan-url="{{ scan_url }}" data-state-url="{{ state_url }}" data-poll="{{ poll_seconds }}" data-entry-key="{{ entry_key }}"
+     {% if minors %}data-minors-check-url="{{ minors.check_url }}"{% endif %}>
+
+  <header class="acc-head">
+    <div class="acc-head__row">
+      {% if image_url %}<img class="acc-head__img" src="{{ image_url }}" alt="">{% endif %}
+      <div class="acc-head__txt">
+        <div class="acc-head__kicker"><i class="fa fa-qrcode me-1"></i>Control de acceso</div>
+        <h1 class="acc-head__title">{{ title }}</h1>
+        {% if subtitle %}<div class="acc-head__sub">{{ subtitle }}</div>{% endif %}
+        <div class="acc-head__meta">{{ date_label }}{% if doors %} · <i class="fa fa-door-open"></i> {{ doors }}{% endif %}{% if show %} · <i class="fa fa-clock"></i> {{ show }}{% endif %}</div>
+        {% if venue.name %}<div class="acc-head__meta"><i class="fa fa-location-dot"></i> {{ venue.name }}{% if venue.place %} · {{ venue.place }}{% endif %}</div>{% endif %}
+      </div>
+      {% if logo_url %}<img class="acc-head__logo" src="{{ logo_url }}" alt="">{% endif %}
+    </div>
+  </header>
+
+  <section class="acc-sec">
+    <div class="acc-sec__title">¿Qué vas a controlar?</div>
+    <div class="acc-ctls" data-acc-ctls>
+      {% for c in controls %}
+      <button type="button" class="acc-ctl{% if c.is_entry %} is-on{% endif %}" data-acc-ctl="{{ c.key }}" data-acc-name="{{ c.name }}">
+        <i class="fa {{ c.icon }}"></i>
+        <span class="acc-ctl__name">{{ c.name }}</span>
+        <span class="acc-ctl__nums"><b data-acc-validated="{{ c.key }}">{{ c.validated|k }}</b> / <span data-acc-issued="{{ c.key }}">{{ c.issued|k }}</span></span>
+        <span class="acc-ctl__bar"><span data-acc-bar="{{ c.key }}" style="width:{{ c.pct }}%"></span></span>
+      </button>
+      {% endfor %}
+    </div>
+    <div class="acc-hint">Cada control va aparte: la entrada se valida una vez y cada extra otra. Los números son «validadas / emitidas» (las anuladas no cuentan) y se ponen al día solos.</div>
+  </section>
+
+  <button type="button" class="acc-scan" data-acc-scan>
+    <i class="fa fa-qrcode"></i>
+    <span>Escanear</span>
+    <small>Lee un código tras otro: <b data-acc-current>{{ controls[0].name if controls else 'Acceso entrada' }}</b></small>
+  </button>
+
+  <div class="acc-manual">
+    <div class="input-group">
+      <span class="input-group-text"><i class="fa fa-keyboard"></i></span>
+      <input class="form-control" data-acc-code placeholder="O escribe el código de la invitación" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button class="btn btn-danger" type="button" data-acc-check>Comprobar</button>
+    </div>
+  </div>
+
+  <div class="acc-result" data-acc-result hidden></div>
+
+  {% if minors %}
+  <section class="acc-sec acc-sec--minors">
+    <div class="acc-sec__title"><i class="fa fa-child-reaching me-1"></i>Acceso de menores</div>
+    <div class="acc-hint">Esta actividad lleva autorizaciones de acceso a menores{% if minors.age_limit %} (menores de {{ minors.age_limit }}){% endif %}. El lector de arriba entiende también su código QR; si el menor no lo trae, escanea el DNI de cualquiera de ellos o busca por cualquier dato.</div>
+    <div class="acc-minors__btns">
+      <button type="button" class="btn btn-outline-dark" data-acc-minor-scan><i class="fa fa-id-card me-2"></i>Escanear DNI o QR</button>
+    </div>
+    <div class="input-group mt-2">
+      <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+      <input class="form-control" data-acc-minor-q placeholder="DNI, nombre del menor, del tutor o del autorizado" autocomplete="off">
+      <button class="btn btn-dark" type="button" data-acc-minor-search>Buscar</button>
+    </div>
+    <div class="mt-2" data-acc-minor-result></div>
+  </section>
+  {% endif %}
+
+  <section class="acc-sec acc-sec--log" data-acc-logbox hidden>
+    <div class="acc-sec__title">Últimas lecturas de este móvil</div>
+    <ul class="acc-log" data-acc-log></ul>
+  </section>
+
+  <footer class="acc-foot">
+    <span><i class="fa fa-rotate me-1"></i>Se actualiza solo · última vez a las <span data-acc-at>{{ state_at }}</span></span>
+  </footer>
+</div>
+
+<script src="{{ url_for('static', filename='js/access_scan.js', v=ASSET_V) }}"></script>
+{% if minors %}
+<script src="{{ url_for('static', filename='js/doc_scan.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/doc_camera.js', v=ASSET_V) }}"></script>
+{% endif %}
+<script>
+(function () {
+  'use strict';
+  var root = document.querySelector('[data-acc]');
+  if (!root) return;
+  var SCAN_URL = root.getAttribute('data-scan-url');
+  var STATE_URL = root.getAttribute('data-state-url');
+  var MINORS_URL = root.getAttribute('data-minors-check-url') || '';
+  var ENTRY = root.getAttribute('data-entry-key') || 'ENTRADA';
+  var POLL = Math.max(3, parseInt(root.getAttribute('data-poll') || '5', 10)) * 1000;
+  var control = ENTRY;
+  var controlName = (root.querySelector('[data-acc-ctl].is-on [data-acc-name]') || {}).textContent || '';
+  var log = [];
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  function num(n) { try { return Number(n || 0).toLocaleString('es-ES'); } catch (e) { return String(n || 0); } }
+  function q(sel) { return root.querySelector(sel); }
+  function qa(sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
+
+  /* --- qué se controla --- */
+  function elegir(btn) {
+    qa('[data-acc-ctl]').forEach(function (b) { b.classList.toggle('is-on', b === btn); });
+    control = btn.getAttribute('data-acc-ctl');
+    controlName = btn.getAttribute('data-acc-name') || '';
+    var cur = q('[data-acc-current]'); if (cur) cur.textContent = controlName;
+    if (window.AccessScan) window.AccessScan.setLabel(controlName);
+  }
+  var inicial = q('[data-acc-ctl].is-on');
+  if (inicial) { control = inicial.getAttribute('data-acc-ctl'); controlName = inicial.getAttribute('data-acc-name') || ''; }
+  root.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-acc-ctl]');
+    if (b) elegir(b);
+  });
+
+  /* --- el estado en vivo --- */
+  function aplicar(state) {
+    if (!state || !state.controls) return;
+    state.controls.forEach(function (c) {
+      var v = q('[data-acc-validated="' + c.key + '"]'); if (v) v.textContent = num(c.validated);
+      var i = q('[data-acc-issued="' + c.key + '"]'); if (i) i.textContent = num(c.issued);
+      var bar = q('[data-acc-bar="' + c.key + '"]'); if (bar) bar.style.width = (c.pct || 0) + '%';
+    });
+    var at = q('[data-acc-at]'); if (at && state.at) at.textContent = state.at;
+  }
+  var pollTimer = null;
+  function sondear() {
+    if (document.hidden) { programar(); return; }
+    fetch(STATE_URL, { cache: 'no-store', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j && j.ok) aplicar(j); })
+      .catch(function () {})
+      .then(programar);
+  }
+  function programar() { clearTimeout(pollTimer); pollTimer = setTimeout(sondear, POLL); }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { clearTimeout(pollTimer); sondear(); } });
+  programar();
+
+  /* --- una lectura --- */
+  function ticketHtml(j) {
+    var t = j.ticket;
+    if (!t) return '';
+    var foto = t.guest_photo ? '<img class="acc-t__ava' + (t.guest_is_logo ? ' is-logo' : '') + '" src="' + esc(t.guest_photo) + '" alt="">' : '<span class="acc-t__ava acc-t__ava--none"><i class="fa fa-user"></i></span>';
+    var extras = '';
+    (t.extras || []).forEach(function (x) {
+      extras += '<span class="acc-t__extra' + (x.used ? ' is-used' : '') + '"><i class="fa ' + esc(x.icon) + '"></i>' + esc(x.name) + (x.used ? ' · ' + esc(x.used_label || 'usado') : '') + '</span>';
+    });
+    return '<div class="acc-t">' + foto +
+      '<div class="acc-t__body"><div class="acc-t__name">' + esc(t.guest_name) + (t.guest_title ? ' <small>· ' + esc(t.guest_title) + '</small>' : '') + '</div>' +
+      '<div class="acc-t__meta">' + esc(t.category) + (t.seat ? ' · ' + esc(t.seat) : '') + (t.door ? ' · <i class="fa fa-door-open"></i> ' + esc(t.door) : '') + '</div>' +
+      (extras ? '<div class="acc-t__extras">' + extras + '</div>' : '') +
+      '<div class="acc-t__code">' + esc(t.code_short || t.code || '') + '</div></div></div>';
+  }
+  function minorHtml(m) {
+    if (!m) return '';
+    var html = '<div class="acc-t acc-t--minor"><div class="acc-t__body">';
+    (m.minors || []).forEach(function (x) {
+      html += '<div class="acc-t__name"><i class="fa fa-child me-1"></i>' + esc(x.full_name) + (x.doc_number ? ' · ' + esc(x.doc_number) : '') + (x.age != null ? ' · ' + esc(x.age) + ' años' : '') + '</div>';
+    });
+    html += '<div class="acc-t__meta"><i class="fa fa-user-check me-1"></i>Autorizado: ' + esc(m.escort_name || '') + (m.escort_doc ? ' · ' + esc(m.escort_doc) : '') + '</div>';
+    html += '<div class="acc-t__meta"><i class="fa fa-user-shield me-1"></i>' + esc(m.guardian_kind_label || 'Tutor') + ': ' + esc(m.guardian_name || '') + (m.guardian_doc ? ' · ' + esc(m.guardian_doc) : '') + '</div>';
+    return html + '</div></div>';
+  }
+  function pintar(j) {
+    var box = q('[data-acc-result]');
+    if (!box) return;
+    if (!j || !j.ok) {
+      box.className = 'acc-result is-bad'; box.hidden = false;
+      box.innerHTML = '<div class="acc-result__head"><i class="fa fa-circle-xmark"></i><div><b>No se ha podido comprobar</b><div>' + esc((j && j.error) || 'Sin conexión.') + '</div></div></div>';
+      return;
+    }
+    box.className = 'acc-result ' + (j.good ? 'is-good' : 'is-bad'); box.hidden = false;
+    box.innerHTML = '<div class="acc-result__head"><i class="fa ' + (j.good ? 'fa-circle-check' : 'fa-circle-xmark') + '"></i><div><b>' + esc(j.title) + '</b>' +
+      (j.detail ? '<div>' + esc(j.detail) + '</div>' : '') + (j.warn ? '<div class="acc-result__warn"><i class="fa fa-triangle-exclamation me-1"></i>' + esc(j.warn) + '</div>' : '') +
+      '<div class="acc-result__ctl">' + esc((j.control || {}).name || '') + ' · ' + esc(j.at || '') + '</div></div></div>' +
+      (j.kind === 'minor' ? minorHtml(j.minor) : ticketHtml(j));
+  }
+  function anotar(j) {
+    if (!j || !j.ok) return;
+    var quien = j.kind === 'minor' ? (((j.minor || {}).minors || []).map(function (x) { return x.full_name; }).join(', ') || 'Menor') : ((j.ticket || {}).guest_name || j.code || '');
+    log.unshift({ good: j.good, title: j.title, quien: quien, ctl: (j.control || {}).name || '', at: j.at || '' });
+    log = log.slice(0, 10);
+    var ul = q('[data-acc-log]'), box = q('[data-acc-logbox]');
+    if (!ul) return;
+    box.hidden = false;
+    ul.innerHTML = log.map(function (r) {
+      return '<li class="' + (r.good ? 'is-good' : 'is-bad') + '"><i class="fa ' + (r.good ? 'fa-circle-check' : 'fa-circle-xmark') + '"></i><span class="acc-log__who">' + esc(r.quien) + '</span><span class="acc-log__what">' + esc(r.title) + ' · ' + esc(r.ctl) + '</span><span class="acc-log__at">' + esc(r.at) + '</span></li>';
+    }).join('');
+  }
+  var enviando = false;
+  function enviar(code) {
+    if (!code || enviando) return;
+    enviando = true;
+    fetch(SCAN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ code: code, control: control }),
+    }).then(function (r) { return r.json().catch(function () { return { ok: false, error: 'Respuesta no válida (' + r.status + ')' }; }); })
+      .then(function (j) {
+        enviando = false;
+        pintar(j); anotar(j);
+        if (j && j.state) aplicar(j.state);
+        if (window.AccessScan && window.AccessScan.isOpen()) {
+          window.AccessScan.result({ good: !!(j && j.ok && j.good), title: (j && (j.title || j.error)) || 'No válida',
+                                     detail: (j && j.detail) || '', html: j && j.ok ? (j.kind === 'minor' ? minorHtml(j.minor) : ticketHtml(j)) : '' });
+        }
+      })
+      .catch(function () {
+        enviando = false;
+        pintar({ ok: false, error: 'Sin conexión: vuelve a leerla.' });
+        if (window.AccessScan && window.AccessScan.isOpen()) window.AccessScan.result({ good: false, title: 'Sin conexión', detail: 'Vuelve a leer el código.' });
+      });
+  }
+
+  var scanBtn = q('[data-acc-scan]');
+  if (scanBtn) scanBtn.addEventListener('click', function () {
+    if (!window.AccessScan) { alert('No se ha podido cargar el lector. Escribe el código a mano.'); return; }
+    window.AccessScan.open({ label: controlName, onCode: enviar });
+  });
+  function comprobarManual() {
+    var inp = q('[data-acc-code]');
+    var t = (inp.value || '').trim();
+    if (!t) return;
+    inp.value = '';
+    enviar(t);
+  }
+  var chk = q('[data-acc-check]'); if (chk) chk.addEventListener('click', comprobarManual);
+  var inpCode = q('[data-acc-code]'); if (inpCode) inpCode.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); comprobarManual(); } });
+
+  /* --- menores: el escáner de documentos de siempre, contra el control de menores de la actividad --- */
+  if (MINORS_URL) {
+    var caja = q('[data-acc-minor-result]');
+    function pintarMenor(res, buscado) {
+      if (!res || !res.ok) { caja.innerHTML = '<div class="mv-ko"><i class="fa fa-circle-xmark"></i><div>' + esc((res && res.error) || 'No se ha podido comprobar.') + '</div></div>'; return; }
+      if (!res.found) {
+        caja.innerHTML = '<div class="mv-ko"><i class="fa fa-circle-xmark"></i><div><strong>No hay autorización</strong>' + (buscado ? '<div class="mv-ko__q">' + esc(buscado) + '</div>' : '') +
+          '<div class="mv-ko__s">No puede acceder. El adulto responsable tiene que rellenar la autorización.</div></div></div>';
+        return;
+      }
+      var html = '<div class="mv-ok"><i class="fa fa-circle-check"></i><div><strong>Autorización de menores OK</strong><div class="mv-ok__s">Puede entrar. Comprueba los datos con su documento de identidad.</div></div></div>';
+      (res.matches || []).forEach(function (m) { html += minorHtml(m); });
+      caja.innerHTML = html;
+      try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {}
+    }
+    function consultarMenor(cuerpo, buscado) {
+      caja.innerHTML = '<div class="mv-load"><i class="fa fa-spinner fa-spin me-2"></i>Comprobando…</div>';
+      fetch(MINORS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(cuerpo) })
+        .then(function (r) { return r.json(); })
+        .then(function (res) { pintarMenor(res, buscado); })
+        .catch(function () { pintarMenor({ ok: false, error: 'Sin conexión.' }); });
+    }
+    var mb = q('[data-acc-minor-scan]');
+    if (mb) mb.addEventListener('click', function () {
+      if (!window.DocCamera) { alert('Este navegador no puede abrir la cámara. Busca por DNI a mano.'); return; }
+      if (window.AccessScan && window.AccessScan.isOpen()) window.AccessScan.close();
+      window.DocCamera.open({
+        title: 'Acceso de menores · DNI o QR', qr: true,
+        onRead: function (res) {
+          if (res.qr) { consultarMenor({ qr: res.qr }, ''); return; }
+          var n = ((res.data || {}).number || '').toUpperCase();
+          if (!n) { pintarMenor({ ok: true, found: false }, ''); return; }
+          consultarMenor({ q: n }, n);
+        },
+      });
+    });
+    function buscarMenor() {
+      var inp = q('[data-acc-minor-q]');
+      var t = (inp.value || '').trim();
+      if (!t) return;
+      if (t.indexOf('/') >= 0 || t.length > 20) { consultarMenor({ qr: t }, ''); return; }
+      consultarMenor({ q: t }, t);
+    }
+    var ms = q('[data-acc-minor-search]'); if (ms) ms.addEventListener('click', buscarMenor);
+    var mq = q('[data-acc-minor-q]'); if (mq) mq.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); buscarMenor(); } });
+    // El modelo de OCR se precarga: así el primer DNI ya se lee rápido.
+    setTimeout(function () { try { if (window.DocScan && window.DocScan.mrzWarmUp) window.DocScan.mrzWarmUp(); } catch (e) {} }, 1500);
+  }
+})();
+</script>
+</body>
+</html>

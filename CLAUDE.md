@@ -7959,6 +7959,72 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   las generadas en la gestión (asignador con `map_key`, PDF unido, ZIP, redetectar), recuperar →
   código nuevo, descartar → anulado, eliminar → anulado, el Excel y los permisos.
 
+- ⚠️⚠️ **GENERAR INVITACIONES · lote 3: el CONTROL DE ACCESO** (sep 2026). Solo cuando la actividad
+  tiene invitaciones GENERADAS aparece en su gestión de invitaciones la pestaña **«Control de
+  accesos»** (`_invgen_access_tab_context` → `access_tab`, `None` si no hay; el parcial es
+  `_invgen_access_tab.html` y su JS `static/js/invgen_access.js`): cuántas hay (**válidas** = sin las
+  anuladas ni las bloqueadas · han entrado · anuladas), **«Compartir códigos de entradas»** (el Excel
+  del lote 2, para un control EXTERNO) y **«Control de acceso propio»**: un ENLACE con el que
+  **cualquiera con un móvil** lee los QR en la puerta.
+  · **EL ENLACE** es `InvitationGenConfig.access_token` (**OPACO y DISTINTO del de las condiciones**:
+  quien está en la puerta no tiene por qué ver ni tocar nada más), se crea al pulsar el botón
+  (`invitation_gen_access_link`), pedirlo otra vez **devuelve el mismo** y **«Anular y generar
+  otro»** (`renew=1`) deja el anterior sin valor (404). Se comparte por **copiar · WhatsApp · SMS ·
+  correo** con la MISMA tarjeta en los tres: **«Control de accesos · \<tipo de actividad\> ·
+  \<artista\>»** y debajo **«\<festival o municipio\> · \<fecha\>»** (`_invgen_access_share_meta`,
+  que es también el asunto del correo y las `og:` de la página, con la **imagen de la entrada**
+  como miniatura → cartel → foto → logo, `public_invitation_access_og_image`). El correo
+  (`_invgen_access_email_html`) es el esqueleto de la casa: logo a la derecha, «Control de acceso»
+  centrado, la cabecera de la actividad y el botón dentro, abajo a la derecha.
+  · **LA PÁGINA PÚBLICA** (`public_invitation_access`, `/control-acceso/<token>`,
+  `public_invitation_access.html`, standalone con Bootstrap + FA + `styles.css`): la cabecera del
+  evento, **¿QUÉ VAS A CONTROLAR?** (la ENTRADA y **cada EXTRA** de los datos de la entrada, con sus
+  números «validadas / emitidas» en vivo), el botón **ESCANEAR** y el código a mano.
+  ⚠️⚠️ **EL LECTOR DE LA PUERTA ES `static/js/access_scan.js`, NO `doc_camera.js`**: en una puerta
+  se leen cien códigos seguidos, así que es de **lectura CONTINUA** (no cierra al leer), pinta el
+  resultado **ENCIMA del vídeo** en VERDE o ROJO con su pitido y su vibración y sigue leyendo; el
+  mismo código no se vuelve a mandar en 4 s (un QR delante de la cámara dispara decenas de
+  fotogramas y una entrada válida saldría «ya usada» un segundo después). Motor nativo
+  `BarcodeDetector` y, donde no lo hay (**Safari en el iPhone**, que es lo que lleva medio equipo),
+  **jsQR** desde jsdelivr cargado al vuelo.
+  · **CADA LECTURA** (`_invgen_access_scan`, punto único) dice: **OK** · **YA_USADA** («ya entró a
+  las…» / «se usó a las…») · **ANULADA** (un código de `InvitationVoidedCode` o una entrada LOST) ·
+  **BLOQUEADA** (apartada: no se ha repartido) · **SIN_EXTRA** (la entrada no incluye ese extra) ·
+  **DESCONOCIDA** · **OTRA_ACTIVIDAD**, y **todas** dejan su traza en `InvitationAccessLog` (un
+  rechazo en la puerta es información). **Solo un OK escribe**: `access_entered_at` o
+  `access_extras_json[extra] = hora` (⚠️ con `flag_modified`, el JSONB de siempre). El código llega
+  como se lea: los 16 caracteres, con guiones, en minúsculas o la URL del PDF (`_invgen_norm_code`).
+  Una entrada **sin asignar a nadie** entra igual pero **se avisa** («no está asignada a nadie»): su
+  PDF solo lo tiene quien lo bajó de la app.
+  ⚠️ **Recuperar una enviada renace sin usos**: `_invgen_rotate_code` limpia el acceso y los extras, y
+  el código viejo dice ANULADA en la puerta.
+  · **MENORES: los DOS códigos**. Si la actividad tiene `MinorAuthConfig`, el mismo lector entiende el
+  **QR de una autorización** (`MENOR_OK` / `MENOR_KO`, se mira ANTES de normalizar: ese token no es
+  un código de entrada) y la página ofrece **«Acceso de menores»**: el escáner de documentos de
+  siempre (`DocCamera` con `qr:true`) y el buscador, contra **`public_minor_auth_check`** con el
+  `validate_token` de la actividad (el MISMO que su página de validación).
+  · **EN TIEMPO REAL**: la pestaña y la página piden cada `INVGEN_ACCESS_POLL_SECONDS` (5) el estado
+  a **`_invgen_access_payload`** (el punto único: `controls` con `issued`/`validated`, `totals`,
+  `tickets` con lo vivo de cada entrada y `by_source` por petición/compromiso; con `people=1`, quién
+  tiene cada una). Dentro, `invitation_gen_access_state`; fuera, `public_invitation_access_state`
+  (**solo los números**: ni nombres ni `by_source`).
+  · **DÓNDE SE VE QUIÉN HA ENTRADO**: en la pestaña, **una tarjeta por control** que se despliega con
+  los invitados con su foto (`_invitation_guest_identity`, resuelto en bloque), **en VERDE** los que ya
+  han pasado (o han usado el extra) con su hora, **«Ver también las anuladas y bloqueadas»**, y
+  **deshacer** una lectura marcada por error (`invitation_gen_access_undo`, traza `DESHECHO`). Y en
+  **«Invitados»**, junto a cada petición y compromiso, la marca **«N/N dentro»** y los extras usados
+  (`_invgen_access_badge.html`, que se emite SIEMPRE oculta para que el sondeo la pueda encender).
+  ⚠️ `invgen_access.js` se carga **FUERA del `{% if request.args.get('open') %}`** del final de
+  `invitaciones.html` (ahí solo se cumple con `?open=`): la primera versión no llegaba al HTML (lo
+  sacó la prueba).
+  ⚠️ Los endpoints `invitation_gen_access_*` caen en `invitaciones.gestionar` por el prefijo; los
+  cuatro públicos (`public_invitation_access`, `_state`, `_scan`, `_og_image`) van en las TRES listas
+  y **`public_invitation_access_scan` exento de CSRF** (es un POST público: el token es la credencial).
+  · La prueba `tools/check_invitaciones_generadas.py` cubre ya el lote 3 (apartados 14-18: **200
+  comprobaciones** en total): la pestaña solo con generadas, el enlace (crear · reutilizar ·
+  anular), la página sin sesión con sus `og:`, las siete lecturas, deshacer, el estado y las marcas
+  de Invitados, el QR de una autorización de menores, el correo y los permisos.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

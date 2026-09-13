@@ -11,6 +11,10 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
     un sector a mano), el PDF de cada entrada al vuelo y su enlace público, las generadas en la gestión
     de invitaciones (PDF unido, ZIP, plano), recuperar una enviada → código NUEVO (el viejo anulado),
     descartar → anulado, eliminar → anulado, el Excel de códigos y los permisos
+  · LOTE 3: la pestaña «Control de accesos» (solo con generadas), el enlace propio (crear, reutilizar,
+    anular y generar otro), la página pública sin sesión, las lecturas (OK · ya usada · sin extra ·
+    anulada · bloqueada · desconocida · asignada), deshacer, el estado en vivo y las marcas de
+    «Invitados», el QR de una autorización de MENORES, el correo y los permisos
     /tmp/python/bin/python3 tools/check_invitaciones_generadas.py
 Requiere el entorno de /tmp de CLAUDE.md. Es IDEMPOTENTE (borra lo que crea).
 """
@@ -38,7 +42,8 @@ import app as A                                       # noqa: E402
 import models                                         # noqa: E402
 from models import (Artist, Concert, GroupCompany, InvitationAccessLog, InvitationCategory,   # noqa: E402
                     InvitationConditionsTemplate, InvitationExtraPreset, InvitationGenCategory,
-                    InvitationGenConfig, InvitationTicket, InvitationVoidedCode, Promoter, User,
+                    InvitationGenConfig, InvitationRequest, InvitationTicket, InvitationVoidedCode,
+                    MinorAuthConfig, MinorAuthorization, MinorAuthorizationMinor, Promoter, User,
                     UserProfile, Venue, VenueSeatMap)
 
 A.app.config["WTF_CSRF_ENABLED"] = False
@@ -527,6 +532,264 @@ def main():
         check("el PDF público resuelve a None", A._resolve_request_resource_key() is None)
     check("el PDF público está en las listas de públicos", "public_invitation_ticket_pdf" in A.PUBLIC_ENDPOINTS_EXTRA)
     check("sin acceso: las secciones no se ven", cl2.get(f"/invitaciones/evento/{cid}/generar/secciones").status_code in (302, 403))
+
+
+    # ------------------------------------------------------------------ LOTE 3 · control de acceso
+    print("14 · la pestaña «Control de accesos» y el enlace propio")
+    # Volver a activar dos extras (el apartado 6 los quitó todos) y generar una categoría CON extras.
+    s = A.db()
+    try:
+        presets = {p.key: p for p in s.query(InvitationExtraPreset).all()}
+        cena = s.query(InvitationExtraPreset).filter(InvitationExtraPreset.name == "InvGen Cena previa").first()
+        mg_id, cena_id = str(presets["MEET_GREET"].id), (str(cena.id) if cena else "")
+        cfg = s.query(InvitationGenConfig).filter(InvitationGenConfig.concert_id == A.to_uuid(cid)).first()
+        clauses = list(cfg.conditions_json or [])
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/configurar", data={
+        "doors_time": "20:00", "show_time": "21:30", "image_choice": "keep",
+        "extra_id[]": ["", ""], "extra_preset_id[]": [mg_id, cena_id],
+        "extra_name[]": ["Meet & Greet", "InvGen Cena previa"], "extra_icon[]": ["fa-handshake", "fa-utensils"],
+        "extra_instructions[]": ["A las 19:00", "En el restaurante"], "extra_new_catalog[]": ["0", "0"],
+        "template_scope": "ONLY",
+        "cond_title[]": [c["title"] for c in clauses] or ["Invitación personal"],
+        "cond_body[]": [c["body"] for c in clauses] or ["Solo este evento."],
+    })
+    check("se vuelven a activar los dos extras", r.status_code == 302)
+    s = A.db()
+    try:
+        cfg = s.query(InvitationGenConfig).filter(InvitationGenConfig.concert_id == A.to_uuid(cid)).first()
+        extras_now = {x.name: str(x.id) for x in cfg.extras}
+        check("hay dos extras activos", set(extras_now) == {"Meet & Greet", "InvGen Cena previa"}, extras_now)
+        mg_key = extras_now["Meet & Greet"]
+        cena_key = extras_now["InvGen Cena previa"]
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/categorias", json={"name": "InvGen Acceso", "extra_ids": [mg_key], "sectors": [
+        {"section_key": "s2", "section_name": "Pista", "numbered": False, "door": "Puerta 2", "seats": [], "qty": 3}]})
+    check("se genera una categoría con el extra Meet & Greet (3 de pie)", r.status_code == 200 and r.get_json()["created"] == 3, r.get_json())
+    s = A.db()
+    try:
+        vivas = (s.query(InvitationTicket).filter(InvitationTicket.concert_id == A.to_uuid(cid), InvitationTicket.is_generated.is_(True),
+                                                  InvitationTicket.status != "LOST").order_by(InvitationTicket.uploaded_at.asc()).all())
+        con_mg = [t for t in vivas if t.gen_category is not None and mg_key in {str(x) for x in (t.gen_category.extras_json or [])}]
+        sin_mg = [t for t in vivas if t not in con_mg]
+        check("hay entradas con el extra y sin él", len(con_mg) == 3 and len(sin_mg) >= 1, (len(con_mg), len(sin_mg)))
+        n_validas = len([t for t in vivas if (t.status or "").upper() != "BLOCKED"])
+        tk_a, tk_b, tk_c = con_mg[0], con_mg[1], con_mg[2]
+        tk_sin = sin_mg[0]
+        cod_a, cod_b, cod_c, cod_sin = tk_a.qr_token, tk_b.qr_token, tk_c.qr_token, tk_sin.qr_token
+        tid_a, tid_b, tid_c = str(tk_a.id), str(tk_b.id), str(tk_c.id)
+    finally:
+        s.close()
+    r = cl.get(f"/invitaciones/evento/{cid}")
+    html = r.get_data(as_text=True)
+    check("la pestaña sale en la gestión del evento", r.status_code == 200 and 'id="inv-tab-access"' in html and "Control de accesos" in html)
+    check("con sus dos botones", "Compartir códigos de entradas" in html and "Control de acceso propio" in html and "codigos.xlsx" in html)
+    check("una tarjeta por control: la entrada y los dos extras", html.count("data-invacc-card=") == 3 and "Acceso entrada" in html and "InvGen Cena previa" in html)
+    check("las marcas de Invitados van preparadas (aunque no haya nada) ", "invgen_access.js" in html)
+    r2 = cl.get(f"/invitaciones/evento/{cid2}")
+    check("… y NO sale en la actividad sin generadas", r2.status_code == 200 and 'id="inv-tab-access"' not in r2.get_data(as_text=True))
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/control/enlace")
+    j = r.get_json()
+    check("se genera el enlace", r.status_code == 200 and j["ok"] and "/control-acceso/" in j["url"], j)
+    acc_url = j["url"]
+    tok_acc = acc_url.rstrip("/").rsplit("/", 1)[-1]
+    check("el título de lo que se comparte", j["share"]["title"].startswith("Control de accesos · Concierto · Los InvGen"), j["share"]["title"])
+    check("y debajo el festival y la fecha", "InvGen Festival Prueba" in j["share"]["description"] and HOY.strftime("%Y") in j["share"]["description"], j["share"]["description"])
+    check("WhatsApp y SMS con el enlace dentro", j["share"]["whatsapp_url"].startswith("https://wa.me/") and "control-acceso" in j["share"]["sms_url"])
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/control/enlace")
+    check("volver a pedirlo devuelve el MISMO enlace", r.get_json()["url"] == acc_url)
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/control/enlace", data={"renew": "1"})
+    acc_url2 = r.get_json()["url"]
+    check("«anular y generar otro» cambia el enlace", acc_url2 != acc_url and r.get_json()["renewed"])
+    anon = A.app.test_client()
+    check("el enlace anterior ya no vale (404)", anon.get(acc_url).status_code == 404)
+    acc_url, tok_acc = acc_url2, acc_url2.rstrip("/").rsplit("/", 1)[-1]
+    r = cl.get(f"/invitaciones/evento/{cid}/generar/control/estado.json")
+    j = r.get_json()
+    check("el estado responde", r.status_code == 200 and j["ok"] and j["controls"][0]["key"] == "ENTRADA" and len(j["controls"]) == 3, r.status_code)
+    ent = j["controls"][0]
+    check("emitidas de la entrada = las generadas válidas", ent["issued"] == n_validas and ent["validated"] == 0, (ent, n_validas))
+    mgc = [c for c in j["controls"] if c["key"] == mg_key][0]
+    check("el Meet & Greet cuenta solo las que lo incluyen", mgc["issued"] == 3, mgc)
+    check("el estado sin personas no las trae", j.get("people") is None)
+    r = cl.get(f"/invitaciones/evento/{cid}/generar/control/estado.json?people=1")
+    j = r.get_json()
+    check("con people=1 trae una fila por entrada, sin asignar", len(j["people"]) >= 4 and all(p["guest_name"] == "Sin asignar" for p in j["people"] if p["valid"]))
+
+    print("15 · la página pública y las lecturas")
+    r = anon.get(acc_url)
+    html = r.get_data(as_text=True)
+    check("la página del control abre SIN sesión", r.status_code == 200, r.status_code)
+    check("lleva las og: con el título y la imagen", 'og:title" content="Control de accesos' in html and "/og.jpg" in html)
+    check("enseña la cabecera y los controles", "Los InvGen" in html and "Acceso entrada" in html and "InvGen Cena previa" in html and "data-scan-url" in html)
+    check("todavía sin menores (el atributo no se emite)", 'data-minors-check-url="' not in html)
+    check("un solo doctype", html.count("<!doctype") == 1)
+    r = anon.get(f"/control-acceso/{tok_acc}/og.jpg")
+    check("la miniatura responde (imagen o el respaldo)", r.status_code in (200, 302), r.status_code)
+    r = anon.get(f"/control-acceso/{tok_acc}/estado.json")
+    check("el estado público responde solo los números", r.status_code == 200 and r.get_json()["ok"] and "people" not in r.get_json() and "by_source" not in r.get_json())
+
+    def leer(code, control="ENTRADA"):
+        rr = anon.post(f"/control-acceso/{tok_acc}/leer", json={"code": code, "control": control})
+        return rr.status_code, (rr.get_json() or {})
+
+    st, j = leer(cod_a)
+    check("una entrada válida → OK", st == 200 and j["ok"] and j["result"] == "OK" and j["good"], j)
+    check("… dice que no está asignada a nadie", "no está asignada" in (j.get("warn") or ""), j.get("warn"))
+    check("… y el estado que vuelve ya cuenta 1 dentro", j["state"]["controls"][0]["validated"] == 1)
+    st, j = leer(cod_a)
+    check("la misma entrada otra vez → YA USADA (rojo)", j["result"] == "YA_USADA" and not j["good"] and "Ya entró" in j["detail"], j)
+    st, j = leer(cod_a, mg_key)
+    check("el Meet & Greet de una entrada que lo incluye → OK", j["result"] == "OK" and j["good"] and "Meet & Greet OK" in j["title"], j)
+    st, j = leer(cod_a, mg_key)
+    check("el mismo extra otra vez → YA USADA", j["result"] == "YA_USADA" and "Se usó" in j["detail"], j)
+    st, j = leer(cod_a, cena_key)
+    check("un extra que la entrada NO incluye → SIN EXTRA", j["result"] == "SIN_EXTRA" and not j["good"], j)
+    st, j = leer(cod_sin, mg_key)
+    check("una entrada de otra categoría sin el extra → SIN EXTRA", j["result"] == "SIN_EXTRA", j)
+    st, j = leer(f"https://app.33producciones.es/invitaciones/entrada/{cod_b[:4].lower()}-{cod_b[4:]}.pdf")
+    check("el código llega como la URL del PDF (con guiones y minúsculas) y se lee igual", j["result"] == "OK" and j["ticket"]["code"] == cod_b, j)
+    st, j = leer(tok_num)
+    check("el código ANULADO del apartado 11 → ANULADA", j["result"] == "ANULADA" and not j["good"], j)
+    st, j = leer("NOEXISTE12345678")
+    check("un código que no existe → DESCONOCIDA", j["result"] == "DESCONOCIDA" and not j["good"], j)
+    st, j = leer("")
+    check("sin código, 400", st == 400 and not j.get("ok"))
+    s = A.db()
+    try:
+        t = s.get(InvitationTicket, A.to_uuid(tid_c)); t.status = "BLOCKED"; s.commit()
+    finally:
+        s.close()
+    st, j = leer(cod_c)
+    check("una entrada BLOQUEADA → BLOQUEADA (rojo)", j["result"] == "BLOQUEADA" and not j["good"], j)
+    s = A.db()
+    try:
+        t = s.get(InvitationTicket, A.to_uuid(tid_c)); t.status = "ASSIGNED"; t.assigned_label = "Pepe Puerta"; s.commit()
+        a = s.get(InvitationTicket, A.to_uuid(tid_a))
+        check("la entrada leída queda con su hora de acceso y su extra usado", a.access_entered_at is not None and mg_key in (a.access_extras_json or {}))
+        n_logs = s.query(InvitationAccessLog).filter(InvitationAccessLog.concert_id == A.to_uuid(cid)).count()
+        res = {x.result for x in s.query(InvitationAccessLog).filter(InvitationAccessLog.concert_id == A.to_uuid(cid)).all()}
+        check("cada lectura deja su traza (también los rechazos)", n_logs >= 9 and {"OK", "YA_USADA", "SIN_EXTRA", "ANULADA", "DESCONOCIDA", "BLOQUEADA"} <= res, (n_logs, res))
+    finally:
+        s.close()
+    st, j = leer(cod_c)
+    check("una entrada asignada dice de quién es y sin aviso", j["result"] == "OK" and j["ticket"]["guest_name"] == "Pepe Puerta" and not j.get("warn"), j)
+    r = cl.post(f"/invitaciones/evento/{cid}/generar/control/deshacer", json={"ticket_id": tid_c, "control": "ENTRADA"})
+    j = r.get_json()
+    check("deshacer una lectura (desde dentro)", r.status_code == 200 and j["ok"] and j["undone"] and j["state"]["controls"][0]["validated"] == 2, j.get("state", {}).get("controls", [{}])[0])
+    s = A.db()
+    try:
+        c3 = s.get(InvitationTicket, A.to_uuid(tid_c))
+        check("… y la entrada vuelve a estar sin pasar", c3.access_entered_at is None)
+        check("… con su traza DESHECHO", s.query(InvitationAccessLog).filter(InvitationAccessLog.ticket_id == c3.id, InvitationAccessLog.result == "DESHECHO").count() == 1)
+        # recuperar una enviada: renace con otro código y SIN usos
+        a = s.get(InvitationTicket, A.to_uuid(tid_a)); a.status = "SENT"; a.sent_at = A._now_madrid(); s.commit()
+    finally:
+        s.close()
+    r = cl.post(f"/invitaciones/tickets/{tid_a}/liberar", data={"ajax": "1", "mode": "recover"})
+    s = A.db()
+    try:
+        a = s.get(InvitationTicket, A.to_uuid(tid_a))
+        check("al recuperarla renace sin accesos ni extras usados", r.status_code == 200 and a.qr_token != cod_a and a.access_entered_at is None and (a.access_extras_json or {}) == {})
+        cod_a_nuevo = a.qr_token
+    finally:
+        s.close()
+    st, j = leer(cod_a)
+    check("y su código viejo ya dice ANULADA en la puerta", j["result"] == "ANULADA", j)
+    st, j = leer(cod_a_nuevo)
+    check("el nuevo entra", j["result"] == "OK", j)
+
+    print("16 · lo que se ve: las listas de la pestaña y las marcas de «Invitados»")
+    s = A.db()
+    try:
+        cat = s.query(InvitationCategory).filter(InvitationCategory.concert_id == A.to_uuid(cid), InvitationCategory.name == "InvGen Acceso").first()
+        req = InvitationRequest(concert_id=A.to_uuid(cid), guest_name="Invitada Acceso", guest_type="MANUAL", requester_nick="dirinvgen",
+                                quantities_json={str(cat.id): 1}, status="ASIGNADAS")
+        s.add(req); s.flush()
+        b = s.get(InvitationTicket, A.to_uuid(tid_b)); b.status = "ASSIGNED"; b.assigned_request_id = req.id; b.assigned_label = "Invitada Acceso"
+        s.commit()
+        req_id = str(req.id)
+    finally:
+        s.close()
+    r = cl.get(f"/invitaciones/evento/{cid}/generar/control/estado.json?people=1")
+    j = r.get_json()
+    fila = [p for p in j["people"] if p["id"] == tid_b][0]
+    check("la fila de la entrada dice de quién es y que ya ha entrado", fila["guest_name"] == "Invitada Acceso" and fila["entered"] and fila["source"] == f"request:{req_id}", fila)
+    check("por petición: 1 de 1 dentro", j["by_source"].get(f"request:{req_id}", {}).get("entered") == 1 and j["by_source"][f"request:{req_id}"]["total"] == 1, j["by_source"])
+    s = A.db()
+    try:
+        c3 = s.get(InvitationTicket, A.to_uuid(tid_c)); c3.status = "BLOCKED"; s.commit()   # una apartada, para verla en la lista oculta
+    finally:
+        s.close()
+    r = cl.get(f"/invitaciones/evento/{cid}")
+    html = r.get_data(as_text=True)
+    s = A.db()
+    try:
+        c3 = s.get(InvitationTicket, A.to_uuid(tid_c)); c3.status = "ASSIGNED"; s.commit()
+    finally:
+        s.close()
+    check("la pestaña pinta la fila en verde (is-on) con su nombre", f'data-invacc-row="{tid_b}" data-control="ENTRADA"' in html and "Invitada Acceso" in html and re.search(r'class="invacc-row is-on"[^>]*data-invacc-row="%s" data-control="ENTRADA"' % tid_b, html) is not None)
+    check("y en «Invitados» sale la marca «1/1 dentro» de esa petición", f'data-access-src="request:{req_id}"' in html and re.search(r'data-access-src="request:%s"(?:(?!</span>\s*</span>).)*?1</span>/<span data-access-total-n>1</span> dentro' % req_id, html, re.S) is not None)
+    check("el número de la pestaña dice cuántos han entrado", re.search(r'data-invacc-pill[^>]*>\s*2\s*<', html) is not None)
+    check("la bloqueada va en una fila oculta con su botón de verlas", "Ver también las anuladas y bloqueadas (1)" in html and f'data-invacc-row="{tid_c}" data-control="ENTRADA" data-acc="BLOCKED"' in html)
+    check("la pestaña carga su JS", "invgen_access.js" in html)
+
+    print("17 · menores: el mismo lector entiende el QR de una autorización")
+    s = A.db()
+    try:
+        mcfg = MinorAuthConfig(concert_id=A.to_uuid(cid), age_limit=16, public_token=A._uuid_token(), validate_token=A._uuid_token(), active=True)
+        s.add(mcfg); s.flush()
+        auth = MinorAuthorization(config_id=mcfg.id, concert_id=A.to_uuid(cid), guardian_kind="MADRE", guardian_first_name="Ana", guardian_last_name="Tutora",
+                                  guardian_doc_number="12345678Z", escort_is_guardian=True, qr_token=A._uuid_token(), status="VALID")
+        s.add(auth); s.flush()
+        s.add(MinorAuthorizationMinor(authorization_id=auth.id, first_name="Leo", last_name="Menor", doc_number="87654321X"))
+        auth2 = MinorAuthorization(config_id=mcfg.id, concert_id=A.to_uuid(cid), guardian_kind="TUTOR", guardian_first_name="Luis", guardian_last_name="Anulado",
+                                   qr_token=A._uuid_token(), status="CANCELLED")
+        s.add(auth2); s.commit()
+        qr_ok, qr_ko = auth.qr_token, auth2.qr_token
+    finally:
+        s.close()
+    st, j = leer(f"https://app.33producciones.es/autorizacion-menores/pase/{qr_ok}")
+    check("el QR de una autorización válida → MENOR OK (verde)", j["result"] == "MENOR_OK" and j["good"] and j["kind"] == "minor" and j["minor"]["minors"][0]["full_name"] == "Leo Menor", j)
+    st, j = leer(qr_ko)
+    check("el de una anulada → MENOR KO (rojo)", j["result"] == "MENOR_KO" and not j["good"], j)
+    r = anon.get(acc_url)
+    html = r.get_data(as_text=True)
+    check("la página ofrece ahora el acceso de menores con el buscador de siempre", "Acceso de menores" in html and 'data-minors-check-url="' in html and "doc_camera.js" in html)
+    check("… y las entradas se siguen leyendo igual", leer(cod_sin)[1]["result"] == "OK")
+
+    print("18 · el correo y los permisos del lote 3")
+    enviados = []
+    _orig_send = A._send_optional_email
+    A._send_optional_email = lambda to, subject, html, *a, **k: (enviados.append((to, subject, html)) or (True, None))
+    try:
+        r = cl.post(f"/invitaciones/evento/{cid}/generar/control/enviar", json={"emails": "puerta@x.test, seguridad@x.test", "note": "Nota de prueba"})
+        j = r.get_json()
+        check("el correo sale a las dos personas", r.status_code == 200 and j["ok"] and j["sent"] == 2 and len(enviados) == 1 and set(enviados[0][0]) == {"puerta@x.test", "seguridad@x.test"}, j)
+        to, subject, html = enviados[0] if enviados else ([], "", "")
+        check("con el asunto de la casa", subject.startswith("Control de accesos · Concierto · Los InvGen"), subject)
+        check("logo a la derecha, título centrado, la actividad y el botón con el enlace", "text-align:right" in html and "Control de acceso</h2>" in html and "Los InvGen" in html and acc_url in html and "Nota de prueba" in html)
+        r = cl.post(f"/invitaciones/evento/{cid}/generar/control/enviar", json={"emails": "", "note": ""})
+        check("sin correos se rechaza", r.status_code == 400)
+    finally:
+        A._send_optional_email = _orig_send
+    with A.app.test_request_context(f"/invitaciones/evento/{cid}/generar/control/estado.json"):
+        check("el estado de dentro resuelve a invitaciones.gestionar", A._resolve_request_resource_key() == "invitaciones.gestionar")
+    with A.app.test_request_context(f"/invitaciones/evento/{cid}/generar/control/enlace", method="POST"):
+        check("el enlace resuelve a invitaciones.gestionar", A._resolve_request_resource_key() == "invitaciones.gestionar")
+    with A.app.test_request_context(f"/control-acceso/{tok_acc}"):
+        check("la página pública resuelve a None", A._resolve_request_resource_key() is None)
+    with A.app.test_request_context(f"/control-acceso/{tok_acc}/leer", method="POST"):
+        check("la lectura pública resuelve a None", A._resolve_request_resource_key() is None)
+    check("los cuatro públicos están en las listas", all(e in A.PUBLIC_ENDPOINTS_EXTRA for e in ("public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image")))
+    vf = A.app.view_functions["public_invitation_access_scan"]
+    check("la lectura pública está EXENTA de CSRF de verdad", ("%s.%s" % (vf.__module__, vf.__name__)) in A.csrf._exempt_views)
+    check("sin acceso: el estado de dentro no se ve", cl2.get(f"/invitaciones/evento/{cid}/generar/control/estado.json").status_code in (302, 403))
+    check("sin acceso: el enlace no se genera", cl2.post(f"/invitaciones/evento/{cid}/generar/control/enlace").status_code in (302, 403))
+    r = anon.get(f"/invitaciones/evento/{cid}")
+    check("la gestión del evento sigue exigiendo sesión", r.status_code in (302, 403))
 
     print()
     print(f"OK: {OK} · FALLOS: {FALLOS}")

@@ -384,6 +384,8 @@
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-tickets" type="button">Invitaciones</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-listados" type="button">Listados</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-links" type="button">Enlaces generados</button></li>
+    {# CONTROL DE ACCESOS: solo cuando hay invitaciones GENERADAS (las que llevan el QR de la app). #}
+    {% if access_tab %}<li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-access" type="button"><i class="fa fa-qrcode me-1"></i>Control de accesos <span class="badge rounded-pill text-bg-success ms-1" data-invacc-pill title="Han entrado">{{ access_tab.totals.entered|k }}</span></button></li>{% endif %}
   </ul>
 
   <div class="tab-content">
@@ -424,6 +426,7 @@
                           {% if row.recipient_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-photo' if row.guest_type in ['ARTIST','EMPLOYEE'] else 'is-logo' }}" src="{{ row.recipient_photo }}" alt="">{% endif %}
                           <strong>{{ row.name }}</strong>
                           {% if row.reason %}<span class="text-muted small">· {{ row.reason }}</span>{% endif %}
+                          {% if access_tab %}{% with src='commitment:' ~ row.id %}{% include '_invgen_access_badge.html' %}{% endwith %}{% endif %}
                           {% if row.created_by_nick %}<span class="inv-person-sep">|</span><span class="inv-person text-muted small">Añadido por: <img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.created_by_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.created_by_nick }}</span>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): enviar a (foto/logo + nombre) + vínculo (logos/fotos). #}
@@ -579,6 +582,7 @@
                           {% if row.categories_label and not row.other_cats %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
                           {% if row.reforwarded %}<i class="fa fa-share-from-square {{ 'inv-dl-partial' if row.reforwarded_partial else 'inv-reforwarded' }}" title="{% if row.reforwarded_partial %}Reenvío PARCIAL: hay invitaciones nuevas desde que el invitado reenvió{% if row.reforwarded_at_label %} ({{ row.reforwarded_at_label }}){% endif %}{% else %}El invitado reenvió sus invitaciones{% if row.reforwarded_at_label %} · {{ row.reforwarded_at_label }}{% endif %}{% endif %}"></i>{% endif %}
                           {% if row.downloaded_at_label %}<i class="fa fa-circle-down {{ 'inv-dl-partial' if row.downloaded_partial else 'inv-dl-done' }}" title="{% if row.downloaded_partial %}Descarga PARCIAL de «{{ g.name }}»: hay invitaciones nuevas desde la última descarga ({{ row.downloaded_at_label }}){% else %}Descargada · «{{ g.name }}» · {{ row.downloaded_at_label }}{% endif %}"></i>{% endif %}
+                          {% if access_tab %}{% with src='request:' ~ row.id %}{% include '_invgen_access_badge.html' %}{% endwith %}{% endif %}
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
@@ -1179,6 +1183,7 @@
         </div>
       </div>
     </div>
+    {% if access_tab %}{% include '_invgen_access_tab.html' %}{% endif %}
   </div>
 
   <div class="modal fade" id="assignAllModal" tabindex="-1" aria-hidden="true" data-partial-url="{{ url_for('invitation_assign_partial', concert_id=event.id) }}">
@@ -4828,4 +4833,7 @@
   window.app33AutoOpenModal && window.app33AutoOpenModal({{ ("'commitmentModal'" if request.args.get('open') == 'commitment' else "'invitationRequestModal'")|safe }});
 </script>
 {% endif %}
+{# El JS de la pestaña «Control de accesos»: solo cuando existe (hay invitaciones generadas). Va FUERA
+   del `if` de la auto-apertura de arriba, que solo se cumple con `?open=`. #}
+{% if access_tab %}<script src="{{ url_for('static', filename='js/invgen_access.js', v=ASSET_V) }}"></script>{% endif %}
 {% endblock %}

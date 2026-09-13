@@ -1,0 +1,129 @@
+{# GENERACIÓN DE INVITACIONES · lote 3 · la pestaña «CONTROL DE ACCESOS» de la gestión de invitaciones
+   de una actividad. Solo existe cuando hay invitaciones GENERADAS (`access_tab` no es None).
+   Arriba: cuántas hay y los dos botones —el fichero de códigos para un control EXTERNO (el Excel) y
+   el CONTROL DE ACCESO PROPIO (el enlace para leer los QR desde cualquier móvil, que se comparte por
+   correo, WhatsApp o SMS)—. Debajo, UNA TARJETA POR CONTROL (la entrada y cada extra) con las
+   entradas válidas emitidas (las anuladas no cuentan) y las validadas; al pincharla se despliegan los
+   invitados con su foto, en VERDE los que ya han pasado, con la opción de ver también las anuladas.
+   Todo se pone al día solo (`static/js/invgen_access.js` pregunta cada pocos segundos). #}
+{% set acc = access_tab %}
+<div class="tab-pane fade" id="inv-tab-access" data-invacc
+     data-state-url="{{ acc.state_url }}" data-link-url="{{ acc.link_url }}" data-send-url="{{ acc.send_url }}"
+     data-undo-url="{{ acc.undo_url }}" data-poll="{{ acc.poll_seconds }}" data-entry-key="ENTRADA"
+     data-controls='{{ acc.controls|tojson|forceescape }}'>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+          <h5 class="mb-1"><i class="fa fa-qrcode text-danger me-2"></i>Control de accesos</h5>
+          <div class="text-muted small">Las invitaciones generadas llevan su código QR: aquí se ve quién ha entrado y quién ha usado cada extra, en vivo.</div>
+        </div>
+        <div class="invitation-counts" data-invacc-totals>
+          <div title="Invitaciones generadas que valen para entrar (sin las anuladas ni las bloqueadas)"><span data-invacc-total="valid">{{ acc.totals.valid|k }}</span><small><i class="fa fa-ticket me-1"></i>Generadas válidas</small></div>
+          <div class="text-success" title="Han pasado por el control de entrada"><span data-invacc-total="entered">{{ acc.totals.entered|k }}</span><small><i class="fa fa-door-open me-1"></i>Han entrado</small></div>
+          <div class="text-secondary" title="Códigos anulados: entradas recuperadas tras enviarlas, descartadas o eliminadas. En la puerta dicen «anulada»."><span data-invacc-total="voided_codes">{{ acc.totals.voided_codes|k }}</span><small><i class="fa fa-ban me-1"></i>Anuladas</small></div>
+          {% if acc.totals.blocked %}<div class="text-secondary" title="Apartadas: no se reparten y no valen en la puerta"><span data-invacc-total="blocked">{{ acc.totals.blocked|k }}</span><small><i class="fa fa-lock me-1"></i>Bloqueadas</small></div>{% endif %}
+        </div>
+      </div>
+      <div class="d-flex gap-2 flex-wrap mt-3 align-items-center">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ acc.xlsx_url }}" data-dl-bar title="El fichero con los códigos de todas las invitaciones generadas (y los anulados), para un control de acceso externo"><i class="fa fa-file-excel me-1"></i>Compartir códigos de entradas</a>
+        <button type="button" class="btn btn-sm btn-danger" data-invacc-open><i class="fa fa-mobile-screen-button me-1"></i>Control de acceso propio</button>
+        {% if acc.has_link %}
+        <span class="small text-muted" data-invacc-linkinfo><i class="fa fa-link me-1"></i>Enlace generado{% if acc.link_at %} el {{ acc.link_at }}{% endif %} · <a href="{{ acc.url }}" target="_blank" rel="noopener">abrirlo</a></span>
+        {% else %}
+        <span class="small text-muted" data-invacc-linkinfo><i class="fa fa-circle-info me-1"></i>Al pulsarlo se genera el enlace con el que cualquiera con un móvil lee los códigos.</span>
+        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary ms-auto" href="{{ acc.gen_url }}"><i class="fa fa-layer-group me-1"></i>Ver las categorías generadas</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3" data-invacc-controls>
+    {% for c in acc.controls %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <div class="invacc-card{% if c.is_entry %} is-entry{% endif %}" data-invacc-card="{{ c.key }}">
+        <button type="button" class="invacc-card__head" data-invacc-toggle="{{ c.key }}" aria-expanded="false">
+          <span class="invacc-card__icon"><i class="fa {{ c.icon }}"></i></span>
+          <span class="invacc-card__body">
+            <span class="invacc-card__name">{{ c.name }}</span>
+            <span class="invacc-card__nums"><strong data-invacc-validated="{{ c.key }}">{{ c.validated|k }}</strong> <span class="text-muted">de</span> <span data-invacc-issued="{{ c.key }}">{{ c.issued|k }}</span> <small class="text-muted">{{ 'han entrado' if c.is_entry else 'lo han usado' }}</small></span>
+            <span class="invacc-bar"><span data-invacc-bar="{{ c.key }}" style="width:{{ c.pct }}%"></span></span>
+          </span>
+          <i class="fa fa-chevron-down invacc-card__chev"></i>
+        </button>
+        <div class="invacc-card__list d-none" data-invacc-list="{{ c.key }}">
+          {% set ns = namespace(n=0, off=0) %}
+          {% for p in acc.people %}{% if c.is_entry or c.key in p.included %}{% set ns.n = ns.n + 1 %}{% if not p.valid %}{% set ns.off = ns.off + 1 %}{% endif %}
+          {% set _on = (p.entered if c.is_entry else (c.key in p.used)) %}
+          <div class="invacc-row{% if _on %} is-on{% endif %}{% if not p.valid %} is-off d-none{% endif %}" data-invacc-row="{{ p.id }}" data-control="{{ c.key }}" data-acc="{{ p.acc }}">
+            {% if p.guest_photo %}<img class="invacc-row__ava {{ 'is-logo' if p.guest_is_logo else 'is-photo' }}" src="{{ p.guest_photo }}" alt="" loading="lazy" data-avatar="1">{% else %}<img class="invacc-row__ava is-photo" src="{{ DEFAULT_AVATAR_URL }}" alt="" loading="lazy">{% endif %}
+            <div class="invacc-row__main">
+              <div class="invacc-row__name">{{ p.guest_name }}{% if p.guest_title %} <span class="text-muted small">· {{ p.guest_title }}</span>{% endif %}</div>
+              <div class="invacc-row__meta">{{ p.category }}{% if p.seat %} · {{ p.seat }}{% endif %}{% if p.door %} · <i class="fa fa-door-open"></i> {{ p.door }}{% endif %}{% if not p.valid %} · <span class="text-danger">{{ 'Anulada' if p.acc == 'VOIDED' else 'Bloqueada' }}</span>{% endif %}</div>
+            </div>
+            <div class="invacc-row__state">
+              <span class="invacc-row__when" data-invacc-when>{% if _on %}{{ p.entered_label if c.is_entry else p.used.get(c.key, '') }}{% endif %}</span>
+              <i class="fa fa-circle-check invacc-row__ok" title="{{ 'Ha entrado' if c.is_entry else 'Usado' }}"></i>
+              <button type="button" class="btn btn-link btn-sm p-0 invacc-row__undo" data-invacc-undo data-ticket="{{ p.id }}" data-control="{{ c.key }}" title="Deshacer esta lectura (se marcó por error)"><i class="fa fa-rotate-left"></i></button>
+            </div>
+          </div>
+          {% endif %}{% endfor %}
+          {% if ns.n == 0 %}<div class="text-muted small p-2" data-invacc-empty>Ninguna invitación generada lleva este control.</div>{% endif %}
+          {% if ns.off %}
+          <button type="button" class="btn btn-link btn-sm invacc-showoff" data-invacc-showoff="{{ c.key }}"><i class="fa fa-eye me-1"></i>Ver también las anuladas y bloqueadas ({{ ns.off }})</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="small text-muted mt-2" data-invacc-updated><i class="fa fa-rotate me-1"></i>Se actualiza solo cada {{ acc.poll_seconds }} segundos · última vez a las <span data-invacc-at>—</span></div>
+</div>
+
+{# El pop-up de compartir el enlace del control de acceso: el mismo patrón que el resto de enlaces de
+   la casa (copiar · WhatsApp · SMS · correo desde el servidor), con la tarjeta que se va a ver. #}
+<div class="modal fade" id="invAccessShareModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-mobile-screen-button me-2"></i>Control de acceso propio</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small" data-invacc-loading><i class="fa fa-spinner fa-spin me-1"></i>Generando el enlace…</div>
+        <div class="d-none" data-invacc-body>
+          <div class="alert alert-light border d-flex align-items-center gap-3 py-2 mb-3">
+            <img data-invacc-thumb src="{{ acc.image_url or DEFAULT_COVER_URL }}" alt="" class="invacc-thumb">
+            <div class="min-w-0">
+              <div class="fw-semibold" data-invacc-title>{{ acc.meta.title }}</div>
+              <div class="small text-muted" data-invacc-desc>{{ acc.meta.description }}</div>
+            </div>
+          </div>
+          <p class="small text-muted mb-2">Con este enlace, cualquiera con un móvil puede leer los códigos QR de las invitaciones el día de la actividad. Elige qué controla (la entrada o un extra) y cada lectura dice si es correcta o por qué no. No lo compartas fuera del equipo.</p>
+          <label class="form-label small text-muted">Enlace</label>
+          <div class="input-group input-group-sm mb-3">
+            <input class="form-control" readonly data-invacc-url>
+            <button class="btn btn-outline-secondary" type="button" data-invacc-copy title="Copiar enlace"><i class="fa fa-copy"></i></button>
+            <a class="btn btn-outline-secondary" target="_blank" rel="noopener" data-invacc-openlink title="Abrir el control de acceso"><i class="fa fa-up-right-from-square"></i></a>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-invacc-mail><i class="fa fa-envelope me-1"></i>Email</button>
+            <a class="btn btn-outline-success btn-sm" target="_blank" rel="noopener" data-invacc-wa><i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</a>
+            <a class="btn btn-outline-secondary btn-sm" data-invacc-sms><i class="fa fa-comment-sms me-1"></i>SMS</a>
+            <button type="button" class="btn btn-outline-danger btn-sm ms-auto" data-invacc-renew title="El enlace anterior deja de valer y se genera otro"><i class="fa fa-rotate me-1"></i>Anular y generar otro</button>
+          </div>
+          <div class="border rounded p-2 d-none" data-invacc-mailbox>
+            <label class="form-label small">Para (uno o varios correos, separados por comas)</label>
+            <input class="form-control form-control-sm mb-2" data-invacc-to placeholder="puerta@ejemplo.com, seguridad@ejemplo.com">
+            <label class="form-label small">Nota (opcional)</label>
+            <textarea class="form-control form-control-sm mb-2" rows="2" data-invacc-note placeholder="Si quieres decirles algo más…"></textarea>
+            <button type="button" class="btn btn-primary btn-sm" data-invacc-send><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+            <span class="small ms-2" data-invacc-mailmsg></span>
+          </div>
+        </div>
+        <div class="alert alert-danger d-none mt-2" data-invacc-error></div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -49,6 +49,11 @@
   {% set rm_msg_title = rm.title or 'La actividad' %}
   {% include '_roadmap_message_modal.html' %}
 {% endif %}
+{# ⚠️ CADA ASISTENTE CARGA SU MOTOR: el de un punto de los horarios se crea por JavaScript y usa
+   `step_wizard.js` (los pasos, la cabecera roja con su icono por paso y las pastillas). En las
+   pantallas de dentro ya viene del layout; aquí se carga también porque este panel se pinta en
+   páginas standalone (el enlace compartido y el portal de externos). #}
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/roadmap.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/roadmap_message.js', v=ASSET_V) }}"></script>
 {% endif %}

@@ -13345,3 +13345,59 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **idempotente**. Al tocar el portal, en verde.
   ⚠️ La prueba limpia el freno por IP entre entradas (`A._EXT_RATE.clear()`): trece entradas seguidas
   desde `127.0.0.1` lo disparan, que es justo lo que tiene que hacer — el freno se comprueba aparte.
+
+- ⚠️⚠️ **HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos** (sep 2026, lo pidió
+  Dani). El editor de un punto de los horarios era un formulario largo de un tirón; ahora es el
+  **asistente de la casa** (`step_wizard.js`: cabecera roja con un icono por paso, pastillas,
+  pregunta grande y pie Atrás · Siguiente · Guardar) y **el MISMO ORDEN DE BLOQUES para todos los
+  tipos** —una entrevista, una prueba de sonido o un vuelo se piden igual—:
+  **1 · Qué es** (el MEDIO de una entrevista · la compañía y el nº de un traslado · el título) ·
+  **2 · Cuándo** (el día como tarjeta de calendario, las horas, «por confirmar» y si está cerrado) ·
+  **3 · Dónde** (cómo se hace la entrevista; en lo demás el sitio y cómo se entra) ·
+  **4 · Cómo va a ser** (en directo, si se canta con su formato y su repertorio, la nota, los
+  pasajeros de un traslado y los adjuntos) · **5 · Contacto** · **6 · Quién lo ve** (a quién afecta
+  y en qué hoja de ruta sale).
+  · **UNA ENTREVISTA** (lo que se pidió al detalle): **el TIPO SALE DEL MEDIO** (radio, tele,
+  prensa…) y ya no se pregunta aparte — se busca el medio con su logo y el que no esté se crea con
+  el **«+»** diciendo qué es. Debajo, el **programa**. Después **CÓMO SE HACE**
+  (`ROADMAP_INTERVIEW_MODALITIES`, las mismas claves que `PROMO_MODALITIES`): **Presencial** → las
+  **direcciones guardadas del medio** (`MediaLocation`) como tarjetas, o una nueva con la barra de
+  direcciones de la casa, y entonces **se pregunta si se guarda en el medio** (así la próxima vez
+  ya sale) o es solo para esa entrevista · **Zoom** → el enlace, que puede estar **TBC**, y con él
+  puesto **se entra desde la propia hoja de ruta** (el icono `.rm-zoomlink` en la fila y el botón
+  «Entrar en la videollamada» en el detalle) · **Phoner** → **a quién llaman** (la etiqueta rápida
+  del **ARTISTA**, alguien de la casa o un tercero, con su «+»), que se pinta con el **icono de
+  llamada, la flecha y su cara** (`callLine`) y su teléfono clicable.
+  · **EL CONTACTO de una entrevista son LAS PERSONAS DEL MEDIO, con su cara**
+  (`_media_contact_rows`, punto único): sus contactos **y los terceros VINCULADOS con él**, sin
+  repetirse. La que no esté se crea ahí mismo y —⚠️ regla de la casa— **se le crea su ficha de
+  TERCERO y queda vinculada al medio** (`_media_contact_promoter`, el mismo punto único que la
+  ficha del medio), nunca una persona suelta.
+  · **EL ARTISTA puede ser el destinatario de un punto**: en «a quién afecta» sale como una tarjeta
+  más y se guarda como **`artist:<id>`** (`_roadmap_artist_audience_key`), que **no es un id del
+  personal**. En el portal le afecta a él y a sus integrantes (`_roadmap_ext_person_info` recibe sus
+  artistas con `_roadmap_ext_artist_ids`).
+  ⚠️⚠️ **EL MOTOR ES EL DE LA CASA, ARRANCADO A MANO**: este asistente se crea por JavaScript, así
+  que no pasa por el `initAll` de `step_wizard.js` → **`window.app33StepWizard.init(root)`**. Y el
+  `.modal-content` **se REHACE entero en cada apertura**: el motor guarda referencias a sus pasos y
+  a sus botones, y reutilizar el nodo dejaría listeners viejos sobre elementos que ya no existen.
+  ⚠️ **CADA ASISTENTE CARGA SU MOTOR**: `_roadmap_panel.html` trae ya su `<script>` de
+  `step_wizard.js` (el panel se pinta también en páginas standalone —el enlace compartido y el
+  portal—, donde no está el layout).
+  ⚠️ **Un campo que no existe en ese tipo revienta el cableado**: en un TRASLADO no hay «¿se
+  canta?» ni repertorio, así que `attachSearch` sobre ese buscador (que no está) se llevaría por
+  delante todo lo demás — va con su `if`.
+  ⚠️ **Lo que no es de esa modalidad se LIMPIA al guardar**: el sitio y el acceso solo en
+  PRESENCIAL, el enlace solo en ZOOM y a quién llaman solo en PHONER; si no, la hoja de ruta
+  enseñaría una dirección que no es.
+  ⚠️ **`ivMeta` es el punto único de «qué es esta entrevista»**: lee igual la creada aquí
+  (`interview`) y la **espejada de una PROMOCIÓN** (`promo_meta`), así que las dos se pintan con el
+  mismo código en la fila y en el detalle.
+  ⚠️ **La FICHA DE UN MEDIO se lee en UNA llamada** (`api_media_card`, `/api/media/<id>/ficha`: qué
+  es, sus ubicaciones y sus personas con foto) y guardar una dirección es
+  `api_media_location_create` (que **no duplica** la misma). Los dos van en las listas de APOYO: lo
+  hace quien monta la producción, que no tiene por qué llevar la sección de Medios.
+  ⚠️ El selector de «¿Qué quieres añadir?» lleva también la cabecera de la casa: `openModal` acepta
+  un icono y entonces pinta `sw-head`.
+  · **Prueba de regresión**: `/tmp/python/bin/python3 tools/check_hoja_ruta.py` (apartado 9). Al
+  tocar el asistente, en verde.

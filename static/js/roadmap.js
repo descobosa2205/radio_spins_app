@@ -101,9 +101,15 @@
       }
       return m;
     }
-    function openModal(id, size, title, bodyHtml, footerNodes) {
+    /* `icon` = la CABECERA ROJA de la casa (`sw-head`, la de todas las altas de la app) con su
+       icono delante del título. Sin icono, la cabecera de siempre. */
+    function openModal(id, size, title, bodyHtml, footerNodes, icon) {
       var m = ensureModal(id, size);
-      m.querySelector('.modal-title').textContent = title || '';
+      var head = m.querySelector('.modal-header');
+      head.classList.toggle('sw-head', !!icon);
+      var t = m.querySelector('.modal-title');
+      if (icon) t.innerHTML = '<i class="fa ' + esc(icon) + ' me-2"></i>' + esc(title || '');
+      else t.textContent = title || '';
       var body = m.querySelector('.modal-body'); body.innerHTML = bodyHtml || '';
       var foot = m.querySelector('.modal-footer'); foot.innerHTML = '';
       (footerNodes || []).forEach(function (n) { foot.appendChild(n); });
@@ -156,8 +162,10 @@
       var fd = new FormData(); fd.append('nick', nick);
       return postForm('/api/promoters/create', fd);
     }
-    function createMedia(name) {
-      var fd = new FormData(); fd.append('name', name); fd.append('media_type', 'OTRO');
+    function createMedia(name, tipo) {
+      // ⚠️ CON SU TIPO: de lo que sea el medio (radio, tele, prensa…) sale el tipo de la entrevista
+      // y su icono, así que crearlo siempre como «OTRO» dejaba la entrevista sin identificar.
+      var fd = new FormData(); fd.append('name', name); fd.append('media_type', (tipo || 'OTRO'));
       return postForm('/api/media/create', fd);
     }
 
@@ -934,12 +942,57 @@
       }
       if (mode === 'PEOPLE' && (aud.ids || []).length) {
         var chips = aud.ids.map(function (id) {
+          // ⚠️ EL ARTISTA también puede ser el destinatario de un punto (`artist:<id>`): no está en
+          // el personal, así que se busca aparte.
+          if (String(id).indexOf('artist:') === 0) {
+            var a = ARTISTS.filter(function (x) { return 'artist:' + x.id === String(id); })[0];
+            return a ? '<span class="rm-nick" title="' + esc(a.name) + '">' + avatar(a.photo_url || AVATAR) + '<span>' + esc(a.name) + '</span></span>' : '';
+          }
           var p = personById(id); if (!p) return '';
           return '<span class="rm-nick" title="' + esc(p.name) + (p.role ? ' · ' + esc(p.role) : '') + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
         }).filter(Boolean).join('');
         return chips ? '<div class="rm-aud">' + chips + '</div>' : '';
       }
       return '';
+    }
+    /* LO QUE ES UNA ENTREVISTA, venga de donde venga: la creada aquí (`interview`) y la espejada
+       desde una PROMOCIÓN de prensa (`promo_meta`) se pintan IGUAL, así que se leen con el mismo
+       helper y no hay dos formas de pintar lo mismo. */
+    function ivMeta(it) {
+      var iv = (it && it.interview) || null, pm = (it && it.promo_meta) || null;
+      if (!iv && !pm) return null;
+      var mod = iv ? (iv.modality || '') : '';
+      var mi = IVMODS.filter(function (o) { return o.key === mod; })[0];
+      var fk = (iv && iv.formation) || '';
+      var fi = FORMATIONS.filter(function (o) { return o.key === fk; })[0];
+      return {
+        mediaName: (iv && iv.media_name) || (pm && pm.media_name) || '',
+        mediaIcon: (iv && (iv.media_icon || mediaIcon(iv.type))) || (pm && pm.media_icon) || 'fa-bullhorn',
+        type: (iv && iv.type) || (pm && pm.media_type) || '',
+        program: (iv && iv.program) || '',
+        modLabel: mi ? mi.label : ((pm && pm.modality_label) || ''),
+        modIcon: mi ? mi.icon : ((pm && pm.modality_icon) || 'fa-microphone-lines'),
+        zoom: (iv && iv.zoom_url) || '',
+        zoomTbc: !!(iv && iv.zoom_tbc),
+        call: (iv && iv.call_to && iv.call_to.name) ? iv.call_to : null,
+        live: !!((iv && iv.live) || (pm && pm.is_live)),
+        formation: fi ? fi.label : ((pm && pm.formation_label) || '')
+      };
+    }
+    /* EL ZOOM se entra DESDE LA HOJA DE RUTA: el icono abre la videollamada (`data-ext`, así que en
+       la fila de un punto no abre su detalle). Sin enlace todavía, se dice que está por confirmar. */
+    function zoomLink(md) {
+      if (!md) return '';
+      if (md.zoom) return '<a class="rm-zoomlink" href="' + esc(md.zoom) + '" target="_blank" rel="noopener" title="Entrar en la videollamada" data-ext><i class="fa fa-video"></i></a>';
+      return md.zoomTbc ? '<span class="rm-tag tbc"><i class="fa fa-video"></i> Enlace TBC</span>' : '';
+    }
+    /* A QUIÉN LLAMAN en un phoner: el icono de llamada, la flecha y su cara con su nombre. */
+    function callLine(md) {
+      if (!md || !md.call) return '';
+      var c = md.call;
+      return '<div class="rm-call"><i class="fa fa-phone-volume"></i><i class="fa fa-arrow-right rm-call__arrow"></i>'
+        + '<span class="rm-nick">' + avatar(c.photo_url || AVATAR) + '<span>' + esc(c.name) + '</span></span>'
+        + (c.phone ? '<a href="tel:' + esc(c.phone) + '" data-ext title="Llamar"><i class="fa fa-phone"></i></a>' : '') + '</div>';
     }
     function singTag(it) {
       if (!itemSings(it)) return '';
@@ -954,20 +1007,20 @@
       if (it.cancelled) tags += '<span class="rm-tag">Cancelado</span>';
       if (!RO) { var shLbl = sheetsLabel(it); if (shLbl) tags += '<span class="rm-tag sheet"><i class="fa fa-share-nodes"></i> ' + esc(shLbl) + '</span>'; }
       var sub = '';
-      if (it.kind === 'ENTREVISTA' && it.interview) {
-        if (it.interview.type) tags += '<span class="rm-tag">' + esc(it.interview.type) + '</span>';
-        if (it.interview.live) tags += '<span class="rm-tag live">Directo</span>';
-        if (it.interview.media_name) sub = esc(it.interview.media_name);
-      }
-      // Punto que viene de una PROMOCIÓN de prensa: se pinta con sus iconos (tipo de medio, cómo se
-      // hace y si es en directo) para leer la hoja de un vistazo.
-      if (it.promo_meta) {
-        var pm = it.promo_meta;
-        if (pm.media_type) tags += '<span class="rm-tag"><i class="fa ' + esc(pm.media_icon || 'fa-bullhorn') + '"></i> ' + esc(pm.media_type) + '</span>';
-        if (pm.modality_label) tags += '<span class="rm-tag"><i class="fa ' + esc(pm.modality_icon || 'fa-video') + '"></i> ' + esc(pm.modality_label) + '</span>';
-        if (pm.is_live) tags += '<span class="rm-tag live"><i class="fa fa-guitar"></i> En directo</span>';
-        else if (pm.formation_label) tags += '<span class="rm-tag">' + esc(pm.formation_label) + '</span>';
-        if (!sub && pm.media_name) sub = esc(pm.media_name);
+      // UNA ENTREVISTA se lee de un vistazo: de qué medio es (con el icono de lo que es), cómo se
+      // hace, si es en directo y, en un phoner, a quién llaman. Da igual que se haya creado aquí o
+      // que venga espejada de una PROMOCIÓN de prensa: lo pinta el mismo helper.
+      var md = ivMeta(it), callHtml = '';
+      if (md) {
+        if (md.type) tags += '<span class="rm-tag"><i class="fa ' + esc(md.mediaIcon) + '"></i> ' + esc(md.type) + '</span>';
+        if (md.modLabel) tags += '<span class="rm-tag"><i class="fa ' + esc(md.modIcon) + '"></i> ' + esc(md.modLabel) + '</span>';
+        if (md.live) tags += '<span class="rm-tag live"><i class="fa fa-tower-broadcast"></i> Directo</span>';
+        else if (md.formation) tags += '<span class="rm-tag">' + esc(md.formation) + '</span>';
+        // ⚠️ Sin repetir: el título de una entrevista se pone solo con el medio (y el de una
+        // espejada de promoción empieza por él), así que ahí no se dice dos veces.
+        var linea = [md.mediaName, md.program].filter(Boolean).join(' · ');
+        if (linea && normText(it.title || '').indexOf(normText(md.mediaName)) !== 0) sub = esc(linea);
+        callHtml = callLine(md);
       }
       // SE CANTA (con cuántos temas: pinchando se va al Repertorio) y las INSTRUCCIONES DE ACCESO.
       tags += singTag(it);
@@ -983,12 +1036,13 @@
       var meta = '';
       // EL MAPA: con un sitio escrito, el icono abre la aplicación de mapas del móvil o del Mac.
       meta += mapLink(itemMapsHref(it), hasPin(it) ? 'Ir al punto de acceso exacto' : 'Abrir en Mapas');
+      if (md && md.zoom) meta += zoomLink(md);
       if ((it.attachments || []).length) meta += '<span title="Adjuntos"><i class="fa fa-paperclip"></i> ' + it.attachments.length + '</span>';
       if (it.note) meta += '<span title="Nota"><i class="fa fa-note-sticky"></i></span>';
       return '<div class="' + cls + '"' + (RO ? '' : ' draggable="true"') + ' data-item="' + esc(it.id) + '" style="--rm-line:' + esc(ki.color) + '">'
         + '<div class="rm-ico" style="background:' + esc(ki.color) + '"><i class="fa ' + esc(ki.icon) + '"></i></div>'
         + '<div class="min-w-0"><div class="rm-time">' + timeLabel(it) + '</div><div class="rm-title">' + esc(it.title || ki.label) + '</div>'
-        + (it.location ? '<div class="rm-sub">' + esc(it.location) + '</div>' : '') + (sub ? '<div class="rm-sub">' + sub + '</div>' : '') + transLine
+        + (it.location ? '<div class="rm-sub">' + esc(it.location) + '</div>' : '') + (sub ? '<div class="rm-sub">' + sub + '</div>' : '') + callHtml + transLine
         + (tags ? '<div class="rm-tags">' + tags + '</div>' : '') + audienceHtml(it) + '</div>'
         + '<div class="rm-meta">' + meta + '</div></div>';
     }
@@ -1040,7 +1094,7 @@
       grid += '</div><div data-transgrid class="mt-3 d-none"><div class="text-muted small mb-1">Tipo de traslado</div><div class="rm-choice-grid">';
       TRANS.forEach(function (t) { grid += '<div class="rm-choice" data-kind="' + esc(t.key) + '"><i class="fa ' + esc(t.icon) + '" style="color:#007ca2"></i><span>' + esc(t.label) + '</span></div>'; });
       grid += '</div></div>';
-      var m = openModal('rmTypeModal', 'modal-md', '¿Qué quieres añadir?', grid, []);
+      var m = openModal('rmTypeModal', 'modal-md', '¿Qué quieres añadir?', grid, [], 'fa-circle-plus');
       m.querySelector('[data-transport]').addEventListener('click', function () { m.querySelector('[data-transgrid]').classList.remove('d-none'); });
       m.querySelectorAll('[data-kind]').forEach(function (c) {
         c.addEventListener('click', function () {
@@ -1071,137 +1125,321 @@
       // La ficha ya dice a qué hora abren las puertas: se precumplimenta (se puede cambiar, y se
       // pueden añadir varias aperturas en la misma actividad).
       if (kind === 'APERTURA_PUERTAS' && DOORS) d.start_time = DOORS;
-      if (kind === 'ENTREVISTA') d.interview = { type: '', media_id: '', media_name: '', sings: false, live: false, songs: [] };
+      if (kind === 'ENTREVISTA') d.interview = { type: '', media_id: '', media_name: '', media_logo: '', media_icon: '',
+                                                 program: '', modality: '', location_id: '', zoom_url: '', zoom_tbc: false,
+                                                 call_to: {}, formation: '', sings: false, live: false, songs: [] };
       if (kindInfo(kind).transport) d.transport = { mode: kind, company: '', logo_url: '', number: '', origin: '', destination: '', duration: '', ends_next_day: false, same_locator: false, locator_all: '', passengers: [] };
       return d;
     }
 
-    // ------------------------------------------------- editor de item
+    // ============================================================ AÑADIR UN PUNTO A LOS HORARIOS
+    /* ⚠️⚠️ TODOS LOS PUNTOS SE AÑADEN IGUAL (sep 2026, lo pidió Dani): el MISMO orden de bloques y
+       la MISMA estética que el resto de altas de la app —cabecera roja con un icono por paso,
+       pastillas, pregunta grande y pie Atrás · Siguiente · Guardar— con el MOTOR de la casa
+       (`step_wizard.js`, arrancado a mano porque este asistente se crea por JavaScript).
+
+         1 · Qué es ......... el MEDIO de una entrevista (de él sale el tipo), la compañía de un
+                              traslado o, en lo demás, el título.
+         2 · Cuándo ......... día, hora de inicio y de fin, «por confirmar» y si ya está cerrado.
+         3 · Dónde .......... cómo se hace la entrevista (presencial · phoner · zoom) y lo que
+                              necesita cada forma; en lo demás, el sitio y cómo se entra.
+         4 · Cómo va a ser .. en directo, si se canta (con su repertorio y su formato) y la nota.
+         5 · Contacto ....... en una entrevista, las personas DEL MEDIO con su cara.
+         6 · Quién lo ve .... a quién afecta y en qué hoja de ruta sale.                           */
+    var IVMODS = CTX.interview_modalities || [];
+    var FORMATIONS = CTX.formations || [];
+    var ARTISTS = CTX.artists || [];
+    var MEDIA_TYPES = CTX.media_types || [];
+
+    /* Una TARJETA de elegir (las de toda la app: `.promo-pick`). `img` manda sobre el icono. */
+    function wzPick(o) {
+      var vis = o.img ? '<img src="' + esc(o.img) + '" alt="">'
+                      : '<i class="fa ' + esc(o.icon || 'fa-circle') + '"></i>';
+      return '<label class="promo-pick"><input type="' + (o.multi ? 'checkbox' : 'radio') + '" name="' + esc(o.name) + '"'
+        + ' value="' + esc(o.value) + '"' + (o.checked ? ' checked' : '') + (o.attrs || '') + '>'
+        + '<span class="promo-pick__box">' + vis
+        + '<span class="promo-pick__name">' + esc(o.label) + '</span>'
+        + (o.hint ? '<span class="promo-pick__hint">' + esc(o.hint) + '</span>' : '') + '</span></label>';
+    }
+    function wzQ(icon, txt, hint) {
+      return '<div class="sw-step__q"><i class="fa ' + esc(icon) + ' me-2"></i>' + esc(txt) + '</div>'
+        + (hint ? '<div class="sw-step__h">' + hint + '</div>' : '');
+    }
+    /* Un buscador con su botón «+» al lado (crear la ficha que no existe sin salir del asistente). */
+    function wzSearch(key, ph, conMas) {
+      return '<div class="rm-wz-search">'
+        + '<div class="input-group"><span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>'
+        + '<input class="form-control" placeholder="' + esc(ph) + '" data-search="' + key + '">'
+        + (conMas ? '<button type="button" class="btn btn-outline-secondary" data-new="' + key + '" title="Crear una ficha nueva"><i class="fa fa-plus"></i></button>' : '')
+        + '</div><div class="list-group position-absolute d-none rm-wz-results" data-results="' + key + '"></div></div>';
+    }
+    /* El modal del asistente. ⚠️ Se REHACE entero en cada apertura: el motor guarda referencias a
+       sus pasos y a sus botones, y reutilizar el nodo dejaría listeners viejos apuntando a
+       elementos que ya no existen. */
+    function openWizardModal(id, title, icon, pasos, onSave, saveLabel) {
+      var viejo = document.getElementById(id);
+      if (viejo) {
+        try { var vi = window.bootstrap ? bootstrap.Modal.getInstance(viejo) : null; if (vi) vi.dispose(); } catch (_) {}
+        viejo.remove();
+      }
+      var cuerpo = '';
+      pasos.forEach(function (p, i) {
+        cuerpo += '<section class="sw-step" data-step="' + (i + 1) + '" data-title="' + esc(p.title) + '" data-sw-icon="' + esc(p.icon) + '">'
+          + wzQ(p.icon, p.q, p.hint) + p.html + '</section>';
+      });
+      var m = el('<div class="modal fade" id="' + id + '" tabindex="-1" aria-hidden="true">'
+        + '<div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content" data-step-wizard>'
+        + '<div class="modal-header sw-head"><h5 class="modal-title"><i class="fa ' + esc(icon) + ' me-2"></i>' + esc(title) + '</h5>'
+        + '<ol class="sw-head__steps" data-sw-steps></ol>'
+        + '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>'
+        + '<div class="modal-body"><div data-sw-progress></div>' + cuerpo + '</div>'
+        + '<div class="modal-footer">'
+        + '<button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>'
+        + '<button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>'
+        + '<button type="button" class="btn btn-danger" data-sw-submit><i class="fa fa-check me-1"></i>' + esc(saveLabel || 'Guardar') + '</button>'
+        + '</div></div></div></div>');
+      document.body.appendChild(m);
+      var root = m.querySelector('[data-step-wizard]');
+      m.querySelector('[data-sw-submit]').addEventListener('click', function () { onSave(m); });
+      if (window.app33StepWizard) window.app33StepWizard.init(root);
+      var inst = bs(id); if (inst) inst.show();
+      return m;
+    }
+
+    // ------------------------------------------------- editor de un punto (el asistente)
     function openItemEditor(draft) {
       var ki = kindInfo(draft.kind);
       var editing = !!draft.id;
-      var daysOpts = DAYS.map(function (d) { return '<option value="' + esc(d.date) + '"' + (d.date === draft.day ? ' selected' : '') + '>' + esc(d.label) + '</option>'; }).join('');
-      var h = '';
-      h += '<div class="row g-2">';
-      h += '<div class="col-12"><label class="form-label">Título</label><input class="form-control" data-f="title" value="' + esc(draft.title) + '" placeholder="' + esc(ki.label) + '"></div>';
-      h += '<div class="col-md-4"><label class="form-label">Día</label><select class="form-select" data-f="day">' + daysOpts + '</select></div>';
-      h += '<div class="col-md-3"><label class="form-label">Inicio</label><input type="time" class="form-control" data-f="start_time" value="' + esc(draft.start_time) + '"></div>';
-      h += '<div class="col-md-3"><label class="form-label">Fin</label><input type="time" class="form-control" data-f="end_time" value="' + esc(draft.end_time) + '"></div>';
-      h += '<div class="col-md-2 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" data-f="tbc" id="rmTbc"' + (draft.tbc ? ' checked' : '') + '><label class="form-check-label" for="rmTbc">TBC</label></div></div>';
-      h += '<div class="col-12"><label class="form-label">Lugar</label><input class="form-control" data-f="location" value="' + esc(draft.location) + '"></div>';
-      h += '<div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="confirmed" id="rmConf"' + (draft.confirmed ? ' checked' : '') + '><label class="form-check-label" for="rmConf">Confirmada (si no, se muestra como provisional)</label></div></div>';
-      // Quién lo ve: etiquetas de hoja de ruta (las dos activas por defecto).
-      var dsh = itemSheets(draft);
-      h += '<div class="col-12"><div class="filter-label"><i class="fa fa-share-nodes"></i>¿En qué hoja de ruta se ve?</div><div class="filter-chips">'
-        + SHEETS.map(function (sN) { return '<label class="filter-chip"><input type="checkbox" data-sheet="' + sN.key + '"' + (dsh[sN.key] ? ' checked' : '') + '><i class="fa ' + sN.icon + '"></i>' + sN.label + '</label>'; }).join('')
-        + '</div><div class="filter-hint">Las dos van marcadas. Si quitas una, este punto no sale en el enlace de esa hoja de ruta (si quitas las dos, se queda solo aquí dentro).</div></div>';
-      // ¿A QUIÉN AFECTA? A todos · por función · personas concretas (lo que ve cada uno en el portal).
+      var esIv = draft.kind === 'ENTREVISTA';
+      var esTr = !!ki.transport;
+      if (esIv && !draft.interview) draft.interview = { type: '', media_id: '', media_name: '', sings: false, live: false, songs: [] };
+      var iv = draft.interview || {};
       var aud = draft.audience || { mode: 'ALL', roles: [], ids: [] };
+      var audIds = (aud.ids || []).map(String);
+      var dsh = itemSheets(draft);
       var roles = personnelRoles();
-      h += '<div class="col-12"><div class="filter-label"><i class="fa fa-users"></i>¿A quién afecta?</div><div class="filter-chips">'
-        + [['ALL', 'A todos', 'fa-globe'], ['ROLES', 'Por función', 'fa-user-tag'], ['PEOPLE', 'Personas concretas', 'fa-user-check']].map(function (o) {
-            return '<label class="filter-chip"><input type="radio" name="rmAudMode" value="' + o[0] + '"' + (String(aud.mode || 'ALL') === o[0] ? ' checked' : '') + ' data-aud-mode><i class="fa ' + o[2] + '"></i>' + o[1] + '</label>';
+      var pasos = [];
+
+      // ---------- 1 · QUÉ ES ----------
+      var h1 = '';
+      if (esIv) {
+        h1 += '<div class="rm-wz-block"><div class="rm-wz-lbl"><i class="fa fa-bullhorn"></i>El medio</div>'
+          + '<div class="rm-chip mb-2' + (iv.media_id ? '' : ' d-none') + '" data-media-chip>'
+          + '<span data-media-ava>' + avatar(iv.media_logo, iv.media_icon || 'fa-bullhorn') + '</span>'
+          + '<span data-media-name>' + esc(iv.media_name || '') + '</span>'
+          + '<span class="rm-tag ms-1' + (iv.type ? '' : ' d-none') + '" data-media-type><i class="fa ' + esc(iv.media_icon || 'fa-bullhorn') + '"></i> <span>' + esc(iv.type || '') + '</span></span>'
+          + '<button type="button" class="btn-close btn-sm ms-1" data-media-clear title="Quitar el medio"></button></div>'
+          + wzSearch('media', 'Busca la radio, la tele, el periódico…', CAN_CREATE)
+          + '<div class="rm-wz-new d-none" data-new-media>'
+          + '<div class="row g-2 align-items-end"><div class="col-md-5"><label class="form-label small mb-1">Nombre del medio</label>'
+          + '<input class="form-control form-control-sm" data-nm-name placeholder="Cadena SER"></div>'
+          + '<div class="col-md-7"><label class="form-label small mb-1">¿Qué es?</label>'
+          + '<div class="promo-pick-grid" data-nm-types>'
+          + MEDIA_TYPES.map(function (t, i2) { return wzPick({ name: 'rmNewMediaType', value: t, icon: mediaIcon(t), label: t, checked: i2 === 0 }); }).join('')
+          + '</div></div>'
+          + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nm-save><i class="fa fa-plus me-1"></i>Crear el medio</button></div></div></div>'
+          + '<div class="filter-hint">De lo que sea el medio sale el TIPO de entrevista (radio, tele, prensa…): no hay que decirlo aparte.</div></div>'
+          + '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-microphone me-1 text-muted"></i>Programa (si lo tiene)</label>'
+          + '<input class="form-control" data-iv="program" value="' + esc(iv.program || '') + '" placeholder="La Ventana, El Hormiguero…"></div>'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-tag me-1 text-muted"></i>Título del punto</label>'
+          + '<input class="form-control" data-f="title" value="' + esc(draft.title) + '" placeholder="Se pone solo con el medio"></div></div>';
+      } else if (esTr) {
+        var t0 = draft.transport;
+        h1 += '<div class="row g-2">'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-building me-1 text-muted"></i>Compañía</label><input class="form-control" data-t="company" value="' + esc(t0.company) + '" placeholder="Iberia, Renfe…"></div>'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-hashtag me-1 text-muted"></i>Nº (vuelo, tren…)</label><input class="form-control" data-t="number" value="' + esc(t0.number) + '"></div>'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-image me-1 text-muted"></i>Logo de la compañía (URL)</label><input class="form-control" data-t="logo_url" value="' + esc(t0.logo_url) + '"></div>'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-tag me-1 text-muted"></i>Título del punto</label><input class="form-control" data-f="title" value="' + esc(draft.title) + '" placeholder="' + esc(ki.label) + '"></div>'
+          + '</div>';
+      } else {
+        h1 += '<div class="rm-wz-kind"><span class="rm-ico" style="background:' + esc(ki.color) + '"><i class="fa ' + esc(ki.icon) + '"></i></span>'
+          + '<div><div class="fw-semibold">' + esc(ki.label) + '</div><div class="rm-sub">Así es como se ve en los horarios.</div></div></div>'
+          + '<div class="mt-3"><label class="form-label small mb-1"><i class="fa fa-tag me-1 text-muted"></i>Título</label>'
+          + '<input class="form-control" data-f="title" value="' + esc(draft.title) + '" placeholder="' + esc(ki.label) + '"></div>'
+          + '<div class="filter-hint">Sin título se ve «' + esc(ki.label) + '».</div>';
+      }
+      pasos.push({ title: esIv ? 'Medio' : (esTr ? 'Compañía' : 'Qué es'), icon: esIv ? 'fa-bullhorn' : ki.icon,
+                   q: esIv ? '¿De qué medio es la entrevista?' : (esTr ? '¿Con qué compañía?' : '¿Qué es?'),
+                   hint: esIv ? 'Se busca entre los medios que ya tenemos; el que no esté se crea aquí mismo con el «+».'
+                              : (esTr ? 'Los datos del billete: compañía y número.' : 'Ponle el título con el que quieres verlo en los horarios.'),
+                   html: h1 });
+
+      // ---------- 2 · CUÁNDO ----------
+      var h2 = '<div class="promo-pick-grid promo-pick-grid--wide mb-3" data-days>'
+        + DAYS.map(function (d) {
+            return '<label class="promo-pick"><input type="radio" name="rmDay" value="' + esc(d.date) + '"' + (d.date === draft.day ? ' checked' : '') + '>'
+              + '<span class="promo-pick__box"><span class="rm-cal"><span class="wd">' + esc(d.weekday) + '</span><span class="num">' + esc(d.day) + '</span><span class="mo">' + esc(d.month) + '</span></span>'
+              + '<span class="promo-pick__name">' + esc(d.label) + '</span></span></label>';
           }).join('')
         + '</div>'
-        + '<div class="filter-chips mt-2' + (aud.mode === 'ROLES' ? '' : ' d-none') + '" data-aud-roles>'
+        + '<div class="row g-2 align-items-end">'
+        + '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa fa-play me-1 text-muted"></i>Empieza</label><input type="time" class="form-control" data-f="start_time" value="' + esc(draft.start_time) + '"></div>'
+        + '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa fa-flag-checkered me-1 text-muted"></i>Termina</label><input type="time" class="form-control" data-f="end_time" value="' + esc(draft.end_time) + '"></div>'
+        + '<div class="col-md-6"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-f="tbc"' + (draft.tbc ? ' checked' : '') + '><i class="fa fa-hourglass-half"></i>La hora está por confirmar (TBC)</label></div></div>'
+        + '</div>'
+        + '<div class="rm-wz-lbl mt-3"><i class="fa fa-circle-check"></i>¿Está cerrado?</div>'
+        + '<div class="promo-pick-grid promo-pick-grid--wide">'
+        + wzPick({ name: 'rmConf', value: '1', icon: 'fa-circle-check', label: 'Confirmado', checked: !!draft.confirmed })
+        + wzPick({ name: 'rmConf', value: '0', icon: 'fa-hourglass-half', label: 'Provisional', checked: !draft.confirmed, hint: 'Se ve rayado' })
+        + '</div>';
+      pasos.push({ title: 'Cuándo', icon: 'fa-clock', q: '¿Qué día y a qué hora?',
+                   hint: 'Sin hora se ve «TBC». Lo provisional se distingue en la hoja de ruta.', html: h2 });
+
+      // ---------- 3 · DÓNDE ----------
+      var accOn = !!(draft.access_note || hasPin(draft));
+      var accHtml = '<div class="rm-wz-block"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-f="access_on"' + (accOn ? ' checked' : '') + '><i class="fa fa-door-open"></i>Instrucciones de acceso</label></div>'
+        + '<div class="mt-2' + (accOn ? '' : ' d-none') + '" data-access-wrap>'
+        + '<textarea class="form-control" rows="2" data-f="access_note" placeholder="Por dónde se entra, a quién preguntar, dónde se aparca…">' + esc(draft.access_note || '') + '</textarea>'
+        + '<div class="mt-2" data-access-pin></div></div></div>';
+      var h3 = '';
+      if (esIv) {
+        h3 += '<div class="promo-pick-grid promo-pick-grid--wide mb-3" data-mods>'
+          + IVMODS.map(function (o) { return wzPick({ name: 'rmMod', value: o.key, icon: o.icon, label: o.label, checked: (iv.modality || '') === o.key }); }).join('')
+          + '</div>'
+          // PRESENCIAL: las direcciones que ya tiene el medio y, si no, una nueva.
+          + '<div data-mod-panel="PRESENCIAL" class="d-none">'
+          + '<div class="rm-wz-lbl"><i class="fa fa-location-dot"></i>¿Dónde?</div>'
+          + '<div data-iv-locs><div class="rm-sub">Elige antes el medio para ver sus direcciones guardadas.</div></div>'
+          + '<div class="rm-wz-block mt-2" data-address-autocomplete>'
+          + '<label class="form-label small mb-1">Otra dirección</label>'
+          + '<input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Escribe la calle, el municipio…">'
+          + '<input type="hidden" data-addr="postal_code"><input type="hidden" data-addr="city"><input type="hidden" data-addr="province"><input type="hidden" data-addr="country">'
+          + '<div class="mt-2 d-none" data-loc-save><div class="rm-wz-lbl"><i class="fa fa-floppy-disk"></i>¿Guardamos esta dirección en el medio?</div>'
+          + '<div class="promo-pick-grid promo-pick-grid--wide">'
+          + wzPick({ name: 'rmLocSave', value: '1', icon: 'fa-building-circle-check', label: 'Guardarla en el medio', checked: true, hint: 'La próxima vez ya sale' })
+          + wzPick({ name: 'rmLocSave', value: '0', icon: 'fa-calendar-day', label: 'Solo para esta entrevista' })
+          + '</div></div></div>'
+          + accHtml
+          + '</div>'
+          // ZOOM: el enlace (que puede no tenerse todavía).
+          + '<div data-mod-panel="ZOOM" class="d-none">'
+          + '<label class="form-label small mb-1"><i class="fa fa-link me-1 text-muted"></i>Enlace de la videollamada</label>'
+          + '<input class="form-control" data-iv="zoom_url" value="' + esc(iv.zoom_url || '') + '" placeholder="https://zoom.us/j/…">'
+          + '<div class="filter-chips mt-2"><label class="filter-chip"><input type="checkbox" data-iv="zoom_tbc"' + (iv.zoom_tbc ? ' checked' : '') + '><i class="fa fa-hourglass-half"></i>Todavía no lo tenemos (TBC)</label></div>'
+          + '<div class="filter-hint">Con el enlace puesto, en la hoja de ruta sale el botón para entrar directamente.</div></div>'
+          // PHONER: a quién llaman.
+          + '<div data-mod-panel="PHONER" class="d-none">'
+          + '<div class="rm-wz-lbl"><i class="fa fa-phone-volume"></i>¿A quién llaman?</div>'
+          + '<div class="promo-pick-grid promo-pick-grid--wide mb-2" data-call-cards></div>'
+          + wzSearch('call', 'Busca a alguien de la casa o un tercero…', CAN_CREATE)
+          + '<div class="rm-wz-new d-none" data-new-call>'
+          + '<div class="row g-2 align-items-end"><div class="col-md-8"><label class="form-label small mb-1">Nombre</label><input class="form-control form-control-sm" data-nc-name></div>'
+          + '<div class="col-md-4"><label class="form-label small mb-1">Teléfono</label><input class="form-control form-control-sm" data-nc-phone></div>'
+          + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nc-save><i class="fa fa-plus me-1"></i>Crear el tercero</button></div></div></div>'
+          + '<div class="filter-hint">En la hoja de ruta se ve con el icono de llamada, la flecha y su nombre.</div></div>';
+      } else if (esTr) {
+        var t1 = draft.transport;
+        h3 += '<div class="row g-2">'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-plane-departure me-1 text-muted"></i>Origen</label><input class="form-control" data-t="origin" value="' + esc(t1.origin) + '"></div>'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-plane-arrival me-1 text-muted"></i>Destino</label><input class="form-control" data-t="destination" value="' + esc(t1.destination) + '"></div>'
+          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-stopwatch me-1 text-muted"></i>Duración</label><input class="form-control" data-t="duration" value="' + esc(t1.duration) + '" placeholder="1h 20m"></div>'
+          + '<div class="col-md-6 d-flex align-items-end"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-t="ends_next_day"' + (t1.ends_next_day ? ' checked' : '') + '><i class="fa fa-moon"></i>Termina al día siguiente (+1)</label></div></div>'
+          + '<div class="col-12"><label class="form-label small mb-1"><i class="fa fa-location-dot me-1 text-muted"></i>Punto de encuentro</label>'
+          + '<div data-address-autocomplete><input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Dónde se recoge al equipo"></div></div>'
+          + '</div>' + accHtml;
+      } else {
+        h3 += '<div data-address-autocomplete><label class="form-label small mb-1"><i class="fa fa-location-dot me-1 text-muted"></i>Lugar</label>'
+          + '<input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Escribe la calle, el municipio…"></div>'
+          + accHtml;
+      }
+      pasos.push({ title: esIv ? 'Cómo' : 'Dónde', icon: esIv ? 'fa-video' : 'fa-location-dot',
+                   q: esIv ? '¿Cómo se hace?' : (esTr ? '¿De dónde a dónde?' : '¿Dónde es?'),
+                   hint: esIv ? 'Presencial, por teléfono o por vídeo: cada una pide lo suyo.' : 'El sitio y, si hace falta, cómo se entra.',
+                   html: h3 });
+
+      // ---------- 4 · CÓMO VA A SER ----------
+      var h4 = '';
+      if (esIv) {
+        h4 += '<div class="rm-wz-lbl"><i class="fa fa-tower-broadcast"></i>¿Es en directo?</div>'
+          + '<div class="promo-pick-grid promo-pick-grid--wide mb-3">'
+          + wzPick({ name: 'rmLive', value: '1', icon: 'fa-tower-broadcast', label: 'En directo', checked: !!iv.live })
+          + wzPick({ name: 'rmLive', value: '0', icon: 'fa-clapperboard', label: 'Grabado', checked: !iv.live })
+          + '</div>';
+      }
+      // ⚠️ EN UN TRASLADO no se canta: ni la pregunta ni el repertorio vienen a cuento.
+      if (!esTr) {
+        h4 += '<div class="rm-wz-lbl"><i class="fa fa-music"></i>¿Se canta?</div>'
+          + '<div class="promo-pick-grid promo-pick-grid--wide mb-2">'
+          + wzPick({ name: 'rmSings', value: '1', icon: 'fa-microphone', label: 'Sí, canta', checked: !!itemSings(draft) })
+          + wzPick({ name: 'rmSings', value: '0', icon: 'fa-ban', label: 'No canta', checked: !itemSings(draft) })
+          + '</div>'
+          + '<div data-sings-wrap class="' + (itemSings(draft) ? '' : 'd-none') + '">';
+        if (esIv) {
+          h4 += '<div class="rm-wz-lbl"><i class="fa fa-sliders"></i>¿Cómo?</div>'
+            + '<div class="promo-pick-grid promo-pick-grid--wide mb-3">'
+            + FORMATIONS.map(function (o) { return wzPick({ name: 'rmForm', value: o.key, icon: o.icon, label: o.label, checked: (iv.formation || '') === o.key }); }).join('')
+            + '</div>';
+        }
+        h4 += '<div class="rm-wz-lbl"><i class="fa fa-list-ol"></i>Repertorio <span class="rm-sub">(arrastra para ordenar)</span></div>'
+          + wzSearch('song', 'Busca una canción del repertorio…', false)
+          + '<div data-songs class="d-flex flex-column gap-1 mt-2"></div>'
+          + (isConcert ? '<div class="filter-hint">El repertorio del show va en el set list de la ficha; esto es lo que se cante en ESTE punto.</div>' : '')
+          + '</div>';
+      }
+      h4 += '<div class="mt-3"><label class="form-label small mb-1"><i class="fa fa-note-sticky me-1 text-muted"></i>Nota</label>'
+        + '<textarea class="form-control" data-f="note" rows="3" placeholder="Cualquier detalle que haya que tener en cuenta">' + esc(draft.note) + '</textarea></div>';
+      if (esTr) {
+        h4 += '<div class="rm-wz-block mt-3"><div class="rm-wz-lbl"><i class="fa fa-user-group"></i>Pasajeros</div>'
+          + '<div class="filter-chips mb-2"><label class="filter-chip"><input type="checkbox" data-t="same_locator"' + (draft.transport.same_locator ? ' checked' : '') + '><i class="fa fa-ticket"></i>Mismo localizador para todos</label></div>'
+          + '<input class="form-control mb-2' + (draft.transport.same_locator ? '' : ' d-none') + '" data-t="locator_all" value="' + esc(draft.transport.locator_all) + '" placeholder="Localizador común">'
+          + '<div data-pass></div><button type="button" class="rm-add sm" data-addpass><i class="fa fa-plus"></i> Añadir pasajeros</button></div>';
+      }
+      if (editing) {
+        h4 += '<div class="rm-wz-block mt-3"><div class="rm-wz-lbl"><i class="fa fa-paperclip"></i>Adjuntos</div>'
+          + '<div data-atts></div><label class="btn btn-outline-secondary btn-sm mt-1"><i class="fa fa-paperclip"></i> Adjuntar archivo<input type="file" hidden data-attin></label></div>';
+      }
+      pasos.push({ title: 'Detalles', icon: 'fa-sliders', q: '¿Cómo va a ser?',
+                   hint: 'Lo que hay que saber para prepararlo.', html: h4 });
+
+      // ---------- 5 · CONTACTO ----------
+      var c0 = draft.contact || {};
+      var h5 = (esIv ? '<div data-media-contacts class="mb-2"><div class="rm-sub">Elige antes el medio para ver sus personas.</div></div>' : '')
+        + '<div class="rm-chip mb-2' + (c0.name ? '' : ' d-none') + '" data-contact-chip>'
+        + '<span data-contact-ava>' + avatar(c0.photo || '', 'fa-user') + '</span><span data-contact-name>' + esc(c0.name || '') + '</span>'
+        + '<button type="button" class="btn-close btn-sm ms-1" data-contact-clear title="Quitar"></button></div>'
+        + wzSearch('contact', esIv ? 'Otra persona (busca en toda la base)…' : 'Busca a la persona de contacto…', CAN_CREATE)
+        + '<div class="row g-2 mt-1">'
+        + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-phone me-1 text-muted"></i>Teléfono</label><input class="form-control" data-c="phone" value="' + esc(c0.phone || '') + '"></div>'
+        + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-envelope me-1 text-muted"></i>Email</label><input class="form-control" data-c="email" value="' + esc(c0.email || '') + '"></div>'
+        + '</div>';
+      pasos.push({ title: 'Contacto', icon: 'fa-address-card', q: '¿Con quién se habla?',
+                   hint: esIv ? 'Las personas del medio salen con su cara; la que no esté se crea aquí y queda en su ficha.' : 'Quien lleva esto, para poder llamar desde la hoja de ruta.',
+                   html: h5 });
+
+      // ---------- 6 · QUIÉN LO VE ----------
+      var h6 = '<div class="promo-pick-grid promo-pick-grid--wide mb-2">'
+        + wzPick({ name: 'rmAudMode', value: 'ALL', icon: 'fa-globe', label: 'A todos', checked: String(aud.mode || 'ALL') === 'ALL', attrs: ' data-aud-mode' })
+        + wzPick({ name: 'rmAudMode', value: 'ROLES', icon: 'fa-user-tag', label: 'Por función', checked: aud.mode === 'ROLES', attrs: ' data-aud-mode' })
+        + wzPick({ name: 'rmAudMode', value: 'PEOPLE', icon: 'fa-user-check', label: 'A quien yo diga', checked: aud.mode === 'PEOPLE', attrs: ' data-aud-mode' })
+        + '</div>'
+        + '<div class="filter-chips mb-2' + (aud.mode === 'ROLES' ? '' : ' d-none') + '" data-aud-roles>'
         + (roles.length ? roles.map(function (r) { return '<label class="filter-chip"><input type="checkbox" value="' + esc(r) + '"' + ((aud.roles || []).some(function (x) { return normText(x) === normText(r); }) ? ' checked' : '') + ' data-aud-role><i class="fa fa-user-tag"></i>' + esc(r) + '</label>'; }).join('')
                         : '<span class="filter-hint">Añade antes el personal con su función.</span>')
         + '</div>'
-        + '<div class="rm-audpeople mt-2' + (aud.mode === 'PEOPLE' ? '' : ' d-none') + '" data-aud-people>'
-        + ((P.personnel || []).length ? (P.personnel || []).map(function (p) {
-            return '<label><input class="form-check-input" type="checkbox" value="' + esc(p.id) + '"' + ((aud.ids || []).indexOf(String(p.id)) >= 0 ? ' checked' : '') + ' data-aud-person>'
-              + '<span class="av">' + avatar(p.photo_url) + '</span><span>' + esc(p.name) + (p.role ? ' <span class="rm-sub">· ' + esc(p.role) + '</span>' : '') + '</span></label>';
-          }).join('') : '<span class="filter-hint">Añade antes el personal.</span>')
+        + '<div class="promo-pick-grid mb-2' + (aud.mode === 'PEOPLE' ? '' : ' d-none') + '" data-aud-people>'
+        + ARTISTS.map(function (a) {
+            return wzPick({ name: 'rmAudPerson', multi: true, value: 'artist:' + a.id, img: a.photo_url || AVATAR, icon: 'fa-guitar',
+                            label: a.name, hint: 'El artista', checked: audIds.indexOf('artist:' + a.id) >= 0, attrs: ' data-aud-person' });
+          }).join('')
+        + (P.personnel || []).map(function (p) {
+            return wzPick({ name: 'rmAudPerson', multi: true, value: String(p.id), img: p.photo_url || AVATAR, icon: 'fa-user',
+                            label: p.name, hint: p.role || '', checked: audIds.indexOf(String(p.id)) >= 0, attrs: ' data-aud-person' });
+          }).join('')
+        + ((P.personnel || []).length || ARTISTS.length ? '' : '<span class="filter-hint">Añade antes el personal.</span>')
         + '</div>'
-        + '<div class="filter-hint">Quien entra por su acceso de externo ve solo lo que le afecta (lo de todos, siempre).</div></div>';
-      // SE CANTA (en una entrevista lo dice su propio bloque) → el repertorio se configura en su pestaña.
-      if (draft.kind !== 'ENTREVISTA' && !ki.transport) {
-        h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="sings" id="rmSingsIt"' + (draft.sings ? ' checked' : '') + '><label class="form-check-label" for="rmSingsIt"><i class="fa fa-music me-1"></i>Se canta</label></div>'
-          + '<div class="filter-hint">Al marcarlo aparece en la pestaña Repertorio, donde se ponen las canciones.</div></div>';
-      }
-      // INSTRUCCIONES DE ACCESO (cómo se llega, por dónde se entra).
-      h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="access_on" id="rmAccOn"' + ((draft.access_note || hasPin(draft)) ? ' checked' : '') + '><label class="form-check-label" for="rmAccOn"><i class="fa fa-door-open me-1"></i>Instrucciones de acceso</label></div></div>'
-        + '<div class="col-12' + ((draft.access_note || hasPin(draft)) ? '' : ' d-none') + '" data-access-wrap><textarea class="form-control" rows="2" data-f="access_note" placeholder="Por dónde se entra, a quién preguntar, dónde se aparca…">' + esc(draft.access_note || '') + '</textarea>'
-        + '<div class="mt-2" data-access-pin></div></div>';
-      h += '</div>';
+        + '<div class="filter-hint mb-3">Quien entra por su acceso de externo ve solo lo que le afecta (lo de todos, siempre).</div>'
+        + '<div class="rm-wz-lbl"><i class="fa fa-share-nodes"></i>¿En qué hoja de ruta se ve?</div>'
+        + '<div class="filter-chips">'
+        + SHEETS.map(function (sN) { return '<label class="filter-chip"><input type="checkbox" data-sheet="' + sN.key + '"' + (dsh[sN.key] ? ' checked' : '') + '><i class="fa ' + sN.icon + '"></i>' + sN.label + '</label>'; }).join('')
+        + '</div><div class="filter-hint">Las dos van marcadas. Si quitas una, este punto no sale en el enlace de esa hoja (si quitas las dos, se queda solo aquí dentro).</div>';
+      pasos.push({ title: 'Quién lo ve', icon: 'fa-users', q: '¿A quién le afecta?',
+                   hint: 'Lo de todos lo ve todo el mundo; lo demás, solo a quien se diga.', html: h6 });
 
-      // Entrevista
-      if (draft.kind === 'ENTREVISTA') {
-        var ivopts = '<option value="">Tipo…</option>' + IVTYPES.map(function (t) { return '<option' + (draft.interview.type === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
-        h += '<hr><div class="fw-semibold mb-2">Entrevista</div><div class="row g-2">';
-        h += '<div class="col-md-4"><select class="form-select" data-iv="type">' + ivopts + '</select></div>';
-        h += '<div class="col-md-8"><div class="rm-chip mb-1' + (draft.interview.media_id ? '' : ' d-none') + '" data-media-chip>' + avatar(null) + '<span data-media-name>' + esc(draft.interview.media_name) + '</span><button type="button" class="btn-close btn-sm ms-1" data-media-clear></button></div><input class="form-control" placeholder="Buscar medio…" data-media-search><div class="list-group position-absolute d-none" style="z-index:5" data-media-results></div></div>';
-        h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-iv="live" id="rmLive"' + (draft.interview.live ? ' checked' : '') + '><label class="form-check-label" for="rmLive">En directo</label></div></div>';
-        h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-iv="sings" id="rmSings"' + (draft.interview.sings ? ' checked' : '') + '><label class="form-check-label" for="rmSings">Canta</label></div></div>';
-        if (!isConcert) h += '<div class="col-12" data-songs-wrap' + (draft.interview.sings ? '' : ' hidden') + '><label class="form-label">Canciones (arrastra para ordenar)</label><input class="form-control mb-1" placeholder="Buscar canción…" data-song-search><div class="list-group position-absolute d-none" style="z-index:5" data-song-results></div><div data-songs class="d-flex flex-column gap-1"></div></div>';
-        else h += '<input type="hidden" data-songs-disabled>';
-        h += '</div>';
-      }
-
-      // Transporte
-      if (ki.transport) {
-        var t = draft.transport;
-        h += '<hr><div class="fw-semibold mb-2">' + esc(ki.label) + '</div>';
-        h += '<div class="alert alert-light border small py-2">Introduce los datos de la compañía a mano. La carga automática desde internet (compañía + nº) se añadirá más adelante.</div>';
-        h += '<div class="row g-2">';
-        h += '<div class="col-md-6"><label class="form-label">Compañía</label><input class="form-control" data-t="company" value="' + esc(t.company) + '"></div>';
-        h += '<div class="col-md-6"><label class="form-label">Nº (vuelo/tren…)</label><input class="form-control" data-t="number" value="' + esc(t.number) + '"></div>';
-        h += '<div class="col-md-6"><label class="form-label">Origen</label><input class="form-control" data-t="origin" value="' + esc(t.origin) + '"></div>';
-        h += '<div class="col-md-6"><label class="form-label">Destino</label><input class="form-control" data-t="destination" value="' + esc(t.destination) + '"></div>';
-        h += '<div class="col-md-6"><label class="form-label">Duración</label><input class="form-control" data-t="duration" value="' + esc(t.duration) + '" placeholder="1h 20m"></div>';
-        h += '<div class="col-md-6"><label class="form-label">Logo compañía (URL)</label><input class="form-control" data-t="logo_url" value="' + esc(t.logo_url) + '"></div>';
-        h += '<div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-t="ends_next_day" id="rmPlus1"' + (t.ends_next_day ? ' checked' : '') + '><label class="form-check-label" for="rmPlus1">Termina al día siguiente (+1)</label></div></div>';
-        h += '<div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-t="same_locator" id="rmSameLoc"' + (t.same_locator ? ' checked' : '') + '><label class="form-check-label" for="rmSameLoc">Mismo localizador para todos</label></div><input class="form-control mt-1' + (t.same_locator ? '' : ' d-none') + '" data-t="locator_all" value="' + esc(t.locator_all) + '" placeholder="Localizador común"></div>';
-        h += '<div class="col-12"><label class="form-label">Pasajeros</label><div data-pass></div><button type="button" class="rm-add sm" data-addpass><i class="fa fa-plus"></i> Añadir pasajeros</button></div>';
-        h += '</div>';
-      }
-
-      // Contacto
-      h += '<hr><div class="fw-semibold mb-2">Contacto</div><div class="row g-2">';
-      h += '<div class="col-12" data-media-contacts></div>';
-      h += '<div class="col-12"><div class="rm-chip mb-1' + (draft.contact && draft.contact.name ? '' : ' d-none') + '" data-contact-chip><span data-contact-name>' + esc(draft.contact ? draft.contact.name : '') + '</span><button type="button" class="btn-close btn-sm ms-1" data-contact-clear></button></div><input class="form-control" placeholder="Buscar tercero…" data-contact-search><div class="list-group position-absolute d-none" style="z-index:5" data-contact-results></div></div>';
-      h += '<div class="col-md-6"><input class="form-control form-control-sm" data-c="phone" value="' + esc(draft.contact ? draft.contact.phone || '' : '') + '" placeholder="Teléfono"></div>';
-      h += '<div class="col-md-6"><input class="form-control form-control-sm" data-c="email" value="' + esc(draft.contact ? draft.contact.email || '' : '') + '" placeholder="Email"></div>';
-      h += '</div>';
-
-      // Nota + adjuntos
-      h += '<hr><label class="form-label">Nota</label><textarea class="form-control" data-f="note" rows="2">' + esc(draft.note) + '</textarea>';
-      if (editing) {
-        h += '<div class="mt-2" data-atts></div><label class="btn btn-outline-secondary btn-sm mt-1"><i class="fa fa-paperclip"></i> Adjuntar archivo<input type="file" hidden data-attin></label>';
-      }
-
-      var save = btn('Guardar', 'btn-primary', function () { saveItem(draft, m); });
-      var m = openModal('rmItemModal', 'modal-lg', (editing ? 'Editar' : 'Nueva') + ' · ' + ki.label, h, [btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmItemModal'); if (i) i.hide(); }), save]);
-
-      // wire a quién afecta + acceso (la nota y la CHINCHETA del punto exacto)
-      wireAudience(m);
-      var pinBox = m.querySelector('[data-access-pin]');
-      if (pinBox) {
-        m.rmPin = { lat: draft.access_lat, lng: draft.access_lng };
-        m.rmPinPicker = pinPicker(pinBox, m.rmPin, (VENUE && VENUE.lat && VENUE.lng) ? [VENUE.lat, VENUE.lng] : null);
-      }
-      // wire contacto
-      var cChip = m.querySelector('[data-contact-chip]'), cName = m.querySelector('[data-contact-name]');
-      function setContact(c) {
-        draft.contact = c || {};
-        cName.textContent = draft.contact.name || '';
-        cChip.classList.toggle('d-none', !draft.contact.name);
-        m.querySelector('[data-c="phone"]').value = draft.contact.phone || '';
-        m.querySelector('[data-c="email"]').value = draft.contact.email || '';
-      }
-      m.rmSetContact = setContact;
-      attachSearch(m.querySelector('[data-contact-search]'), m.querySelector('[data-contact-results]'), searchPromoters, function (r) {
-        setContact({ name: r.label, phone: r.phone || '', email: r.email || '', promoter_id: r.id });
-      }, CAN_CREATE ? { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '' }); }); } } : {});
-      m.querySelector('[data-contact-clear]').addEventListener('click', function () { setContact({}); });
-
-      // wire entrevista
-      if (draft.kind === 'ENTREVISTA') wireInterview(m, draft);
-      // wire transporte
-      if (ki.transport) wireTransport(m, draft);
-      // wire adjuntos
-      if (editing) { renderItemAtts(m, draft); m.querySelector('[data-attin]').addEventListener('change', function (e) { var f = e.target.files[0]; if (!f) return; var fd = new FormData(); fd.append('scope', 'item'); fd.append('id', draft.id); fd.append('file', f); postForm(ep('/adjunto'), fd).then(function (resp) { if (resp && resp.ok) { var it = null; (resp.payload.agenda || []).forEach(function (x) { if (x.id === draft.id) it = x; }); if (it) { draft.attachments = it.attachments || []; renderItemAtts(m, draft); } P = resp.payload; DAYS = resp.days || DAYS; } }); }); }
+      var m = openWizardModal('rmItemModal', (editing ? 'Editar' : 'Añadir') + ' · ' + ki.label, ki.icon, pasos,
+                              function (modal) { saveItem(draft, modal); }, editing ? 'Guardar' : 'Añadir');
+      wireItemWizard(m, draft, { esIv: esIv, esTr: esTr, editing: editing });
     }
+
     /* Las FUNCIONES que hay en el personal de esta hoja de ruta (sin repetir), para el «por función». */
     function personnelRoles() {
       var vistos = {}, out = [];
@@ -1212,24 +1450,6 @@
       });
       return out;
     }
-    function wireAudience(m) {
-      var rolesBox = m.querySelector('[data-aud-roles]'), peopleBox = m.querySelector('[data-aud-people]');
-      m.querySelectorAll('[data-aud-mode]').forEach(function (r) {
-        r.addEventListener('change', function () {
-          if (rolesBox) rolesBox.classList.toggle('d-none', r.value !== 'ROLES');
-          if (peopleBox) peopleBox.classList.toggle('d-none', r.value !== 'PEOPLE');
-        });
-      });
-      var on = m.querySelector('[data-f="access_on"]'), wrap = m.querySelector('[data-access-wrap]');
-      if (on && wrap) on.addEventListener('change', function () {
-        wrap.classList.toggle('d-none', !on.checked);
-        if (on.checked) {
-          var ta = wrap.querySelector('textarea'); if (ta) ta.focus();
-          // El mapa se creó ESCONDIDO (mide cero): al enseñarlo hay que volver a medirlo.
-          if (m.rmPinPicker) setTimeout(m.rmPinPicker.refresh, 60);
-        }
-      });
-    }
     function readAudience(m) {
       var mode = 'ALL';
       m.querySelectorAll('[data-aud-mode]').forEach(function (r) { if (r.checked) mode = r.value; });
@@ -1239,74 +1459,364 @@
       if (mode === 'PEOPLE' && !ids.length) mode = 'ALL';
       return { mode: mode, roles: mode === 'ROLES' ? roles : [], ids: mode === 'PEOPLE' ? ids : [] };
     }
-    function wireInterview(m, draft) {
-      m.querySelector('[data-iv="type"]').addEventListener('change', function (e) { draft.interview.type = e.target.value; });
-      m.querySelector('[data-iv="live"]').addEventListener('change', function (e) { draft.interview.live = e.target.checked; });
-      var songsWrap = m.querySelector('[data-songs-wrap]');
-      m.querySelector('[data-iv="sings"]').addEventListener('change', function (e) { draft.interview.sings = e.target.checked; if (songsWrap) songsWrap.hidden = !e.target.checked; });
-      var chip = m.querySelector('[data-media-chip]'), mname = m.querySelector('[data-media-name]');
-      attachSearch(m.querySelector('[data-media-search]'), m.querySelector('[data-media-results]'), searchMedia, function (r) {
-        draft.interview.media_id = r.id; draft.interview.media_name = r.label; mname.textContent = r.label; chip.classList.remove('d-none'); renderMediaContacts(m, draft);
-      }, { onCreate: function (q) { createMedia(q).then(function (r) { if (r && r.id) { draft.interview.media_id = r.id; draft.interview.media_name = r.label || q; mname.textContent = draft.interview.media_name; chip.classList.remove('d-none'); renderMediaContacts(m, draft); } }); } });
-      m.querySelector('[data-media-clear]').addEventListener('click', function () { draft.interview.media_id = ''; draft.interview.media_name = ''; chip.classList.add('d-none'); renderMediaContacts(m, draft); });
-      renderMediaContacts(m, draft);
-      if (songsWrap) {
+    /* El icono de un tipo de medio (el mismo criterio que el servidor: `_media_type_icon`). */
+    function mediaIcon(tipo) {
+      var t = normText(tipo);
+      if (t === 'tv') return 'fa-tv';
+      if (t === 'radio') return 'fa-radio';
+      if (t === 'prensa') return 'fa-newspaper';
+      if (t === 'digital') return 'fa-globe';
+      if (t === 'agencia') return 'fa-briefcase';
+      if (t === 'podcast') return 'fa-podcast';
+      return 'fa-bullhorn';
+    }
+
+    // ------------------------------------------------- cableado del asistente
+    function wireItemWizard(m, draft, o) {
+      // ---- acceso (la nota y la CHINCHETA del punto exacto)
+      var pinBox = m.querySelector('[data-access-pin]');
+      if (pinBox) {
+        m.rmPin = { lat: draft.access_lat, lng: draft.access_lng };
+        m.rmPinPicker = pinPicker(pinBox, m.rmPin, (VENUE && VENUE.lat && VENUE.lng) ? [VENUE.lat, VENUE.lng] : null);
+      }
+      var accOn = m.querySelector('[data-f="access_on"]'), accWrap = m.querySelector('[data-access-wrap]');
+      if (accOn && accWrap) accOn.addEventListener('change', function () {
+        accWrap.classList.toggle('d-none', !accOn.checked);
+        // El mapa se creó ESCONDIDO (mide cero): al enseñarlo hay que volver a medirlo.
+        if (accOn.checked && m.rmPinPicker) setTimeout(m.rmPinPicker.refresh, 60);
+      });
+      /* ⚠️ Lo mismo al CAMBIAR DE PASO: el mapa puede haber nacido en un paso que no se veía. */
+      ['[data-sw-next]', '[data-sw-prev]', '[data-sw-steps]'].forEach(function (sel) {
+        var n = m.querySelector(sel);
+        if (n) n.addEventListener('click', function () { if (m.rmPinPicker) setTimeout(m.rmPinPicker.refresh, 120); });
+      });
+
+      // ---- a quién afecta
+      var rolesBox = m.querySelector('[data-aud-roles]'), peopleBox = m.querySelector('[data-aud-people]');
+      m.querySelectorAll('[data-aud-mode]').forEach(function (r) {
+        r.addEventListener('change', function () {
+          if (rolesBox) rolesBox.classList.toggle('d-none', !(r.checked && r.value === 'ROLES'));
+          if (peopleBox) peopleBox.classList.toggle('d-none', !(r.checked && r.value === 'PEOPLE'));
+        });
+      });
+
+      // ---- contacto
+      var cChip = m.querySelector('[data-contact-chip]'), cName = m.querySelector('[data-contact-name]'), cAva = m.querySelector('[data-contact-ava]');
+      function setContact(c) {
+        draft.contact = c || {};
+        cName.textContent = draft.contact.name || '';
+        if (cAva) cAva.innerHTML = avatar(draft.contact.photo || '', 'fa-user');
+        cChip.classList.toggle('d-none', !draft.contact.name);
+        m.querySelector('[data-c="phone"]').value = draft.contact.phone || '';
+        m.querySelector('[data-c="email"]').value = draft.contact.email || '';
+      }
+      m.rmSetContact = setContact;
+      attachSearch(m.querySelector('[data-search="contact"]'), m.querySelector('[data-results="contact"]'), searchRoadmapPeople, function (r) {
+        setContact({ name: r.label, phone: r.phone || '', email: r.email || '', photo: r.logo_url || '',
+                     promoter_id: (r.kind === 'PROMOTER' || r.kind === 'MEMBER') ? r.id : '' });
+      }, CAN_CREATE ? { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '', photo: r.logo_url || '' }); }); } } : {});
+      var cNew = m.querySelector('[data-new="contact"]');
+      if (cNew) cNew.addEventListener('click', function () {
+        var q = (m.querySelector('[data-search="contact"]').value || '').trim();
+        if (!q) { alert('Escribe antes su nombre.'); return; }
+        createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '', photo: r.logo_url || '' }); });
+      });
+      m.querySelector('[data-contact-clear]').addEventListener('click', function () { setContact({}); });
+
+      // ---- repertorio (se canta) — vale para CUALQUIER punto, no solo para una entrevista
+      var singsWrap = m.querySelector('[data-sings-wrap]');
+      m.querySelectorAll('input[name="rmSings"]').forEach(function (r) {
+        r.addEventListener('change', function () { if (singsWrap) singsWrap.classList.toggle('d-none', !(r.checked && r.value === '1')); });
+      });
+      renderSongs(m, draft);
+      // ⚠️ En un TRASLADO no hay repertorio (ni el buscador): `attachSearch` sobre un campo que no
+      // existe reventaría y se llevaría por delante el resto del cableado.
+      var buscaCancion = m.querySelector('[data-search="song"]');
+      if (buscaCancion) attachSearch(buscaCancion, m.querySelector('[data-results="song"]'), function (q) {
+        var lo = normText(q);
+        return Promise.resolve(SONGS.filter(function (s) { return normText(s.title).indexOf(lo) >= 0; })
+          .map(function (s) { return { id: s.id, label: s.title, logo_url: s.cover_url }; }));
+      }, function (r) {
+        var arr = itemSongList(draft);
+        if (arr.some(function (s) { return String(s.song_id) === String(r.id); })) return;
+        arr.push({ song_id: r.id, title: r.label, cover_url: r.logo_url || '' });
         renderSongs(m, draft);
-        attachSearch(m.querySelector('[data-song-search]'), m.querySelector('[data-song-results]'), function (q) {
-          var lo = q.toLowerCase();
-          return Promise.resolve(SONGS.filter(function (s) { return (s.title || '').toLowerCase().indexOf(lo) >= 0; }).map(function (s) { return { id: s.id, label: s.title, logo_url: s.cover_url }; }));
-        }, function (r) {
-          if (draft.interview.songs.some(function (s) { return s.song_id === r.id; })) return;
-          draft.interview.songs.push({ song_id: r.id, title: r.label, cover_url: r.logo_url || '' }); renderSongs(m, draft);
+      });
+
+      if (o.esTr) wireTransport(m, draft);
+      if (o.editing) {
+        renderItemAtts(m, draft);
+        m.querySelector('[data-attin]').addEventListener('change', function (e) {
+          var f = e.target.files[0]; if (!f) return;
+          var fd = new FormData(); fd.append('scope', 'item'); fd.append('id', draft.id); fd.append('file', f);
+          postForm(ep('/adjunto'), fd).then(function (resp) {
+            if (resp && resp.ok) {
+              var it = null; (resp.payload.agenda || []).forEach(function (x) { if (x.id === draft.id) it = x; });
+              if (it) { draft.attachments = it.attachments || []; renderItemAtts(m, draft); }
+              P = resp.payload; DAYS = resp.days || DAYS;
+            }
+          });
         });
       }
+      if (o.esIv) wireInterview(m, draft);
     }
-    function renderMediaContacts(m, draft) {
+
+    /* Las canciones que se cantan en ESTE punto. ⚠️ En una entrevista viven dentro de `interview`
+       (es lo que guarda el servidor desde siempre) y se espejan al punto: se lee la lista buena. */
+    function itemSongList(draft) {
+      if (draft.kind === 'ENTREVISTA') {
+        draft.interview = draft.interview || {};
+        draft.interview.songs = draft.interview.songs || [];
+        return draft.interview.songs;
+      }
+      draft.songs = draft.songs || [];
+      return draft.songs;
+    }
+
+    // ------------------------------------------------- entrevista
+    function wireInterview(m, draft) {
+      var iv = draft.interview;
+      var chip = m.querySelector('[data-media-chip]'), mname = m.querySelector('[data-media-name]'),
+          mava = m.querySelector('[data-media-ava]'), mtype = m.querySelector('[data-media-type]');
+      function pintaMedio() {
+        mname.textContent = iv.media_name || '';
+        if (mava) mava.innerHTML = avatar(iv.media_logo || '', iv.media_icon || 'fa-bullhorn');
+        if (mtype) {
+          mtype.classList.toggle('d-none', !iv.type);
+          mtype.innerHTML = '<i class="fa ' + esc(iv.media_icon || 'fa-bullhorn') + '"></i> <span>' + esc(iv.type || '') + '</span>';
+        }
+        chip.classList.toggle('d-none', !iv.media_id);
+      }
+      function setMedio(r) {
+        iv.media_id = r.id || ''; iv.media_name = r.label || r.name || '';
+        iv.media_logo = r.logo_url || ''; iv.type = r.media_type || iv.type || '';
+        iv.media_icon = mediaIcon(iv.type);
+        pintaMedio();
+        cargaFichaMedio(m, draft);
+      }
+      attachSearch(m.querySelector('[data-search="media"]'), m.querySelector('[data-results="media"]'), searchMedia, setMedio, {});
+      // El «+»: el medio que no está se crea aquí, diciendo QUÉ es (de ahí sale el tipo).
+      var nuevoBox = m.querySelector('[data-new-media]');
+      var nuevoBtn = m.querySelector('[data-new="media"]');
+      if (nuevoBtn) nuevoBtn.addEventListener('click', function () {
+        nuevoBox.classList.toggle('d-none');
+        if (!nuevoBox.classList.contains('d-none')) {
+          var q = (m.querySelector('[data-search="media"]').value || '').trim();
+          nuevoBox.querySelector('[data-nm-name]').value = q;
+          nuevoBox.querySelector('[data-nm-name]').focus();
+        }
+      });
+      nuevoBox.querySelector('[data-nm-save]').addEventListener('click', function () {
+        var nombre = (nuevoBox.querySelector('[data-nm-name]').value || '').trim();
+        if (!nombre) { alert('Ponle nombre al medio.'); return; }
+        var tipo = (nuevoBox.querySelector('input[name="rmNewMediaType"]:checked') || {}).value || 'OTRO';
+        createMedia(nombre, tipo).then(function (r) {
+          if (r && r.id) { setMedio({ id: r.id, label: r.label || nombre, logo_url: r.logo_url || '', media_type: tipo }); nuevoBox.classList.add('d-none'); }
+          else alert((r && r.error) || 'No se pudo crear el medio.');
+        });
+      });
+      m.querySelector('[data-media-clear]').addEventListener('click', function () {
+        iv.media_id = ''; iv.media_name = ''; iv.media_logo = ''; iv.type = ''; iv.media_icon = '';
+        pintaMedio(); m.rmMediaCard = null; pintaUbicaciones(m, draft); pintaContactosMedio(m, draft);
+      });
+
+      // Modalidad: cada forma pide lo suyo.
+      function aplicaMod() {
+        var v = (m.querySelector('input[name="rmMod"]:checked') || {}).value || '';
+        m.querySelectorAll('[data-mod-panel]').forEach(function (p) {
+          p.classList.toggle('d-none', p.getAttribute('data-mod-panel') !== v);
+        });
+        if (v === 'PRESENCIAL' && m.rmPinPicker) setTimeout(m.rmPinPicker.refresh, 120);
+      }
+      m.querySelectorAll('input[name="rmMod"]').forEach(function (r) { r.addEventListener('change', aplicaMod); });
+      aplicaMod();
+
+      // La dirección escrita a mano: al escribirla se pregunta si se guarda en el medio.
+      var locInput = m.querySelector('[data-f="location"]'), locSave = m.querySelector('[data-loc-save]');
+      if (locInput && locSave) {
+        locInput.addEventListener('input', function () {
+          locSave.classList.toggle('d-none', !(locInput.value || '').trim() || !iv.media_id);
+        });
+      }
+
+      // A quién llaman (phoner): el artista de un clic, o quien sea.
+      pintaLlamada(m, draft);
+      attachSearch(m.querySelector('[data-search="call"]'), m.querySelector('[data-results="call"]'), searchRoadmapPeople, function (r) {
+        iv.call_to = { kind: (r.kind === 'USER' ? 'USER' : 'PROMOTER'), id: r.id, name: r.label, photo_url: r.logo_url || '', phone: r.phone || '' };
+        pintaLlamada(m, draft);
+      }, CAN_CREATE ? { onCreate: function (q) { creaLlamada(m, draft, q, ''); } } : {});
+      var nc = m.querySelector('[data-new-call]'), ncBtn = m.querySelector('[data-new="call"]');
+      if (ncBtn) ncBtn.addEventListener('click', function () {
+        nc.classList.toggle('d-none');
+        if (!nc.classList.contains('d-none')) {
+          nc.querySelector('[data-nc-name]').value = (m.querySelector('[data-search="call"]').value || '').trim();
+          nc.querySelector('[data-nc-name]').focus();
+        }
+      });
+      if (nc) nc.querySelector('[data-nc-save]').addEventListener('click', function () {
+        var nombre = (nc.querySelector('[data-nc-name]').value || '').trim();
+        if (!nombre) { alert('Escribe su nombre.'); return; }
+        creaLlamada(m, draft, nombre, (nc.querySelector('[data-nc-phone]').value || '').trim());
+        nc.classList.add('d-none');
+      });
+
+      if (iv.media_id) cargaFichaMedio(m, draft);
+      else { pintaUbicaciones(m, draft); pintaContactosMedio(m, draft); }
+    }
+    function creaLlamada(m, draft, nombre, tel) {
+      var iv = draft.interview;
+      if (!CAN_CREATE) { iv.call_to = { kind: 'MANUAL', name: nombre, phone: tel }; pintaLlamada(m, draft); return; }
+      createPromoter(nombre).then(function (r) {
+        iv.call_to = (r && r.id)
+          ? { kind: 'PROMOTER', id: r.id, name: r.label || nombre, photo_url: r.logo_url || '', phone: tel || r.contact_phone || '' }
+          : { kind: 'MANUAL', name: nombre, phone: tel };
+        pintaLlamada(m, draft);
+      });
+    }
+    /* Las tarjetas de «¿a quién llaman?»: el ARTISTA (la etiqueta rápida) y, si ya hay alguien
+       elegido, su propia tarjeta con su cara. */
+    function pintaLlamada(m, draft) {
+      var box = m.querySelector('[data-call-cards]'); if (!box) return;
+      var call = (draft.interview && draft.interview.call_to) || {};
+      var h = ARTISTS.map(function (a) {
+        return wzPick({ name: 'rmCall', value: 'artist:' + a.id, img: a.photo_url || AVATAR, icon: 'fa-guitar', label: a.name,
+                        hint: 'Al artista', checked: call.kind === 'ARTIST' && String(call.id) === String(a.id), attrs: ' data-call-opt' });
+      }).join('');
+      if (call.kind && call.kind !== 'ARTIST' && call.name) {
+        h += wzPick({ name: 'rmCall', value: 'sel', img: call.photo_url || AVATAR, icon: 'fa-user', label: call.name,
+                      hint: call.phone || '', checked: true, attrs: ' data-call-opt' });
+      }
+      h += wzPick({ name: 'rmCall', value: '', icon: 'fa-circle-question', label: 'Todavía no se sabe', checked: !call.kind, attrs: ' data-call-opt' });
+      box.innerHTML = h;
+      box.querySelectorAll('[data-call-opt]').forEach(function (r) {
+        r.addEventListener('change', function () {
+          if (!r.checked) return;
+          var v = r.value;
+          if (!v) { draft.interview.call_to = {}; return; }
+          if (v.indexOf('artist:') === 0) {
+            var a = ARTISTS.filter(function (x) { return 'artist:' + x.id === v; })[0];
+            if (a) draft.interview.call_to = { kind: 'ARTIST', id: a.id, name: a.name, photo_url: a.photo_url || '', phone: '' };
+          }
+        });
+      });
+    }
+    /* LA FICHA DEL MEDIO en una sola llamada: qué es (el tipo y su icono), sus direcciones guardadas
+       y sus personas con foto. */
+    function cargaFichaMedio(m, draft) {
+      var iv = draft.interview || {};
+      if (!iv.media_id) return;
+      getJson('/api/media/' + encodeURIComponent(iv.media_id) + '/ficha').then(function (card) {
+        if (!card || !card.id) return;
+        m.rmMediaCard = card;
+        if (card.media_type) { iv.type = card.media_type; iv.media_icon = card.icon || mediaIcon(card.media_type); }
+        if (!iv.media_logo) iv.media_logo = card.logo_url || '';
+        var mtype = m.querySelector('[data-media-type]'), mava = m.querySelector('[data-media-ava]');
+        if (mtype) { mtype.classList.toggle('d-none', !iv.type); mtype.innerHTML = '<i class="fa ' + esc(iv.media_icon) + '"></i> <span>' + esc(iv.type) + '</span>'; }
+        if (mava) mava.innerHTML = avatar(iv.media_logo || '', iv.media_icon);
+        pintaUbicaciones(m, draft);
+        pintaContactosMedio(m, draft);
+      });
+    }
+    /* Las DIRECCIONES que ya tiene el medio: la sugerencia de una entrevista presencial. */
+    function pintaUbicaciones(m, draft) {
+      var box = m.querySelector('[data-iv-locs]'); if (!box) return;
+      var iv = draft.interview || {};
+      var card = m.rmMediaCard;
+      if (!card) { box.innerHTML = '<div class="rm-sub">Elige antes el medio para ver sus direcciones guardadas.</div>'; return; }
+      var locs = card.locations || [];
+      if (!locs.length) { box.innerHTML = '<div class="rm-sub">Este medio todavía no tiene ninguna dirección guardada.</div>'; return; }
+      box.innerHTML = '<div class="promo-pick-grid promo-pick-grid--wide">'
+        + locs.map(function (l) {
+            // Sin repetirse: cuando el nombre ES la dirección, debajo solo va el municipio.
+            var titulo = l.name || l.address;
+            return wzPick({ name: 'rmLoc', value: l.id, icon: 'fa-building', label: titulo,
+                            hint: [(l.address !== titulo ? l.address : ''), l.municipality].filter(Boolean).join(' · '),
+                            checked: String(iv.location_id || '') === String(l.id), attrs: ' data-loc-opt' });
+          }).join('')
+        + '</div>';
+      box.querySelectorAll('[data-loc-opt]').forEach(function (r) {
+        r.addEventListener('change', function () {
+          if (!r.checked) return;
+          var l = locs.filter(function (x) { return String(x.id) === r.value; })[0];
+          if (!l) return;
+          draft.interview.location_id = l.id;
+          var inp = m.querySelector('[data-f="location"]');
+          if (inp) inp.value = [l.name, l.address, l.municipality].filter(Boolean).join(', ');
+          var ls = m.querySelector('[data-loc-save]'); if (ls) ls.classList.add('d-none');
+        });
+      });
+    }
+    /* LAS PERSONAS DEL MEDIO (sus contactos y los terceros vinculados con él), con su cara. */
+    function pintaContactosMedio(m, draft) {
       var box = m.querySelector('[data-media-contacts]'); if (!box) return;
-      var mediaId = draft.interview && draft.interview.media_id;
-      if (!mediaId) { box.innerHTML = ''; return; }
-      box.innerHTML = '<div class="text-muted small">Cargando contactos del medio…</div>';
-      getJson('/api/media/' + encodeURIComponent(mediaId) + '/contacts').then(function (list) {
-        var h = '<div class="small text-muted mb-1"><i class="fa fa-address-book me-1"></i>Contactos del medio (elige uno o crea):</div>';
-        (list || []).forEach(function (c, i) {
-          var meta = [c.role, c.phone, c.email].filter(Boolean).join(' · ');
-          h += '<div class="rm-result" data-mci="' + i + '">' + avatar(null) + '<div><div>' + esc(c.name) + '</div>' + (meta ? '<div class="rm-sub">' + esc(meta) + '</div>' : '') + '</div></div>';
+      var iv = draft.interview || {};
+      if (!iv.media_id) { box.innerHTML = '<div class="rm-sub">Elige antes el medio para ver sus personas.</div>'; return; }
+      var card = m.rmMediaCard;
+      if (!card) { box.innerHTML = '<div class="rm-sub">Cargando las personas del medio…</div>'; return; }
+      var gente = card.contacts || [];
+      var actual = (draft.contact || {}).name || '';
+      var h = '<div class="rm-wz-lbl"><i class="fa fa-address-book"></i>Personas de ' + esc(card.name || 'este medio') + '</div>';
+      if (gente.length) {
+        h += '<div class="promo-pick-grid promo-pick-grid--wide">'
+          + gente.map(function (c, i) {
+              return wzPick({ name: 'rmMc', value: String(i), img: c.photo || AVATAR, icon: 'fa-user', label: c.name,
+                              hint: c.role || c.program || '', checked: !!actual && normText(actual) === normText(c.name), attrs: ' data-mc-opt' });
+            }).join('')
+          + '</div>';
+      } else {
+        h += '<div class="rm-sub">Todavía no hay nadie dado de alta en este medio.</div>';
+      }
+      h += '<button type="button" class="btn btn-outline-secondary btn-sm mt-2" data-mc-new><i class="fa fa-plus me-1"></i>Nueva persona del medio</button>'
+        + '<div class="rm-wz-new d-none mt-2" data-mc-form>'
+        + '<div class="row g-2 align-items-end">'
+        + '<div class="col-md-6"><label class="form-label small mb-1">Nombre y apellidos</label><input class="form-control form-control-sm" data-nmc="name"></div>'
+        + '<div class="col-md-6"><label class="form-label small mb-1">Cargo</label><input class="form-control form-control-sm" data-nmc="role" placeholder="Redactora, productor…"></div>'
+        + '<div class="col-md-6"><label class="form-label small mb-1">Teléfono</label><input class="form-control form-control-sm" data-nmc="phone"></div>'
+        + '<div class="col-md-6"><label class="form-label small mb-1">Email</label><input class="form-control form-control-sm" data-nmc="email"></div>'
+        + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nmc-save><i class="fa fa-plus me-1"></i>Añadirla y usarla</button></div>'
+        + '</div><div class="filter-hint">Se le crea su ficha de tercero y queda vinculada al medio.</div></div>';
+      box.innerHTML = h;
+      box.querySelectorAll('[data-mc-opt]').forEach(function (r) {
+        r.addEventListener('change', function () {
+          if (!r.checked) return;
+          var c = gente[parseInt(r.value, 10)];
+          if (c && m.rmSetContact) m.rmSetContact({ name: c.name, phone: c.phone || '', email: c.email || '', photo: c.photo || '', role: c.role || '', media_id: iv.media_id, promoter_id: c.promoter_id || '' });
         });
-        h += '<button type="button" class="btn btn-outline-secondary btn-sm mt-1" data-mc-new><i class="fa fa-plus"></i> Nuevo contacto del medio</button><div data-mc-form class="mt-2 d-none"></div>';
-        box.innerHTML = h;
-        box.querySelectorAll('[data-mci]').forEach(function (n) {
-          n.addEventListener('click', function () {
-            var c = (list || [])[parseInt(n.getAttribute('data-mci'), 10)];
-            if (c && m.rmSetContact) m.rmSetContact({ name: c.name, phone: c.phone || '', email: c.email || '', media_id: mediaId });
-          });
-        });
-        box.querySelector('[data-mc-new]').addEventListener('click', function () {
-          var f = box.querySelector('[data-mc-form]');
-          f.classList.remove('d-none');
-          f.innerHTML = '<div class="row g-1"><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="name" placeholder="Nombre"></div><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="role" placeholder="Cargo"></div><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="phone" placeholder="Teléfono"></div><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="email" placeholder="Email"></div></div><button type="button" class="btn btn-primary btn-sm mt-1" data-nmc-save>Añadir y usar</button>';
-          f.querySelector('[data-nmc-save]').addEventListener('click', function () {
-            var name = f.querySelector('[data-nmc="name"]').value.trim(); if (!name) return;
-            var body = { name: name, role: f.querySelector('[data-nmc="role"]').value.trim(), phone: f.querySelector('[data-nmc="phone"]').value.trim(), email: f.querySelector('[data-nmc="email"]').value.trim() };
-            postJson('/api/media/' + encodeURIComponent(mediaId) + '/contacts/create', body).then(function (r) {
-              if (r && r.ok) { if (m.rmSetContact) m.rmSetContact({ name: r.name, phone: r.phone || '', email: r.email || '', media_id: mediaId }); renderMediaContacts(m, draft); }
-              else alert((r && r.error) || 'No se pudo crear el contacto.');
-            });
-          });
+      });
+      var form = box.querySelector('[data-mc-form]');
+      box.querySelector('[data-mc-new]').addEventListener('click', function () {
+        form.classList.toggle('d-none');
+        if (!form.classList.contains('d-none')) form.querySelector('[data-nmc="name"]').focus();
+      });
+      form.querySelector('[data-nmc-save]').addEventListener('click', function () {
+        var name = (form.querySelector('[data-nmc="name"]').value || '').trim();
+        if (!name) { alert('Escribe su nombre.'); return; }
+        postJson('/api/media/' + encodeURIComponent(iv.media_id) + '/contacts/create', {
+          name: name, role: (form.querySelector('[data-nmc="role"]').value || '').trim(),
+          phone: (form.querySelector('[data-nmc="phone"]').value || '').trim(),
+          email: (form.querySelector('[data-nmc="email"]').value || '').trim()
+        }).then(function (r) {
+          if (r && r.ok) {
+            if (m.rmSetContact) m.rmSetContact({ name: r.name, phone: r.phone || '', email: r.email || '', photo: r.photo || '', role: r.role || '', media_id: iv.media_id, promoter_id: r.promoter_id || '' });
+            cargaFichaMedio(m, draft);
+          } else alert((r && r.error) || 'No se pudo crear la persona.');
         });
       });
     }
     function renderSongs(m, draft) {
       var wrap = m.querySelector('[data-songs]'); if (!wrap) return;
+      var arr = itemSongList(draft);
       wrap.innerHTML = '';
-      draft.interview.songs.forEach(function (s, i) {
+      arr.forEach(function (s, i) {
         var row = el('<div class="rm-song" draggable="true" data-idx="' + i + '"><span class="h"><i class="fa fa-grip-vertical"></i></span>' + (s.cover_url ? '<img src="' + esc(s.cover_url) + '">' : '') + '<div class="flex-grow-1">' + esc(s.title) + '</div><button type="button" class="btn-close btn-sm"></button></div>');
-        row.querySelector('.btn-close').addEventListener('click', function () { draft.interview.songs.splice(i, 1); renderSongs(m, draft); });
+        row.querySelector('.btn-close').addEventListener('click', function () { arr.splice(i, 1); renderSongs(m, draft); });
         row.addEventListener('dragstart', function (e) { row.classList.add('dragging'); e.dataTransfer.setData('text/plain', i); });
         row.addEventListener('dragend', function () { row.classList.remove('dragging'); });
         row.addEventListener('dragover', function (e) { e.preventDefault(); });
-        row.addEventListener('drop', function (e) { e.preventDefault(); var from = parseInt(e.dataTransfer.getData('text/plain'), 10); var to = i; if (isNaN(from) || from === to) return; var arr = draft.interview.songs; var mv = arr.splice(from, 1)[0]; arr.splice(to, 0, mv); renderSongs(m, draft); });
+        row.addEventListener('drop', function (e) { e.preventDefault(); var from = parseInt(e.dataTransfer.getData('text/plain'), 10); var to = i; if (isNaN(from) || from === to) return; var mv = arr.splice(from, 1)[0]; arr.splice(to, 0, mv); renderSongs(m, draft); });
         wrap.appendChild(row);
       });
+      if (!arr.length) wrap.innerHTML = '<div class="rm-sub">Todavía no hay canciones.</div>';
     }
     function wireTransport(m, draft) {
       var same = m.querySelector('[data-t="same_locator"]'); var lall = m.querySelector('[data-t="locator_all"]');
@@ -1422,20 +1932,21 @@
       });
     }
     function saveItem(draft, m) {
+      var esIv = draft.kind === 'ENTREVISTA';
+      var marcado = function (name) { var n = m.querySelector('input[name="' + name + '"]:checked'); return n ? n.value : ''; };
       draft.title = m.querySelector('[data-f="title"]').value.trim();
-      draft.day = m.querySelector('[data-f="day"]').value;
+      draft.day = marcado('rmDay') || draft.day;
       draft.start_time = m.querySelector('[data-f="start_time"]').value;
       draft.end_time = m.querySelector('[data-f="end_time"]').value;
       draft.tbc = m.querySelector('[data-f="tbc"]').checked;
-      draft.confirmed = m.querySelector('[data-f="confirmed"]').checked;
+      draft.confirmed = marcado('rmConf') !== '0';
       draft.sheets = {};
       m.querySelectorAll('[data-sheet]').forEach(function (cb) { draft.sheets[cb.getAttribute('data-sheet')] = cb.checked; });
-      draft.location = m.querySelector('[data-f="location"]').value.trim();
+      var locEl = m.querySelector('[data-f="location"]');
+      draft.location = locEl ? locEl.value.trim() : (draft.location || '');
       draft.note = m.querySelector('[data-f="note"]').value.trim();
       draft.audience = readAudience(m);
-      var singsEl = m.querySelector('[data-f="sings"]');
-      if (singsEl) draft.sings = singsEl.checked;
-      else if (draft.interview) draft.sings = !!draft.interview.sings;
+      draft.sings = marcado('rmSings') === '1';
       var accOn = m.querySelector('[data-f="access_on"]');
       draft.access_note = (accOn && accOn.checked) ? (m.querySelector('[data-f="access_note"]').value.trim()) : '';
       var pinOn = !!(accOn && accOn.checked && m.rmPin);
@@ -1446,12 +1957,44 @@
       draft.contact.email = m.querySelector('[data-c="email"]').value.trim();
       if (kindInfo(draft.kind).transport) {
         var t = draft.transport;
-        ['company', 'number', 'origin', 'destination', 'duration', 'logo_url', 'locator_all'].forEach(function (f) { t[f] = m.querySelector('[data-t="' + f + '"]').value.trim(); });
+        ['company', 'number', 'origin', 'destination', 'duration', 'logo_url', 'locator_all'].forEach(function (f) {
+          var n = m.querySelector('[data-t="' + f + '"]'); if (n) t[f] = n.value.trim();
+        });
         t.ends_next_day = m.querySelector('[data-t="ends_next_day"]').checked;
         t.same_locator = m.querySelector('[data-t="same_locator"]').checked;
       }
+      var guardarUbicacion = null;
+      if (esIv) {
+        var iv = draft.interview;
+        iv.program = (m.querySelector('[data-iv="program"]').value || '').trim();
+        iv.modality = marcado('rmMod');
+        iv.live = marcado('rmLive') === '1';
+        iv.sings = draft.sings;
+        iv.formation = marcado('rmForm');
+        iv.zoom_url = (m.querySelector('[data-iv="zoom_url"]').value || '').trim();
+        iv.zoom_tbc = m.querySelector('[data-iv="zoom_tbc"]').checked;
+        // ⚠️ El sitio es de una entrevista PRESENCIAL: en un phoner o un zoom no hay dónde ir, y
+        // dejarlo escrito haría que la hoja de ruta enseñara una dirección que no es.
+        if (iv.modality !== 'PRESENCIAL') { draft.location = ''; iv.location_id = ''; draft.access_note = ''; draft.access_lat = null; draft.access_lng = null; }
+        if (iv.modality !== 'PHONER') iv.call_to = {};
+        if (iv.modality !== 'ZOOM') { iv.zoom_url = ''; iv.zoom_tbc = false; }
+        // Una dirección NUEVA se puede quedar guardada en el medio (para no reescribirla nunca más).
+        if (iv.modality === 'PRESENCIAL' && draft.location && iv.media_id && !iv.location_id
+            && marcado('rmLocSave') === '1') {
+          guardarUbicacion = { media_id: iv.media_id, address: draft.location };
+        }
+        // Sin título, el del medio y su programa (es como se reconoce la entrevista).
+        if (!draft.title) draft.title = [iv.media_name, iv.program].filter(Boolean).join(' · ');
+      }
       var i = bs('rmItemModal'); if (i) i.hide();
-      postJson(ep('/item'), draft).then(apply);
+      var guardar = function () { postJson(ep('/item'), draft).then(apply); };
+      if (guardarUbicacion) {
+        postJson('/api/media/' + encodeURIComponent(guardarUbicacion.media_id) + '/ubicaciones',
+                 { address: guardarUbicacion.address })
+          .then(function (r) { if (r && r.ok && r.id) draft.interview.location_id = r.id; })
+          .catch(function () {})
+          .then(guardar);
+      } else guardar();
     }
 
     // ------------------------------------------------- detalle de item
@@ -1469,32 +2012,32 @@
         h += '<div class="mb-1"><span class="rm-tag sing"><i class="fa fa-music"></i> Canta</span>'
           + (sgs.length ? '<div class="rm-sub">Repertorio: ' + sgs.map(function (s2) { return esc(s2.title); }).join(', ') + '</div>' : '<div class="rm-sub">Sin repertorio todavía (se configura en la pestaña Repertorio).</div>') + '</div>';
       }
-      if (it.kind === 'ENTREVISTA' && it.interview) {
+      // UNA ENTREVISTA (creada aquí o espejada de una promoción): el MISMO helper que la fila.
+      var mdD = ivMeta(it);
+      if (mdD) {
         h += '<div class="mb-1">';
-        if (it.interview.media_name) h += '<span class="rm-tag">' + esc(it.interview.media_name) + '</span> ';
-        if (it.interview.type) h += '<span class="rm-tag">' + esc(it.interview.type) + '</span> ';
-        if (it.interview.live) h += '<span class="rm-tag live">Directo</span> ';
-        if (it.interview.sings) h += '<span class="rm-tag sing">Canta</span>';
+        if (mdD.mediaName) h += '<span class="rm-tag"><i class="fa ' + esc(mdD.mediaIcon) + '"></i> ' + esc(mdD.mediaName) + '</span> ';
+        if (mdD.program) h += '<span class="rm-tag"><i class="fa fa-microphone"></i> ' + esc(mdD.program) + '</span> ';
+        if (mdD.modLabel) h += '<span class="rm-tag"><i class="fa ' + esc(mdD.modIcon) + '"></i> ' + esc(mdD.modLabel) + '</span> ';
+        if (mdD.live) h += '<span class="rm-tag live"><i class="fa fa-tower-broadcast"></i> Directo</span> ';
+        else if (mdD.formation) h += '<span class="rm-tag">' + esc(mdD.formation) + '</span> ';
         h += '</div>';
-        if ((it.interview.songs || []).length) h += '<div class="rm-sub">Repertorio: ' + it.interview.songs.map(function (s) { return esc(s.title); }).join(', ') + '</div>';
-      }
-      // Punto que espeja una PROMOCIÓN de prensa: sus propios iconos.
-      if (it.promo_meta) {
-        var pmd = it.promo_meta;
-        h += '<div class="mb-1">';
-        if (pmd.media_name) h += '<span class="rm-tag"><i class="fa ' + esc(pmd.media_icon || 'fa-bullhorn') + '"></i> ' + esc(pmd.media_name) + '</span> ';
-        if (pmd.modality_label) h += '<span class="rm-tag"><i class="fa ' + esc(pmd.modality_icon || 'fa-video') + '"></i> ' + esc(pmd.modality_label) + '</span> ';
-        if (pmd.sings) h += '<span class="rm-tag sing"><i class="fa fa-music"></i> Canta</span> ';
-        if (pmd.is_live) h += '<span class="rm-tag live"><i class="fa fa-guitar"></i> En directo</span> ';
-        else if (pmd.formation_label) h += '<span class="rm-tag">' + esc(pmd.formation_label) + '</span> ';
-        h += '</div>';
+        h += callLine(mdD);
+        if (mdD.zoom) h += '<div class="mb-2"><a class="btn btn-sm btn-outline-primary" href="' + esc(mdD.zoom) + '" target="_blank" rel="noopener" data-ext><i class="fa fa-video me-1"></i>Entrar en la videollamada</a></div>';
+        else if (mdD.zoomTbc) h += '<div class="rm-sub mb-2"><i class="fa fa-video"></i> El enlace de la videollamada está por confirmar.</div>';
+        if (it.interview && (it.interview.songs || []).length) h += '<div class="rm-sub">Repertorio: ' + it.interview.songs.map(function (s) { return esc(s.title); }).join(', ') + '</div>';
       }
       if (ki.transport && it.transport) {
         var t = it.transport;
         h += '<div class="rm-transport-line">' + (t.logo_url ? '<img src="' + esc(t.logo_url) + '">' : '') + [t.company, t.number, [t.origin, t.destination].filter(Boolean).join(' → '), t.duration].filter(Boolean).map(esc).join(' · ') + (t.ends_next_day ? ' <span class="rm-tag plus1">+1</span>' : '') + '</div>';
         (t.passengers || []).forEach(function (p) { var per = personById(p.personnel_id); h += '<div class="rm-sub"><i class="fa fa-user"></i> ' + esc(per ? per.name : '—') + (p.locator || t.locator_all ? ' · Loc: ' + esc(t.same_locator ? t.locator_all : p.locator) : '') + (p.ticket_url ? ' · <a href="' + esc(p.ticket_url) + '" target="_blank">Billete</a>' : '') + '</div>'; });
       }
-      if (it.contact && (it.contact.name || it.contact.phone || it.contact.email)) h += '<div class="mt-2 rm-sub"><i class="fa fa-address-card"></i> ' + [it.contact.name, it.contact.phone, it.contact.email].filter(Boolean).map(esc).join(' · ') + '</div>';
+      if (it.contact && (it.contact.name || it.contact.phone || it.contact.email)) {
+        var cc = it.contact;
+        h += '<div class="mt-2 rm-contact"><span class="rm-nick">' + avatar(cc.photo || AVATAR) + '<span>' + esc(cc.name || 'Contacto') + '</span></span>'
+          + (cc.role ? '<span class="rm-sub"> · ' + esc(cc.role) + '</span>' : '')
+          + contactActs(cc.phone || '', cc.email || '') + '</div>';
+      }
       h += accesoHtml(it.access_note, it, 'Acceso · ' + (it.title || ''));
       if (it.note) h += '<div class="alert alert-warning mt-2 mb-0 py-2"><i class="fa fa-note-sticky"></i> ' + esc(it.note) + '</div>';
       if ((it.attachments || []).length) { h += '<div class="mt-2">'; it.attachments.forEach(function (a) { h += '<a class="rm-att" href="' + esc(a.url) + '" target="_blank"><i class="fa fa-download"></i> ' + esc(a.name) + '</a>'; }); h += '</div>'; }

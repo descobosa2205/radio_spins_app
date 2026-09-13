@@ -73914,15 +73914,68 @@ def api_create_media_outlet():
         session_db.close()
 
 
-def _media_contact_row(c) -> dict:
-    name = " ".join([x for x in [(c.first_name or "").strip(), (c.last_name or "").strip()] if x]).strip()
+def _media_contact_row(c, photo: str = "") -> dict:
+    """Una persona de un medio, lista para pintar. ⚠️ CON SU FOTO: una persona se elige por su cara,
+    y la suya es la de SU ficha de tercero (un contacto no tiene foto propia)."""
     return {
         "id": str(c.id),
-        "name": name or (c.program or "Contacto"),
+        "name": _media_contact_name(c) or "Contacto",
         "role": (c.role or c.program or "").strip(),
+        "program": (getattr(c, "program", "") or "").strip(),
         "phone": (c.phone or "").strip(),
         "email": (c.email or "").strip(),
+        "promoter_id": str(getattr(c, "promoter_id", "") or ""),
+        "photo": (photo or "").strip(),
+        "source": "CONTACT",
     }
+
+
+def _media_contact_rows(session_db, media_id) -> list[dict]:
+    """QUIÉN ES DE ESE MEDIO: sus personas de contacto **y** los terceros VINCULADOS con él (el
+    director de la radio, su jefe de prensa…), todos con su foto y sin repetirse.
+
+    Punto único: lo usan el selector de contacto de la hoja de ruta y cualquier sitio que pregunte
+    «¿con quién se habla en este medio?»."""
+    mid = to_uuid(media_id)
+    if not mid:
+        return []
+    contactos = (session_db.query(MediaContact)
+                 .filter(MediaContact.media_id == mid)
+                 .order_by(MediaContact.first_name.asc().nullslast(),
+                           MediaContact.last_name.asc().nullslast())
+                 .all())
+    # Las fotos, EN BLOQUE (una consulta): un medio puede tener veinte personas.
+    pids = [getattr(c, "promoter_id", None) for c in contactos]
+    pids = [x for x in pids if x]
+    fotos = {}
+    if pids:
+        for row in session_db.query(Promoter.id, Promoter.logo_url).filter(Promoter.id.in_(pids)).all():
+            fotos[str(row[0])] = (row[1] or "")
+    salida = [_media_contact_row(c, fotos.get(str(getattr(c, "promoter_id", "") or ""), ""))
+              for c in contactos]
+    vistos = {x["promoter_id"] for x in salida if x["promoter_id"]}
+    nombres = {_norm_text_key(x["name"]) for x in salida if x["name"]}
+    try:
+        for fila in _entity_link_rows(session_db, "media", mid):
+            otro = fila.get("linked") or {}
+            if (otro.get("type") or "") not in ("promoter", "empresa", "institucion", "personal"):
+                continue
+            oid, label = str(otro.get("id") or ""), (otro.get("label") or "").strip()
+            if not label or oid in vistos or _norm_text_key(label) in nombres:
+                continue
+            vistos.add(oid)
+            nombres.add(_norm_text_key(label))
+            salida.append({
+                "id": "", "name": label,
+                "role": (fila.get("relation_title") or "").strip(),
+                "program": "", "phone": (otro.get("phone") or ""), "email": (otro.get("email") or ""),
+                "promoter_id": oid if (otro.get("type") or "") != "personal" else "",
+                "photo": (otro.get("logo_url") or otro.get("photo_url") or ""),
+                "source": "LINK",
+            })
+    except Exception:
+        app.logger.exception("[medios] no se pudieron leer las vinculaciones del medio")
+    return salida
 
 
 @app.get("/api/media/<media_id>/contacts", endpoint="api_media_contacts")
@@ -73930,13 +73983,75 @@ def _media_contact_row(c) -> dict:
 def api_media_contacts(media_id):
     session_db = db()
     try:
-        rows = (
-            session_db.query(MediaContact)
-            .filter(MediaContact.media_id == to_uuid(media_id))
-            .order_by(MediaContact.first_name.asc().nullslast(), MediaContact.last_name.asc().nullslast())
-            .all()
-        )
-        return jsonify([_media_contact_row(c) for c in rows])
+        return jsonify(_media_contact_rows(session_db, media_id))
+    finally:
+        session_db.close()
+
+
+@app.get("/api/media/<media_id>/ficha", endpoint="api_media_card")
+@admin_required
+def api_media_card(media_id):
+    """LA FICHA DE UN MEDIO en una sola llamada: qué es (de ahí sale el tipo de la entrevista y su
+    icono), sus UBICACIONES guardadas (la sugerencia de una entrevista presencial) y sus PERSONAS
+    con foto. Un solo viaje al elegir el medio en el asistente de los horarios."""
+    session_db = db()
+    try:
+        media = session_db.get(MediaOutlet, to_uuid(media_id))
+        if not media:
+            abort(404)
+        tipo = _media_type_label(getattr(media, "media_type", ""))
+        return jsonify({
+            "id": str(media.id),
+            "name": (media.name or "").strip(),
+            "media_type": tipo,
+            "icon": _media_type_icon(getattr(media, "media_type", "")),
+            "logo_url": (getattr(media, "logo_url", "") or ""),
+            "address": (getattr(media, "address", "") or ""),
+            "locations": _promo_media_locations_payload(session_db, [media.id]),
+            "contacts": _media_contact_rows(session_db, media.id),
+        })
+    finally:
+        session_db.close()
+
+
+@app.post("/api/media/<media_id>/ubicaciones", endpoint="api_media_location_create")
+@admin_required
+def api_media_location_create(media_id):
+    """Guarda UNA DIRECCIÓN en el medio (la de sus estudios, un plató…), para no volver a
+    escribirla la próxima vez. ⚠️ Si ya tiene esa misma dirección no se duplica: se devuelve la que
+    hay."""
+    session_db = db()
+    try:
+        media = session_db.get(MediaOutlet, to_uuid(media_id))
+        if not media:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        direccion = (data.get("address") or "").strip()
+        nombre = (data.get("name") or "").strip()
+        if not (direccion or nombre):
+            return jsonify({"ok": False, "error": "Falta la dirección."}), 400
+        def _fila(row):
+            return {"ok": True, "id": str(row.id), "media_id": str(media.id),
+                    "name": (row.name or ""), "address": (row.address or ""),
+                    "municipality": (row.municipality or ""), "province": (row.province or ""),
+                    "label": " · ".join([x for x in [(row.name or ""), (row.address or ""),
+                                                     (row.municipality or "")] if x])}
+        clave = _norm_text_key(direccion or nombre)
+        for row in session_db.query(MediaLocation).filter(MediaLocation.media_id == media.id).all():
+            if _norm_text_key((row.address or "") or (row.name or "")) == clave:
+                return jsonify(_fila(row))
+        row = MediaLocation(media_id=media.id,
+                            name=(nombre or direccion)[:300],
+                            address=direccion[:400] or None,
+                            municipality=((data.get("city") or "").strip() or None),
+                            province=((data.get("province") or "").strip() or None))
+        session_db.add(row)
+        session_db.commit()
+        return jsonify(_fila(row))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo guardar la ubicación")
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 
@@ -73944,6 +74059,9 @@ def api_media_contacts(media_id):
 @app.post("/api/media/<media_id>/contacts/create", endpoint="api_media_contact_create")
 @admin_required
 def api_media_contact_create(media_id):
+    """Una persona NUEVA de un medio. ⚠️⚠️ Una persona de un medio ES UN TERCERO: se le crea (o se
+    le reutiliza) su ficha y queda VINCULADA al medio, que es el punto único de la casa
+    (`_media_contact_promoter`). Así no acaban existiendo dos fichas de la misma persona."""
     session_db = db()
     try:
         media = session_db.get(MediaOutlet, to_uuid(media_id))
@@ -73963,8 +74081,21 @@ def api_media_contact_create(media_id):
             email=(data.get("email") or "").strip() or None,
         )
         session_db.add(c)
+        foto = ""
+        try:
+            promoter = _media_contact_promoter(session_db, c, {
+                "promoter_id": (data.get("promoter_id") or ""),
+                "full_name": name, "nick": "",
+                "email": (data.get("email") or ""), "phone": (data.get("phone") or ""),
+                "role": (data.get("role") or ""),
+            }, media.id)
+            if promoter is not None:
+                c.promoter_id = promoter.id
+                foto = (getattr(promoter, "logo_url", "") or "")
+        except Exception:
+            app.logger.exception("[medios] no se pudo crear el tercero de la persona del medio")
         session_db.commit()
-        return jsonify({"ok": True, **_media_contact_row(c)})
+        return jsonify({"ok": True, **_media_contact_row(c, foto)})
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -79878,6 +80009,13 @@ ROADMAP_ACTIVITY_TYPES = [
 ROADMAP_ACTIVITY_KINDS = {k for k, _l, _i, _c in ROADMAP_ACTIVITY_TYPES}
 ROADMAP_ALL_KINDS = ROADMAP_ACTIVITY_KINDS | ROADMAP_TRANSPORT_KINDS
 ROADMAP_INTERVIEW_TYPES = ["Radio", "TV", "Prensa", "Digital", "Podcast", "Streaming", "Otros"]
+# CÓMO SE HACE una entrevista: en persona, por teléfono (phoner) o por vídeo (Zoom). ⚠️ Las claves
+# son LAS MISMAS que las de promoción (`PROMO_MODALITIES`), así que un punto creado aquí y uno
+# espejado desde una promoción de prensa se pintan igual (icono, etiqueta) sin casos particulares.
+ROADMAP_INTERVIEW_MODALITIES = ("PRESENCIAL", "PHONER", "ZOOM")
+# A QUIÉN SE LLAMA en un phoner: al ARTISTA (la etiqueta rápida), a alguien de la casa, a un tercero
+# o a un nombre escrito a mano. Se pinta con su cara, la flecha y su nombre.
+ROADMAP_CALL_KINDS = ("ARTIST", "USER", "PROMOTER", "MANUAL")
 ROADMAP_PERSONNEL_KINDS = {"USER", "PROMOTER", "MEMBER", "MANUAL"}
 # A QUIÉN AFECTA un punto de los HORARIOS: a TODOS, a unas FUNCIONES (los técnicos, los músicos…) o
 # a unas PERSONAS concretas del personal. Es la etiqueta que sale en su fila y lo que decide qué ve
@@ -80672,6 +80810,16 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "activity_picker": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in ROADMAP_ACTIVITY_TYPES],
         "transport_picker": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_TRANSPORT_MODES],
         "interview_types": ROADMAP_INTERVIEW_TYPES,
+        # ENTREVISTA: cómo se hace (presencial · phoner · zoom) y cómo se canta. Los catálogos son
+        # los de PROMOCIÓN, así que una entrevista de aquí y una de allí dicen lo mismo.
+        "interview_modalities": [{"key": k, "label": l, "icon": i} for k, l, i in PROMO_MODALITIES
+                                 if k in ROADMAP_INTERVIEW_MODALITIES],
+        "formations": [{"key": k, "label": l, "icon": i} for k, l, i in PROMO_FORMATIONS],
+        # Los ARTISTAS de la actividad: la etiqueta rápida «al artista» de un phoner y una tarjeta
+        # más en «a quién afecta» (con su foto).
+        "artists": [{"id": str(a.id), "name": (a.name or ""),
+                     "photo_url": (getattr(a, "photo_url", "") or "")} for a in artists],
+        "media_types": MEDIA_TYPES,
         # La ficha de la actividad ya dice a qué hora abren las puertas: el punto de agenda de
         # «Apertura de puertas» nace con ESA hora (editable, y se puede añadir más de uno), para no
         # tener que escribirla otra vez. `_roadmap_clean_time` descarta lo que no sea «HH:MM».
@@ -80724,6 +80872,10 @@ def _roadmap_clean_contact(contact) -> dict:
         "name": (contact.get("name") or "").strip(),
         "phone": (contact.get("phone") or "").strip(),
         "email": (contact.get("email") or "").strip(),
+        # SU CARA: una persona se reconoce por su foto (la de su ficha de tercero), también en la
+        # hoja de ruta. Sin foto no se guarda nada y se pinta el muñequito de siempre.
+        "photo": (contact.get("photo") or contact.get("photo_url") or "").strip()[:600],
+        "role": (contact.get("role") or "").strip()[:120],
     }
     if contact.get("promoter_id"):
         out["promoter_id"] = str(contact.get("promoter_id"))
@@ -80780,6 +80932,12 @@ def _roadmap_payload_for_kind(payload: dict, kind: str) -> dict:
 #    Repertorio los enseña y, mientras no tengan canciones, es una tarea de producción.
 #  ⚠️ Todo el filtrado va en el SERVIDOR: el payload entero viaja en el HTML de lo compartido.
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
+def _roadmap_artist_audience_key(artist_id) -> str:
+    """La clave con la que se marca «esto es para EL ARTISTA» en «a quién afecta». No es un id del
+    personal (el artista no está en él), así que va con su prefijo: `artist:<uuid>`."""
+    return "artist:" + str(artist_id or "").strip()
+
+
 def _roadmap_item_audience(value) -> dict:
     """A quién afecta un punto: `{"mode": ALL|ROLES|PEOPLE, "roles": [...], "ids": [...]}`.
     Sin nada guardado (los puntos de antes), a TODOS; un modo sin nadie dentro también es «todos»."""
@@ -80870,9 +81028,29 @@ def _roadmap_setlist_context(session_db, kind: str, row) -> dict | None:
             "total_label": datos["total_label"], "owner_type": owner, "icons": iconos}
 
 
-def _roadmap_ext_person_info(payload: dict, ext_ids) -> dict:
+def _roadmap_ext_artist_ids(session_db, ext_ids, artist_ids) -> list[str]:
+    """De qué ARTISTAS de esta actividad es INTEGRANTE quien la está mirando por su portal. Con eso,
+    un punto marcado «para el artista» le sale también a él."""
+    quiero = {str(x) for x in (artist_ids or []) if x}
+    if not quiero:
+        return []
+    salida = []
+    for pid in (ext_ids or []):
+        try:
+            for aid in _promoter_member_artist_ids(session_db, pid):
+                if str(aid) in quiero and str(aid) not in salida:
+                    salida.append(str(aid))
+        except Exception:
+            continue
+    return salida
+
+
+def _roadmap_ext_person_info(payload: dict, ext_ids, artist_ids=None) -> dict:
     """Qué es esta persona DENTRO de esta hoja de ruta: sus filas del personal (puede tener más de
-    una ficha), sus ids de personal, sus FUNCIONES (normalizadas) y si puede ACTUALIZARLA."""
+    una ficha), sus ids de personal, sus FUNCIONES (normalizadas) y si puede ACTUALIZARLA.
+
+    `artist_ids` son los ARTISTAS de los que es integrante: un punto marcado «solo para el artista»
+    también le afecta a él."""
     ids = {str(x) for x in (ext_ids or []) if x}
     filas = [p for p in ((payload or {}).get("personnel") or [])
              if isinstance(p, dict) and (p.get("kind") or "").upper() in ("PROMOTER", "MEMBER")
@@ -80881,6 +81059,7 @@ def _roadmap_ext_person_info(payload: dict, ext_ids) -> dict:
         "rows": filas,
         "person_ids": [str(p.get("id") or "") for p in filas if p.get("id")],
         "roles": {_norm_text_key(p.get("role") or "") for p in filas if (p.get("role") or "").strip()},
+        "artist_keys": {_roadmap_artist_audience_key(x) for x in (artist_ids or []) if x},
         "can_edit": any(bool(p.get("can_edit")) for p in filas),
         "in_personnel": bool(filas),
     }
@@ -80894,7 +81073,9 @@ def _roadmap_item_affects(item: dict, info: dict) -> bool:
     if aud["mode"] == "ROLES":
         return bool({_norm_text_key(r) for r in aud["roles"]} & set(info.get("roles") or set()))
     if aud["mode"] == "PEOPLE":
-        return bool(set(aud["ids"]) & mios)
+        # Las PERSONAS del personal y, además, EL ARTISTA (`artist:<id>`): un punto marcado para él
+        # le afecta a él y a sus integrantes.
+        return bool((set(aud["ids"]) & mios) or (set(aud["ids"]) & set(info.get("artist_keys") or set())))
     tr = (item or {}).get("transport") or {}
     pasajeros = [str(p.get("personnel_id") or "") for p in (tr.get("passengers") or []) if isinstance(p, dict)]
     pasajeros = [x for x in pasajeros if x]
@@ -80975,6 +81156,39 @@ def _roadmap_setlist_pdf_source(session_db, kind: str, row, item_id: str = "") -
     return _setlist_pdf_header(session_db, owner, row.id), [_setlist_item_payload(it) for it in items]
 
 
+def _roadmap_modality(value) -> str:
+    """Cómo se hace una entrevista (PRESENCIAL · PHONER · ZOOM). Vacío = no se ha dicho."""
+    v = (str(value or "")).strip().upper()
+    return v if v in ROADMAP_INTERVIEW_MODALITIES else ""
+
+
+def _roadmap_formation(value) -> str:
+    """Cómo se canta (full playback, half playback o directo con músicos). El MISMO catálogo que
+    usa promoción (`PROMO_FORMATIONS`): no hay dos listas que se puedan desparejar."""
+    v = (str(value or "")).strip().upper()
+    return v if v in {k for k, _l, _i in PROMO_FORMATIONS} else ""
+
+
+def _roadmap_call_to(value) -> dict:
+    """A QUIÉN LLAMAN en un phoner: el artista, alguien de la casa, un tercero o un nombre escrito a
+    mano. Se guarda con su cara y su teléfono para poder pintarlo (y llamar) desde la hoja de ruta."""
+    if not isinstance(value, dict):
+        return {}
+    kind = (str(value.get("kind") or "")).strip().upper()
+    nombre = (value.get("name") or "").strip()
+    if kind not in ROADMAP_CALL_KINDS:
+        kind = "MANUAL" if nombre else ""
+    if not kind:
+        return {}
+    return {
+        "kind": kind,
+        "id": str(value.get("id") or "").strip()[:80],
+        "name": nombre[:200],
+        "photo_url": (value.get("photo_url") or "").strip()[:600],
+        "phone": (value.get("phone") or "").strip()[:60],
+    }
+
+
 def _roadmap_item_from_json(data: dict) -> dict:
     kind = (data.get("kind") or "OTROS").strip().upper()
     if kind not in ROADMAP_ALL_KINDS:
@@ -81008,10 +81222,23 @@ def _roadmap_item_from_json(data: dict) -> dict:
         iv = data.get("interview") or {}
         songs = _roadmap_songs_from_json(iv.get("songs"))
         item["interview"] = {
+            # EL TIPO se coge del MEDIO (radio, TV, prensa…): no se pregunta aparte.
             "type": (iv.get("type") or "").strip(),
             "media_id": (iv.get("media_id") or "").strip(),
             "media_name": (iv.get("media_name") or "").strip(),
+            "media_logo": (iv.get("media_logo") or "").strip(),
+            "media_icon": (iv.get("media_icon") or "").strip() or _media_type_icon(iv.get("type")),
+            "program": (iv.get("program") or "").strip(),
+            # CÓMO SE HACE y lo que necesita cada forma: la dirección (presencial, que puede ser una
+            # de las guardadas del medio), el enlace del Zoom (que puede estar por confirmar) y a
+            # quién se llama en un phoner.
+            "modality": _roadmap_modality(iv.get("modality")),
+            "location_id": (iv.get("location_id") or "").strip(),
+            "zoom_url": (iv.get("zoom_url") or "").strip()[:600],
+            "zoom_tbc": bool(iv.get("zoom_tbc")),
+            "call_to": _roadmap_call_to(iv.get("call_to")),
             "sings": bool(iv.get("sings")),
+            "formation": _roadmap_formation(iv.get("formation")),
             "live": bool(iv.get("live")),
             "songs": songs,
         }
@@ -93917,6 +94144,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
+    # Guardar en el medio la dirección de una entrevista presencial (para no reescribirla).
+    "api_media_location_create",
     "api_create_event",
     "api_create_distributor",
     # Plantillas de gastos (se gestionan desde las fichas de artista/evento/recinto y el simulador)
@@ -94027,6 +94256,9 @@ SUPPORT_READ_ENDPOINTS = {
     # Royalties «a favor»: PDF de la liquidación.
     "afavor_liquidation_pdf",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
+    # LA FICHA DE UN MEDIO (qué es, sus ubicaciones y sus personas con foto): la lee el asistente de
+    # los horarios de la hoja de ruta al elegir el medio de una entrevista.
+    "api_media_card",
     # Contactos de la actividad: personas ya vinculadas al promotor (asistente y ficha).
     "api_promoter_contacts",
     # Las personas que se pueden añadir a una actividad (del promotor, de los vinculados y las que
@@ -164683,7 +164915,8 @@ def externos_activity(cid):
         hojas = []
         try:
             rm = _roadmap_context(session_db, "concert", c)
-            info = _roadmap_ext_person_info(rm.get("payload") or {}, ctx["ids"])
+            info = _roadmap_ext_person_info(rm.get("payload") or {}, ctx["ids"],
+                                            _roadmap_ext_artist_ids(session_db, ctx["ids"], _roadmap_artist_ids(c)))
             editor = bool(info["can_edit"]) and not ctx.get("preview")
             rm["setlist_edit_url"] = ""
             rm["kind"] = "GENERAL"
@@ -164746,7 +164979,8 @@ def externos_promotion(promotion_id):
         hojas = []
         try:
             rm = _roadmap_context(session_db, "promotion", p)
-            info = _roadmap_ext_person_info(rm.get("payload") or {}, ctx["ids"])
+            info = _roadmap_ext_person_info(rm.get("payload") or {}, ctx["ids"],
+                                            _roadmap_ext_artist_ids(session_db, ctx["ids"], _roadmap_artist_ids(p)))
             editor = bool(info["can_edit"]) and not ctx.get("preview")
             rm["setlist_edit_url"] = ""
             rm["kind"] = "GENERAL"

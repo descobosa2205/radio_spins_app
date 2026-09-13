@@ -37,8 +37,9 @@ os.environ.setdefault("PGCONNECT_TIMEOUT", "5")
 import flask                                          # noqa: E402
 import app as A                                       # noqa: E402
 import geo_utils                                      # noqa: E402
-from models import (Artist, Concert, ConcertArtistNotification, Promoter,   # noqa: E402
-                    RoadmapScheduledMessage, User, UserProfile, Venue)
+from models import (Artist, Concert, ConcertArtistNotification, MediaContact,   # noqa: E402
+                    MediaLocation, MediaOutlet, Promoter, RoadmapScheduledMessage,
+                    ThirdPartyLink, User, UserProfile, Venue)
 
 A.app.config["WTF_CSRF_ENABLED"] = False
 OK = FALLOS = 0
@@ -68,6 +69,15 @@ def limpia(s):
         s.query(ConcertArtistNotification).filter(ConcertArtistNotification.concert_id == c.id).delete()
         s.query(RoadmapScheduledMessage).filter(RoadmapScheduledMessage.entity_id == c.id).delete()
         s.delete(c)
+    # El medio de la entrevista de prueba (con sus direcciones, sus personas y sus vinculaciones).
+    for med in s.query(MediaOutlet).filter(MediaOutlet.name == "Radio Ruta").all():
+        s.query(MediaLocation).filter(MediaLocation.media_id == med.id).delete()
+        s.query(MediaContact).filter(MediaContact.media_id == med.id).delete()
+        s.query(ThirdPartyLink).filter(ThirdPartyLink.target_type == "media",
+                                       ThirdPartyLink.target_id == med.id).delete()
+        s.delete(med)
+    for pr in s.query(Promoter).filter(Promoter.contact_email == "nuria@radioruta.com").all():
+        s.delete(pr)
     s.flush()
 
 
@@ -362,6 +372,134 @@ def main():
     r = casa.get("/conciertos/%s?tab=inicio" % d["cid2"])
     html = r.data.decode()
     check("la ficha del evento promocional pinta el acompañante con el círculo", 'class="escort-av"' in html and "ficha-hero__media\" style=\"flex:0 0 auto" not in html, str(r.status_code))
+
+    print("\n9 · Añadir un punto: el asistente por pasos (el mismo para todos)")
+    # El contexto que necesita el asistente: cómo se hace una entrevista, cómo se canta y quién es
+    # el artista (la etiqueta rápida del phoner y una tarjeta más en «a quién afecta»).
+    s = A.db()
+    try:
+        c = s.get(Concert, A.to_uuid(cid))
+        with A.app.test_request_context():
+            ctx = A._roadmap_context(s, "concert", c)
+        check("las modalidades son presencial · phoner · zoom",
+              [x["key"] for x in ctx["interview_modalities"]] == ["PRESENCIAL", "PHONER", "ZOOM"],
+              str(ctx.get("interview_modalities")))
+        check("los formatos son los de promoción (no hay dos catálogos)",
+              [x["key"] for x in ctx["formations"]] == [k for k, _l, _i in A.PROMO_FORMATIONS])
+        check("el artista llega con su foto", [a["name"] for a in ctx["artists"]] == ["Los Ruta"], str(ctx.get("artists")))
+        check("y los tipos de medio, para crear uno al vuelo", "Radio" in (ctx.get("media_types") or []))
+    finally:
+        s.close()
+
+    # LA FICHA DE UN MEDIO en una llamada: qué es, sus direcciones y sus personas con su cara.
+    s = A.db()
+    try:
+        med = MediaOutlet(name="Radio Ruta", media_type="Radio", logo_url="/static/img/logo.png")
+        s.add(med); s.commit()
+        mid = str(med.id)
+    finally:
+        s.close()
+    r = casa.get("/api/media/%s/ficha" % mid)
+    ficha = r.get_json() or {}
+    check("la ficha del medio dice QUÉ es y con qué icono",
+          ficha.get("media_type") == "Radio" and ficha.get("icon") == "fa-radio", str(ficha)[:150])
+    check("todavía no tiene direcciones ni personas", ficha.get("locations") == [] and ficha.get("contacts") == [])
+
+    r = casa.post("/api/media/%s/ubicaciones" % mid, json={"address": "Gran Vía 32, Madrid"})
+    loc = r.get_json() or {}
+    check("se le guarda una dirección", loc.get("ok") and loc.get("id"), str(loc)[:150])
+    r2 = casa.post("/api/media/%s/ubicaciones" % mid, json={"address": "Gran Vía 32, Madrid"})
+    check("y la MISMA no se duplica", (r2.get_json() or {}).get("id") == loc.get("id"))
+
+    r = casa.post("/api/media/%s/contacts/create" % mid,
+                  json={"name": "Nuria Prensa", "role": "Redactora", "email": "nuria@radioruta.com",
+                        "phone": "600999888"})
+    per = r.get_json() or {}
+    check("una persona del medio se crea con su cargo", per.get("ok") and per.get("name") == "Nuria Prensa", str(per)[:150])
+    s = A.db()
+    try:
+        pr = s.query(Promoter).filter(Promoter.contact_email == "nuria@radioruta.com").first()
+        check("⚠️ y ES UN TERCERO: se le crea su ficha", pr is not None)
+        vinc = s.query(ThirdPartyLink).filter(ThirdPartyLink.target_type == "media",
+                                              ThirdPartyLink.target_id == A.to_uuid(mid)).first()
+        check("que queda VINCULADA al medio con su cargo", vinc is not None and vinc.relation_title == "Redactora",
+              str(getattr(vinc, "relation_title", None)))
+        mc = s.query(MediaContact).filter(MediaContact.media_id == A.to_uuid(mid)).first()
+        check("y el contacto apunta a esa ficha", mc is not None and str(mc.promoter_id) == str(pr.id))
+    finally:
+        s.close()
+    ficha = (casa.get("/api/media/%s/ficha" % mid).get_json() or {})
+    check("la ficha ya trae su dirección y su persona",
+          len(ficha.get("locations") or []) == 1 and len(ficha.get("contacts") or []) == 1, str(ficha)[:200])
+
+    # UNA ENTREVISTA con todo lo que se pregunta ahora.
+    art_id = None
+    s = A.db()
+    try:
+        art_id = str(s.query(Artist).filter(Artist.name == "Los Ruta").first().id)
+    finally:
+        s.close()
+    punto = {"kind": "ENTREVISTA", "day": DIA, "start_time": "10:30", "end_time": "11:00", "title": "",
+             "confirmed": True, "sings": True, "note": "Llegar 10 minutos antes",
+             "audience": {"mode": "PEOPLE", "roles": [], "ids": ["artist:%s" % art_id]},
+             "contact": {"name": "Nuria Prensa", "phone": "600999888", "photo": "/x.png", "role": "Redactora"},
+             "interview": {"media_id": mid, "media_name": "Radio Ruta", "type": "Radio", "program": "La Ventana",
+                           "modality": "PHONER", "live": True, "sings": True, "formation": "DIRECTO",
+                           "call_to": {"kind": "ARTIST", "id": art_id, "name": "Los Ruta"},
+                           "zoom_url": "", "songs": []}}
+    r = casa.post(base + "/item", json=punto)
+    resp = r.get_json() or {}
+    it = [x for x in ((resp.get("payload") or {}).get("agenda") or []) if x.get("kind") == "ENTREVISTA"]
+    it = it[0] if it else {}
+    iv = it.get("interview") or {}
+    check("se guarda cómo se hace (phoner) y a quién llaman",
+          iv.get("modality") == "PHONER" and (iv.get("call_to") or {}).get("kind") == "ARTIST", str(iv)[:200])
+    check("y si es en directo, con qué formato y de qué programa",
+          iv.get("live") is True and iv.get("formation") == "DIRECTO" and iv.get("program") == "La Ventana")
+    check("el tipo del medio y su icono van con el punto",
+          iv.get("type") == "Radio" and iv.get("media_icon") == "fa-radio", str(iv.get("media_icon")))
+    check("el contacto guarda su cara y su cargo",
+          (it.get("contact") or {}).get("photo") == "/x.png" and (it.get("contact") or {}).get("role") == "Redactora")
+    check("EL ARTISTA puede ser el destinatario del punto",
+          (it.get("audience") or {}).get("ids") == ["artist:%s" % art_id], str(it.get("audience")))
+
+    # Y ese punto le afecta al ARTISTA (a él y a sus integrantes), no a cualquiera del personal.
+    info_art = {"person_ids": [], "roles": set(), "artist_keys": {"artist:%s" % art_id}}
+    info_otro = {"person_ids": ["p2"], "roles": set(), "artist_keys": set()}
+    check("al artista le afecta", A._roadmap_item_affects(it, info_art) is True)
+    check("y a quien no es él, no", A._roadmap_item_affects(it, info_otro) is False)
+
+    punto2 = dict(punto)
+    punto2["id"] = it.get("id")
+    punto2["interview"] = dict(punto["interview"], modality="ZOOM", zoom_url="https://zoom.us/j/1", call_to={})
+    r = casa.post(base + "/item", json=punto2)
+    it2 = [x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("id") == it.get("id")]
+    iv2 = (it2[0].get("interview") if it2 else {}) or {}
+    check("pasarla a Zoom guarda su enlace (el botón de entrar sale de aquí)",
+          iv2.get("modality") == "ZOOM" and iv2.get("zoom_url") == "https://zoom.us/j/1", str(iv2)[:160])
+    check("una entrevista no espera respuesta: su enlace no se inventa", iv2.get("zoom_tbc") is False)
+
+    # ⚠️ Lo del medio lo hace PRODUCCIÓN, que no tiene por qué llevar la sección de medios.
+    s = A.db()
+    try:
+        prod = s.query(User).filter(User.email == "prod.ruta@prueba.local").first()
+        if prod is None:
+            prod = User(email="prod.ruta@prueba.local", password_hash="x", role=1); s.add(prod); s.flush()
+            s.add(UserProfile(user_id=prod.id, nick="prodruta", departments=["Producción"]))
+        prod.role = 1
+        # Con su sección concedida, que es lo que tiene quien monta una producción de verdad.
+        import models as M
+        s.query(M.UserAccessGrant).filter(M.UserAccessGrant.user_id == prod.id).delete()
+        s.add(M.UserAccessGrant(user_id=prod.id, resource_key="produccion", can_view_basic=True,
+                                can_view_econ=True, can_edit=True))
+        s.commit()
+        pid_prod = str(prod.id)
+    finally:
+        s.close()
+    cli = cliente_casa(pid_prod)
+    check("producción puede leer la ficha del medio", cli.get("/api/media/%s/ficha" % mid).status_code == 200)
+    check("y guardar una dirección nueva",
+          cli.post("/api/media/%s/ubicaciones" % mid, json={"address": "Otra calle 5"}).status_code == 200)
 
     s = A.db()
     try:

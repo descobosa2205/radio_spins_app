@@ -188,6 +188,10 @@
   function initAll() {
     document.querySelectorAll('[data-step-wizard]').forEach(function (r) { if (!r.__swReady) initWizard(r); });
   }
+  /* ⚠️ Un asistente que se CREA por JavaScript (el de un punto de los horarios de la hoja de ruta)
+     no existe al cargar la página, así que no pasa por `initAll`: se arranca a mano con esto. Es el
+     MISMO motor, así que se comporta igual que los demás (pasos, validación, cabecera y pastillas). */
+  window.app33StepWizard = { init: function (root) { if (root && !root.__swReady) initWizard(root); }, initAll: initAll };
   if (document.readyState !== 'loading') initAll();
   else document.addEventListener('DOMContentLoaded', initAll);
 })();

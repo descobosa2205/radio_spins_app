@@ -7976,3 +7976,23 @@ body.accsc-open{ overflow:hidden; }
   .acc-head__img{ width:52px; height:52px; }
   .acc-head__title{ font-size:1.1rem; }
 }
+
+/* ---- HOJA DE RUTA · EL ASISTENTE DE UN PUNTO DE LOS HORARIOS -------------------------------
+   Todos los puntos se añaden con el asistente de la casa (cabecera roja con un icono por paso,
+   pastillas y pregunta grande): esto es lo poco que necesita de suyo. Las tarjetas de elegir son
+   las de toda la app (`.promo-pick`), así que no se repiten aquí. */
+.rm-wz-block{ border:1px solid var(--line-2,#e9ecef); border-radius:14px; padding:.75rem .85rem; background:#fff; }
+.rm-wz-lbl{ display:flex; align-items:center; gap:.4rem; font-weight:700; font-size:.9rem; margin-bottom:.4rem; }
+.rm-wz-lbl i{ color:var(--brand-accent,#007CA2); }
+.rm-wz-search{ position:relative; }
+.rm-wz-results{ z-index:5; max-height:280px; overflow:auto; box-shadow:0 .5rem 1rem rgba(0,0,0,.12); }
+.rm-wz-new{ border:1px dashed var(--line-2,#d7dbe0); border-radius:14px; padding:.7rem .8rem; margin-top:.5rem; background:#fbfcfd; }
+.rm-wz-kind{ display:flex; align-items:center; gap:.7rem; }
+/* A QUIÉN LLAMAN en un phoner: el icono de llamada, la flecha y su cara. */
+.rm-call{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; margin-top:.25rem; font-size:.82rem; }
+.rm-call > i{ color:var(--brand-accent,#007CA2); }
+.rm-call__arrow{ font-size:.7rem; color:#adb5bd; }
+.rm-call a{ color:var(--brand-accent,#007CA2); text-decoration:none; }
+/* El enlace de la videollamada: se entra desde la propia hoja de ruta. */
+.rm-zoomlink{ color:var(--brand-accent,#007ca2); text-decoration:none; margin-left:.35rem; }
+.rm-zoomlink:hover{ color:#05587a; }

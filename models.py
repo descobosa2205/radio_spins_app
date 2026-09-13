@@ -2329,6 +2329,11 @@ class Venue(Base):
     lat = Column(Float)
     lng = Column(Float)
     geocoded_at = Column(DateTime(timezone=True))
+    # LA CHINCHETA DEL ACCESO: el punto EXACTO por el que se entra (la puerta de carga, el parking del
+    # camión), que no es la dirección postal del recinto. Se pone en el mapa desde la hoja de ruta y es
+    # a donde lleva el icono de mapa cuando está puesta (`mapsUrlAt` en roadmap.js).
+    access_lat = Column(Float)
+    access_lng = Column(Float)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -7216,18 +7221,21 @@ class RepertoireTemplate(Base):
 class RepertoireTemplateItem(Base):
     """Línea de un set list / plantilla de repertorio, en orden.
 
-    `kind`: SONG (canción), BREAK (línea de parón) o NOTE (nota/agradecimiento). Las canciones
-    pueden venir del repertorio del artista (`song_id`) o escritas a mano; `duration_seconds` es la
-    duración de la canción (para el recuento total; el PDF no la muestra). `note` es el comentario
-    que se enseña bajo la canción (también en el PDF)."""
+    `kind`: SONG (canción), BREAK (línea de parón, rayada), NOTE (nota), SPEECH («Hablar», en azul) o
+    THANKS (agradecimientos, en su propio color). Las canciones pueden venir del repertorio del
+    artista (`song_id`) o escritas a mano; `duration_seconds` es la duración de la canción (para el
+    recuento total; el PDF no la muestra). `note` es el comentario que se enseña bajo la canción
+    (también en el PDF). `icons` son los ICONOS que se ponen al lado de una canción (guitarra, piano,
+    beso…): una lista JSON de claves del catálogo `SETLIST_ICONS` de app.py, que salen en el PDF."""
     __tablename__ = "repertoire_template_items"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     template_id = Column(PGUUID(as_uuid=True), ForeignKey("repertoire_templates.id", ondelete="CASCADE"), nullable=False, index=True)
-    kind = Column(Text, nullable=False, server_default=text("'SONG'"))  # SONG | BREAK | NOTE
+    kind = Column(Text, nullable=False, server_default=text("'SONG'"))  # SONG | BREAK | NOTE | SPEECH | THANKS
     song_id = Column(PGUUID(as_uuid=True))   # opcional: canción del repertorio del artista
     title = Column(Text, nullable=False, server_default=text("''"))
     note = Column(Text)
     duration_seconds = Column(Integer)
+    icons = Column(Text)                     # JSON: ["guitar", "kiss", …] (claves de SETLIST_ICONS)
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     template = relationship("RepertoireTemplate", back_populates="items")
@@ -7484,6 +7492,9 @@ def ensure_roadmap_extras_schema():
         "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS lat double precision;",
         "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS lng double precision;",
         "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS geocoded_at timestamptz;",
+        # La chincheta del punto de acceso (cada columna en su propia sentencia: la regla de la casa).
+        "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS access_lat double precision;",
+        "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS access_lng double precision;",
         """
         CREATE TABLE IF NOT EXISTS roadmap_scheduled_messages (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -8454,6 +8465,8 @@ def ensure_simulations_schema():
         "ALTER TABLE repertoire_template_items ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'SONG';",
         "ALTER TABLE repertoire_template_items ADD COLUMN IF NOT EXISTS song_id uuid;",
         "ALTER TABLE repertoire_template_items ADD COLUMN IF NOT EXISTS duration_seconds integer;",
+        # Los iconos al lado de una canción (su propia sentencia, no dentro de un ALTER que ya existe).
+        "ALTER TABLE repertoire_template_items ADD COLUMN IF NOT EXISTS icons text;",
     ]
     _exec_ddl_statements(stmts, "simulations")
 

@@ -1,5 +1,10 @@
 {# Panel de SET LIST reutilizable (concierto / actividad). Requiere el dict `setlist` en contexto
-   (ver _build_setlist_context). Lógica en static/js/setlist.js. #}
+   (ver _build_setlist_context). Lógica en static/js/setlist.js.
+   · Las canciones se AÑADEN buscándolas en el repertorio del artista, CON SU PORTADA (el buscador
+     de abajo; pinchar una la añade al momento). Nada de un <select> nativo.
+   · Los ICONOS de la paleta se ARRASTRAN al lado de una canción (o se pincha uno con una canción
+     elegida); salen también en el PDF. La paleta la da el servidor (`setlist.icons`).
+   · Tipos de línea: canción · parón (rayado) · nota · hablar (azul) · agradecimientos. #}
 <div class="setlist-panel" data-setlist
      data-owner-type="{{ setlist.owner_type }}" data-owner-id="{{ setlist.owner_id }}"
      data-artist-id="{{ setlist.artist_id }}"
@@ -10,6 +15,8 @@
 
   {# OJO: setlist es un dict → `setlist.items` en Jinja es el MÉTODO .items(), hay que indexar. #}
   <script type="application/json" data-setlist-items>{{ setlist['items']|tojson }}</script>
+  <script type="application/json" data-setlist-songs>{{ setlist.songs|tojson }}</script>
+  <script type="application/json" data-setlist-icons>{{ setlist.icons|tojson }}</script>
 
   <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
     <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -30,25 +37,40 @@
     <div class="d-flex flex-wrap gap-2 align-items-center">
       <span class="badge text-bg-light border" data-setlist-total>Duración total: {{ setlist.total_label }}</span>
       <a class="btn btn-outline-dark btn-sm" href="#" data-setlist-pdf><i class="fa fa-file-pdf me-1"></i>PDF</a>
-      <button class="btn btn-primary btn-sm" type="button" data-setlist-save><i class="fa fa-floppy-disk me-1"></i>Guardar set list</button>
+      <button class="btn btn-danger btn-sm" type="button" data-setlist-save><i class="fa fa-floppy-disk me-1"></i>Guardar set list</button>
     </div>
+  </div>
+
+  {# LA PALETA DE ICONOS: se arrastra uno al lado de una canción (con el dedo: se pincha la canción y
+     luego el icono). #}
+  <div class="setlist-icons" data-setlist-palette>
+    <span class="setlist-icons__lab"><i class="fa fa-icons me-1"></i>Iconos</span>
+    {% for ic in setlist.icons %}
+      <button type="button" class="setlist-icons__it" draggable="true" data-icon="{{ ic.key }}" title="{{ ic.label }} · arrástralo al lado de una canción">{{ ic.html|safe }}</button>
+    {% endfor %}
+    <span class="setlist-icons__hint" data-setlist-icon-hint>Arrastra un icono al lado de una canción (salen en el PDF).</span>
   </div>
 
   <ol class="setlist-rows" data-setlist-rows></ol>
   <div class="text-muted small text-center py-3 d-none" data-setlist-empty>Aún no hay canciones. Añádelas del repertorio o a mano ↓</div>
 
-  <div class="setlist-add d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
-    <div class="input-group input-group-sm" style="max-width:360px;">
-      <select class="form-select" data-setlist-song-pick>
-        <option value="">Añadir del repertorio del artista…</option>
-        {% for sg in setlist.songs %}<option value="{{ sg.id }}" data-duration="{{ sg.duration_seconds }}" data-title="{{ sg.title }}">{{ sg.title }}</option>{% endfor %}
-      </select>
-      <button class="btn btn-outline-primary" type="button" data-setlist-add-song><i class="fa fa-plus me-1"></i>Añadir</button>
+  <div class="setlist-add mt-3 pt-3 border-top">
+    <div class="setlist-pick" data-setlist-pick>
+      <div class="input-group input-group-sm">
+        <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+        <input class="form-control" type="text" autocomplete="off" data-setlist-pick-input
+               placeholder="{% if setlist.songs %}Añadir del repertorio del artista… (escribe o pincha para ver la lista){% else %}El artista no tiene canciones en el repertorio de la app{% endif %}"{% if not setlist.songs %} disabled{% endif %}>
+      </div>
+      <div class="setlist-pick__list d-none" data-setlist-pick-list></div>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" type="button" data-setlist-add-manual><i class="fa fa-pen me-1"></i>Canción a mano</button>
-    <button class="btn btn-outline-secondary btn-sm" type="button" data-setlist-add-break><i class="fa fa-grip-lines me-1"></i>Parón</button>
-    <button class="btn btn-outline-secondary btn-sm" type="button" data-setlist-add-note><i class="fa fa-comment me-1"></i>Nota / agradecimiento</button>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-setlist-add-manual><i class="fa fa-pen me-1"></i>Canción a mano</button>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-setlist-add-kind="BREAK"><i class="fa fa-grip-lines me-1"></i>Parón</button>
+      <button class="btn btn-outline-secondary btn-sm setlist-btn--note" type="button" data-setlist-add-kind="NOTE"><i class="fa fa-note-sticky me-1"></i>Nota</button>
+      <button class="btn btn-outline-secondary btn-sm setlist-btn--speech" type="button" data-setlist-add-kind="SPEECH"><i class="fa fa-comment-dots me-1"></i>Hablar</button>
+      <button class="btn btn-outline-secondary btn-sm setlist-btn--thanks" type="button" data-setlist-add-kind="THANKS"><i class="fa fa-hands-clapping me-1"></i>Agradecimientos</button>
+    </div>
   </div>
-  <div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>El set list queda vinculado al evento (para declararlo luego en SGAE). El PDF sale en A4 con fondo negro y sin duraciones.</div>
+  <div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>El set list queda vinculado al evento (para declararlo luego en SGAE). El PDF sale en A4 con fondo negro: el artista en grande, la actividad y la fecha debajo, y sin duraciones.</div>
 </div>
 <script src="{{ url_for('static', filename='js/setlist.js', v=ASSET_V) }}"></script>

@@ -62319,7 +62319,152 @@ def repertoire_template_delete(tid):
 # total; el PDF NO la muestra). El set list queda vinculado al evento para declararlo luego en SGAE.
 
 _SETLIST_OWNER_TYPES = {"CONCERT", "ACTION"}
-_SETLIST_ITEM_KINDS = {"SONG", "BREAK", "NOTE"}
+_SETLIST_ITEM_KINDS = {"SONG", "BREAK", "NOTE", "SPEECH", "THANKS"}
+# CÓMO SE LEE CADA TIPO DE LÍNEA del set list. Las NOTAS, el «HABLAR» y los AGRADECIMIENTOS van cada
+# uno en SU PROPIA LÍNEA, del tamaño de una canción (sin número) y cada uno con su color; el PARÓN
+# es una banda RAYADA (`/////// lo que se escriba ///////`). `pdf` es el color sobre el A4 NEGRO;
+# en pantalla los pinta el CSS (`.setlist-row--note/--speech/--thanks`). Punto único: setlist.js y
+# roadmap.js pintan con estas mismas claves.
+SETLIST_KIND_META = {
+    "SONG":   {"label": "Canción",         "icon": "fa-music"},
+    "BREAK":  {"label": "Parón",           "icon": "fa-grip-lines"},
+    "NOTE":   {"label": "Nota",            "icon": "fa-note-sticky",    "pdf": (0.96, 0.85, 0.42)},
+    "SPEECH": {"label": "Hablar",          "icon": "fa-comment-dots",   "pdf": (0.42, 0.76, 0.94)},
+    "THANKS": {"label": "Agradecimientos", "icon": "fa-hands-clapping", "pdf": (1.00, 0.58, 0.66)},
+}
+
+# LOS ICONOS QUE SE PONEN AL LADO DE UNA CANCIÓN (se arrastran desde la paleta del set list y salen en
+# el PDF): clave · nombre · icono de Font Awesome. Los que FA no trae en esta versión (`fa-piano` y
+# `fa-guitar-electric` NO existen: saldrían vacíos) van sin icono y se DIBUJAN (`_SETLIST_ICON_SHAPES`).
+SETLIST_ICONS = [
+    ("guitar", "Guitarra", "fa-guitar"),
+    ("electric_guitar", "Guitarra eléctrica", ""),
+    ("piano", "Piano", ""),
+    ("drums", "Batería", "fa-drum"),
+    ("mic", "Micrófono", "fa-microphone"),
+    ("person", "Persona", "fa-user"),
+    ("kiss", "Beso", "fa-face-kiss-wink-heart"),
+    ("heart", "Corazón", "fa-heart"),
+    ("star", "Estrella", "fa-star"),
+    ("fire", "Fuego", "fa-fire"),
+    ("clap", "Palmas", "fa-hands-clapping"),
+    ("toast", "Brindis", "fa-champagne-glasses"),
+    ("crowd", "Público", "fa-people-group"),
+]
+SETLIST_ICON_KEYS = {k for k, _l, _f in SETLIST_ICONS}
+
+# Los dibujos propios, como GLIFOS de un solo color en un lienzo de 24×24: formas «fg» (el color del
+# icono) y «bg» (el hueco, que en pantalla es blanco y en el PDF negro —transparente—). ⚠️ ESTA MISMA
+# lista la pinta el navegador como SVG (`_setlist_icon_svg`) y Pillow como PNG para el PDF
+# (`_setlist_icon_png_path`): un solo dibujo, dos salidas, así no se pueden desparejar.
+_SETLIST_ICON_SHAPES = {
+    "piano": [
+        ("rect", 1.5, 4.5, 21.0, 15.0, 2.0, "fg"),
+        *[("rect", 3.4 + i * 2.6 - 0.3, 6.0, 0.6, 12.0, 0.2, "bg") for i in range(1, 7)],      # separadores
+        *[("rect", 3.4 + i * 2.6 - 0.9, 6.0, 1.8, 7.0, 0.3, "bg") for i in (1, 2, 4, 5, 6)],   # las negras
+    ],
+    "electric_guitar": [
+        ("poly", [(0.0, 9.4), (3.6, 10.0), (3.6, 14.0), (0.0, 14.6)], "fg"),           # el clavijero
+        ("rect", 3.2, 10.9, 12.5, 2.2, 0.6, "fg"),                                     # el mástil
+        ("ellipse", 18.4, 12.6, 5.5, 6.9, "fg"),                                       # el cuerpo
+        ("poly", [(12.6, 3.6), (16.2, 6.6), (16.2, 11.0), (13.0, 10.0)], "fg"),        # el cuerno de arriba
+        ("poly", [(12.6, 21.2), (16.2, 18.4), (16.2, 14.0), (13.0, 15.2)], "fg"),      # el de abajo
+        ("rect", 16.6, 9.3, 1.5, 6.6, 0.4, "bg"),                                      # las pastillas
+        ("rect", 19.6, 9.3, 1.5, 6.6, 0.4, "bg"),
+    ],
+}
+
+
+def _setlist_icon_svg(key: str) -> str:
+    """Un icono dibujado, como SVG en línea (en el color del texto; los huecos en `--sl-icon-bg`)."""
+    formas = _SETLIST_ICON_SHAPES.get(key)
+    if not formas:
+        return ""
+    partes = []
+    for f in formas:
+        fill = "currentColor" if f[-1] == "fg" else "var(--sl-icon-bg,#fff)"
+        if f[0] == "rect":
+            partes.append('<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" rx="%.2f" fill="%s"/>'
+                          % (f[1], f[2], f[3], f[4], f[5], fill))
+        elif f[0] == "ellipse":
+            partes.append('<ellipse cx="%.2f" cy="%.2f" rx="%.2f" ry="%.2f" fill="%s"/>' % (f[1], f[2], f[3], f[4], fill))
+        elif f[0] == "poly":
+            partes.append('<polygon points="%s" fill="%s"/>' % (" ".join("%.2f,%.2f" % pt for pt in f[1]), fill))
+    return '<svg class="sl-svg" viewBox="0 0 24 24" aria-hidden="true">%s</svg>' % "".join(partes)
+
+
+def _setlist_icon_html(key: str) -> str:
+    """El icono `key` tal como se pinta en pantalla (FA si lo tiene, si no su dibujo)."""
+    for k, _label, fa in SETLIST_ICONS:
+        if k == key:
+            return ('<i class="fa %s" aria-hidden="true"></i>' % fa) if fa else _setlist_icon_svg(k)
+    return ""
+
+
+def _setlist_icon_catalog() -> list[dict]:
+    """La PALETA de iconos del set list (clave · nombre · cómo se pinta)."""
+    return [{"key": k, "label": lbl, "html": _setlist_icon_html(k)} for k, lbl, _f in SETLIST_ICONS]
+
+
+def _setlist_icon_map() -> dict:
+    return {k: _setlist_icon_html(k) for k, _l, _f in SETLIST_ICONS}
+
+
+def _setlist_icons_from_json(value) -> list[str]:
+    """Los iconos de una línea, limpios: solo claves del catálogo, sin repetir y con tope (6)."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value or "[]")
+        except Exception:
+            value = []
+    out = []
+    for k in (value or []):
+        k = str(k or "").strip()
+        if k in SETLIST_ICON_KEYS and k not in out:
+            out.append(k)
+    return out[:6]
+
+
+def _setlist_icon_png_path(key: str, color: str = "FFFFFF", size: int = 72) -> str:
+    """El icono `key` como PNG en disco para el PDF (blanco, que el A4 del set list es negro): los de
+    Font Awesome por `_fa_icon_png_path`; los dibujados, con Pillow a partir de SUS MISMAS formas
+    (supermuestreados ×4 para que los bordes salgan suaves)."""
+    for k, _label, fa in SETLIST_ICONS:
+        if k != key:
+            continue
+        if fa:
+            return _fa_icon_png_path(fa, color, size)
+        try:
+            from PIL import Image, ImageDraw
+            carpeta = Path(tempfile.gettempdir()) / "app33_fa_icons"
+            carpeta.mkdir(parents=True, exist_ok=True)
+            ruta = carpeta / ("setlist_%s_%s_%d.png" % (key, re.sub(r"[^0-9A-Fa-f]", "", color), size))
+            if ruta.exists() and ruta.stat().st_size > 0:
+                return str(ruta)
+            S = 4
+            px = size * S
+            k_esc = px / 24.0
+            rgb = tuple(int((color or "FFFFFF").lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+            img = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+            d = ImageDraw.Draw(img)
+            for f in _SETLIST_ICON_SHAPES.get(key, []):
+                # ⚠️ ImageDraw ESCRIBE el píxel (no compone): un relleno transparente hace un HUECO.
+                fill = (rgb + (255,)) if f[-1] == "fg" else (0, 0, 0, 0)
+                if f[0] == "rect":
+                    x, y, w, h, rx = (v * k_esc for v in f[1:6])
+                    d.rounded_rectangle([x, y, x + w, y + h], radius=rx, fill=fill)
+                elif f[0] == "ellipse":
+                    cx, cy, rx, ry = (v * k_esc for v in f[1:5])
+                    d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=fill)
+                elif f[0] == "poly":
+                    d.polygon([(pt[0] * k_esc, pt[1] * k_esc) for pt in f[1]], fill=fill)
+            img = img.resize((size, size), Image.LANCZOS)
+            img.save(ruta, "PNG")
+            return str(ruta)
+        except Exception:
+            app.logger.exception("[setlist] no se pudo dibujar el icono %s", key)
+            return ""
+    return ""
 
 
 def _int_or_none(v):
@@ -62361,6 +62506,7 @@ def _setlist_item_payload(it):
         "title": it.title or "",
         "duration_seconds": int(it.duration_seconds or 0),
         "note": it.note or "",
+        "icons": _setlist_icons_from_json(getattr(it, "icons", None)),
     }
 
 
@@ -62448,6 +62594,9 @@ def _build_setlist_context(s, owner_type, owner_id, concert=None, action=None):
         "templates": templates,
         "pdf_url": url_for("setlist_pdf", owner_type=owner_type, owner_id=str(owner_id)),
         "can_edit": True,
+        # La PALETA de iconos que se arrastran al lado de una canción y cómo se pinta cada tipo de línea.
+        "icons": _setlist_icon_catalog(),
+        "kinds": {k: {"label": v["label"], "icon": v["icon"]} for k, v in SETLIST_KIND_META.items()},
     }
 
 
@@ -62476,14 +62625,20 @@ def setlist_save():
             title = (raw.get("title") or "").strip()
             if kind == "SONG" and not title:
                 continue
+            iconos = _setlist_icons_from_json(raw.get("icons")) if kind == "SONG" else []
             s.add(RepertoireTemplateItem(
                 template_id=t.id, kind=kind, song_id=_sim_safe_uuid(raw.get("song_id")),
                 title=title, duration_seconds=_int_or_none(raw.get("duration_seconds")),
                 note=((raw.get("note") or "").strip() or None), sort_order=order,
+                icons=(json.dumps(iconos) if iconos else None),
             ))
             order += 1
         t.updated_at = datetime.utcnow()
         s.commit()
+        # ⚠️ La sesión es `expire_on_commit=False`: las líneas nuevas se añadieron por `template_id`, así
+        # que `t.items` seguía con la lista VIEJA (vacía en un set list recién creado) y la respuesta
+        # decía «sin líneas» justo después de guardarlas. Se caduca y se vuelve a leer.
+        s.expire_all()
         return jsonify({"ok": True, **_setlist_payload(_get_setlist(s, request.form.get("owner_type"), request.form.get("owner_id")))})
     except Exception as e:
         s.rollback()
@@ -62507,7 +62662,8 @@ def setlist_save_template():
         s.flush()
         for it in sorted((src.items or []) if src else [], key=lambda x: (x.sort_order or 0)):
             s.add(RepertoireTemplateItem(template_id=tpl.id, kind=(it.kind or "SONG"), song_id=it.song_id,
-                  title=it.title or "", duration_seconds=it.duration_seconds, note=it.note, sort_order=(it.sort_order or 0)))
+                  title=it.title or "", duration_seconds=it.duration_seconds, note=it.note, sort_order=(it.sort_order or 0),
+                  icons=getattr(it, "icons", None)))
         s.commit()
         return jsonify({"ok": True, "id": str(tpl.id), "name": tpl.name})
     except Exception as e:
@@ -62532,7 +62688,8 @@ def setlist_template_items(tid):
 
 
 def _setlist_pdf_header(s, owner_type, owner_id):
-    """(artista, subtítulo) para la cabecera del PDF: nombre del concierto o, si no, municipio y fecha."""
+    """La CABECERA del PDF del set list (lo pidió así Dani): EL ARTISTA en grande y, debajo, **el nombre
+    de la actividad o del festival —si no lo tiene, el municipio— seguido de la fecha**."""
     ot = (owner_type or "").strip().upper()
     oid = _sim_safe_uuid(owner_id)
     artist, subtitle = "", ""
@@ -62540,45 +62697,57 @@ def _setlist_pdf_header(s, owner_type, owner_id):
         c = (s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
              .filter(Concert.id == oid).first())
         if c:
-            artist = (c.artist.name if c.artist else "") or (c.festival_name or "")
-            if c.festival_name:
-                subtitle = c.festival_name
-            else:
-                muni = (c.venue.municipality if c.venue else None) or c.manual_municipality or ""
-                d = c.date.strftime("%d/%m/%Y") if c.date else ""
-                subtitle = " · ".join(x for x in [muni, d] if x)
+            try:
+                arts = _artists_from_ids(s, _setlist_concert_artist_ids(c))
+                artist = _artist_label_from_rows(arts) if arts else ""
+            except Exception:
+                artist = ""
+            artist = artist or (c.artist.name if c.artist else "") or (c.festival_name or "")
+            lugar = (c.festival_name or "").strip() or ((c.venue.municipality if c.venue else None) or c.manual_municipality or "")
+            d = c.date.strftime("%d/%m/%Y") if c.date else ""
+            subtitle = " · ".join(x for x in [lugar, d] if x)
     elif ot == "ACTION" and oid:
         a = (s.query(CompanyAction).options(joinedload(CompanyAction.venue))
              .filter(CompanyAction.id == oid).first())
         if a:
             arts = _artists_from_ids(s, getattr(a, "artist_ids", []) or [])
             artist = ", ".join([x.name for x in arts if getattr(x, "name", None)]) or (a.title or "")
-            muni = (a.venue.municipality if a.venue else None) or ""
+            lugar = (a.title or "").strip() or ((a.venue.municipality if a.venue else None) or "")
             d = a.start_date.strftime("%d/%m/%Y") if getattr(a, "start_date", None) else ""
-            subtitle = a.title or (" · ".join(x for x in [muni, d] if x))
+            subtitle = " · ".join(x for x in [lugar, d] if x)
     return {"artist": artist, "subtitle": subtitle}
 
 
 def _setlist_pdf_bytes(header: dict, items: list[dict]) -> bytes:
-    """El SET LIST en PDF (A4 fondo negro, títulos en MAYÚSCULAS numerados, letra lo más grande
-    posible; parones y comentarios; SIN duraciones) a partir de sus líneas como dicts {kind, title,
-    note}. Punto ÚNICO: lo usan la ficha (`setlist_pdf`) y la hoja de ruta (`roadmap_setlist_pdf`
-    y su versión compartida), así que el repertorio sale igual desde los tres sitios."""
+    """El SET LIST en PDF (A4 fondo negro, letra lo más grande posible; SIN duraciones) a partir de sus
+    líneas como dicts {kind, title, note, icons}. Punto ÚNICO: lo usan la ficha (`setlist_pdf`) y la
+    hoja de ruta (`roadmap_setlist_pdf` y su versión compartida), así que sale igual desde los tres.
+    · CABECERA: el ARTISTA en grande; debajo la actividad o el festival (si no, el municipio) y la
+      fecha (`header['subtitle']`); y, si viene, un tercer renglón (`header['extra']`: el punto de
+      los horarios del que es este repertorio).
+    · CANCIÓN: numerada, en MAYÚSCULAS y blanca, con SUS ICONOS al lado (`_setlist_icon_png_path`,
+      dibujados con `drawImage` + `mask='auto'`: un icono no se puede meter en el texto).
+    · NOTA · HABLAR · AGRADECIMIENTOS: cada una en su propia línea, del tamaño de una canción, sin
+      número y en su color (`SETLIST_KIND_META[...]['pdf']`).
+    · PARÓN: una banda RAYADA a lo ancho con lo que se escriba en medio (`/////// TEXTO ///////`)."""
     from reportlab.pdfgen import canvas as _canvas
     from reportlab.lib.pagesizes import A4
-    lines = []  # {t, type: song|break|note|comment, num}
+    lines = []  # {t, type: song|break|note|speech|thanks|comment, num, icons}
     n = 0
     for it in items:
         kind = (it.get("kind") or "SONG").upper()
+        if kind not in _SETLIST_ITEM_KINDS:
+            kind = "SONG"
         if kind == "SONG":
             n += 1
-            lines.append({"t": (it.get("title") or "").upper(), "type": "song", "num": n})
+            lines.append({"t": (it.get("title") or "").upper(), "type": "song", "num": n,
+                          "icons": _setlist_icons_from_json(it.get("icons"))})
             if (it.get("note") or "").strip():
                 lines.append({"t": (it.get("note") or "").strip(), "type": "comment"})
         elif kind == "BREAK":
             lines.append({"t": (it.get("title") or "").strip().upper(), "type": "break"})
         else:
-            lines.append({"t": (it.get("title") or "").strip().upper(), "type": "note"})
+            lines.append({"t": (it.get("title") or "").strip().upper(), "type": kind.lower()})
 
     buf = BytesIO()
     W, H = A4
@@ -62588,22 +62757,34 @@ def _setlist_pdf_bytes(header: dict, items: list[dict]) -> bytes:
     margin = 34
     usable_w = W - 2 * margin
 
-    # Cabecera: "SET LIST" + artista + (concierto / municipio·fecha)
-    c.setFillColorRGB(1, 1, 1)
-    c.setFont("Helvetica-Bold", 30)
-    y = H - margin - 30
-    c.drawCentredString(W / 2, y, "SET LIST")
-    if (header.get("artist") or "").strip():
-        y -= 24
-        c.setFont("Helvetica-Bold", 16)
-        c.drawCentredString(W / 2, y, header["artist"])
-    if (header.get("subtitle") or "").strip():
-        y -= 18
-        c.setFont("Helvetica", 12)
-        c.setFillColorRGB(0.8, 0.8, 0.8)
-        c.drawCentredString(W / 2, y, header["subtitle"])
+    def encaja(txt, fuente, sz, minimo):
+        while sz > minimo and c.stringWidth(txt, fuente, sz) > usable_w:
+            sz -= 1
+        return sz
 
-    content_top = y - 22
+    # ── Cabecera: el ARTISTA en grande · la actividad o el festival (o el municipio) y la fecha · el punto
+    y = H - margin - 30
+    artista = (header.get("artist") or "").strip() or "SET LIST"
+    sz_a = encaja(artista, "Helvetica-Bold", 32, 14)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", sz_a)
+    c.drawCentredString(W / 2, y, artista)
+    sub = (header.get("subtitle") or "").strip()
+    if sub:
+        y -= 22
+        sz_s = encaja(sub, "Helvetica", 14, 9)
+        c.setFont("Helvetica", sz_s)
+        c.setFillColorRGB(0.85, 0.85, 0.85)
+        c.drawCentredString(W / 2, y, sub)
+    extra = (header.get("extra") or "").strip()
+    if extra:
+        y -= 17
+        sz_e = encaja(extra, "Helvetica-Oblique", 12, 8)
+        c.setFont("Helvetica-Oblique", sz_e)
+        c.setFillColorRGB(0.7, 0.7, 0.7)
+        c.drawCentredString(W / 2, y, extra)
+
+    content_top = y - 24
     avail_h = content_top - margin
     if not lines:
         c.showPage(); c.save(); buf.seek(0)
@@ -62613,13 +62794,19 @@ def _setlist_pdf_bytes(header: dict, items: list[dict]) -> bytes:
     line_h = avail_h / units
     font_sz = min(line_h * 0.72, 64)
 
+    def ancho_iconos(ln, sz):
+        k = len(ln.get("icons") or [])
+        return (sz * 0.45 + k * (sz * 0.9 + sz * 0.25)) if k else 0.0
+
     def widest(sz):
         mw = 0
         for ln in lines:
             if ln["type"] == "comment":
                 continue
             prefix = (f'{ln["num"]}. ' if ln["type"] == "song" else "")
-            mw = max(mw, c.stringWidth(prefix + ln["t"], "Helvetica-Bold", sz))
+            if ln["type"] == "break":
+                continue  # la banda rayada se adapta al ancho
+            mw = max(mw, c.stringWidth(prefix + ln["t"], "Helvetica-Bold", sz) + ancho_iconos(ln, sz))
         return mw
     while font_sz > 9 and widest(font_sz) > usable_w:
         font_sz -= 1
@@ -62637,20 +62824,53 @@ def _setlist_pdf_bytes(header: dict, items: list[dict]) -> bytes:
         if ln["type"] == "song":
             c.setFillColorRGB(1, 1, 1)
             c.setFont("Helvetica-Bold", font_sz)
-            c.drawString(margin, baseline, f'{ln["num"]}. {ln["t"]}')
+            texto = f'{ln["num"]}. {ln["t"]}'
+            c.drawString(margin, baseline, texto)
+            # SUS ICONOS, a la derecha del título, centrados en la altura de las mayúsculas.
+            iconos = ln.get("icons") or []
+            if iconos:
+                ih = font_sz * 0.9
+                x = margin + c.stringWidth(texto, "Helvetica-Bold", font_sz) + font_sz * 0.45
+                yi = baseline + font_sz * 0.36 - ih / 2
+                for key in iconos:
+                    ruta = _setlist_icon_png_path(key, "FFFFFF", 96)
+                    if ruta:
+                        try:
+                            c.drawImage(ruta, x, yi, width=ih, height=ih, mask="auto")
+                        except Exception:
+                            pass
+                    x += ih + font_sz * 0.25
         elif ln["type"] == "break":
-            c.setStrokeColorRGB(0.55, 0.55, 0.55)
-            c.setLineWidth(max(1, font_sz * 0.04))
+            # LA BANDA RAYADA: `/////// TEXTO ///////` a todo lo ancho.
+            c.setStrokeColorRGB(0.62, 0.62, 0.62)
+            c.setLineWidth(max(1.0, font_sz * 0.045))
+            band_bot = y + line_h * 0.22
+            band_top = y + line_h * 0.78
+            dx = (band_top - band_bot) * 0.7
+            step = max(4.0, font_sz * 0.32)
+            segs = [(margin, W - margin)]
+            tsz = 0
             if ln["t"]:
-                c.setFillColorRGB(0.7, 0.7, 0.7)
-                c.setFont("Helvetica-Oblique", font_sz * 0.55)
-                c.drawCentredString(W / 2, baseline, ln["t"])
-            else:
-                mid = y + line_h / 2
-                c.line(margin, mid, W - margin, mid)
-        else:  # note / agradecimiento
-            c.setFillColorRGB(0.92, 0.86, 0.55)
-            c.setFont("Helvetica-Bold", font_sz * 0.8)
+                tsz = font_sz * 0.5
+                while tsz > 7 and c.stringWidth(ln["t"], "Helvetica-Bold", tsz) > usable_w * 0.7:
+                    tsz -= 1
+                tw = c.stringWidth(ln["t"], "Helvetica-Bold", tsz)
+                gap = tw / 2 + font_sz * 0.45
+                segs = [(margin, W / 2 - gap), (W / 2 + gap, W - margin)]
+            for x0, x1 in segs:
+                x = x0
+                while x + dx <= x1:
+                    c.line(x, band_bot, x + dx, band_top)
+                    x += step
+            if ln["t"]:
+                c.setFillColorRGB(0.82, 0.82, 0.82)
+                c.setFont("Helvetica-Bold", tsz)
+                c.drawCentredString(W / 2, y + (line_h - tsz) / 2, ln["t"])
+        else:  # note · speech · thanks: su propia línea, del tamaño de una canción, en su color
+            meta = SETLIST_KIND_META.get(ln["type"].upper(), {})
+            r, g, b2 = meta.get("pdf") or (0.92, 0.86, 0.55)
+            c.setFillColorRGB(r, g, b2)
+            c.setFont("Helvetica-Bold", font_sz)
             c.drawString(margin, baseline, ln["t"])
         y -= line_h
 
@@ -80240,6 +80460,9 @@ def _roadmap_venue_card(session_db, row) -> dict | None:
         "covered": ((bool(venue.covered) if getattr(venue, "covered", None) is not None else None)
                     if venue is not None else None),
         "access_notes": (getattr(venue, "access_notes", None) or "").strip() if venue is not None else "",
+        # LA CHINCHETA DEL ACCESO (el punto exacto por el que se entra): a donde lleva el icono de mapa.
+        "access_lat": _roadmap_coord(getattr(venue, "access_lat", None), 90) if venue is not None else None,
+        "access_lng": _roadmap_coord(getattr(venue, "access_lng", None), 180) if venue is not None else None,
         "capacity_label": aforo, "lat": lat, "lng": lng, "maps_query": consulta_mapa,
         "contacts": [c for c in contactos if c.get("name")],
     }
@@ -80469,6 +80692,26 @@ def _roadmap_clean_day(value) -> str:
         return today_local().isoformat()
 
 
+def _roadmap_coord(value, tope: float):
+    """Una coordenada (lat con tope 90, lng con tope 180) que llega del navegador o de la BD: float
+    dentro de su rango (redondeado a 6 decimales, ~10 cm) o None. Nunca revienta."""
+    try:
+        if value is None or str(value).strip() == "":
+            return None
+        f = float(str(value).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if f != f or not (-tope <= f <= tope):   # NaN o fuera de rango
+        return None
+    return round(f, 6)
+
+
+def _roadmap_coord_pair(lat, lng):
+    """La CHINCHETA: las dos coordenadas o ninguna (una sola no sitúa nada)."""
+    la, ln = _roadmap_coord(lat, 90), _roadmap_coord(lng, 180)
+    return (la, ln) if (la is not None and ln is not None) else (None, None)
+
+
 def _roadmap_clean_time(value) -> str:
     s = str(value or "").strip()
     return s if re.match(r"^\d{1,2}:\d{2}$", s) else ""
@@ -80618,12 +80861,13 @@ def _roadmap_setlist_context(session_db, kind: str, row) -> dict | None:
         t = _get_setlist(session_db, owner, row.id)
     except Exception:
         return None
+    iconos = _setlist_icon_map()   # cómo se pinta cada icono al lado de una canción
     if t is None:
-        return {"exists": False, "items": [], "count": 0, "total_label": "0:00", "owner_type": owner}
+        return {"exists": False, "items": [], "count": 0, "total_label": "0:00", "owner_type": owner, "icons": iconos}
     datos = _setlist_payload(t)
     canciones = [it for it in datos["items"] if (it.get("kind") or "SONG").upper() == "SONG"]
     return {"exists": bool(datos["items"]), "items": datos["items"], "count": len(canciones),
-            "total_label": datos["total_label"], "owner_type": owner}
+            "total_label": datos["total_label"], "owner_type": owner, "icons": iconos}
 
 
 def _roadmap_ext_person_info(payload: dict, ext_ids) -> dict:
@@ -80698,9 +80942,13 @@ def _roadmap_payload_for_person(payload: dict, info: dict) -> dict:
 
 def _roadmap_setlist_pdf_source(session_db, kind: str, row, item_id: str = "") -> tuple[dict, list[dict]]:
     """(cabecera, líneas) para el PDF del repertorio: el de UN punto de los horarios (`item_id`) o
-    el set list de la actividad. Las líneas van como dicts {kind, title, note}."""
+    el set list de la actividad. Las líneas van como dicts {kind, title, note, icons}.
+    ⚠️ La cabecera es LA MISMA que la del set list de la ficha (`_setlist_pdf_header`: el artista en
+    grande y la actividad o el festival —si no, el municipio— con la fecha); en el PDF de un punto
+    de los horarios va además un tercer renglón con ese punto (`extra`)."""
     artistas = _artists_from_ids(session_db, _roadmap_artist_ids(row))
     artista = _artist_label_from_rows(artistas) if artistas else ""
+    owner = {"concert": "CONCERT", "action": "ACTION"}.get((kind or "").lower())
     if item_id:
         payload = _roadmap_load(row)
         _idx, item = _roadmap_find(payload.get("agenda", []), item_id)
@@ -80712,11 +80960,14 @@ def _roadmap_setlist_pdf_source(session_db, kind: str, row, item_id: str = "") -
             dia = datetime.strptime(str(item.get("day"))[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
         except Exception:
             dia = ""
-        sub = " · ".join([x for x in [etiqueta, dia, (item.get("start_time") or "")] if x])
+        cabecera = dict(_setlist_pdf_header(session_db, owner, row.id)) if owner else \
+            {"artist": artista, "subtitle": _roadmap_title(session_db, kind, row, artistas)}
+        if not (cabecera.get("artist") or "").strip():
+            cabecera["artist"] = artista
+        cabecera["extra"] = " · ".join([x for x in [etiqueta, dia, (item.get("start_time") or "")] if x])
         lineas = [{"kind": "SONG", "title": (sg.get("title") or ""), "note": ""}
                   for sg in _roadmap_item_song_rows(item) if isinstance(sg, dict) and (sg.get("title") or "")]
-        return {"artist": artista, "subtitle": sub}, lineas
-    owner = {"concert": "CONCERT", "action": "ACTION"}.get((kind or "").lower())
+        return cabecera, lineas
     if not owner:
         return {"artist": artista, "subtitle": _roadmap_title(session_db, kind, row, artistas)}, []
     t = _get_setlist(session_db, owner, row.id)
@@ -80751,6 +81002,8 @@ def _roadmap_item_from_json(data: dict) -> dict:
         "songs": _roadmap_songs_from_json(data.get("songs")),
         "access_note": (data.get("access_note") or "").strip(),
     }
+    # LA CHINCHETA del acceso de ESTE punto (las dos coordenadas o ninguna).
+    item["access_lat"], item["access_lng"] = _roadmap_coord_pair(data.get("access_lat"), data.get("access_lng"))
     if kind == "ENTREVISTA":
         iv = data.get("interview") or {}
         songs = _roadmap_songs_from_json(iv.get("songs"))
@@ -81230,7 +81483,7 @@ def roadmap_item_save(entity_type, entity_id):
                 item["sheets"] = _roadmap_item_sheets(current.get("sheets"))
             # Lo que se edita EN OTRO SITIO (el repertorio del punto, en su pestaña) o que un
             # navegador con el JS viejo no manda, se conserva en vez de perderse.
-            for clave in ("songs", "audience", "access_note", "sings"):
+            for clave in ("songs", "audience", "access_note", "sings", "access_lat", "access_lng"):
                 if clave not in data and current.get(clave) is not None:
                     item[clave] = current.get(clave)
             if item["kind"] == "ENTREVISTA" and "songs" not in data and isinstance(item.get("interview"), dict):
@@ -81455,8 +81708,13 @@ def roadmap_venue_access_save(entity_type, entity_id):
                                                   "el acceso se apunta en las notas."}), 400
         data = request.get_json(silent=True) or {}
         venue.access_notes = (data.get("access_notes") or "").strip()[:4000] or None
+        # La CHINCHETA del punto de acceso (solo si el formulario la manda: un guardado que no la
+        # trae no la borra).
+        if "access_lat" in data or "access_lng" in data:
+            venue.access_lat, venue.access_lng = _roadmap_coord_pair(data.get("access_lat"), data.get("access_lng"))
         session_db.commit()
-        return jsonify({"ok": True, "access_notes": venue.access_notes or ""})
+        return jsonify({"ok": True, "access_notes": venue.access_notes or "",
+                        "access_lat": venue.access_lat, "access_lng": venue.access_lng})
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400

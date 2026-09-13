@@ -1050,18 +1050,20 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
 .rm-viewer__btn img{ width:100%; height:100%; object-fit:cover; display:block; }
 .rm-viewer__btn:hover{ border-color:var(--brand-accent,#007ca2); }
 
-/* PEDIR UN CABIFY: el icono de «Cabify / VTC» de la hoja de ruta, en el azul de la casa (no se
-   dibuja el logotipo de la marca). */
-.rm-cabify{
-  border:1px solid var(--brand-accent,#007ca2); color:var(--brand-accent,#007ca2); background:#fff;
-  border-radius:999px; font-weight:600;
-}
-.rm-cabify:hover{ background:var(--brand-accent,#007ca2); color:#fff; }
-.rm-cabify--mini{
-  display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem;
-  padding:0; margin-left:.15rem; border-width:1px; font-size:.78rem; text-decoration:none; vertical-align:middle;
-}
+/* EL ICONO DE MAPA de la hoja de ruta (abre la aplicación de mapas del aparato): UNO SOLO para el
+   punto de los horarios, su detalle y el HOTEL, siempre en el azul de la casa. Antes el del hotel
+   heredaba el gris de `.rm-sub` y se veía distinto sin motivo. */
+.rm-maplink{ color:var(--brand-accent,#007ca2); text-decoration:none; margin-left:.2rem; }
+.rm-maplink:hover{ color:#05587a; }
 .rm-goto{ display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+/* LA CHINCHETA DEL ACCESO en un mapa Leaflet: el punto exacto por el que se entra. */
+.rm-pinmap{ height:230px; border-radius:12px; overflow:hidden; background:#eef1f4; cursor:crosshair; }
+.rm-pin{ background:transparent; border:0; }
+.rm-pin i{
+  display:grid; place-items:center; width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
+  background:var(--brand-primary,#E33D48); color:#fff; box-shadow:0 2px 6px rgba(0,0,0,.35); border:2px solid #fff;
+}
+.rm-pin i::before{ transform:rotate(45deg); font-size:.8rem; }
 
 /* ===== La ACTIVIDAD (primera pestaña de la hoja de ruta) ===== */
 .rm-act{border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:.9rem 1rem;}
@@ -3120,15 +3122,72 @@ body.vmap-max-open { overflow: hidden; }
 .setlist-rows { list-style:none; margin:0; padding:0; }
 .setlist-row { border:1px solid #e9ecef; border-radius:10px; margin-bottom:.4rem; padding:.45rem .55rem; background:#fff; }
 .setlist-row.dragging { opacity:.45; }
-.setlist-row--song .setlist-row__main, .setlist-row--break, .setlist-row--note { display:flex; align-items:center; gap:.5rem; }
+.setlist-row--song .setlist-row__main, .setlist-row--break, .setlist-row--note, .setlist-row--speech, .setlist-row--thanks { display:flex; align-items:center; gap:.5rem; }
 .setlist-row__handle { cursor:grab; color:#adb5bd; flex:0 0 auto; }
 .setlist-row__num { font-weight:800; min-width:2.2ch; text-align:right; color:var(--brand-primary,#E33D48); flex:0 0 auto; }
 .setlist-row__title { flex:1 1 auto; min-width:0; }
+.setlist-row__txt { flex:1 1 auto; min-width:0; }
 .setlist-row__dur { max-width:82px; text-align:center; flex:0 0 auto; }
 .setlist-row__menu { flex:0 0 auto; }
-.setlist-row__tag { font-size:.7rem; font-weight:800; color:#6c757d; letter-spacing:.04em; flex:0 0 auto; }
-.setlist-row--break { background:#f8f9fa; border-style:dashed; }
+.setlist-row__tag { font-size:.7rem; font-weight:800; color:#6c757d; letter-spacing:.04em; flex:0 0 auto; text-transform:uppercase; white-space:nowrap; }
 .setlist-row__note { margin-top:.4rem; padding-left:2.4rem; }
+/* La PORTADA de la canción (de su ficha; sin portada, una nota). */
+.setlist-row__cover { width:34px; height:34px; border-radius:7px; object-fit:cover; background:#e9ecef; flex:0 0 auto; }
+.setlist-row__cover--none { display:grid; place-items:center; color:#adb5bd; font-size:.85rem; }
+/* La canción ELEGIDA (para ponerle un icono pinchando) y la que está debajo de un icono que se arrastra. */
+.setlist-row--song.is-selected { border-color:var(--brand-accent,#007ca2); box-shadow:0 0 0 1px var(--brand-accent,#007ca2) inset; }
+.setlist-row--song.is-dropover { background:#eaf6fb; border-color:var(--brand-accent,#007ca2); border-style:dashed; }
+/* SUS ICONOS, al lado del título: cada uno con su ✕ (aparece al pasar el ratón) y el hueco con el + donde soltar otro. */
+.setlist-row__icons { display:inline-flex; align-items:center; gap:.2rem; flex:0 0 auto; min-width:1.6rem; }
+.sl-icon { position:relative; display:inline-grid; place-items:center; width:1.85rem; height:1.85rem; border-radius:8px; background:#f1f3f5; color:#343a40; --sl-icon-bg:#f1f3f5; }
+.sl-icon__g { display:grid; place-items:center; width:100%; height:100%; font-size:.95rem; }
+.sl-svg { width:1.15rem; height:1.15rem; display:block; }
+.sl-icon__x { position:absolute; top:-.45rem; right:-.45rem; width:1rem; height:1rem; border-radius:50%; border:0; padding:0; font-size:.55rem; line-height:1rem; background:var(--brand-primary,#E33D48); color:#fff; display:none; }
+.sl-icon:hover .sl-icon__x, .sl-icon:focus-within .sl-icon__x { display:block; }
+.setlist-row__dropzone { display:none; width:1.6rem; height:1.6rem; border-radius:8px; border:1px dashed #ced4da; color:#ced4da; place-items:center; font-size:.7rem; }
+.setlist-row--song.is-dropover .setlist-row__dropzone, .setlist-row--song.is-selected .setlist-row__dropzone { display:grid; }
+/* LA PALETA de iconos: se arrastran (o se pinchan con una canción elegida). */
+.setlist-icons { display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; padding:.45rem .55rem; border:1px solid #e9ecef; border-radius:10px; background:#fafbfc; margin-bottom:.6rem; }
+.setlist-icons__lab { font-size:.72rem; font-weight:800; color:#6c757d; text-transform:uppercase; letter-spacing:.04em; margin-right:.2rem; }
+.setlist-icons__it { display:grid; place-items:center; width:2.1rem; height:2.1rem; border-radius:9px; border:1px solid #dee2e6; background:#fff; color:#343a40; cursor:grab; --sl-icon-bg:#fff; font-size:1rem; padding:0; }
+.setlist-icons__it:hover { border-color:var(--brand-accent,#007ca2); color:var(--brand-accent,#007ca2); }
+.setlist-icons__it.dragging { opacity:.45; }
+.setlist-icons__it .sl-svg { width:1.25rem; height:1.25rem; }
+.setlist-icons__hint { font-size:.75rem; color:#6c757d; margin-left:auto; }
+.setlist-icons__hint.is-warn { color:#b02a37; font-weight:600; }
+/* EL PARÓN: toda la línea RAYADA y lo que se escriba en medio (`/////// TEXTO ///////`). */
+.setlist-row--break {
+  background:repeating-linear-gradient(135deg, #f8f9fa 0 7px, #d0d5db 7px 9px); border-style:dashed; justify-content:center;
+}
+.setlist-row--break .setlist-row__handle, .setlist-row--break .setlist-row__menu { background:#fff; border-radius:6px; padding:0 .15rem; }
+.setlist-row--break .setlist-row__tag { background:#fff; border-radius:6px; padding:.1rem .4rem; }
+.setlist-row--break .setlist-row__txt { flex:0 1 360px; text-align:center; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+/* NOTA · HABLAR (azul) · AGRADECIMIENTOS: cada una en su línea, con su color. */
+.setlist-row--note { background:#fffbea; border-left:4px solid #f0b429; }
+.setlist-row--note .setlist-row__tag { color:#9a6b00; }
+.setlist-row--speech { background:#eaf6fb; border-left:4px solid var(--brand-accent,#007ca2); }
+.setlist-row--speech .setlist-row__tag { color:#0b6e8f; }
+.setlist-row--thanks { background:#fff1f2; border-left:4px solid var(--brand-primary,#E33D48); }
+.setlist-row--thanks .setlist-row__tag { color:#c62330; }
+.setlist-btn--note { border-color:#f0b429; color:#9a6b00; }
+.setlist-btn--note:hover { background:#f0b429; color:#fff; border-color:#f0b429; }
+.setlist-btn--speech { border-color:var(--brand-accent,#007ca2); color:#0b6e8f; }
+.setlist-btn--speech:hover { background:var(--brand-accent,#007ca2); color:#fff; border-color:var(--brand-accent,#007ca2); }
+.setlist-btn--thanks { border-color:var(--brand-primary,#E33D48); color:#c62330; }
+.setlist-btn--thanks:hover { background:var(--brand-primary,#E33D48); color:#fff; border-color:var(--brand-primary,#E33D48); }
+/* EL BUSCADOR del repertorio: la lista con las portadas, debajo del campo (las ya puestas, en verde). */
+.setlist-pick { position:relative; max-width:520px; }
+.setlist-pick__list { position:absolute; left:0; right:0; top:100%; z-index:20; margin-top:.25rem; background:#fff; border:1px solid #dee2e6; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); max-height:320px; overflow:auto; padding:.25rem; }
+.setlist-pick__it { display:flex; align-items:center; gap:.55rem; width:100%; text-align:left; border:0; background:transparent; padding:.35rem .45rem; border-radius:8px; color:#212529; }
+.setlist-pick__it:hover { background:#f1f3f5; }
+.setlist-pick__it.is-added { color:#198754; }
+.setlist-pick__cover { width:38px; height:38px; border-radius:7px; object-fit:cover; background:#e9ecef; flex:0 0 auto; }
+.setlist-pick__cover--none { display:grid; place-items:center; color:#adb5bd; }
+.setlist-pick__title { flex:1 1 auto; min-width:0; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.setlist-pick__dur { color:#6c757d; font-variant-numeric:tabular-nums; font-size:.85rem; flex:0 0 auto; }
+.setlist-pick__st { color:#adb5bd; flex:0 0 auto; width:1.4rem; text-align:center; }
+.setlist-pick__it.is-added .setlist-pick__st { color:#198754; }
+.setlist-pick__empty { padding:.6rem .5rem; color:#6c757d; font-size:.85rem; text-align:center; }
 
 /* ============================================================================
    Documentos personales (DNI, carnet, tarjetas de fidelización, matrículas)
@@ -7667,6 +7726,16 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .rm-setlist li .t{flex:1 1 auto;min-width:0;font-weight:600;}
 .rm-setlist li .d{color:#6c757d;font-variant-numeric:tabular-nums;font-size:.85rem;}
 .rm-setlist li.rm-setlist__sep{font-weight:700;color:#6c757d;text-transform:uppercase;font-size:.72rem;letter-spacing:.04em;padding-top:.6rem;border-bottom:0;}
+.rm-setlist li .c{width:26px;height:26px;border-radius:6px;object-fit:cover;background:#e9ecef;flex:0 0 auto;align-self:center;}
+.rm-setlist li .ic{display:inline-flex;gap:.2rem;align-items:center;color:#495057;--sl-icon-bg:#fff;flex:0 0 auto;align-self:center;}
+.rm-setlist li .ic .sl-svg{width:1rem;height:1rem;}
+.rm-setlist li.rm-setlist__brk{display:block;text-align:center;font-weight:700;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#6c757d;padding:.4rem .5rem;margin:.3rem 0;border:0;border-radius:6px;background:repeating-linear-gradient(135deg,#f8f9fa 0 6px,#d0d5db 6px 8px);}
+.rm-setlist li.rm-setlist__brk span{background:#fff;padding:0 .5rem;border-radius:4px;}
+.rm-setlist li.rm-setlist__note .t,.rm-setlist li.rm-setlist__speech .t,.rm-setlist li.rm-setlist__thanks .t{font-weight:700;}
+.rm-setlist li.rm-setlist__note .t{color:#9a6b00;}
+.rm-setlist li.rm-setlist__speech .t{color:#0b6e8f;}
+.rm-setlist li.rm-setlist__thanks .t{color:#c62330;}
+.rm-setlist li .k{width:1.6rem;text-align:right;flex:0 0 auto;color:#adb5bd;font-size:.8rem;}
 .rm-song .n{width:1.4rem;text-align:right;color:#adb5bd;font-weight:700;flex:0 0 auto;}
 /* QUIÉN VA CON EL ARTISTA: solo el círculo. */
 .escort-av{width:48px;height:48px;border-radius:50%;overflow:hidden;background:#e9ecef;display:grid;place-items:center;color:#adb5bd;font-size:1.1rem;}

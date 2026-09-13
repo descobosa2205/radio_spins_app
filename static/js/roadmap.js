@@ -382,11 +382,11 @@
       else if (v.covered === false) kv += '<span class="rm-act__fact"><i class="fa fa-sun"></i><b>Al aire libre</b></span>';
       if (v.capacity_label) kv += '<span class="rm-act__fact"><i class="fa fa-people-group"></i><span class="rm-act__lab">Aforo</span><b>' + esc(v.capacity_label) + '</b></span>';
       if (kv) h += '<div class="rm-kv mt-2">' + kv + '</div>';
-      if (v.access_notes) h += '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + esc(v.access_notes) + '</div>';
+      h += accesoHtml(v.access_notes, v, 'Acceso · ' + (v.name || 'Recinto'));
       (v.contacts || []).forEach(function (c) { h += contactRow(c, c.relation || ''); });
-      if (v.maps_query) h += '<div class="rm-goto mt-3"><a class="btn btn-sm btn-outline-secondary rounded-pill" href="'
-        + esc(mapsUrl(v.maps_query)) + '" target="_blank" rel="noopener"><i class="fa fa-map-location-dot me-1"></i>Cómo llegar</a>'
-        + cabifyBtn(v.maps_query) + '</div>';
+      var hrefV = venueMapsHref(v);
+      if (hrefV) h += '<div class="rm-goto mt-3"><a class="btn btn-sm btn-outline-secondary rounded-pill" href="'
+        + esc(hrefV) + '" target="_blank" rel="noopener" title="' + (hasPin(v) ? 'Al punto de acceso exacto' : 'A la dirección del recinto') + '"><i class="fa fa-map-location-dot me-1"></i>Cómo llegar</a></div>';
       openModal('rmVenueModal', 'modal-md', v.name || 'Recinto', h,
                 [btn('Cerrar', 'btn-outline-secondary', function () { var i = bs('rmVenueModal'); if (i) i.hide(); })]);
     }
@@ -416,56 +416,98 @@
       return apple ? ('https://maps.apple.com/?q=' + encodeURIComponent(q))
                    : ('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q));
     }
-    /* ⚠️⚠️ PEDIR UN CABIFY A ESTA DIRECCIÓN. Cabify **no publica ningún enlace con destino**: su
-       app solo abre por enlace `/payment_methods` y `/loyalty_program` (comprobado en su propia
-       configuración de universal links), y su documentación de desarrollador no tiene deeplinks.
-       Así que lo que de verdad se puede hacer es **abrir la app con la dirección YA COPIADA** para
-       pegarla en el destino — que es el paso lento — y decirlo. Si algún día Cabify da un enlace
-       con destino, se cambia SOLO aquí.
-       ⚠️ El icono es `fa-car-side`, el MISMO con el que la hoja de ruta ya llama a «Cabify / VTC»
-       (`ROADMAP_TRANSPORT_MODES`), en el azul de la casa: no se dibuja el logotipo de la marca. */
-    var CABIFY_WEB = 'https://cabify.com/';
-    function cabifyBtn(dir, mini) {
-      if (!dir) return '';
-      var d = esc(dir);
-      if (mini) return '<a href="#" class="rm-cabify rm-cabify--mini" data-cabify="' + d + '" title="Pedir un Cabify a esta dirección" data-ext><i class="fa fa-car-side"></i></a>';
-      return '<button type="button" class="btn btn-sm rm-cabify mt-2" data-cabify="' + d + '">'
-        + '<i class="fa fa-car-side me-1"></i>Pedir un Cabify</button>';
+    /* La aplicación de mapas EN UN PUNTO EXACTO (la chincheta del acceso): Apple Maps con `ll`
+       (y el nombre como etiqueta), Google con las coordenadas. */
+    function mapsUrlAt(lat, lng, label) {
+      var apple = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent || '');
+      var ll = Number(lat).toFixed(6) + ',' + Number(lng).toFixed(6);
+      return apple ? ('https://maps.apple.com/?ll=' + ll + '&q=' + encodeURIComponent(label || 'Punto de acceso'))
+                   : ('https://www.google.com/maps/search/?api=1&query=' + ll);
     }
-    function copiaTexto(t) {
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
-      } catch (e) {}
-      try {   // respaldo para donde no hay portapapeles moderno (http, navegadores viejos)
-        var ta = document.createElement('textarea');
-        ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
-      } catch (e) {}
-      return Promise.resolve();
+    /* ¿Tiene puesta la chincheta del acceso? (las dos coordenadas, numéricas). */
+    function hasPin(o) {
+      if (!o) return false;
+      var la = o.access_lat, ln = o.access_lng;
+      return la !== null && la !== undefined && la !== '' && ln !== null && ln !== undefined && ln !== ''
+        && !isNaN(Number(la)) && !isNaN(Number(ln));
     }
-    function pedirCabify(dir) {
-      var movil = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
-      Promise.resolve(copiaTexto(dir)).then(function () {
-        rmToast('Dirección copiada · pégala en el destino de Cabify');
+    /* EL ICONO DE MAPA, uno solo para toda la hoja de ruta (punto, detalle, hotel), en el azul de la
+       casa. `data-ext` para que en la fila de un punto no abra su detalle. */
+    function mapLink(href, title) {
+      if (!href) return '';
+      return '<a class="rm-maplink" href="' + esc(href) + '" target="_blank" rel="noopener" title="' + esc(title || 'Abrir en Mapas') + '" data-ext><i class="fa fa-map-location-dot"></i></a>';
+    }
+    /* A dónde lleva el mapa del RECINTO: a la chincheta del acceso si está puesta, si no a su dirección. */
+    function venueMapsHref(v) {
+      if (!v) return '';
+      if (hasPin(v)) return mapsUrlAt(v.access_lat, v.access_lng, 'Acceso · ' + (v.name || 'Recinto'));
+      return v.maps_query ? mapsUrl(v.maps_query) : '';
+    }
+    /* A dónde lleva el mapa de un PUNTO de los horarios: su chincheta si la tiene, si no el sitio escrito. */
+    function itemMapsHref(it) {
+      if (!it) return '';
+      if (hasPin(it)) return mapsUrlAt(it.access_lat, it.access_lng, 'Acceso · ' + (it.title || ''));
+      return it.location ? mapsUrl(it.location) : '';
+    }
+    /* La nota de ACCESO tal como se enseña: el texto y, con la chincheta puesta, el icono que lleva al
+       punto exacto (o solo la chincheta, si no hay texto). */
+    function accesoHtml(txt, obj, label) {
+      var pin = hasPin(obj);
+      if (!txt && !pin) return '';
+      var link = pin ? ' ' + mapLink(mapsUrlAt(obj.access_lat, obj.access_lng, label || 'Acceso'), 'Ir al punto de acceso exacto') : '';
+      return '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + (txt ? esc(txt) : '<span class="rm-sub">Punto exacto en el mapa</span>') + link + '</div>';
+    }
+    function accessIcon() {
+      return L.divIcon({ className: 'rm-pin', html: '<i class="fa fa-door-open"></i>', iconSize: [30, 30], iconAnchor: [15, 30] });
+    }
+    var OSM_TILES = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    /* EL SELECTOR DE LA CHINCHETA (Leaflet): se pincha en el mapa para ponerla en el punto EXACTO de
+       acceso, se arrastra para afinarla y se quita con su botón. `state` es {lat, lng} y se escribe
+       en sitio; `center` es la referencia (el recinto, en gris) cuando todavía no hay chincheta.
+       Devuelve `refresh()`, para llamarla cuando el mapa se enseña después de estar oculto (Leaflet
+       mide el hueco al crearse: escondido mide cero). */
+    function pinPicker(box, state, center) {
+      box.innerHTML = '<div class="rm-pinmap" data-pinmap></div>'
+        + '<div class="d-flex align-items-center gap-2 mt-1"><span class="rm-sub flex-grow-1" data-pin-txt></span>'
+        + '<button type="button" class="btn btn-sm btn-link p-0 text-danger d-none" data-pin-clear><i class="fa fa-xmark me-1"></i>Quitar la chincheta</button></div>';
+      var mapEl = box.querySelector('[data-pinmap]'), txt = box.querySelector('[data-pin-txt]'), clr = box.querySelector('[data-pin-clear]');
+      var map = null, marker = null;
+      function ok() { return state.lat !== null && state.lat !== undefined && state.lat !== '' && state.lng !== null && state.lng !== undefined && state.lng !== '' && !isNaN(Number(state.lat)) && !isNaN(Number(state.lng)); }
+      function paintTxt() {
+        if (ok()) { txt.textContent = 'Chincheta puesta: el icono de mapa lleva a este punto exacto (arrástrala para afinar).'; clr.classList.remove('d-none'); }
+        else { txt.textContent = 'Pincha en el mapa para poner la chincheta en el punto EXACTO de acceso.'; clr.classList.add('d-none'); }
+      }
+      paintTxt();
+      function refresh() { if (map) { try { map.invalidateSize(); } catch (_) {} } }
+      ensureLeaflet(function () {
+        if (!document.body.contains(mapEl) || map) return;
+        var c = ok() ? [Number(state.lat), Number(state.lng)] : (center || [40.4168, -3.7038]);
+        var zoom = (ok() || center) ? 17 : 6;
+        try {
+          map = L.map(mapEl).setView(c, zoom);
+          L.tileLayer(OSM_TILES, { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+          if (center) L.marker(center, { opacity: 0.55, interactive: false, title: 'El recinto' }).addTo(map);
+          function put(latlng) {
+            state.lat = +Number(latlng.lat).toFixed(6); state.lng = +Number(latlng.lng).toFixed(6);
+            if (!marker) {
+              marker = L.marker(latlng, { draggable: true, icon: accessIcon() }).addTo(map);
+              marker.on('dragend', function () { put(marker.getLatLng()); });
+            } else marker.setLatLng(latlng);
+            paintTxt();
+          }
+          if (ok()) put(L.latLng(Number(state.lat), Number(state.lng)));
+          map.on('click', function (e) { put(e.latlng); });
+          clr.addEventListener('click', function () {
+            if (marker) { map.removeLayer(marker); marker = null; }
+            state.lat = null; state.lng = null; paintTxt();
+          });
+          [150, 450, 1000].forEach(function (ms) { setTimeout(refresh, ms); });
+          var mod = box.closest('.modal');
+          if (mod) mod.addEventListener('shown.bs.modal', refresh);
+        } catch (_) {}
       });
-      if (!movil) { window.open(CABIFY_WEB, '_blank', 'noopener'); return; }
-      // En el móvil se intenta abrir la APP; si no está instalada, se cae a su web.
-      var ido = false;
-      var vuelta = setTimeout(function () { if (!ido && !document.hidden) window.location.href = CABIFY_WEB; }, 1400);
-      document.addEventListener('visibilitychange', function once() {
-        ido = true; clearTimeout(vuelta); document.removeEventListener('visibilitychange', once);
-      });
-      window.location.href = 'cabify://';
+      return { refresh: refresh };
     }
-    /* ⚠️⚠️ EN FASE DE CAPTURA: la fila de un punto de la agenda corta el burbujeo de los enlaces
-       `a[data-ext]` (`clickAparte`) para que un clic en el mapa no abra su detalle, así que un
-       handler en `document` por burbujeo NUNCA se ejecutaría (bug real: el botón no hacía nada). */
-    document.addEventListener('click', function (ev) {
-      var b = ev.target.closest && ev.target.closest('[data-cabify]');
-      if (!b || !root.contains(b)) return;
-      ev.preventDefault(); ev.stopPropagation();
-      pedirCabify(b.getAttribute('data-cabify') || '');
-    }, true);
     function contactActs(phone, email) {
       var h = '';
       if (phone) h += '<a href="tel:' + esc(phone) + '" title="Llamar" data-ext><i class="fa fa-phone"></i></a>'
@@ -507,17 +549,26 @@
       }
       LEAFLET_LOADING.then(function () { if (window.L && window.L.map) cb(); });
     }
+    function venueHasMap(v) { return !!(v && ((v.lat && v.lng) || hasPin(v))); }
     function drawVenueMap() {
       var box = view.querySelector('[data-rm-map]');
-      if (!box || !VENUE || !VENUE.lat || !VENUE.lng) return;
+      if (!box || !venueHasMap(VENUE)) return;
       ensureLeaflet(function () {
         if (!document.body.contains(box) || box.dataset.done) return;
         box.dataset.done = '1';
         try {
-          var map = L.map(box, { scrollWheelZoom: false }).setView([VENUE.lat, VENUE.lng], 15);
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
-          L.marker([VENUE.lat, VENUE.lng]).addTo(map);
-          setTimeout(function () { try { map.invalidateSize(); } catch (_) {} }, 250);
+          var puntos = [];
+          var map = L.map(box, { scrollWheelZoom: false });
+          L.tileLayer(OSM_TILES, { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+          if (VENUE.lat && VENUE.lng) { puntos.push([VENUE.lat, VENUE.lng]); L.marker([VENUE.lat, VENUE.lng], { title: VENUE.name || 'Recinto' }).addTo(map); }
+          // LA CHINCHETA DEL ACCESO: el punto exacto por el que se entra (roja, con su puerta).
+          if (hasPin(VENUE)) {
+            var pa = [Number(VENUE.access_lat), Number(VENUE.access_lng)];
+            puntos.push(pa);
+            L.marker(pa, { icon: accessIcon(), title: 'Punto de acceso' }).addTo(map);
+          }
+          if (puntos.length > 1) map.fitBounds(puntos, { padding: [24, 24], maxZoom: 17 }); else map.setView(puntos[0], 15);
+          setTimeout(function () { try { map.invalidateSize(); if (puntos.length > 1) map.fitBounds(puntos, { padding: [24, 24], maxZoom: 17 }); } catch (_) {} }, 250);
         } catch (_) {}
       });
     }
@@ -551,12 +602,12 @@
         else if (v.covered === false) kv += '<span class="rm-act__fact"><i class="fa fa-sun"></i><b>Al aire libre</b></span>';
         if (v.capacity_label) kv += '<span class="rm-act__fact"><i class="fa fa-people-group"></i><span class="rm-act__lab">Aforo</span><b>' + esc(v.capacity_label) + '</b></span>';
         if (kv) b += '<div class="rm-kv mt-2">' + kv + '</div>';
-        if (v.maps_query) b += '<div class="rm-goto mt-2"><a class="btn btn-sm btn-outline-secondary rounded-pill" href="' + esc(mapsUrl(v.maps_query)) + '" target="_blank" rel="noopener"><i class="fa fa-map-location-dot me-1"></i>Abrir en Mapas</a>'
-          + cabifyBtn(v.maps_query) + '</div>';
-        if (v.lat && v.lng) b += '<div class="rm-map" data-rm-map></div>';
-        if (v.access_notes) b += '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + esc(v.access_notes) + '</div>';
+        var hrefC = venueMapsHref(v);
+        if (hrefC) b += '<div class="rm-goto mt-2"><a class="btn btn-sm btn-outline-secondary rounded-pill" href="' + esc(hrefC) + '" target="_blank" rel="noopener" title="' + (hasPin(v) ? 'Al punto de acceso exacto' : 'A la dirección del recinto') + '"><i class="fa fa-map-location-dot me-1"></i>Abrir en Mapas</a></div>';
+        if (venueHasMap(v)) b += '<div class="rm-map" data-rm-map></div>';
+        b += accesoHtml(v.access_notes, v, 'Acceso · ' + (v.name || 'Recinto'));
         (v.contacts || []).forEach(function (c) { b += contactRow(c, c.relation || ''); });
-        var acc = (CAN_ADMIN && v.id) ? '<button type="button" class="btn btn-sm btn-link p-0" data-venue-access title="' + (v.access_notes ? 'Cambiar la nota de acceso' : 'Añadir cómo se accede') + '"><i class="fa fa-door-open"></i></button>' : '';
+        var acc = (CAN_ADMIN && v.id) ? '<button type="button" class="btn btn-sm btn-link p-0" data-venue-access title="' + ((v.access_notes || hasPin(v)) ? 'Cambiar cómo se accede' : 'Añadir cómo se accede (la nota y la chincheta)') + '"><i class="fa fa-door-open"></i></button>' : '';
         tarjetas += card('fa-location-dot', 'Recinto', b, acc);
       }
       // ── LA PROPIA ACTIVIDAD (se llama como lo que es)
@@ -613,20 +664,26 @@
     /* La nota de ACCESO es un dato del RECINTO (vale para todas sus actividades). */
     function openVenueAccess() {
       var h = '<label class="form-label">Cómo se accede al recinto</label>'
-        + '<textarea class="form-control" rows="4" data-acc placeholder="Por dónde entra el equipo, dónde aparca el camión, a quién preguntar…">' + esc(VENUE.access_notes || '') + '</textarea>'
-        + '<div class="form-text">Se guarda en la ficha del recinto: vale para todas las actividades que se hagan aquí.</div>';
-      var m = openModal('rmAccessModal', 'modal-md', 'Acceso · ' + (VENUE.name || 'Recinto'), h, [
+        + '<textarea class="form-control" rows="3" data-acc placeholder="Por dónde entra el equipo, dónde aparca el camión, a quién preguntar…">' + esc(VENUE.access_notes || '') + '</textarea>'
+        + '<label class="form-label mt-3"><i class="fa fa-map-pin me-1 text-danger"></i>El punto exacto de acceso</label>'
+        + '<div data-access-pin></div>'
+        + '<div class="form-text">Se guarda en la ficha del recinto: vale para todas las actividades que se hagan aquí. Con la chincheta puesta, el icono de mapa de la hoja de ruta lleva a ese punto (la app de mapas del iPhone o la que sea).</div>';
+      var pin = { lat: VENUE.access_lat, lng: VENUE.access_lng };
+      var m = openModal('rmAccessModal', 'modal-lg', 'Acceso · ' + (VENUE.name || 'Recinto'), h, [
         btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmAccessModal'); if (i) i.hide(); }),
-        btn('Guardar', 'btn-primary', function () {
+        btn('Guardar', 'btn-danger', function () {
           var txt = m.querySelector('[data-acc]').value.trim();
-          postJson(ep('/recinto/acceso'), { access_notes: txt }).then(function (r) {
+          postJson(ep('/recinto/acceso'), { access_notes: txt, access_lat: pin.lat, access_lng: pin.lng }).then(function (r) {
             if (!r || !r.ok) { alert((r && r.error) || 'No se pudo guardar.'); return; }
             VENUE.access_notes = r.access_notes || '';
+            VENUE.access_lat = (r.access_lat === undefined) ? pin.lat : r.access_lat;
+            VENUE.access_lng = (r.access_lng === undefined) ? pin.lng : r.access_lng;
             var i = bs('rmAccessModal'); if (i) i.hide();
             renderActividad();
           });
         }),
       ]);
+      pinPicker(m.querySelector('[data-access-pin]'), pin, (VENUE.lat && VENUE.lng) ? [VENUE.lat, VENUE.lng] : null);
     }
     function openActivityNotes() {
       var h = '<label class="form-label">Notas sobre ' + esc((ACTIVITY.word || 'la actividad').toLowerCase()) + '</label>'
@@ -720,13 +777,28 @@
       if (!url) return '';
       return '<a class="btn btn-sm btn-link p-0" href="' + esc(url) + '" target="_blank" rel="noopener" title="' + esc(title || 'Descargar en PDF') + '" data-ext><i class="fa fa-file-pdf"></i></a>';
     }
+    var SETLIST_ICONS = (SETLIST && SETLIST.icons) || {};   // cómo se pinta cada icono (lo da el servidor)
+    var SETLIST_KIND_ICON = { NOTE: 'fa-note-sticky', SPEECH: 'fa-comment-dots', THANKS: 'fa-hands-clapping' };
+    function songCover(songId) {
+      if (!songId) return '';
+      for (var i = 0; i < SONGS.length; i++) if (String(SONGS[i].id) === String(songId)) return SONGS[i].cover_url || '';
+      return '';
+    }
     function setlistRows(items) {
       var n = 0, h = '<ol class="rm-setlist">';
       (items || []).forEach(function (it) {
         var kind = String(it.kind || 'SONG').toUpperCase();
-        if (kind !== 'SONG') { h += '<li class="rm-setlist__sep">' + esc(it.title || '') + '</li>'; return; }
+        if (kind === 'BREAK') { h += '<li class="rm-setlist__brk">' + (it.title ? '<span>' + esc(it.title) + '</span>' : '&nbsp;') + '</li>'; return; }
+        if (kind !== 'SONG') {   // nota · hablar · agradecimientos: su propia línea, en su color
+          h += '<li class="rm-setlist__' + kind.toLowerCase() + '"><span class="k"><i class="fa ' + (SETLIST_KIND_ICON[kind] || 'fa-note-sticky') + '"></i></span><span class="t">' + esc(it.title || '') + '</span></li>';
+          return;
+        }
         n++;
-        h += '<li><span class="n">' + n + '</span><span class="t">' + esc(it.title || '') + (it.note ? ' <span class="rm-sub">' + esc(it.note) + '</span>' : '') + '</span>'
+        var cover = songCover(it.song_id);
+        var icons = (it.icons || []).map(function (k) { return SETLIST_ICONS[k] || ''; }).join('');
+        h += '<li><span class="n">' + n + '</span>' + (cover ? '<img class="c" src="' + esc(cover) + '" alt="" onerror="this.remove()">' : '')
+          + '<span class="t">' + esc(it.title || '') + (it.note ? ' <span class="rm-sub">' + esc(it.note) + '</span>' : '') + '</span>'
+          + (icons ? '<span class="ic" title="Iconos de la canción">' + icons + '</span>' : '')
           + (it.duration_seconds ? '<span class="d">' + fmtDur(it.duration_seconds) + '</span>' : '') + '</li>';
       });
       return h + '</ol>';
@@ -899,7 +971,7 @@
       }
       // SE CANTA (con cuántos temas: pinchando se va al Repertorio) y las INSTRUCCIONES DE ACCESO.
       tags += singTag(it);
-      if (it.access_note) tags += '<span class="rm-tag access" title="' + esc(it.access_note) + '"><i class="fa fa-door-open"></i> Acceso</span>';
+      if (it.access_note || hasPin(it)) tags += '<span class="rm-tag access" title="' + esc(it.access_note || 'Punto exacto de acceso en el mapa') + '"><i class="fa fa-door-open"></i> Acceso</span>';
       var transLine = '';
       if (ki.transport && it.transport) {
         var t = it.transport;
@@ -910,8 +982,7 @@
       }
       var meta = '';
       // EL MAPA: con un sitio escrito, el icono abre la aplicación de mapas del móvil o del Mac.
-      if (it.location) meta += '<a href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas" data-ext><i class="fa fa-map-location-dot"></i></a>'
-        + cabifyBtn(it.location, true);
+      meta += mapLink(itemMapsHref(it), hasPin(it) ? 'Ir al punto de acceso exacto' : 'Abrir en Mapas');
       if ((it.attachments || []).length) meta += '<span title="Adjuntos"><i class="fa fa-paperclip"></i> ' + it.attachments.length + '</span>';
       if (it.note) meta += '<span title="Nota"><i class="fa fa-note-sticky"></i></span>';
       return '<div class="' + cls + '"' + (RO ? '' : ' draggable="true"') + ' data-item="' + esc(it.id) + '" style="--rm-line:' + esc(ki.color) + '">'
@@ -996,7 +1067,7 @@
     }
     function newDraft(kind, day) {
       var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, attachments: [], sheets: { GENERAL: true, TECNICA: true },
-                audience: { mode: 'ALL', roles: [], ids: [] }, sings: false, songs: [], access_note: '' };
+                audience: { mode: 'ALL', roles: [], ids: [] }, sings: false, songs: [], access_note: '', access_lat: null, access_lng: null };
       // La ficha ya dice a qué hora abren las puertas: se precumplimenta (se puede cambiar, y se
       // pueden añadir varias aperturas en la misma actividad).
       if (kind === 'APERTURA_PUERTAS' && DOORS) d.start_time = DOORS;
@@ -1049,8 +1120,9 @@
           + '<div class="filter-hint">Al marcarlo aparece en la pestaña Repertorio, donde se ponen las canciones.</div></div>';
       }
       // INSTRUCCIONES DE ACCESO (cómo se llega, por dónde se entra).
-      h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="access_on" id="rmAccOn"' + (draft.access_note ? ' checked' : '') + '><label class="form-check-label" for="rmAccOn"><i class="fa fa-door-open me-1"></i>Instrucciones de acceso</label></div></div>'
-        + '<div class="col-12' + (draft.access_note ? '' : ' d-none') + '" data-access-wrap><textarea class="form-control" rows="2" data-f="access_note" placeholder="Por dónde se entra, a quién preguntar, dónde se aparca…">' + esc(draft.access_note || '') + '</textarea></div>';
+      h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="access_on" id="rmAccOn"' + ((draft.access_note || hasPin(draft)) ? ' checked' : '') + '><label class="form-check-label" for="rmAccOn"><i class="fa fa-door-open me-1"></i>Instrucciones de acceso</label></div></div>'
+        + '<div class="col-12' + ((draft.access_note || hasPin(draft)) ? '' : ' d-none') + '" data-access-wrap><textarea class="form-control" rows="2" data-f="access_note" placeholder="Por dónde se entra, a quién preguntar, dónde se aparca…">' + esc(draft.access_note || '') + '</textarea>'
+        + '<div class="mt-2" data-access-pin></div></div>';
       h += '</div>';
 
       // Entrevista
@@ -1101,8 +1173,13 @@
       var save = btn('Guardar', 'btn-primary', function () { saveItem(draft, m); });
       var m = openModal('rmItemModal', 'modal-lg', (editing ? 'Editar' : 'Nueva') + ' · ' + ki.label, h, [btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmItemModal'); if (i) i.hide(); }), save]);
 
-      // wire a quién afecta + acceso
+      // wire a quién afecta + acceso (la nota y la CHINCHETA del punto exacto)
       wireAudience(m);
+      var pinBox = m.querySelector('[data-access-pin]');
+      if (pinBox) {
+        m.rmPin = { lat: draft.access_lat, lng: draft.access_lng };
+        m.rmPinPicker = pinPicker(pinBox, m.rmPin, (VENUE && VENUE.lat && VENUE.lng) ? [VENUE.lat, VENUE.lng] : null);
+      }
       // wire contacto
       var cChip = m.querySelector('[data-contact-chip]'), cName = m.querySelector('[data-contact-name]');
       function setContact(c) {
@@ -1144,7 +1221,14 @@
         });
       });
       var on = m.querySelector('[data-f="access_on"]'), wrap = m.querySelector('[data-access-wrap]');
-      if (on && wrap) on.addEventListener('change', function () { wrap.classList.toggle('d-none', !on.checked); if (on.checked) { var ta = wrap.querySelector('textarea'); if (ta) ta.focus(); } });
+      if (on && wrap) on.addEventListener('change', function () {
+        wrap.classList.toggle('d-none', !on.checked);
+        if (on.checked) {
+          var ta = wrap.querySelector('textarea'); if (ta) ta.focus();
+          // El mapa se creó ESCONDIDO (mide cero): al enseñarlo hay que volver a medirlo.
+          if (m.rmPinPicker) setTimeout(m.rmPinPicker.refresh, 60);
+        }
+      });
     }
     function readAudience(m) {
       var mode = 'ALL';
@@ -1354,6 +1438,9 @@
       else if (draft.interview) draft.sings = !!draft.interview.sings;
       var accOn = m.querySelector('[data-f="access_on"]');
       draft.access_note = (accOn && accOn.checked) ? (m.querySelector('[data-f="access_note"]').value.trim()) : '';
+      var pinOn = !!(accOn && accOn.checked && m.rmPin);
+      draft.access_lat = pinOn ? m.rmPin.lat : null;
+      draft.access_lng = pinOn ? m.rmPin.lng : null;
       draft.contact = draft.contact || {};
       draft.contact.phone = m.querySelector('[data-c="phone"]').value.trim();
       draft.contact.email = m.querySelector('[data-c="email"]').value.trim();
@@ -1374,7 +1461,7 @@
       if (!it.confirmed) h += '<div class="rm-tag tbc mb-2 d-inline-block">Provisional</div> ';
       if (!RO) { var shD = sheetsLabel(it); if (shD) h += '<div class="rm-tag sheet mb-2 d-inline-block"><i class="fa fa-share-nodes"></i> ' + esc(shD) + '</div> '; }
       if (it.cancelled) h += '<div class="rm-tag mb-2 d-inline-block">Cancelada</div>';
-      if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + ' <a class="ms-1" href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas"><i class="fa fa-map-location-dot"></i></a>' + cabifyBtn(it.location, true) + '</div>';
+      if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + mapLink(itemMapsHref(it), hasPin(it) ? 'Ir al punto de acceso exacto' : 'Abrir en Mapas') + '</div>';
       var audH = audienceHtml(it);
       h += '<div class="mb-1 rm-sub"><i class="fa fa-users"></i> ' + (audH ? 'Afecta a:' : 'Afecta a todos') + '</div>' + audH;
       if (itemSings(it) && !(it.kind === 'ENTREVISTA' && it.interview)) {
@@ -1408,7 +1495,7 @@
         (t.passengers || []).forEach(function (p) { var per = personById(p.personnel_id); h += '<div class="rm-sub"><i class="fa fa-user"></i> ' + esc(per ? per.name : '—') + (p.locator || t.locator_all ? ' · Loc: ' + esc(t.same_locator ? t.locator_all : p.locator) : '') + (p.ticket_url ? ' · <a href="' + esc(p.ticket_url) + '" target="_blank">Billete</a>' : '') + '</div>'; });
       }
       if (it.contact && (it.contact.name || it.contact.phone || it.contact.email)) h += '<div class="mt-2 rm-sub"><i class="fa fa-address-card"></i> ' + [it.contact.name, it.contact.phone, it.contact.email].filter(Boolean).map(esc).join(' · ') + '</div>';
-      if (it.access_note) h += '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + esc(it.access_note) + '</div>';
+      h += accesoHtml(it.access_note, it, 'Acceso · ' + (it.title || ''));
       if (it.note) h += '<div class="alert alert-warning mt-2 mb-0 py-2"><i class="fa fa-note-sticky"></i> ' + esc(it.note) + '</div>';
       if ((it.attachments || []).length) { h += '<div class="mt-2">'; it.attachments.forEach(function (a) { h += '<a class="rm-att" href="' + esc(a.url) + '" target="_blank"><i class="fa fa-download"></i> ' + esc(a.name) + '</a>'; }); h += '</div>'; }
 
@@ -1933,9 +2020,7 @@
       return '<div class="rm-hotel">'
         + '<img class="ph" src="' + esc(ho.photo_url || '') + '" onerror="this.style.visibility=\'hidden\'">'
         + '<div class="flex-grow-1"><div class="fw-bold">' + esc(ho.name || 'Hotel') + ' ' + stars + '</div>'
-        + (ho.address ? '<div class="rm-sub"><i class="fa fa-location-dot"></i> ' + esc(ho.address)
-            + ' <a href="' + esc(mapsUrl(hotelDir(ho))) + '" target="_blank" rel="noopener" title="Abrir en Mapas"><i class="fa fa-map-location-dot"></i></a>'
-            + cabifyBtn(hotelDir(ho), true) + '</div>' : '')
+        + (ho.address ? '<div class="rm-sub"><i class="fa fa-location-dot"></i> ' + esc(ho.address) + mapLink(mapsUrl(hotelDir(ho))) + '</div>' : '')
         + ((ho.phone || ho.email) ? '<div class="rm-sub">' + [ho.phone, ho.email].filter(Boolean).map(esc).join(' · ') + '</div>' : '')
         + (daysTxt ? '<div class="rm-sub"><i class="fa fa-calendar"></i> ' + esc(daysTxt) + '</div>' : '')
         + (function () {   // cuántas habitaciones hay reservadas y cuántas se han puesto

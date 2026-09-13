@@ -8618,22 +8618,36 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   iconos, y un `<img>` dentro de un `<font backColor>` **no se dibuja**.
 
 - ⚠️⚠️ **HOJA DE RUTA · CÓMO LLEGAR, QUIÉN MIRA Y «LO QUE TENGO HOY»** (sep 2026):
-  · **PEDIR UN CABIFY** donde hay una dirección: el recinto, cada hotel y cada punto de la agenda
-  con lugar (`cabifyBtn` en `roadmap.js`), al lado del «Abrir en Mapas» de siempre. Icono
-  **`fa-car-side`** —el MISMO con el que la hoja de ruta ya llama a «Cabify / VTC»
-  (`ROADMAP_TRANSPORT_MODES`)— en el azul de la casa: no se dibuja el logotipo de la marca.
-  ⚠️⚠️ **CABIFY NO PUBLICA NINGÚN ENLACE CON DESTINO**: su app solo abre por enlace
-  `/payment_methods` y `/loyalty_program` (comprobado en su propio
-  `apple-app-site-association`) y su documentación de desarrollador no tiene deeplinks — al
-  contrario que Uber. Así que lo que se hace es **abrir la app con la dirección YA COPIADA** para
-  pegarla en el destino (que es el paso lento), y **se dice** con un aviso. Si algún día dan un
-  enlace con destino, se cambia SOLO en `pedirCabify`.
-  ⚠️⚠️ Su handler va **en fase de CAPTURA**: la fila de un punto de la agenda corta el burbujeo de
-  los `a[data-ext]` (`clickAparte`, para que un clic en el mapa no abra su detalle), así que un
-  handler en `document` por burbujeo **no se ejecuta nunca** (bug real: el botón no hacía nada).
+  · ⚠️ **«PEDIR UN CABIFY» SE RETIRÓ** (13-sep-2026, lo pidió Dani): Cabify no publica ningún enlace
+  con destino (su app solo abre por `/payment_methods` y `/loyalty_program`), así que lo único que se
+  podía hacer era abrir la app con la dirección copiada, y no compensaba. `cabifyBtn`/`pedirCabify` y
+  `.rm-cabify` ya no existen; «Cabify / VTC» sigue como TIPO de transporte (`ROADMAP_TRANSPORT_MODES`).
+  · ⚠️⚠️ **EL ICONO DE MAPA ES UNO SOLO Y VA EN EL AZUL DE LA CASA** (`mapLink` en `roadmap.js` →
+  `.rm-maplink`): el punto de los horarios, su detalle y el HOTEL. El del hotel heredaba el gris de
+  `.rm-sub` y se veía distinto sin motivo (bug real). Va con `data-ext`: en la fila de un punto, un
+  clic en el mapa no abre su detalle.
+  · ⚠️⚠️ **LA CHINCHETA DEL ACCESO**: en las instrucciones de acceso —las del RECINTO
+  (`openVenueAccess`, `Venue.access_lat/access_lng`, endpoint `roadmap_venue_access_save`) y las de
+  un PUNTO de los horarios (`item.access_lat/access_lng`, en `_roadmap_item_from_json`)— se pone una
+  chincheta en un mapa Leaflet (`pinPicker`: pinchar la pone, arrastrarla la afina, «Quitar la
+  chincheta» la quita; el recinto sale en gris como referencia) y **con ella puesta el icono de mapa
+  lleva a ESE punto exacto** (`mapsUrlAt`: Apple Maps con `ll=` en iPhone/iPad/Mac, Google con las
+  coordenadas en el resto; `venueMapsHref` / `itemMapsHref` deciden). La nota de acceso lleva el
+  icono al lado (`accesoHtml`) y el mapa de la tarjeta del recinto pinta las dos marcas (la del
+  recinto y la roja del acceso, `accessIcon`).
+  ⚠️ Son **las DOS coordenadas o NINGUNA** (`_roadmap_coord_pair`; una sola no sitúa nada), con su
+  rango y admitiendo coma decimal (`_roadmap_coord`). Un guardado que **no manda** las coordenadas
+  **no las borra** (la regla de los centinelas: `if "access_lat" in data`, y la lista de claves que
+  se conservan al editar un punto).
+  ⚠️ **Leaflet mide el hueco al crearse**: el mapa del editor de un punto nace dentro de un bloque
+  ESCONDIDO (`data-access-wrap`), así que al encender «Instrucciones de acceso» hay que llamar a
+  `refresh()` (`invalidateSize`), y en un modal se repite a los 150/450/1000 ms y en `shown.bs.modal`.
+  ⚠️ Las columnas nuevas de `venues` van en `ensure_roadmap_extras_schema` (NO en
+  `ensure_video_web_schema`, que es donde parece que están por la línea) y `icons` en
+  `ensure_simulations_schema`: cada una en su propia sentencia.
   · **EL RECINTO SE PINCHA EN LA CABECERA** y abre su pop-up (`abreVenuePop`): la foto, la
-  dirección, el aforo, cómo se accede, sus contactos y los botones de **Cómo llegar** y **Pedir un
-  Cabify**. La fila se reconoce por su **clave** (`key == 'venue'`, que pone
+  dirección, el aforo, cómo se accede, sus contactos y el botón de **Cómo llegar** (a la chincheta del
+  acceso si está puesta). La fila se reconoce por su **clave** (`key == 'venue'`, que pone
   `_roadmap_activity_card`), no por el TEXTO de la etiqueta, que es lo que se enseña.
   · **QUIÉN ESTÁ MIRANDO**, arriba a la derecha de la hoja compartida (`_roadmap_viewer_badge` →
   `viewer`): **sin sesión**, el muñequito y un pop-up con las DOS puertas (el portal de fuera y la
@@ -10354,6 +10368,43 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   único, así que lo heredan el buscador de la ficha, el del asistente (`api_artist_wizard_meta`) y el
   del set list. Como la lista de sugerencias se corta en 12, ese orden es lo que hace que se ofrezcan
   **los 12 últimos lanzamientos**.
+
+- ⚠️⚠️ **SET LIST · tipos de línea, ICONOS, el parón RAYADO, las portadas y la cabecera del PDF**
+  (13-sep-2026, lo pidió Dani). Panel `_setlist_panel.html` + `setlist.js`; en la hoja de ruta lo
+  pinta `setlistRows` de `roadmap.js` con las MISMAS claves.
+  · **TIPOS** (`_SETLIST_ITEM_KINDS` + **`SETLIST_KIND_META`**, el punto único de su etiqueta, icono
+  y color en el PDF): SONG · BREAK · NOTE · **SPEECH («Hablar», azul)** · **THANKS
+  (agradecimientos, rojo/rosa)**. Nota, hablar y agradecimientos van **cada uno en SU propia línea,
+  del tamaño de una canción y sin número**, en su color (`.setlist-row--note/--speech/--thanks`).
+  · **EL PARÓN VA RAYADO A TODO LO ANCHO** con lo que se escriba en medio: en pantalla un
+  `repeating-linear-gradient` diagonal (`.setlist-row--break`) y en el PDF una banda de rayas con
+  el texto centrado en un hueco (`/////// TEXTO ///////`; sin texto, la raya entera).
+  · **ICONOS AL LADO DE UNA CANCIÓN** (`RepertoireTemplateItem.icons`, JSON de claves del catálogo
+  **`SETLIST_ICONS`**: guitarra · guitarra eléctrica · piano · batería · micrófono · persona · beso ·
+  corazón · estrella · fuego · palmas · brindis · público). Se **ARRASTRAN** desde la paleta hasta la
+  canción (o, con el dedo, se pincha la canción —queda `is-selected`— y luego el icono) y **salen en
+  el PDF** (`drawImage` con `mask='auto'`, blancos sobre el negro).
+  ⚠️⚠️ **`fa-piano` y `fa-guitar-electric` NO EXISTEN en esta Font Awesome** (saldrían vacíos): esos
+  dos se DIBUJAN con formas simples en un lienzo 24×24 (`_SETLIST_ICON_SHAPES`, glifos de un color
+  con huecos «bg») y **la MISMA lista** la pinta el navegador como SVG (`_setlist_icon_svg`, huecos
+  en `var(--sl-icon-bg)`) y Pillow como PNG para el PDF (`_setlist_icon_png_path`, supermuestreado
+  ×4; ⚠️ `ImageDraw` ESCRIBE el píxel, así que un relleno transparente hace el hueco). El resto van
+  por `_fa_icon_png_path`. Los iconos se **limpian** al guardar (`_setlist_icons_from_json`: solo
+  claves del catálogo, sin repetir, tope 6, y solo en una canción).
+  ⚠️ El arrastre de un icono viaja en `text/plain` como `icon:<clave>` y el de REORDENAR filas con el
+  índice en el mismo canal: el `drop` distingue por el prefijo (antes se pisarían).
+  · **LAS CANCIONES SE AÑADEN CON SU PORTADA**: el `<select>` nativo se retiró (era lo que «se
+  quedaba enganchado») y hay un buscador con la lista de portadas debajo (`.setlist-pick`, de la más
+  reciente a la más antigua, las ya puestas en verde); pinchar una la añade **al momento** y la lista
+  se queda abierta para seguir añadiendo. Las filas llevan también la portada (`data-setlist-songs`
+  → `SONG_BY_ID`).
+  · **LA CABECERA DEL PDF** (`_setlist_pdf_header`): **el ARTISTA en grande** y debajo **el nombre de
+  la actividad o el festival —si no, el municipio— seguido de la fecha**; el PDF de UN punto de la
+  hoja de ruta añade un tercer renglón con ese punto (`header['extra']`,
+  `_roadmap_setlist_pdf_source` usa la MISMA cabecera). El rótulo «SET LIST» solo sale si no hay artista.
+  ⚠️⚠️ **La respuesta de `setlist_save` decía «sin líneas» tras guardar** (bug real que sacó la
+  prueba): la sesión es `expire_on_commit=False` y las líneas se añaden por `template_id`, así que
+  `t.items` seguía con la lista vieja. Se hace `s.expire_all()` antes de releer.
 
 - ⚠️⚠️⚠️ **LO QUE SE ESCRIBE NO SE PIERDE · guardado en vivo de lo tecleado** (sep 2026,
   `static/js/form_autosave.js`, GLOBAL). Casi todos los endpoints guardan con **POST → `flash` →

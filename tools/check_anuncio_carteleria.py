@@ -11,7 +11,9 @@ Comprueba, contra la app REAL y la BD de PRUEBA, la épica entera:
   4. la DOBLE APROBACIÓN de un cartel: primero diseño (`DESIGN_OK`) y después contratación
      (`APPROVED`), y quién puede dar cada uno;
   5. que en cuanto están los dos vistos buenos los carteles se le mandan SOLOS al artista;
-  6. el RECORDATORIO del día del anuncio (SMS con los carteles y, si ya está a la venta, su enlace).
+  6. el RECORDATORIO del día del anuncio (SMS con los carteles y, si ya está a la venta, su enlace);
+  7. y que los dos vistos buenos funcionan **con permisos de verdad** (un diseñador y alguien de
+     contratación, sin ser dirección): que el GATE no les eche antes de llegar a la vista.
 
     /tmp/python/bin/python3 tools/check_anuncio_carteleria.py
 
@@ -342,6 +344,53 @@ def main() -> int:
     A._announce_reminder_sweep()
     comprueba("no se repite en la siguiente pasada",
               not any("+34600111222" in str(x[0]) for x in smss), smss)
+
+    # ── 8 · CON PERMISOS DE VERDAD (sin ser dirección) ─────────────────────────────────────
+    # ⚠️⚠️ Esto es lo que ya costó un 403 en esta área: la ruta `/conciertos/…` la resuelve el GATE
+    # y puede echar a quien tiene que aprobar ANTES de llegar a la vista. Con la doble aprobación
+    # pasan por aquí DOS perfiles distintos, así que se comprueba con sus permisos puestos.
+    print("\n8 · Los dos vistos buenos con permisos reales")
+    with A.app.app_context():
+        if not s.query(models.UserAccessResource).first():
+            A._bootstrap_access_and_personnel()      # el catálogo no lo siembra el hilo del esquema
+
+    def con_permiso(correo, recurso):
+        u = usuario(correo, 1)                       # ⚠️ rol 1: dirección puede siempre y no valdría
+        if not s.query(models.UserProfile).filter(models.UserProfile.user_id == u.id).first():
+            s.add(models.UserProfile(user_id=u.id, nick=correo.split("@")[0]))
+        s.query(models.UserAccessGrant).filter(models.UserAccessGrant.user_id == u.id).delete()
+        s.add(models.UserAccessGrant(user_id=u.id, resource_key=recurso, can_view_basic=True,
+                                     can_view_econ=True, can_edit=True))
+        s.flush()
+        return u
+
+    dis = con_permiso("check_anuncio_diseno@33.es", "diseno")
+    con = con_permiso("check_anuncio_contra@33.es", "contratacion.conciertos")
+    c8 = concierto(created_by_user_id=con.id)        # la gestiona contratación
+    r8 = models.ConcertArtworkRequest(concert_id=c8.id, public_token=uuid.uuid4().hex,
+                                      handled_by="PROMOTER", status="REVIEW")
+    s.add(r8)
+    s.flush()
+    a8 = models.ConcertArtworkAsset(artwork_request_id=r8.id, format_label="Cartel",
+                                    file_url="https://x/a.jpg", kind="IMAGE", category="POSTER",
+                                    validation_status="PENDING")
+    s.add(a8)
+    s.commit()
+
+    def revisa(u):
+        otro = A.app.test_client()
+        with otro.session_transaction() as ses:
+            ses["user_id"] = str(u.id)
+            ses["role"] = 1
+        codigo = otro.post("/conciertos/%s/carteleria/assets/%s/revisar" % (c8.id, a8.id),
+                           data={"decision": "APPROVE"}).status_code
+        s.expire_all()
+        return codigo, s.get(models.ConcertArtworkAsset, a8.id).validation_status
+
+    comprueba("contratación NO puede dar el primero", revisa(con) == (403, "PENDING"), revisa(con))
+    comprueba("diseño da el primero (y el gate le deja pasar)", revisa(dis) == (200, "DESIGN_OK"))
+    comprueba("diseño NO puede dar el segundo", revisa(dis) == (403, "DESIGN_OK"))
+    comprueba("contratación da el segundo (y el gate le deja pasar)", revisa(con) == (200, "APPROVED"))
 
     s.close()
     print("\n%d bien · %d mal" % (len(OK), len(KO)))

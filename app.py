@@ -60939,11 +60939,15 @@ def _with_concert_wizard(session_db, ctx: dict) -> dict:
     for clave, valor in (datos or {}).items():
         ctx.setdefault(clave, valor)
     # ⚠️⚠️ El contexto se monta SIEMPRE (hay plantillas que incluyen el modal sin mirar la bandera y
-    # se caerían con un 500), pero solo se OFRECE a quien puede guardarlo: el MISMO permiso que pide
-    # `concert_wizard_create` (contratacion.conciertos con edición), para que el botón y el guardado
-    # no digan cosas distintas. Sin esto, quien tenía otra pestaña de Contratación (peticiones,
-    # simulaciones…) rellenaba el asistente entero y se comía un 403 al terminarlo.
-    ctx.setdefault("wizard_available", bool(datos) and has_access_key("contratacion.conciertos", edit=True))
+    # se caerían con un 500), pero solo se OFRECE a quien puede guardarlo: **el MISMO permiso que
+    # pide `concert_wizard_create`**, para que el botón y el guardado no digan cosas distintas.
+    # ⚠️⚠️ Y ese permiso es **`can_edit_concerts()`** (edición en CUALQUIER pestaña de Contratación),
+    # no `contratacion.conciertos` a secas: el comentario decía «el mismo» pero **no lo era**, y a
+    # quien tenía edición en otra pestaña (Otras actividades, Eventos, Festivales…) le pasaba lo
+    # contrario de lo que se quería arreglar — **podía guardar la actividad pero el asistente ni se
+    # pintaba**: en `/actividades` salía un botón que no hacía nada y en Giras o Festivales el botón
+    # desaparecía. Bug real (sep 2026).
+    ctx.setdefault("wizard_available", bool(datos) and (is_master() or can_edit_concerts()))
     return ctx
 
 
@@ -75180,7 +75184,43 @@ def _contract_sheet_promoter_seed(concert, session_db=None) -> dict:
                 "company_representative_email": (rep_mail or "").strip(),
                 "company_representative_phone": (rep_tel or "").strip(),
             })
+        else:
+            # ⚠️⚠️ SI NO HAY TERCERO VINCULADO, SU PERSONA DE CONTACTO. Un representante solo se
+            # reconocía cuando era **otro tercero** vinculado con la relación «Representante», y lo
+            # normal es darlo de alta como **persona de contacto** en la ficha del tercero (es lo que
+            # ofrece esa pestaña). Así que la ficha de contratación salía **vacía de contacto** aunque
+            # su persona estuviera puesta (bug real: «no aparece Ignacio, de Cadena 100»).
+            contacto = _promoter_contact_representative(session_db, promoter)
+            if contacto:
+                out.update({
+                    "company_representative": contacto.get("name") or "",
+                    "company_representative_email": contacto.get("email") or "",
+                    "company_representative_phone": contacto.get("phone") or "",
+                })
     return out
+
+
+def _promoter_contact_representative(session_db, promoter) -> dict:
+    """La PERSONA DE CONTACTO que hace de representante de ese tercero. Punto único.
+
+    Manda la que lo diga en su CARGO («Representante», «Apoderado», «Dirección»…) y, si ninguna lo
+    dice, la PRIMERA que tenga con la que se pueda contactar (correo o teléfono): es a quien se llama
+    cuando se pregunta por esa empresa.
+    ⚠️ El cargo lo escribe una persona, así que se compara sin acentos ni mayúsculas
+    (`_norm_text_key`), como el resto de textos libres de la casa."""
+    try:
+        filas = _promoter_contacts_for(session_db, getattr(promoter, "id", None))
+    except Exception:
+        app.logger.exception("[ficha contratación] no se pudieron leer las personas de contacto")
+        return {}
+    utiles = [c for c in filas if (c.get("email") or c.get("phone"))]
+    if not utiles:
+        return {}
+    for c in utiles:
+        cargo = _norm_text_key(c.get("title") or "")
+        if any(p in cargo for p in ("represent", "apoderad", "direccion", "gerent")):
+            return c
+    return utiles[0]
 
 
 def _contract_sheet_prefill(concert: Concert, sheet: ConcertContractSheet | None = None,

@@ -153,6 +153,21 @@
   ⚠️ Los catálogos que necesitan los módulos (`PRL_WORKER_TYPES`, `NOTIFY_CHANNELS`) se inyectan en
   `inject_globals`: el parcial se pinta en **cualquier** pantalla y son constantes (ninguna consulta).
 
+- ⚠️⚠️ **EL REPRESENTANTE DE LA FICHA DE CONTRATACIÓN CAE EN SU PERSONA DE CONTACTO** (bug real,
+  sep 2026: «en el evento de Cadena 100 no aparece el contacto de Ignacio»). La ficha solo reconocía
+  como representante a **OTRO TERCERO vinculado** con la relación «Representante»
+  (`_promoter_representatives`), y lo normal es dar de alta a esa persona como **PERSONA DE CONTACTO**
+  en la ficha del tercero —que es justo lo que ofrece esa pestaña—: así que la ficha de contratación
+  salía **vacía de contacto** aunque su persona estuviera puesta.
+  · Punto único **`_promoter_contact_representative(session_db, promoter)`**: a falta de tercero
+  vinculado, la persona de contacto cuyo **CARGO** lo diga («Representante», «Apoderado»,
+  «Dirección», «Gerente») y, si ninguna lo dice, la **primera con la que se pueda contactar** (correo
+  o teléfono) — que es a quien se llama cuando se pregunta por esa empresa.
+  ⚠️ El cargo lo escribe una persona: se compara con `_norm_text_key` (sin acentos ni mayúsculas),
+  como el resto de textos libres de la casa.
+  ⚠️ El **DNI** solo lo trae el tercero vinculado: una persona de contacto no lo tiene, y ese hueco
+  se queda vacío en vez de inventarlo.
+
 - ⚠️⚠️ **EL REPRESENTANTE LEGAL SE PONE TAMBIÉN AL EDITAR** (sep 2026). Solo se podía poner **al
   crear** el tercero, así que a uno ya creado no había forma de ponérselo (había que crear el otro
   tercero a mano y vincularlo). Ahora:

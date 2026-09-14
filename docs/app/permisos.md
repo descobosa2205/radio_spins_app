@@ -348,9 +348,19 @@
   **`ventas`**, **`promo`** y **`discografica`** (quien lleva las ventas de una actividad tiene que
   poder abrirla desde su reporte) y **`BAG_ACCESS_KEYS`** gana **`administracion`** y
   **`contabilidad`** (quien liquida y paga entra en la bolsa sin que le concedan además «Bolsas»).
-  · **EL ASISTENTE «+ Actividad» solo se ofrece a quien puede GUARDARLO**
-  (`contratacion.conciertos` con edición, el MISMO permiso que pide `concert_wizard_create`): desde
-  otra pestaña de Contratación se rellenaba entero para comerse un 403 al terminarlo.
+  · **EL ASISTENTE «+ Actividad» solo se ofrece a quien puede GUARDARLO** (el MISMO permiso que pide
+  `concert_wizard_create`): desde otra pestaña de Contratación se rellenaba entero para comerse un
+  403 al terminarlo.
+  ⚠️⚠️ **Y «el mismo» hay que comprobarlo, no escribirlo en un comentario** (bug real, sep 2026):
+  `wizard_available` exigía **`contratacion.conciertos`** mientras `concert_wizard_create` exige
+  **`can_edit_concerts()`** (edición en CUALQUIER pestaña de Contratación). O sea, quien tenía
+  edición en «Otras actividades», «Eventos» o «Festivales» **podía guardar la actividad pero el
+  asistente ni se pintaba**: en `/actividades` (donde el botón cuelga de `CAN_EDIT_CONCERTS` y el
+  modal de `wizard_available`) salía **un botón que no hacía nada**, y en Giras o Festivales —donde
+  el botón va DENTRO de `wizard_available`— **desaparecía**. Es el mismo bug de siempre visto del
+  revés: el botón y la puerta tienen que mirar **la misma función**, no dos que se parezcan.
+  ⚠️ Comprobado con cuatro usuarios (edición en Otras · en Eventos · en Conciertos · sin nada):
+  botón y asistente coinciden en los cuatro.
   ⚠️⚠️ Pero el CONTEXTO del asistente se monta **siempre** (`_with_concert_wizard`): hay plantillas
   que incluían el modal sin mirar `wizard_available` y se caían con un **500** (`promoters_payload`
   Undefined). Ya lo miran las 14; una pantalla nueva que lo incluya, también.

@@ -60452,7 +60452,10 @@ def _design_notify_done(session_db, user_ids, title: str, body: str, url: str, *
 
 
 def _design_deliver_artwork(session_db, row_id, ficheros, *, soldout: bool) -> tuple[int, list[str]]:
-    """Entrega de CARTELERÍA (o del cartel de Sold Out): lo que sube diseño entra ya APROBADO."""
+    """Entrega de CARTELERÍA (o del cartel de Sold Out) desde la bandeja de Diseño.
+
+    ⚠️ Lo que sube diseño entra con SU visto bueno puesto (`DESIGN_OK`) y **esperando el de
+    contratación**: la doble aprobación vale también para lo que hacemos nosotros."""
     row = session_db.get(ConcertArtworkRequest, _safe_uuid(str(row_id)))
     if row is None:
         raise ValueError("Esa solicitud de cartelería ya no está.")

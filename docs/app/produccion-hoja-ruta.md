@@ -693,6 +693,21 @@
   `_home_roadmap_repertoire_pending`, buscando con el operador `@>` de JSONB).
   ⚠️ El dibujo del PDF del set list está extraído en **`_setlist_pdf_bytes(header, items)`** (puro):
   lo usan el de la ficha, el de la hoja de ruta y el compartido.
+  ⚠️⚠️ **«ELIMINAR» DE UN SET LIST NO BORRABA NADA** (bug real, sep 2026). El menú de los tres
+  puntitos de cada línea lo **TELEPORTA al `<body>`** el motor de desplegables de la casa
+  (`scripts.js`, para que no lo recorte ningún `overflow`), así que al abrirlo **deja de ser hijo de
+  su fila**: el listener colgaba de la lista de filas y `closest('[data-idx]')` devolvía `null`, con
+  lo que pinchar «Eliminar» **no hacía absolutamente nada**. Ahora cada opción lleva **su índice**
+  (`data-row`) y el listener va en **`document`**; antes de repintar se cierra el desplegable (si no,
+  su menú se queda huérfano en el `<body>`).
+  ⚠️ **Es la regla de la casa vista desde otro lado**: con estos menús no basta con delegar, hay que
+  no depender del DOM para saber de qué fila es la opción.
+  · **LA BARRA DE AÑADIR CANCIONES VA ARRIBA**, encima de la paleta de iconos: primero se monta el
+  repertorio y después se le ponen los iconos (antes había que bajar hasta el final para añadir).
+  · **EL SEPARADOR (PARÓN) DEL PDF ES MÁS FINO**: la banda rayada ocupaba más de media línea y se
+  comía la página; ahora ~un tercio, con el grosor y la separación de las rayas **calculados con su
+  altura** (a una banda fina, unas rayas gordas quedan fatal). Sigue siendo una banda con su título
+  en medio, no una raya.
   · ⚠️⚠️ **LOS EXTERNOS VEN SOLO LO QUE LES AFECTA** (el portal, `externos_activity` /
   `externos_promotion`): `_roadmap_ext_person_info` (qué es esa persona en ESA hoja: sus filas del
   personal, sus funciones, su marca) · `_roadmap_payload_shared` (solo lo marcado para alguna hoja)

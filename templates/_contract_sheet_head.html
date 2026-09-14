@@ -1,0 +1,51 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   LA CABECERA DE LA PESTAÑA «FICHA DE CONTRATACIÓN»: arriba a la DERECHA, el estado de la ficha
+   que le pedimos al promotor y el botón de editar la ficha.
+
+   ⚠️ Antes vivían en la barra de botones rápidos de la actividad, que es para lo que vale en TODA
+   ella (el PDF, la cartelería, avisar al artista): estas dos cosas son de ESTA pestaña.
+
+   EL ESTADO ES UN SOLO CONTROL, y siempre se puede pinchar para volver a mandarla:
+     · sin enviar  → botón «Solicitar ficha al promotor»
+     · ENVIADA     → **amarillo** «Ficha enviada» (esperando a que la devuelva)
+     · RECIBIDA    → **verde con el check** «Ficha recibida»
+     · RECHAZADA / se le han pedido cambios → **amarillo** otra vez: sigue esperando su respuesta
+   ⚠️ El rechazo MANDA sobre «recibida»: aunque ya mandara algo, si se le han pedido cambios lo que
+   hay no vale todavía y no puede salir en verde.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% if CAN_EDIT_CONCERTS %}
+  {% set sheet_ok = sheet_state and sheet_state.received and not sheet_state.rejected %}
+  <div class="d-flex justify-content-end align-items-center gap-2 flex-wrap mb-3" data-sheet-head>
+    {% if sheet_state and sheet_state.rejected %}
+      <button class="btn btn-warning btn-sm text-dark" type="button"
+              data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"
+              title="Se le han pedido cambios: sigue esperando su respuesta. Púlsalo para volver a mandársela.">
+        <i class="fa fa-rotate me-1"></i>Ficha enviada · pendiente de subsanar
+      </button>
+    {% elif sheet_ok %}
+      <button class="btn btn-success btn-sm" type="button"
+              data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"
+              title="El promotor la devolvió{% if sheet_state.reviewed %} y ya está revisada{% else %} · queda revisarla{% endif %}. Púlsalo para volver a mandársela.">
+        <i class="fa fa-circle-check me-1"></i>Ficha recibida
+      </button>
+    {% elif sheet_state and sheet_state.pending %}
+      <button class="btn btn-warning btn-sm text-dark" type="button"
+              data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"
+              title="Enviada el {{ sheet_state.sent_at_label }}{% if sheet_state.sent_to_label %} a {{ sheet_state.sent_to_label }}{% endif %} · esperando a que la devuelva. Púlsalo para volver a mandársela.">
+        <i class="fa fa-paper-plane me-1"></i>Ficha enviada
+      </button>
+    {% else %}
+      <button class="btn btn-outline-primary btn-sm" type="button"
+              data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">
+        <i class="fa fa-file-signature me-1"></i>Solicitar ficha al promotor
+      </button>
+    {% endif %}
+
+    {# Pone TODA la ficha en modo edición inline (todas las secciones con todos los campos, también
+       los vacíos), sin pop-ups ni salir de la página. Segundo clic = cancelar todo. #}
+    <button class="btn btn-primary btn-sm" type="button" id="fichaEditAllBtn"><i class="fa fa-pen me-1"></i>Editar ficha</button>
+    {# Toggle oculto del bloque de datos: lo pulsa «Editar ficha» para abrir también esa sección
+       con el mecanismo estándar de ficha_inline.js (oculta la vista, muestra el formulario). #}
+    <button class="d-none" type="button" data-edit-toggle="#concert-datos-edit" aria-hidden="true" tabindex="-1"></button>
+  </div>
+{% endif %}

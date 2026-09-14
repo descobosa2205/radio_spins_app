@@ -92,37 +92,9 @@
 {% endif %}
 
 <div class="ficha-quick mb-0">
-  {% if CAN_EDIT_CONCERTS and tab == 'general' %}
-    {# Pone TODA la ficha en modo edición inline (todas las secciones con todos los campos,
-       también los vacíos), sin pop-ups ni salir de la página. Segundo clic = cancelar todo. #}
-    <button class="btn btn-primary btn-sm" type="button" id="fichaEditAllBtn"><i class="fa fa-pen me-1"></i>Editar ficha</button>
-    {# Toggle oculto del bloque de datos: lo pulsa «Editar ficha» para abrir también esa sección
-       con el mecanismo estándar de ficha_inline.js (oculta la vista, muestra el formulario). #}
-    <button class="d-none" type="button" data-edit-toggle="#concert-datos-edit" aria-hidden="true" tabindex="-1"></button>
-  {% endif %}
-  {# FICHA DE CONTRATACIÓN. Sin enviar → el botón; ENVIADA → la etiqueta «Pendiente de recibir
-     ficha» y «Reenviar»; RECIBIDA → sale de los destacados (ya no hay nada que pedir) y se queda
-     en la rueda por si hiciera falta mandarla otra vez. #}
-  {% if CAN_EDIT_CONCERTS and not (sheet_state and sheet_state.received) %}
-    {% if sheet_state and sheet_state.pending %}
-      <span class="badge text-bg-warning text-dark align-self-center" data-bs-toggle="tooltip"
-            title="Enviada el {{ sheet_state.sent_at_label }}{% if sheet_state.sent_to_label %} a {{ sheet_state.sent_to_label }}{% endif %} · esperando a que la devuelva">
-        <i class="fa fa-hourglass-half me-1"></i>Pendiente de recibir ficha
-      </span>
-      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">
-        <i class="fa fa-rotate me-1"></i>Reenviar ficha
-      </button>
-    {% else %}
-      <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">
-        <i class="fa fa-file-signature me-1"></i>{{ 'Reenviar ficha al promotor' if sheet_state and sheet_state.rejected else 'Solicitar ficha al promotor' }}
-      </button>
-    {% endif %}
-  {% elif CAN_EDIT_CONCERTS and sheet_state and sheet_state.received %}
-    <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
-          title="El promotor la devolvió{% if sheet_state.reviewed %} y ya está revisada{% else %} · queda revisarla{% endif %}">
-      <i class="fa fa-circle-check me-1"></i>Ficha recibida
-    </span>
-  {% endif %}
+  {# ⚠️ «Editar ficha» y el estado de la FICHA DE CONTRATACIÓN ya NO están aquí: viven arriba a la
+     derecha DENTRO de la pestaña «Ficha de contratación», que es a lo que pertenecen (ver
+     `_contract_sheet_head.html`). Esta barra es para lo que vale en toda la actividad. #}
   <a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>PDF ficha</a>
   {# PRODUCCIÓN: mientras no esté activada, este botón es el que la activa (decir quién se encarga).
      En cuanto lo está, desaparece: ya no hay nada que hacer aquí y la pestaña sigue en su sitio. #}
@@ -594,6 +566,14 @@
     {# El pop-up del contacto de ticketing, FUERA de `#concert-general-zone`: esa zona se reemplaza
        por AJAX al guardar una sección y se llevaría el modal por delante. #}
     {% include '_ticketing_contact_modal.html' %}
+
+    {# ⚠️ LA CABECERA DE LA PESTAÑA: el estado de la ficha del promotor y «Editar ficha», arriba a la
+       DERECHA y dentro de la pestaña a la que pertenecen (antes estaban en la barra de botones
+       rápidos de la actividad, que es para lo que vale en toda ella).
+       ⚠️ Va FUERA de `#concert-general-zone`: esa zona se reemplaza por AJAX al guardar una sección
+       y se llevaría por delante el botón (y con él, el modo edición). #}
+    {% include '_contract_sheet_head.html' %}
+
     <div id="concert-general-zone" data-inline-zone>
 
     {% if CAN_EDIT_CONCERTS %}

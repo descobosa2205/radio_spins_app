@@ -41,20 +41,7 @@
     </div>
   </div>
 
-  {# LA PALETA DE ICONOS: se arrastra uno al lado de una canción (con el dedo: se pincha la canción y
-     luego el icono). #}
-  <div class="setlist-icons" data-setlist-palette>
-    <span class="setlist-icons__lab"><i class="fa fa-icons me-1"></i>Iconos</span>
-    {% for ic in setlist.icons %}
-      <button type="button" class="setlist-icons__it" draggable="true" data-icon="{{ ic.key }}" title="{{ ic.label }} · arrástralo al lado de una canción">{{ ic.html|safe }}</button>
-    {% endfor %}
-    <span class="setlist-icons__hint" data-setlist-icon-hint>Arrastra un icono al lado de una canción (salen en el PDF).</span>
-  </div>
-
-  <ol class="setlist-rows" data-setlist-rows></ol>
-  <div class="text-muted small text-center py-3 d-none" data-setlist-empty>Aún no hay canciones. Añádelas del repertorio o a mano ↓</div>
-
-  <div class="setlist-add mt-3 pt-3 border-top">
+  <div class="setlist-add mb-3">
     <div class="setlist-pick" data-setlist-pick>
       <div class="input-group input-group-sm">
         <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
@@ -71,6 +58,20 @@
       <button class="btn btn-outline-secondary btn-sm setlist-btn--thanks" type="button" data-setlist-add-kind="THANKS"><i class="fa fa-hands-clapping me-1"></i>Agradecimientos</button>
     </div>
   </div>
+
+  {# LA PALETA DE ICONOS: se arrastra uno al lado de una canción (con el dedo: se pincha la canción y
+     luego el icono). #}
+  <div class="setlist-icons" data-setlist-palette>
+    <span class="setlist-icons__lab"><i class="fa fa-icons me-1"></i>Iconos</span>
+    {% for ic in setlist.icons %}
+      <button type="button" class="setlist-icons__it" draggable="true" data-icon="{{ ic.key }}" title="{{ ic.label }} · arrástralo al lado de una canción">{{ ic.html|safe }}</button>
+    {% endfor %}
+    <span class="setlist-icons__hint" data-setlist-icon-hint>Arrastra un icono al lado de una canción (salen en el PDF).</span>
+  </div>
+
+  <ol class="setlist-rows" data-setlist-rows></ol>
+  <div class="text-muted small text-center py-3 d-none" data-setlist-empty>Aún no hay canciones. Añádelas del repertorio o a mano ↑</div>
+
   <div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>El set list queda vinculado al evento (para declararlo luego en SGAE). El PDF sale en A4 con fondo negro: el artista en grande, la actividad y la fecha debajo, y sin duraciones.</div>
 </div>
 <script src="{{ url_for('static', filename='js/setlist.js', v=ASSET_V) }}"></script>

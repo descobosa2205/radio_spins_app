@@ -78,6 +78,8 @@
 - FICHA DE CONTRATACIÓN · LOS DATOS DEL PROMOTOR SON SUYOS, NO LOS DE LA CASA (bug real y
 - LA FICHA DE CONTRATACIÓN SE VA GUARDANDO SOLA: según el promotor escribe, lo
 - EL CORREO DE LA FICHA DE CONTRATACIÓN · el botón, dentro del bocadillo y abajo a la derecha
+- LA FICHA DE CONTRATACIÓN SE GOBIERNA DESDE SU PESTAÑA
+- UN PAYLOAD SIN CLASIFICAR SE PINTA COMO JSON EN CRUDO EN LA FICHA
 - LA FICHA DE CONTRATACIÓN, EL AVISO AL ARTISTA Y LOS BOTONES DESTACADOS (sep 2026, tres
 - QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR. A CUATRO SEMANAS
 
@@ -1454,6 +1456,29 @@
   el MISMO HTML que se manda (`concert_contract_sheet_preview`, que se refresca al escribir el
   mensaje) con su logo y su bocadillo; antes era un listado de campos. ⚠️ No crea nada: si la ficha
   aún no tiene enlace se pinta uno de muestra (se genera al enviarla).
+
+- ⚠️⚠️ **LA FICHA DE CONTRATACIÓN SE GOBIERNA DESDE SU PESTAÑA** (sep 2026, `_contract_sheet_head.html`).
+  «Editar ficha» y el estado de la ficha del promotor estaban en la **barra de botones rápidos** de
+  la actividad, que es para lo que vale en TODA ella (el PDF, avisar al artista, las invitaciones):
+  esas dos cosas son de la pestaña **«Ficha de contratación»** y ahora viven **arriba a la derecha
+  DENTRO de ella**.
+  · **UN SOLO CONTROL para el estado**, y siempre se puede pinchar para **volver a mandarla**:
+  sin enviar → **«Solicitar ficha al promotor»** · **ENVIADA → amarillo «Ficha enviada»** ·
+  **RECIBIDA → verde con el check «Ficha recibida»** · **RECHAZADA o con cambios pedidos → amarillo
+  otra vez** («Ficha enviada · pendiente de subsanar»). Antes la etiqueta y el botón de reenviar eran
+  dos cosas, y con la ficha recibida no había forma de volver a pedirla sin ir a los tres puntitos.
+  ⚠️ **El rechazo MANDA sobre «recibida»**: aunque el promotor ya hubiera mandado algo, si se le han
+  pedido cambios eso todavía no vale y no puede salir en verde.
+  ⚠️ La cabecera va **FUERA de `#concert-general-zone`**: esa zona se reemplaza por AJAX al guardar
+  una sección y se llevaría por delante el botón (y con él, el modo edición).
+
+- ⚠️⚠️ **UN PAYLOAD SIN CLASIFICAR SE PINTA COMO JSON EN CRUDO EN LA FICHA** (bug real, sep 2026).
+  «Más información de la actividad» vuelca **todas** las claves de los payloads que no se pintan en
+  otro sitio (`shown_keys` en `_concert_contracting_general_rows`). Las TRES funciones de contacto
+  que no son ticketing viven en `ticketing_payload['contacts']` y no estaban en esa lista, así que
+  salían tal cual: **«Ticketing · Contacts: {"PRODUCCION_LOCAL": {"kind": "THIRD"…}}»**.
+  ⚠️ Al guardar algo nuevo en un payload de la actividad hay que **añadir su clave a `shown_keys`**
+  si ya se pinta en su propio módulo.
 
 - ⚠️⚠️ **LA FICHA DE CONTRATACIÓN, EL AVISO AL ARTISTA Y LOS BOTONES DESTACADOS** (sep 2026, tres
   cosas que se pidieron juntas porque son el mismo proceso: lo que está pendiente se ve, y lo que ya

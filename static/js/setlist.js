@@ -85,11 +85,15 @@
 
   function rowHtml(r, idx) {
     var handle = '<span class="setlist-row__handle" title="Arrastra para ordenar"><i class="fa fa-grip-vertical"></i></span>';
+    /* ⚠️⚠️ CADA OPCIÓN LLEVA SU ÍNDICE (`data-row`). El menú de los tres puntitos lo TELEPORTA al
+       `<body>` el motor de desplegables de la casa (`scripts.js`, para que no lo recorte ningún
+       `overflow`), así que al abrirlo **deja de ser hijo de su fila**: buscar la fila con
+       `closest('[data-idx]')` devolvía `null` y **«Eliminar» no hacía nada** (bug real). */
     var menu = '<div class="dropdown setlist-row__menu">' +
       '<button class="btn btn-sm btn-link text-muted p-1" type="button" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis-vertical"></i></button>' +
       '<ul class="dropdown-menu dropdown-menu-end">' +
-      (r.kind === 'SONG' ? '<li><a class="dropdown-item" href="#" data-act="comment"><i class="fa fa-comment me-2"></i>Comentario</a></li>' : '') +
-      '<li><a class="dropdown-item text-danger" href="#" data-act="del"><i class="fa fa-trash me-2"></i>Eliminar</a></li>' +
+      (r.kind === 'SONG' ? '<li><a class="dropdown-item" href="#" data-act="comment" data-row="' + idx + '"><i class="fa fa-comment me-2"></i>Comentario</a></li>' : '') +
+      '<li><a class="dropdown-item text-danger" href="#" data-act="del" data-row="' + idx + '"><i class="fa fa-trash me-2"></i>Eliminar</a></li>' +
       '</ul></div>';
     var k = KIND[r.kind];
     if (k) {
@@ -165,21 +169,40 @@
       if (rows[iD]) { rows[iD].icons.splice(+del.getAttribute('data-icon-del'), 1); selIdx = iD; render(); }
       return;
     }
-    var act = e.target.closest('[data-act]');
-    if (!act) {
-      var liS = e.target.closest('.setlist-row--song[data-idx]');
-      if (liS) selectRow(+liS.getAttribute('data-idx'));
-      return;
-    }
+    var liS = e.target.closest('.setlist-row--song[data-idx]');
+    if (liS && !e.target.closest('[data-act]')) selectRow(+liS.getAttribute('data-idx'));
+  });
+
+  /* ⚠️ LAS OPCIONES DEL MENÚ, en `document`: cuando está abierto, el menú cuelga del `<body>` (lo
+     teleporta el motor de desplegables), así que un listener en la lista de filas no las ve nunca.
+     La fila se resuelve por su `data-row`, no por el DOM. */
+  document.addEventListener('click', function (e) {
+    var act = e.target.closest('[data-act][data-row]');
+    if (!act || !root.isConnected) return;
     e.preventDefault();
-    var li = act.closest('[data-idx]'); var i = +li.getAttribute('data-idx');
+    var i = parseInt(act.getAttribute('data-row'), 10);
+    if (isNaN(i) || !rows[i]) return;
+    // Se cierra el desplegable ANTES de repintar: si no, su menú se queda huérfano en el <body>.
+    cierraMenus();
     var a = act.getAttribute('data-act');
-    if (a === 'del') { rows.splice(i, 1); if (selIdx === i) selIdx = null; else if (selIdx !== null && selIdx > i) selIdx--; render(); }
-    else if (a === 'comment') {
-      var note = li.querySelector('.setlist-row__note');
+    if (a === 'del') {
+      rows.splice(i, 1);
+      if (selIdx === i) selIdx = null; else if (selIdx !== null && selIdx > i) selIdx--;
+      render();
+    } else if (a === 'comment') {
+      var li = rowsEl.querySelector('[data-idx="' + i + '"]');
+      var note = li && li.querySelector('.setlist-row__note');
       if (note) { note.classList.remove('d-none'); var inp = note.querySelector('input'); if (inp) inp.focus(); }
     }
   });
+
+  function cierraMenus() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-bs-toggle="dropdown"][aria-expanded="true"]'),
+      function (b) {
+        try { window.bootstrap && bootstrap.Dropdown.getOrCreateInstance(b).hide(); } catch (_) {}
+      });
+  }
 
   // --- Arrastrar: reordenar filas · soltar un icono sobre una canción ---
   var dragIdx = null, dragIcon = null;

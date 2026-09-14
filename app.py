@@ -63648,12 +63648,17 @@ def _setlist_pdf_bytes(header: dict, items: list[dict]) -> bytes:
                     x += ih + font_sz * 0.25
         elif ln["type"] == "break":
             # LA BANDA RAYADA: `/////// TEXTO ///////` a todo lo ancho.
+            # ⚠️ Es un SEPARADOR CON TÍTULO, no un bloque: la banda ocupa ~un tercio de la línea
+            # (antes más de la mitad y se comía la página). Sigue siendo una banda —no una raya— y
+            # el grosor y la separación de las rayas van CON su altura, o a una banda fina las
+            # rayas le quedan gordísimas.
+            band_h = line_h * 0.30
+            band_bot = y + (line_h - band_h) / 2
+            band_top = band_bot + band_h
             c.setStrokeColorRGB(0.62, 0.62, 0.62)
-            c.setLineWidth(max(1.0, font_sz * 0.045))
-            band_bot = y + line_h * 0.22
-            band_top = y + line_h * 0.78
-            dx = (band_top - band_bot) * 0.7
-            step = max(4.0, font_sz * 0.32)
+            c.setLineWidth(max(0.8, band_h * 0.11))
+            dx = band_h * 0.7
+            step = max(3.2, band_h * 0.55)
             segs = [(margin, W - margin)]
             tsz = 0
             if ln["t"]:
@@ -115117,6 +115122,10 @@ def _concert_contracting_general_rows(session_db, concert):
         ("Ticketing", "total_capacity"), ("Ticketing", "sale_capacity"),
         # El contacto de ticketing ya se pinta arriba como «Responsable de ticketing».
         ("Ticketing", "ticketing_contact"),
+        # ⚠️ Y las otras TRES funciones (producción · producción local · contratación) tienen su
+        # propio módulo en «Contactos»: sin esto, este volcado de «lo que no se pinta en otro sitio»
+        # las soltaba en la ficha **como JSON en crudo** («{"PRODUCCION_LOCAL": {"kind": "THIRD"…}»).
+        ("Ticketing", "contacts"),
         ("Gastos cubiertos por promotor", "enabled"), ("Gastos cubiertos por promotor", "items"),
     }
     payloads = [

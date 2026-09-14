@@ -16,6 +16,7 @@
 - Contenedor de EVENTO que se degradaba a CICLO (bug real, corregido): el modal de editar de
 - Categoría EVENTOS de Contratación (CycleFestival.kind='EVENTO' + event_id → AppEvent)
 - PRL / Altas (riesgos laborales del personal de eventos): modelos PersonComplianceDoc
+- EL RECORDATORIO POR SMS A 48 h Y A 24 h de lo que falta de alta y PRL
 - QUÉ LLEVA REPORTE DE VENTAS, Y EL TIPO «CICLO». Punto único
 - UN EVENTO PROMOCIONAL PUEDE SER SIN CACHÉ Y CON GASTOS CUBIERTOS: en el asistente de
 - UN EVENTO PROMOCIONAL TIENE NOMBRE, Y SE PIDE EN LOS PRIMEROS PASOS. Sin él la
@@ -182,6 +183,29 @@
   (`PersonComplianceDoc` owner_type USER) y su alta la cubre el ITA de la empresa del grupo por
   vínculo `USER:<id>` o por DNI. Los semáforos, la página pública y las exportaciones (PDF/Excel)
   solo piden/pintan lo que le toca a cada uno («—» o en gris si no aplica).
+
+  ⚠️⚠️ **EL RECORDATORIO POR SMS A 48 h Y A 24 h** (sep 2026). Pedir la documentación por correo no
+  basta: el día antes seguía faltando gente y ya no había tiempo de arreglarlo. Barrido
+  **`_prl_reminder_sweep`** (en el cron único, clave `prl_recordatorio`, **cada 15 min**): a **48 h** y
+  a **24 h** del comienzo, a quien todavía le falte algo le llega un SMS que dice **cuántas horas
+  quedan**, **de qué actividad** se trata —«el concierto», «el evento»… con el punto único
+  `_artwork_activity_word`—, **de quién** (el artista) y **dónde** (el nombre de la actividad y, si no
+  tiene, el municipio), **QUÉ le falta exactamente** (solo lo suyo, según su tipo de trabajador) y
+  **el enlace** de siempre (`/prl/<token>`).
+  · **Qué falta lo dice `_prl_person_status`**, el MISMO punto único de los semáforos y de la página
+  pública: no hay una segunda idea de qué está pendiente. Si ya no le falta nada, **no se le escribe**.
+  · **No se repite**: `PrlUploadRequest.reminder_48_at` / `reminder_24_at`. Entrar directamente en la
+  ventana de 24 h (una actividad creada tarde) da por avisada también la de 48.
+  · **El reloj** es `_prl_activity_start`: la hora del **show**, si no la de **puertas** y, si no hay
+  ninguna, `PRL_REMINDER_DEFAULT_TIME` (20:00) — no se inventa una hora distinta en cada sitio.
+  · **El texto lo compone el SERVIDOR** (`_prl_reminder_sms_text`), único sitio donde se escribe: dice
+  «antes **del** concierto» (no «de el») y, si falta media docena de documentos, enumera **tres** y
+  añade «y N cosas más» —un SMS se cobra por trozos y la página ya los pide uno a uno—.
+  ⚠️ **No pasa por los interruptores de `SMS_NOTICE_KINDS`**: esos son para los avisos de la campanita
+  del personal de la casa, y esto va a TERCEROS (como los mensajes de la hoja de ruta). El tope diario
+  de `_send_optional_sms` sigue protegiendo el gasto.
+  ⚠️ Probado con la app real: dos personas y dos actividades → 4 SMS en la primera pasada, **cero** en
+  la segunda, y quien sube su documentación deja de recibirlo.
 
 - ⚠️⚠️ **QUÉ LLEVA REPORTE DE VENTAS, Y EL TIPO «CICLO»** (sep 2026). Punto único
   **`_concert_needs_sales_report`** (y su versión EN BLOQUE `_concerts_need_sales_report_map`),

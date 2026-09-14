@@ -1,0 +1,307 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   DISEÑO · LA BANDEJA
+   Todo lo que le han pedido a diseño —de donde sea— en UNA lista ordenada por la fecha de entrega
+   más cercana. Al pinchar una fila se abre su POP-UP con lo que se pide, los archivos de referencia
+   y la zona de arrastrar o elegir: se entrega ahí mismo y el aviso desaparece solo.
+   ⚠️ Las tareas viajan en un <script type="application/json">, NO en atributos: un `|tojson` dentro
+      de un atributo con comillas dobles corta el atributo (regla de la casa).
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h2 class="mb-1"><i class="fa {{ icon }} me-2 text-danger"></i>{{ title }}</h2>
+    <div class="text-muted">{{ subtitle }}</div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-outline-primary" type="button" data-peticion-new data-peticion-dept="DISENO"><i class="fa fa-inbox me-1"></i> Nueva petición</button>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+    <span class="fw-semibold"><i class="fa fa-list-check text-danger me-2"></i>Peticiones y tareas pendientes</span>
+    {% if tasks %}<span class="badge text-bg-danger">{{ tasks|length }}</span>{% endif %}
+    {% if late_count %}<span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ late_count }} fuera de plazo</span>{% endif %}
+    {% if soon_count %}<span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>{{ soon_count }} esta semana</span>{% endif %}
+  </div>
+  <div class="card-body">
+    {% if tasks %}
+      <div class="list-group dz-list">
+        {% for t in tasks %}
+          <button type="button" class="list-group-item list-group-item-action dz-row{% if t.late %} dz-row--late{% endif %}"
+                  data-dz-open="{{ t.key }}">
+            <span class="dz-row__ico"><i class="fa {{ t.icon }}"></i></span>
+            {% if t.photo %}<img src="{{ t.photo }}" alt="" class="dz-row__photo">{% endif %}
+            <span class="dz-row__main">
+              <span class="dz-row__t">{{ t.title }}</span>
+              <span class="dz-row__s">{{ t.what }}{% if t.subject %} · {{ t.subject }}{% endif %}</span>
+            </span>
+            <span class="dz-row__due">
+              {% if t.due_label %}
+                <span class="dz-row__date{% if t.late %} text-danger fw-semibold{% endif %}"><i class="fa fa-flag-checkered me-1"></i>{{ t.due_label }}</span>
+                {% if t.days_label %}<span class="dz-row__days{% if t.late %} text-danger{% endif %}">{{ t.days_label }}</span>{% endif %}
+              {% else %}
+                <span class="dz-row__date text-muted">Sin fecha de entrega</span>
+              {% endif %}
+            </span>
+            <span class="dz-row__go badge {{ 'text-bg-danger' if t.upload else 'text-bg-light border' }}">
+              <i class="fa {{ 'fa-cloud-arrow-up' if t.upload else 'fa-arrow-right' }} me-1"></i>{{ t.action_label }}
+            </span>
+          </button>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-muted small py-2"><i class="fa fa-inbox me-1"></i>No tienes nada pendiente. Aquí llegará todo lo que te pidan.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── EL POP-UP de una tarea: qué se pide, los archivos de referencia y la zona de subir ───────── #}
+<div class="modal fade" id="disenoTaskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-palette me-2" data-dz-icon></i><span data-dz-title>Tarea</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="dz-meta mb-3">
+          <div class="dz-meta__subject" data-dz-subject></div>
+          <div class="d-flex flex-wrap gap-2 mt-2" data-dz-badges></div>
+        </div>
+
+        <div class="mb-3" data-dz-specs-wrap hidden>
+          <div class="fw-semibold small text-uppercase text-muted mb-2">Lo que se pide</div>
+          <table class="table table-sm psum-list mb-0"><tbody data-dz-specs></tbody></table>
+        </div>
+
+        <div class="alert alert-light border small" data-dz-note-wrap hidden>
+          <i class="fa fa-quote-left text-muted me-1"></i><span data-dz-note></span>
+        </div>
+
+        <div class="mb-3" data-dz-files-wrap hidden>
+          <div class="fw-semibold small text-uppercase text-muted mb-2">Archivos adjuntos</div>
+          <div class="dz-files" data-dz-files></div>
+        </div>
+
+        <div data-dz-upload-wrap hidden>
+          <div class="fw-semibold small text-uppercase text-muted mb-2">Entregar <span data-dz-upload-label></span></div>
+          <div class="fotos-dropzone" data-dz-zone>
+            <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
+            <div>Arrastra aquí <span data-dz-upload-label2>los archivos</span>, o
+              <span class="text-primary text-decoration-underline" data-dz-pick>pincha para elegirlos</span></div>
+            <div class="small text-muted mt-1" data-dz-help></div>
+            <input type="file" class="d-none" data-dz-input>
+          </div>
+          <div class="fotos-filelist mt-3" data-dz-queue></div>
+          <div class="progress mt-3 d-none" data-dz-progress><div class="progress-bar" style="width:0%"></div></div>
+          <div class="small mt-2" data-dz-msg></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-outline-secondary me-auto" href="#" data-dz-ficha target="_blank" rel="noopener">
+          <i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir la ficha
+        </a>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-danger" data-dz-send disabled><i class="fa fa-cloud-arrow-up me-1"></i>Subir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ⚠️ Los datos van en un <script type="application/json">, no en atributos (ahí `|tojson` cortaría
+   el atributo en la primera comilla doble y el pop-up saldría vacío). #}
+<script type="application/json" id="disenoTasks">{{ tasks_json|tojson }}</script>
+
+<script>
+(function () {
+  var URL_SUBIR = {{ url_for('diseno_task_upload', kind='__KIND__', tid='__ID__')|tojson }};
+  var TAREAS = {};
+  try {
+    (JSON.parse(document.getElementById('disenoTasks').textContent || '[]') || []).forEach(function (t) { TAREAS[t.key] = t; });
+  } catch (e) { }
+  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+
+  var modalEl = document.getElementById('disenoTaskModal');
+  if (!modalEl) return;
+  var q = function (sel) { return modalEl.querySelector(sel); };
+  var actual = null, cola = [];
+
+  function iconoArchivo(f) {
+    var t = (f && f.type) || '';
+    if (/^video\//.test(t)) return 'fa-film';
+    if (/^audio\//.test(t)) return 'fa-music';
+    if (t === 'application/pdf') return 'fa-file-pdf';
+    return 'fa-image';
+  }
+  function pintarCola() {
+    q('[data-dz-queue]').innerHTML = cola.map(function (f, i) {
+      return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa ' + iconoArchivo(f) + '"></i></span>' +
+        '<span class="fotos-fileitem__name text-truncate"></span>' +
+        '<button type="button" class="btn btn-sm btn-link text-danger" data-dz-quitar="' + i + '"><i class="fa fa-xmark"></i></button></div>';
+    }).join('');
+    // El nombre se pone por texto (nunca por HTML): un archivo puede llamarse «<script>».
+    Array.prototype.forEach.call(q('[data-dz-queue]').querySelectorAll('.fotos-fileitem__name'), function (el, i) {
+      el.textContent = (cola[i] && cola[i].name) || 'archivo';
+    });
+    q('[data-dz-send]').disabled = !cola.length;
+    var msg = q('[data-dz-msg]');
+    msg.className = 'small mt-2 text-muted';
+    msg.textContent = cola.length ? (cola.length + ' archivo(s) listos para subir') : '';
+  }
+  function añadir(files) {
+    Array.prototype.forEach.call(files || [], function (f) {
+      if (!f || !f.name || f.name.charAt(0) === '.') return;
+      if (!actual || !actual.multiple) cola = [];
+      cola.push(f);
+    });
+    pintarCola();
+  }
+  // Carpetas arrastradas: se recorre el árbol y se cogen los ARCHIVOS de dentro.
+  function recorrer(entry) {
+    return new Promise(function (res) {
+      if (!entry) return res([]);
+      if (entry.isFile) return entry.file(function (f) { res([f]); }, function () { res([]); });
+      var reader = entry.createReader(), todos = [];
+      (function leer() {
+        reader.readEntries(function (entries) {
+          if (!entries.length) {
+            Promise.all(todos.map(recorrer)).then(function (arrs) { res([].concat.apply([], arrs)); });
+            return;
+          }
+          todos = todos.concat(Array.prototype.slice.call(entries));
+          leer();
+        }, function () { res([]); });
+      })();
+    });
+  }
+
+  function texto(el, valor) { if (el) el.textContent = valor || ''; }
+
+  function abrir(clave) {
+    var t = TAREAS[clave];
+    if (!t) return;
+    actual = t; cola = [];
+    q('[data-dz-icon]').className = 'fa ' + (t.icon || 'fa-palette') + ' me-2';
+    texto(q('[data-dz-title]'), t.title);
+    texto(q('[data-dz-subject]'), [t.what, t.subject].filter(Boolean).join(' · '));
+
+    var chapas = [];
+    if (t.due_label) {
+      chapas.push('<span class="badge ' + (t.late ? 'text-bg-danger' : 'text-bg-light border') +
+        '"><i class="fa fa-flag-checkered me-1"></i>Entrega: ' + t.due_label +
+        (t.days_label ? ' (' + t.days_label + ')' : '') + '</span>');
+    }
+    if (t.asked_by) chapas.push('<span class="badge text-bg-light border"><i class="fa fa-user me-1"></i>Lo pide ' + t.asked_by + '</span>');
+    if (t.asked_label) chapas.push('<span class="badge text-bg-light border"><i class="fa fa-clock me-1"></i>Pedido el ' + t.asked_label + '</span>');
+    q('[data-dz-badges]').innerHTML = chapas.join('');
+
+    var specs = t.specs || [];
+    q('[data-dz-specs-wrap]').hidden = !specs.length;
+    q('[data-dz-specs]').innerHTML = specs.map(function (s) {
+      return '<tr><th class="text-muted fw-normal"></th><td></td></tr>';
+    }).join('');
+    Array.prototype.forEach.call(q('[data-dz-specs]').querySelectorAll('tr'), function (tr, i) {
+      tr.children[0].textContent = specs[i].label;
+      tr.children[1].textContent = specs[i].value;
+    });
+
+    q('[data-dz-note-wrap]').hidden = !t.note;
+    texto(q('[data-dz-note]'), t.note);
+
+    var files = t.files || [];
+    q('[data-dz-files-wrap]').hidden = !files.length;
+    q('[data-dz-files]').innerHTML = files.map(function (f) {
+      if (f.is_image) {
+        return '<a class="dz-file dz-file--img" href="' + encodeURI(f.url) + '" target="_blank" rel="noopener">' +
+          '<img src="' + encodeURI(f.url) + '" alt=""><span class="dz-file__n"></span></a>';
+      }
+      return '<a class="dz-file" href="' + encodeURI(f.url) + '" target="_blank" rel="noopener">' +
+        '<span class="dz-file__ico"><i class="fa fa-file"></i></span><span class="dz-file__n"></span></a>';
+    }).join('');
+    Array.prototype.forEach.call(q('[data-dz-files]').querySelectorAll('.dz-file__n'), function (el, i) {
+      el.textContent = files[i].name || 'archivo';
+    });
+
+    q('[data-dz-upload-wrap]').hidden = !t.upload;
+    texto(q('[data-dz-upload-label]'), t.upload_label);
+    texto(q('[data-dz-upload-label2]'), t.upload_label);
+    texto(q('[data-dz-help]'), t.upload_help);
+    var input = q('[data-dz-input]');
+    input.multiple = !!t.multiple;
+    if (t.accept) input.setAttribute('accept', t.accept); else input.removeAttribute('accept');
+    q('[data-dz-send]').classList.toggle('d-none', !t.upload);
+    q('[data-dz-ficha]').href = t.url || '#';
+    q('[data-dz-ficha]').classList.toggle('d-none', !t.url);
+    pintarCola();
+    new bootstrap.Modal(modalEl).show();
+  }
+
+  // ⚠️ Delegado en `document`: las filas se pueden repintar y un listener pegado al nodo moriría.
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-dz-open]');
+    if (b) { abrir(b.getAttribute('data-dz-open')); return; }
+    var quitar = e.target.closest('[data-dz-quitar]');
+    if (quitar) { cola.splice(Number(quitar.getAttribute('data-dz-quitar')), 1); pintarCola(); return; }
+    if (e.target.closest('[data-dz-pick]')) { q('[data-dz-input]').click(); return; }
+  });
+
+  q('[data-dz-input]').addEventListener('change', function (ev) { añadir(ev.target.files); ev.target.value = ''; });
+  var zona = q('[data-dz-zone]');
+  zona.addEventListener('dragover', function (e) { e.preventDefault(); zona.classList.add('fotos-dropzone--over'); });
+  zona.addEventListener('dragleave', function () { zona.classList.remove('fotos-dropzone--over'); });
+  zona.addEventListener('drop', function (e) {
+    e.preventDefault(); zona.classList.remove('fotos-dropzone--over');
+    var items = e.dataTransfer && e.dataTransfer.items;
+    if (items && items.length && items[0].webkitGetAsEntry) {
+      var entradas = [];
+      for (var i = 0; i < items.length; i++) { var en = items[i].webkitGetAsEntry(); if (en) entradas.push(en); }
+      Promise.all(entradas.map(recorrer)).then(function (arrs) { añadir([].concat.apply([], arrs)); });
+    } else {
+      añadir(e.dataTransfer.files);
+    }
+  });
+  zona.addEventListener('click', function (e) { if (!e.target.closest('[data-dz-pick]')) q('[data-dz-input]').click(); });
+
+  q('[data-dz-send]').addEventListener('click', function () {
+    if (!actual || !cola.length) return;
+    var btn = q('[data-dz-send]'), msg = q('[data-dz-msg]'), barra = q('[data-dz-progress]');
+    btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
+    var fd = new FormData();
+    cola.forEach(function (f) { fd.append('files', f, f.name); });
+    barra.classList.remove('d-none');
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', URL_SUBIR.replace('__KIND__', encodeURIComponent(actual.kind)).replace('__ID__', encodeURIComponent(actual.id)));
+    xhr.setRequestHeader('X-CSRFToken', csrf());
+    xhr.upload.onprogress = function (ev) {
+      if (ev.lengthComputable) barra.querySelector('.progress-bar').style.width = Math.round(ev.loaded * 100 / ev.total) + '%';
+    };
+    xhr.onload = function () {
+      var j = {}; try { j = JSON.parse(xhr.responseText || '{}'); } catch (e) { }
+      if (j.ok) {
+        if (j.skipped_count) alert('Subidos ' + (j.count || 0) + '. No se han podido subir ' + j.skipped_count + ': ' + (j.skipped || []).join(', '));
+        window.location.reload();
+        return;
+      }
+      btn.disabled = false; btn.innerHTML = '<i class="fa fa-cloud-arrow-up me-1"></i>Subir';
+      barra.classList.add('d-none');
+      msg.className = 'small mt-2 text-danger';
+      msg.textContent = j.error || 'No se pudo subir.';
+    };
+    xhr.onerror = function () {
+      btn.disabled = false; btn.innerHTML = '<i class="fa fa-cloud-arrow-up me-1"></i>Subir';
+      barra.classList.add('d-none');
+      msg.className = 'small mt-2 text-danger'; msg.textContent = 'No se pudo subir.';
+    };
+    xhr.send(fd);
+  });
+})();
+</script>
+
+{% include '_promo_peticion_modal.html' %}
+{% include '_marketing_peticion_modal.html' %}
+{% include "_quick_create_modals.html" %}
+{% include "_peticion_wizard_modal.html" %}
+{% endblock %}

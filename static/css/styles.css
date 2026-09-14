@@ -7996,3 +7996,34 @@ body.accsc-open{ overflow:hidden; }
 /* El enlace de la videollamada: se entra desde la propia hoja de ruta. */
 .rm-zoomlink{ color:var(--brand-accent,#007ca2); text-decoration:none; margin-left:.35rem; }
 .rm-zoomlink:hover{ color:#05587a; }
+
+/* ---- DISEÑO · LA BANDEJA ---------------------------------------------------------------------
+   Una fila por cosa pendiente, ordenadas por la fecha de entrega más cercana. Lo que está fuera de
+   plazo se marca con una banda roja a la izquierda: es lo que hay que mirar primero.
+   ⚠️ `min-width:0` en la columna que debe encogerse y `flex:0 0 auto` en lo de tamaño fijo (la foto
+   y el icono), o el texto se parte letra a letra dentro del flex. */
+.dz-row{ display:flex; align-items:center; gap:.75rem; text-align:left; }
+.dz-row--late{ border-left:4px solid var(--brand-primary,#E33D48); }
+.dz-row__ico{ flex:0 0 auto; width:38px; height:38px; border-radius:10px; background:#fdf2f3;
+  color:var(--brand-primary,#E33D48); display:flex; align-items:center; justify-content:center; }
+.dz-row__photo{ flex:0 0 auto; width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #eee; }
+.dz-row__main{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.dz-row__t{ font-weight:600; }
+.dz-row__s{ font-size:.85rem; color:#6c757d; }
+.dz-row__due{ flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; font-size:.82rem; }
+.dz-row__days{ color:#6c757d; }
+.dz-row__go{ flex:0 0 auto; }
+@media (max-width:575.98px){
+  .dz-row{ flex-wrap:wrap; }
+  .dz-row__due{ align-items:flex-start; width:100%; flex-direction:row; gap:.5rem; }
+}
+/* El pop-up: la cabecera de lo que se pide y los archivos de referencia. */
+.dz-meta__subject{ font-weight:600; }
+.dz-files{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.dz-file{ display:flex; align-items:center; gap:.45rem; border:1px solid #eee; border-radius:.5rem;
+  padding:.3rem .5rem; text-decoration:none; color:inherit; max-width:220px; }
+.dz-file:hover{ border-color:var(--brand-accent,#007CA2); }
+.dz-file__ico{ flex:0 0 auto; color:#adb5bd; }
+.dz-file__n{ min-width:0; font-size:.8rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dz-file--img{ flex-direction:column; align-items:stretch; width:110px; max-width:110px; padding:.25rem; }
+.dz-file--img img{ width:100%; height:80px; object-fit:cover; border-radius:.35rem; }

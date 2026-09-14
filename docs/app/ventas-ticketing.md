@@ -387,9 +387,11 @@
   ⚠️ No se pide de lo que **no vende entradas** (`_concert_sells_tickets`), lo **cancelado/aplazado**,
   el **histórico** (`_concert_is_legacy`) ni lo **ya celebrado**.
   · **QUIÉN LO VE**: la sección **«Sold Out»** de la pestaña Cartelería (con los formatos dibujados,
-  el plazo, los días que quedan, subir, descargar y retirar la petición) y el módulo de Inicio
-  **`HOME_SOLDOUT_ARTWORK`** (`_home_soldout_artwork`) de **Diseño**, que **desaparece solo** en
-  cuanto sube el cartel (mira el DATO, no una marca — la regla de `_notify_resolve`).
+  el plazo, los días que quedan, subir, descargar y retirar la petición) y **la bandeja de Diseño**,
+  donde es una tarea más (`SOLDOUT` en `_design_tasks`) con su pop-up para subirlo; **desaparece
+  sola** en cuanto sube el cartel (mira el DATO, no una marca — la regla de `_notify_resolve`).
+  ⚠️ El módulo suelto `HOME_SOLDOUT_ARTWORK` (`_home_soldout_artwork`) **se retiró** (sep 2026): lo
+  decía por su cuenta y se habría dicho dos veces. Punto único: `_design_tasks`. → `docs/app/diseno.md`
   · **Se sube por el modal de siempre**, con la categoría fijada **EN EL CLIC**
   (`data-art-open="SOLDOUT|POSTER"`, no en `shown.bs.modal`, que con `modal_stack.js` no siempre
   llega) y mandada en el formulario (`category`). ⚠️ Los botones de subir carteles NORMALES llevan

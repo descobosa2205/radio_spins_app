@@ -59742,12 +59742,784 @@ def promo_view():
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  DISEÑO · LA BANDEJA: TODO LO QUE LE HAN PEDIDO, EN UN SITIO Y POR FECHA DE ENTREGA
+#
+#  A diseño se le encarga trabajo desde MEDIA app —la cartelería de una actividad y su cartel de
+#  Sold Out, la portada de un lanzamiento, sus creatividades, los contenidos del plan, la miniatura
+#  de un videoclip, el gráfico de una nota de prensa, los materiales de una campaña— y cada encargo
+#  vivía dentro de la ficha de OTRA sección. Diseño no tiene esas secciones, así que al pinchar su
+#  propio aviso se comía un 403: el trabajo le llegaba y no podía ni verlo.
+#
+#  Ahora **`_design_tasks()` es el punto ÚNICO** de lo que diseño tiene pendiente: la bandeja
+#  `/diseno`, el módulo de Inicio y el cuadro de dirección salen todos de aquí, así que los tres
+#  dicen lo mismo. Se ordena por **la fecha de entrega más cercana** (lo que no tiene fecha, detrás),
+#  al pinchar una tarea se abre su **pop-up** con lo que se pide, los archivos de referencia y la
+#  zona de **arrastrar o elegir**, y al subir se avisa a QUIEN LO PIDIÓ y **el aviso desaparece solo**
+#  (`_notify_resolve`: se mira el DATO, no una marca aparte).
+#
+#  ⚠️ Una tarea nueva se añade en DOS sitios y en ninguno más: su constructor dentro de
+#     `_design_tasks` y su rama en `_design_task_deliver`. El resto (pantalla, pop-up, Inicio,
+#     orden, avisos) ya lo hace el motor.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# (clave, rótulo de QUÉ es, icono). El rótulo es lo que se lee en la fila y en la cabecera del pop-up.
+DESIGN_TASK_META = {
+    "ARTWORK":            ("Cartelería", "fa-palette"),
+    "SOLDOUT":            ("Cartel de Sold Out", "fa-ticket"),
+    "ARTWORK_REVIEW":     ("Carteles por aprobar", "fa-clipboard-check"),
+    "DISCO_ARTWORK":      ("Portada del lanzamiento", "fa-compact-disc"),
+    "DISCO_CREATIVE":     ("Creatividad", "fa-shapes"),
+    "DISCO_PLAN_CONTENT": ("Contenido del plan de lanzamiento", "fa-calendar-day"),
+    "DISCO_VIDEO_THUMB":  ("Miniatura del videoclip", "fa-image"),
+    "SONG_VIDEO_THUMB":   ("Miniatura del videoclip", "fa-image"),
+    "PRESS_DESIGN":       ("Diseño de la nota de prensa", "fa-newspaper"),
+    "MARKETING_DESIGN":   ("Materiales de marketing", "fa-bullhorn"),
+    "PETICION":           ("Petición", "fa-inbox"),
+}
+
+# Lo que se admite en la zona de subir, por tipo de tarea (lo mismo que ya admitía su sitio de
+# siempre: la cartelería acepta vídeo y PDF; una portada, el JPG y el PSD).
+DESIGN_UPLOAD_ACCEPT = {
+    "ARTWORK": "image/*,video/*,audio/*,application/pdf",
+    "SOLDOUT": "image/*,video/*,audio/*,application/pdf",
+    "DISCO_ARTWORK": "image/*,.psd,.psb,.zip,.rar",
+    "DISCO_CREATIVE": "image/*,video/*,audio/*,application/pdf",
+    "DISCO_PLAN_CONTENT": "image/*,video/*",
+    "DISCO_VIDEO_THUMB": "image/*",
+    "SONG_VIDEO_THUMB": "image/*",
+    "PRESS_DESIGN": "image/*,application/pdf",
+    "MARKETING_DESIGN": "image/*,video/*,application/pdf",
+}
+
+
+def _design_file_row(url: str, name: str = "") -> dict:
+    """Un archivo de referencia, tal y como lo pinta el pop-up (con su miniatura si es una foto)."""
+    url = (url or "").strip()
+    if not url:
+        return {}
+    nombre = (name or "").strip() or url.split("?", 1)[0].rsplit("/", 1)[-1]
+    clase = _artwork_asset_kind(nombre or url, "")
+    return {"url": url, "name": nombre, "kind": clase, "is_image": (clase == "IMAGE")}
+
+
+def _design_files(valores) -> list[dict]:
+    """Lista de archivos de referencia a partir de lo guardado (cadenas o dicts `{url,name}`)."""
+    salida = []
+    for v in (valores or []):
+        if isinstance(v, dict):
+            fila = _design_file_row(v.get("url") or v.get("file_url") or "",
+                                    v.get("name") or v.get("label") or v.get("file_name") or "")
+        else:
+            fila = _design_file_row(str(v or ""))
+        if fila:
+            salida.append(fila)
+    return salida
+
+
+def _design_task(kind: str, tid, *, title: str, subject: str = "", photo: str = "",
+                 due_date=None, asked_by: str = "", asked_at=None, specs=None, note: str = "",
+                 files=None, url: str = "", upload: bool = True,
+                 upload_label: str = "", upload_help: str = "", multiple: bool = True,
+                 action_label: str = "") -> dict:
+    """UNA cosa pendiente de diseño, con todo lo que hace falta para pintarla y para hacerla."""
+    rotulo, icono = DESIGN_TASK_META.get(kind, ("Tarea de diseño", "fa-palette"))
+    # La fecha de entrega es un DÍA: lo que llegue como marca de tiempo se queda en su día (si no,
+    # el orden y los «quedan N días» comparan cosas distintas).
+    vence = due_date.date() if isinstance(due_date, datetime) else due_date
+    try:
+        dias = (vence - today_local()).days if vence else None
+    except Exception:
+        dias = None
+    return {
+        "kind": kind,
+        "id": str(tid or ""),
+        "key": "%s:%s" % (kind, tid or ""),
+        "what": rotulo,
+        "icon": icono,
+        "title": (title or rotulo),
+        "subject": (subject or ""),
+        "photo": (photo or ""),
+        "due_date": vence,
+        "due_label": (vence.strftime("%d/%m/%Y") if vence else ""),
+        "days_label": _disco_days_left_label(vence),
+        "days_left": dias,
+        "late": bool(vence and dias is not None and dias < 0),
+        "asked_by": (asked_by or ""),
+        "asked_label": (asked_at.strftime("%d/%m/%Y") if getattr(asked_at, "strftime", None) else ""),
+        "specs": [x for x in (specs or []) if x and x.get("value")],
+        "note": (note or ""),
+        "files": [f for f in (files or []) if f],
+        "url": (url or ""),
+        "upload": bool(upload),
+        "upload_label": (upload_label or "los archivos"),
+        "upload_help": (upload_help or ""),
+        "multiple": bool(multiple),
+        "accept": DESIGN_UPLOAD_ACCEPT.get(kind, ""),
+        "action_label": (action_label or ("Subir" if upload else "Abrir")),
+    }
+
+
+def _design_sort_key(t: dict):
+    """Lo que vence ANTES, primero; lo que no tiene fecha, detrás (y dentro, lo más antiguo)."""
+    vence = t.get("due_date")
+    return (0 if vence else 1, vence or date.max, (t.get("asked_label") or ""), t.get("title") or "")
+
+
+def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
+    """TODO lo que diseño tiene pendiente, de la entrega más cercana a la más lejana. Punto único.
+
+    ⚠️ Cada bloque mira el DATO (hay portada subida = está entregada), no una marca aparte: así una
+    tarea desaparece sola en cuanto se hace, que es la regla de la casa."""
+    tareas = []
+
+    # ── 1) CARTELERÍA de una actividad (y su cartel de SOLD OUT, que es otra petición) ──────────
+    try:
+        filas = (session_db.query(ConcertArtworkRequest)
+                 .filter(ConcertArtworkRequest.concert_id.isnot(None))
+                 .order_by(ConcertArtworkRequest.delivery_deadline.asc().nullslast())
+                 .limit(300).all())
+        cids = [r.concert_id for r in filas if getattr(r, "concert_id", None)]
+        conciertos = {}
+        if cids:
+            conciertos = {c.id: c for c in (session_db.query(Concert)
+                                            .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                                                     selectinload(Concert.artwork_request)
+                                                     .selectinload(ConcertArtworkRequest.assets))
+                                            .filter(Concert.id.in_(cids)).all())}
+        for row in filas:
+            c = conciertos.get(getattr(row, "concert_id", None))
+            if c is None:
+                continue
+            artista = getattr(c, "artist", None)
+            nombre = ((getattr(c, "festival_name", None) or "").strip()
+                      or (getattr(artista, "name", "") or "").strip() or "Actividad")
+            donde = " · ".join([x for x in [(c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else ""),
+                                            _place_label(_concert_city(c), _concert_province_value(c))] if x])
+            foto = (getattr(artista, "photo_url", "") or "")
+            ficha = url_for("concert_detail_view", cid=str(c.id), tab="carteleria")
+            estado = (getattr(row, "status", "") or "DRAFT").upper()
+            hecho_por = (getattr(row, "handled_by", None) or "OURS").upper()
+            vigentes = [a for a in (getattr(row, "assets", None) or []) if not a.is_archived]
+            # a) La cartelería que hacemos NOSOTROS y todavía no está entregada.
+            if hecho_por == "OURS" and estado in ("REQUESTED", "CORRECTIONS"):
+                carteles = [a for a in vigentes if _artwork_asset_category(a) == "POSTER"]
+                if not carteles or estado == "CORRECTIONS":
+                    especificaciones = [
+                        {"label": "Formatos", "value": " · ".join(_artwork_requested_format_labels(row))},
+                        {"label": "Logos que tienen que salir", "value": (row.logo_notes or "")},
+                        {"label": "Ticketeras", "value": (row.ticketer_notes or "")},
+                        {"label": "Vídeo promocional",
+                         "value": (" · ".join(_artwork_video_format_labels(row))
+                                   if getattr(row, "video_requested", False) else "")},
+                        {"label": "Notas del vídeo", "value": (getattr(row, "video_notes", "") or "")},
+                        {"label": "Hay que rehacerlos", "value": (row.correction_notes or "")},
+                    ]
+                    tareas.append(_design_task(
+                        "ARTWORK", row.id,
+                        title=("Rehacer la cartelería" if estado == "CORRECTIONS" else "Cartelería"),
+                        subject="%s%s" % (nombre, (" · " + donde) if donde else ""),
+                        photo=foto, due_date=getattr(row, "delivery_deadline", None),
+                        asked_at=getattr(row, "requested_at", None),
+                        specs=especificaciones, note=(row.other_notes or ""),
+                        url=ficha, upload_label="los carteles",
+                        upload_help="Se puede soltar una carpeta entera: se sube cada archivo que haya dentro."))
+            # b) El cartel de SOLD OUT (se pide solo al 90% de venta).
+            if getattr(row, "soldout_requested_at", None):
+                st = _soldout_artwork_state(session_db, c)
+                if st.get("requested") and not st.get("delivered"):
+                    tareas.append(_design_task(
+                        "SOLDOUT", row.id, title="Cartel de Sold Out",
+                        subject="%s%s" % (nombre, (" · " + donde) if donde else ""),
+                        photo=foto, due_date=getattr(row, "soldout_deadline", None),
+                        asked_by=(getattr(row, "soldout_requested_by_nick", "") or ""),
+                        asked_at=getattr(row, "soldout_requested_at", None),
+                        specs=[{"label": "Formatos", "value": " · ".join(st.get("format_labels") or [])},
+                               {"label": "Venta", "value": (st.get("pct_label") or "")}],
+                        url=ficha, upload_label="los carteles de Sold Out"))
+            # c) Los carteles que ha subido OTRO y diseño tiene que aprobar (no es una subida).
+            pendientes = [a for a in vigentes if (a.validation_status or "APPROVED") == "PENDING"]
+            if pendientes and hecho_por == "PROMOTER":
+                tareas.append(_design_task(
+                    "ARTWORK_REVIEW", row.id, title="Carteles por aprobar",
+                    subject="%s%s" % (nombre, (" · " + donde) if donde else ""),
+                    photo=foto, due_date=getattr(row, "delivery_deadline", None),
+                    specs=[{"label": "Esperando el visto bueno", "value": "%d cartel(es)" % len(pendientes)}],
+                    files=[_design_file_row(a.file_url, a.original_name or a.format_label) for a in pendientes],
+                    url=ficha, upload=False, action_label="Revisarlos",
+                    upload_help="Se aprueban o se rechazan uno a uno en la pestaña Cartelería."))
+    except Exception:
+        app.logger.exception("[diseño] no se pudo leer la cartelería pendiente")
+
+    # ── 2) PROYECTOS DISCOGRÁFICOS: portada, creatividades, contenidos, miniatura y nota ────────
+    try:
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                     .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
+    except Exception:
+        app.logger.exception("[diseño] no se pudieron leer los proyectos")
+        proyectos = []
+    for p in proyectos:
+        artista = getattr(p, "artist", None)
+        sujeto = " · ".join([x for x in [_disco_project_title(p), (getattr(artista, "name", "") or "")] if x])
+        foto = (getattr(artista, "photo_url", "") or "")
+        ficha = url_for("disco_project_detail", project_id=str(p.id), tab="calendario")
+        # a) LA PORTADA (solo si la hacemos nosotros y todavía no está entregada).
+        try:
+            art = _disco_artwork_state(session_db, p)
+            if (art.get("who") or "").upper() == "US" and art.get("requested") and not art.get("delivered"):
+                ficheros = _design_files(art.get("idea_files")) + _design_files(art.get("artist_idea_files"))
+                if art.get("photo_url"):
+                    ficheros = [_design_file_row(art["photo_url"], "Foto elegida")] + ficheros
+                tareas.append(_design_task(
+                    "DISCO_ARTWORK", p.id, title="Portada del lanzamiento", subject=sujeto, photo=foto,
+                    due_date=art.get("due_date"),
+                    specs=[{"label": "La idea", "value": (art.get("idea_text") or "")},
+                           {"label": "Lo que ha dicho el artista", "value": (art.get("artist_idea_text") or "")}],
+                    files=ficheros, url=ficha,
+                    upload_label="el JPG y el PSD",
+                    upload_help="Hacen falta los dos: la imagen (JPG o PNG) y el archivo abierto (PSD, PSB, ZIP o RAR)."))
+        except Exception:
+            app.logger.exception("[diseño] no se pudo leer la portada del proyecto")
+        # b) CADA CREATIVIDAD pedida y todavía sin entregar (una tarea por pieza).
+        try:
+            cre = _disco_creatives_state(session_db, p)
+            peticion = cre.get("request")
+            for fila in (cre.get("rows") or []):
+                if (fila.get("status") or "").upper() != "SOLICITADA":
+                    continue
+                tareas.append(_design_task(
+                    "DISCO_CREATIVE", fila["id"], title=fila.get("label") or "Creatividad",
+                    subject=sujeto, photo=foto, due_date=cre.get("due_date"),
+                    asked_by=(getattr(peticion, "requested_by_nick", "") or ""),
+                    asked_at=getattr(peticion, "requested_at", None),
+                    specs=[{"label": "Formatos", "value": (fila.get("formats_label") or "")},
+                           {"label": "Tamaño", "value": (fila.get("size_text") or "")},
+                           {"label": "Tipo", "value": {"IMAGE": "Imagen", "VIDEO": "Vídeo",
+                                                       "AUDIO": "Audio"}.get(
+                               (fila.get("media") or "IMAGE").upper(), "")}],
+                    note=(fila.get("note") or "" or (getattr(peticion, "note", "") or "")),
+                    url=ficha, multiple=False, upload_label="la pieza"))
+        except Exception:
+            app.logger.exception("[diseño] no se pudieron leer las creatividades")
+        # c) LOS CONTENIDOS del plan de lanzamiento pedidos a diseño.
+        try:
+            for ct in _disco_plan_design_contents(session_db, p):
+                tareas.append(_design_task(
+                    "DISCO_PLAN_CONTENT", ct.id, title=(getattr(ct, "title", "") or "Contenido"),
+                    subject=sujeto, photo=foto,
+                    due_date=(ct.publish_at.date() if getattr(ct, "publish_at", None) else None),
+                    asked_by=(getattr(ct, "design_requested_by_nick", "") or ""),
+                    asked_at=getattr(ct, "design_requested_at", None),
+                    specs=[{"label": "Dónde se publica",
+                            "value": " · ".join([str(x) for x in (getattr(ct, "networks", None) or [])])},
+                           {"label": "Cuándo", "value": (ct.publish_at.strftime("%d/%m/%Y %H:%M")
+                                                         if getattr(ct, "publish_at", None) else "")},
+                           {"label": "El copy", "value": (getattr(ct, "copy_text", "") or "")}],
+                    note=(getattr(ct, "design_notes", "") or getattr(ct, "description", "") or ""),
+                    url=url_for("disco_project_detail", project_id=str(p.id), tab="lanzamiento"),
+                    multiple=False, upload_label="el contenido"))
+        except Exception:
+            app.logger.exception("[diseño] no se pudieron leer los contenidos del plan")
+        # d) LA MINIATURA DEL VIDEOCLIP del proyecto.
+        # ⚠️ Se mira ANTES el payload en crudo: `_disco_video_state` hace varias consultas por
+        # proyecto (los logos de marca, la logística) y aquí solo hace falta cuando la miniatura
+        # está pedida de verdad. Con cincuenta lanzamientos vivos eso son cientos de consultas.
+        try:
+            _mini_raw = dict((_disco_video(p).get("thumb") or {}))
+            if (_disco_project_has_videoclip(p) and _mini_raw.get("asked_at")
+                    and not _mini_raw.get("done_at")):
+                mini = _disco_video_state(session_db, p)["thumb"]
+                if mini.get("asked") and not mini.get("done"):
+                    tareas.append(_design_task(
+                        "DISCO_VIDEO_THUMB", p.id, title="Miniatura del videoclip", subject=sujeto,
+                        photo=foto, due_date=getattr(p, "release_date", None),
+                        asked_by=(mini.get("asked_by") or ""),
+                        specs=[{"label": "La idea", "value": (mini.get("idea") or "")}],
+                        files=_design_files(mini.get("files")),
+                        url=url_for("disco_project_detail", project_id=str(p.id), tab="calendario"),
+                        multiple=False, upload_label="la miniatura"))
+        except Exception:
+            app.logger.exception("[diseño] no se pudo leer la miniatura del videoclip")
+        # e) EL GRÁFICO DE LA NOTA DE PRENSA (igual: el payload primero, el estado solo si toca).
+        try:
+            _press_raw = _disco_press(p)
+            if (_press_raw.get("requested_at") and not _press_raw.get("sent_at")
+                    and not _press_raw.get("design_url")):
+                pr = _disco_press_state(session_db, p)
+                tareas.append(_design_task(
+                    "PRESS_DESIGN", p.id, title="Diseño de la nota de prensa", subject=sujeto,
+                    photo=foto, due_date=pr.get("due_date"),
+                    asked_by=(pr.get("requested_by") or ""),
+                    specs=[{"label": "Indicaciones", "value": (pr.get("note") or "")}],
+                    url=ficha, multiple=False, upload_label="el gráfico de la nota"))
+        except Exception:
+            app.logger.exception("[diseño] no se pudo leer la nota de prensa")
+
+    # ── 3) MINIATURAS pedidas desde una CANCIÓN suelta (sin proyecto que la prepare) ────────────
+    try:
+        pedidas = (session_db.query(Song)
+                   .filter(Song.videoclip_thumb_json["asked_at"].astext.isnot(None))
+                   .order_by(Song.release_date.asc().nullslast()).limit(80).all())
+        if pedidas:
+            con_mini = {str(r[0]) for r in (
+                session_db.query(SongMaterial.song_id)
+                .filter(SongMaterial.song_id.in_([c.id for c in pedidas]),
+                        func.upper(func.coalesce(SongMaterial.category, "")) == "VIDEO_THUMB")
+                .distinct().all())}
+            for cancion in pedidas:
+                if str(cancion.id) in con_mini:
+                    continue
+                mini = dict(getattr(cancion, "videoclip_thumb_json", None) or {})
+                artista = (cancion.artists[0] if getattr(cancion, "artists", None) else None)
+                tareas.append(_design_task(
+                    "SONG_VIDEO_THUMB", cancion.id, title="Miniatura del videoclip",
+                    subject=" · ".join([x for x in [(cancion.title or "Canción"),
+                                                    (getattr(artista, "name", "") or "")] if x]),
+                    photo=(getattr(artista, "photo_url", "") or ""),
+                    due_date=getattr(cancion, "release_date", None),
+                    asked_by=(mini.get("asked_by") or ""),
+                    specs=[{"label": "La idea", "value": (mini.get("idea") or "")}],
+                    files=_design_files(mini.get("files")),
+                    url=url_for("discografica_song_detail", song_id=str(cancion.id), tab="videoclip"),
+                    multiple=False, upload_label="la miniatura"))
+    except Exception:
+        app.logger.exception("[diseño] no se pudieron leer las miniaturas pedidas de canciones")
+
+    # ── 4) MATERIALES DE MARKETING encargados a diseño ──────────────────────────────────────────
+    try:
+        encargos = (session_db.query(MarketingDesignRequest)
+                    .filter(func.upper(func.coalesce(MarketingDesignRequest.status, "SOLICITADA"))
+                            == "SOLICITADA")
+                    .order_by(MarketingDesignRequest.due_date.asc().nullslast()).limit(120).all())
+        pids = [r.promotion_id for r in encargos]
+        campañas = ({p.id: p for p in session_db.query(Promotion).filter(Promotion.id.in_(pids)).all()}
+                    if pids else {})
+        for r in encargos:
+            promo = campañas.get(r.promotion_id)
+            if promo is None:
+                continue
+            act = (session_db.get(PromotionActivity, r.activity_id) if getattr(r, "activity_id", None)
+                   else None)
+            tareas.append(_design_task(
+                "MARKETING_DESIGN", r.id, title="Materiales de marketing",
+                subject=" · ".join([x for x in [_promo_title(promo),
+                                                (_marketing_action_title(act) if act is not None else "")] if x]),
+                due_date=getattr(r, "due_date", None),
+                asked_by=(getattr(r, "requested_by_nick", "") or ""),
+                asked_at=getattr(r, "requested_at", None),
+                note=(r.note or ""),
+                url=url_for("promotion_detail_view", promotion_id=str(promo.id), tab="materiales"),
+                upload_label="los materiales"))
+    except Exception:
+        app.logger.exception("[diseño] no se pudieron leer los encargos de marketing")
+
+    # ── 5) LAS PETICIONES del departamento (las de siempre: se gestionan en su ficha) ───────────
+    try:
+        for r in (session_db.query(BookingRequest)
+                  .options(joinedload(BookingRequest.artist))
+                  .filter(func.upper(func.coalesce(BookingRequest.status, "NUEVA")).in_(("NUEVA", "EN_TRAMITE")))
+                  .order_by(BookingRequest.received_at.desc().nullslast()).limit(200).all()):
+            if not _booking_in_department(r, "DISENO"):
+                continue
+            fila = _booking_request_row(r)
+            tareas.append(_design_task(
+                "PETICION", r.id, title=(fila.get("subject") or "Petición"),
+                subject=(fila.get("artist_name") or fila.get("place_label") or ""),
+                photo=(fila.get("artist_photo") or ""),
+                due_date=getattr(r, "requested_date", None),
+                asked_at=(getattr(r, "received_at", None) or getattr(r, "created_at", None)),
+                specs=[{"label": "Estado", "value": (fila.get("status_label") or "")},
+                       {"label": "Dónde", "value": (fila.get("municipality") or "")}],
+                note=(fila.get("notes") or ""),
+                url=url_for("booking_request_detail_view", rid=str(r.id)),
+                upload=False, action_label="Abrir la petición"))
+    except Exception:
+        app.logger.exception("[diseño] no se pudieron leer las peticiones del departamento")
+
+    tareas.sort(key=_design_sort_key)
+    return tareas[:limit]
+
+
+def _design_task_find(session_db, kind: str, tid: str) -> dict | None:
+    """La tarea concreta, buscada en el punto único (así no hay dos versiones de qué está pendiente).
+
+    ⚠️ Se busca en la LISTA a propósito: si algo ya se ha entregado no está, y entonces no se puede
+    subir «encima» de una tarea que ya no existe."""
+    clave = "%s:%s" % ((kind or "").upper(), str(tid or ""))
+    for t in _design_tasks(session_db, limit=1000):
+        if t["key"] == clave:
+            return t
+    return None
+
+
+def _design_notify_done(session_db, user_ids, title: str, body: str, url: str, *,
+                        ref_type: str = "", ref_id: str = "") -> None:
+    """Avisa a QUIEN LO PIDIÓ de que ya está subido (con su nombre y su enlace)."""
+    try:
+        _notify_users(session_db, [u for u in (user_ids or []) if u], "DISENO", title, body, url,
+                      ref_type=(ref_type or "DESIGN_DONE"), ref_id=str(ref_id or ""))
+    except Exception:
+        app.logger.exception("[diseño] no se pudo avisar de la entrega")
+
+
+def _design_deliver_artwork(session_db, row_id, ficheros, *, soldout: bool) -> tuple[int, list[str]]:
+    """Entrega de CARTELERÍA (o del cartel de Sold Out): lo que sube diseño entra ya APROBADO."""
+    row = session_db.get(ConcertArtworkRequest, _safe_uuid(str(row_id)))
+    if row is None:
+        raise ValueError("Esa solicitud de cartelería ya no está.")
+    concert = session_db.get(Concert, row.concert_id) if row.concert_id else None
+    estado = _current_user_state() or {}
+    cat = "SOLDOUT" if soldout else "POSTER"
+    subidos, fallidos = 0, []
+    for fs in ficheros:
+        try:
+            file_url, mime_type, kind = _upload_artwork_file(fs)
+        except Exception as exc:
+            fallidos.append("%s (%s)" % (getattr(fs, "filename", "archivo"), exc))
+            continue
+        if not file_url:
+            fallidos.append(getattr(fs, "filename", "archivo"))
+            continue
+        nombre = os.path.basename(str(fs.filename or "Cartel").replace("\\", "/")).strip() or "Cartel"
+        asset = ConcertArtworkAsset(
+            artwork_request_id=row.id,
+            format_label=os.path.splitext(nombre)[0][:120],
+            file_url=file_url, original_name=nombre[:200], mime_type=mime_type,
+            kind=kind, category=cat,
+            # Lo que sube DISEÑO no espera el visto bueno de nadie: es quien lo hace.
+            validation_status="APPROVED",
+            uploaded_by_user_id=_safe_uuid(estado.get("user_id")),
+            uploaded_by_nick=(estado.get("nick") or "").strip() or None)
+        session_db.add(asset)
+        session_db.flush()
+        if kind == "VIDEO":
+            _artwork_poster_schedule(asset.id, asset.file_url)
+        subidos += 1
+    if not subidos:
+        raise ValueError("No se pudo subir ningún archivo." +
+                         (" Se han quedado fuera: " + ", ".join(fallidos[:5]) if fallidos else ""))
+    if soldout:
+        row.soldout_uploaded_at = _now_madrid()
+        _artwork_pick_primary_by_squareness(row, "SOLDOUT")
+    else:
+        row.status = "UPLOADED"
+        _artwork_pick_primary_by_squareness(row)
+    row.updated_at = _now_madrid()
+    _artwork_notify_resolve_if_done(session_db, row)
+    if concert is not None:
+        titulo = ((getattr(concert, "festival_name", None) or "").strip()
+                  or (getattr(getattr(concert, "artist", None), "name", "") or "Actividad"))
+        _design_notify_done(
+            session_db, _announce_alert_owner_ids(session_db, concert),
+            ("Cartel de Sold Out subido" if soldout else "Cartelería subida"),
+            "%s · %d archivo(s) de diseño. Ya se pueden usar." % (titulo, subidos),
+            _safe_url_for("concert_detail_view", cid=str(concert.id), tab="carteleria"),
+            ref_type="ARTWORK_DONE", ref_id=str(row.id))
+    return subidos, fallidos
+
+
+def _design_deliver_disco_artwork(session_db, project_id, ficheros) -> tuple[int, list[str]]:
+    """Entrega de la PORTADA: hacen falta los DOS archivos (la imagen y el abierto)."""
+    project = session_db.get(DiscoProject, _safe_uuid(str(project_id)))
+    if project is None:
+        raise ValueError("Ese lanzamiento ya no está.")
+    fila = _disco_artwork(session_db, project)
+    if fila is None:
+        raise ValueError("Esa portada ya no está pedida.")
+    imagen = abierto = None
+    for fs in ficheros:
+        ext = os.path.splitext((fs.filename or "").lower())[1]
+        if ext in (".psd", ".psb", ".zip", ".rar") and abierto is None:
+            abierto = fs
+        elif imagen is None:
+            imagen = fs
+    if imagen is None or abierto is None:
+        raise ValueError("Hacen falta los DOS archivos: la imagen (JPG o PNG) y el abierto "
+                         "(PSD, PSB, ZIP o RAR).")
+    fila.jpg_url = upload_image(imagen, "disco_artwork")
+    fila.psd_url = upload_file(abierto, "disco_artwork",
+                               allowed_extensions={".psd", ".psb", ".zip", ".rar"})
+    fila.delivered_at = _now_madrid()
+    fila.delivered_by = ((_current_user_state() or {}).get("nick") or "")
+    fila.status = "DELIVERED"
+    _notify_resolve(session_db, "DISCO_ARTWORK", str(project.id))
+    _design_notify_done(session_db, _disco_project_owner_ids(session_db, project),
+                        "Portada entregada: %s" % _disco_project_title(project),
+                        "Ya se puede pedir la aprobación al artista.",
+                        url_for("disco_project_detail", project_id=str(project.id), tab="calendario"),
+                        ref_type="DISCO_ARTWORK_OK", ref_id=str(project.id))
+    return 2, []
+
+
+def _design_deliver_creative(session_db, creative_id, ficheros) -> tuple[int, list[str]]:
+    """Entrega de UNA creatividad del lanzamiento."""
+    fila = session_db.get(DiscoProjectCreative, _safe_uuid(str(creative_id)))
+    if fila is None:
+        raise ValueError("Esa creatividad ya no está.")
+    fs = ficheros[0]
+    fila.file_url = upload_file(fs, "disco_creatives")
+    fila.file_name = fs.filename
+    fila.status = "ENTREGADA"
+    fila.delivered_at = _now_madrid()
+    project = session_db.get(DiscoProject, fila.project_id)
+    # Si ya no queda ninguna por entregar, el ENCARGO entero se cierra (y su aviso con él).
+    if fila.request_id:
+        peticion = session_db.get(DiscoProjectDesignRequest, fila.request_id)
+        hermanas = (session_db.query(DiscoProjectCreative)
+                    .filter(DiscoProjectCreative.request_id == fila.request_id).all())
+        if peticion is not None and all((c.status or "").upper() in ("ENTREGADA", "APROBADA")
+                                        for c in hermanas):
+            peticion.status = "ENTREGADA"
+            peticion.submitted_at = _now_madrid()
+            if project is not None:
+                _notify_resolve(session_db, "DISCO_CREATIVES", str(project.id))
+    if project is not None:
+        _design_notify_done(session_db, _disco_project_owner_ids(session_db, project),
+                            "Creatividad entregada: %s" % _disco_project_title(project),
+                            "%s ya está subida." % (fila.label or "La pieza"),
+                            url_for("disco_project_detail", project_id=str(project.id), tab="calendario"),
+                            ref_type="DISCO_CREATIVES_OK", ref_id=str(project.id))
+    return 1, []
+
+
+def _design_deliver_plan_content(session_db, content_id, ficheros) -> tuple[int, list[str]]:
+    """Entrega de un CONTENIDO del plan de lanzamiento."""
+    ct = session_db.get(DiscoReleaseContent, _safe_uuid(str(content_id)))
+    if ct is None:
+        raise ValueError("Ese contenido ya no está.")
+    fs = ficheros[0]
+    ct.file_url = upload_file(fs, "disco_contents")
+    ct.file_name = fs.filename
+    if (getattr(fs, "mimetype", "") or "").startswith("image/"):
+        ct.thumb_url = ct.file_url
+    ct.design_done_at = _now_madrid()
+    _notify_resolve(session_db, "DISCO_PLAN_CONTENT", str(ct.id))
+    plan = session_db.get(DiscoReleasePlan, ct.plan_id)
+    project = session_db.get(DiscoProject, plan.project_id) if plan is not None else None
+    if project is not None:
+        _design_notify_done(session_db, _disco_project_owner_ids(session_db, project),
+                            "Contenido subido: %s" % (ct.title or "contenido"),
+                            "%s · ya se puede programar." % _disco_project_title(project),
+                            url_for("disco_project_detail", project_id=str(project.id), tab="lanzamiento"),
+                            ref_type="DISCO_PLAN_CONTENT_OK", ref_id=str(ct.id))
+    return 1, []
+
+
+def _design_deliver_video_thumb(session_db, kind, tid, ficheros) -> tuple[int, list[str]]:
+    """Entrega de la MINIATURA del videoclip (pedida desde el proyecto o desde la canción).
+
+    ⚠️ Lo que se guarda es un MATERIAL de la canción (`SongMaterial` VIDEO_THUMB): es el mismo dato
+    que ya mira la tarea, así que se cierra sola."""
+    if kind == "DISCO_VIDEO_THUMB":
+        project = session_db.get(DiscoProject, _safe_uuid(str(tid)))
+        if project is None:
+            raise ValueError("Ese lanzamiento ya no está.")
+        # ⚠️ En un ÁLBUM no hay «la canción» del lanzamiento: se cuelga de la PRIMERA del disco, que
+        # es donde vive el videoclip (`_disco_project_release_songs` lo resuelve para los dos casos).
+        song = (_disco_project_release_song(session_db, project)
+                or next(iter(_disco_project_release_songs(session_db, project) or []), None))
+    else:
+        project = None
+        song = session_db.get(Song, _safe_uuid(str(tid)))
+    if song is None:
+        raise ValueError("No hay canción a la que colgarle la miniatura.")
+    fs = ficheros[0]
+    session_db.add(SongMaterial(
+        song_id=song.id, category="VIDEO_THUMB", slot_key="THUMB",
+        display_name="Miniatura",
+        file_name=os.path.basename(str(fs.filename or "miniatura.jpg").replace("\\", "/")),
+        file_url=upload_image(fs, "song_materials"),
+        mime_type=(getattr(fs, "mimetype", "") or "").strip() or None))
+    if project is not None:
+        video = _disco_video(project)
+        mini = dict(video.get("thumb") or {})
+        mini["done_at"] = _now_madrid().isoformat()
+        video["thumb"] = mini
+        _disco_video_set(project, video)
+        _notify_resolve(session_db, "DISCO_VIDEO_THUMB", str(project.id))
+        _design_notify_done(session_db, _disco_project_owner_ids(session_db, project),
+                            "Miniatura del videoclip subida: %s" % _disco_project_title(project),
+                            "Ya está en los materiales de la canción.",
+                            url_for("disco_project_detail", project_id=str(project.id), tab="calendario"),
+                            ref_type="DISCO_VIDEO_THUMB_OK", ref_id=str(project.id))
+    else:
+        _notify_resolve(session_db, SONG_VIDEO_THUMB_REF, str(song.id))
+        _design_notify_done(session_db, _artist_sello_user_ids(
+                                session_db, (song.artists[0].id if getattr(song, "artists", None) else None)),
+                            "Miniatura del videoclip subida: %s" % (song.title or "canción"),
+                            "Ya está en los materiales de la canción.",
+                            url_for("discografica_song_detail", song_id=str(song.id), tab="videoclip"),
+                            ref_type="SONG_VIDEO_THUMB_OK", ref_id=str(song.id))
+    return 1, []
+
+
+def _design_deliver_press(session_db, project_id, ficheros) -> tuple[int, list[str]]:
+    """Entrega del GRÁFICO de la nota de prensa (la misma parte «design» de siempre)."""
+    project = session_db.get(DiscoProject, _safe_uuid(str(project_id)))
+    if project is None:
+        raise ValueError("Ese lanzamiento ya no está.")
+    fs = ficheros[0]
+    url = upload_file(fs, "press_releases")
+    prod = _disco_prod(project)
+    fila = dict(prod.get("press") or {})
+    fila["design_url"] = url
+    fila["design_name"] = (fs.filename or "").replace("\\", "/")
+    fila["design_at"] = _now_madrid().isoformat()
+    fila["design_by"] = ((_current_user_state() or {}).get("nick") or "")
+    prod["press"] = fila
+    project.production_payload = prod
+    # ⚠️ SEGUNDA ESCRITURA EN LA MISMA PETICIÓN: sin marcarlo a mano, SQLAlchemy da el JSONB por
+    # «unchanged» y no escribe nada (sin dar ningún error). Es la regla de la casa.
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(project, "production_payload")
+    except Exception:
+        pass
+    project.updated_at = _now_madrid()
+    _notify_resolve(session_db, "DISCO_PRESS_DESIGN", str(project.id))
+    _design_notify_done(session_db, _disco_project_owner_ids(session_db, project),
+                        "%s: %s" % (DISCO_PRESS_DONE_LABELS.get("design", "Nota de prensa"),
+                                    _disco_project_title(project)),
+                        "Lo ha subido %s." % ((_current_user_state() or {}).get("nick") or "diseño"),
+                        url_for("disco_project_detail", project_id=str(project.id), tab="calendario"),
+                        ref_type="DISCO_PRESS", ref_id=str(project.id))
+    return 1, []
+
+
+def _design_deliver_marketing(session_db, request_id, ficheros) -> tuple[int, list[str]]:
+    """Entrega de los MATERIALES de una campaña de marketing."""
+    fila = session_db.get(MarketingDesignRequest, _safe_uuid(str(request_id)))
+    if fila is None:
+        raise ValueError("Ese encargo ya no está.")
+    yo = _current_user_state() or {}
+    subidos, fallidos = 0, []
+    for fs in ficheros:
+        try:
+            url = upload_file(fs, "marketing", allowed_extensions=MARKETING_FILE_EXTS)
+        except Exception as exc:
+            fallidos.append("%s (%s)" % ((fs.filename or "archivo"), exc))
+            continue
+        archivo = MarketingActionFile(
+            promotion_id=fila.promotion_id, activity_id=fila.activity_id, kind="MATERIAL",
+            file_url=url, file_name=(fs.filename or "archivo").strip(),
+            file_mime=(getattr(fs, "mimetype", "") or "").strip() or None,
+            note=(fila.note or None),
+            uploaded_by_user_id=_safe_uuid(yo.get("user_id")),
+            uploaded_by_nick=(yo.get("nick") or ""))
+        session_db.add(archivo)
+        session_db.flush()
+        try:
+            if _marketing_file_is_video(archivo):
+                _marketing_poster_schedule(archivo.id, url)
+        except Exception:
+            app.logger.exception("[diseño] no se pudo programar la miniatura del material")
+        subidos += 1
+    if not subidos:
+        raise ValueError("No se pudo subir ningún archivo." +
+                         (" Se han quedado fuera: " + ", ".join(fallidos[:5]) if fallidos else ""))
+    # ⚠️ Hasta ahora este encargo NO se cerraba nunca: su aviso se quedaba en la campanita para
+    # siempre aunque los materiales estuvieran subidos.
+    fila.status = "ENTREGADA"
+    fila.submitted_at = _now_madrid()
+    fila.submitted_by_nick = (yo.get("nick") or "")
+    _notify_resolve(session_db, "MARKETING_DESIGN", str(fila.id))
+    _design_notify_done(session_db, [str(getattr(fila, "requested_by_user_id", "") or "")],
+                        "Materiales de marketing subidos",
+                        "%d archivo(s) de diseño, ya en la campaña." % subidos,
+                        url_for("promotion_detail_view", promotion_id=str(fila.promotion_id),
+                                tab="materiales"),
+                        ref_type="MARKETING_DESIGN_OK", ref_id=str(fila.id))
+    return subidos, fallidos
+
+
+def _design_task_deliver(session_db, kind: str, tid: str, ficheros) -> tuple[int, list[str]]:
+    """DÓNDE va lo que sube diseño, según qué le hayan pedido. Punto único del reparto."""
+    kind = (kind or "").upper()
+    if kind == "ARTWORK":
+        return _design_deliver_artwork(session_db, tid, ficheros, soldout=False)
+    if kind == "SOLDOUT":
+        return _design_deliver_artwork(session_db, tid, ficheros, soldout=True)
+    if kind == "DISCO_ARTWORK":
+        return _design_deliver_disco_artwork(session_db, tid, ficheros)
+    if kind == "DISCO_CREATIVE":
+        return _design_deliver_creative(session_db, tid, ficheros)
+    if kind == "DISCO_PLAN_CONTENT":
+        return _design_deliver_plan_content(session_db, tid, ficheros)
+    if kind in ("DISCO_VIDEO_THUMB", "SONG_VIDEO_THUMB"):
+        return _design_deliver_video_thumb(session_db, kind, tid, ficheros)
+    if kind == "PRESS_DESIGN":
+        return _design_deliver_press(session_db, tid, ficheros)
+    if kind == "MARKETING_DESIGN":
+        return _design_deliver_marketing(session_db, tid, ficheros)
+    raise ValueError("Esa tarea no se entrega subiendo un archivo.")
+
+
+@app.post("/diseno/tarea/<kind>/<tid>/subir", endpoint="diseno_task_upload")
+@admin_required
+def diseno_task_upload(kind, tid):
+    """SUBIR lo que se le ha pedido a diseño, desde el pop-up de su bandeja. Devuelve JSON.
+
+    ⚠️ Al subir se avisa a QUIEN LO PIDIÓ y el aviso de diseño **se cierra solo**: una tarea es «esto
+    te está esperando», y ya no lo está."""
+    # ⚠️ Basta con TENER Diseño (recurso «de acción», como invitaciones): entregar lo que te han
+    # pedido es la función en sí. Ver el gate (`action_only`).
+    if not (is_master() or has_access_key("diseno", include_descendants=True)):
+        return jsonify({"ok": False, "error": "Sin permiso para entregar trabajo de diseño."}), 403
+    ficheros = [f for f in (request.files.getlist("files") or request.files.getlist("file"))
+                if f and (getattr(f, "filename", "") or "").strip()]
+    if not ficheros:
+        return jsonify({"ok": False, "error": "No has elegido ningún archivo."}), 400
+    session_db = db()
+    try:
+        # ⚠️ Se comprueba contra el punto único: si la tarea ya no está pendiente, no se sube encima.
+        tarea = _design_task_find(session_db, kind, tid)
+        if tarea is None:
+            return jsonify({"ok": False, "error": "Esa tarea ya no está pendiente."}), 404
+        if not tarea.get("upload"):
+            return jsonify({"ok": False, "error": "Esta tarea no se entrega subiendo un archivo."}), 400
+        subidos, fallidos = _design_task_deliver(session_db, kind, tid, ficheros)
+        session_db.commit()
+        return jsonify({"ok": True, "count": subidos,
+                        "skipped": fallidos[:5], "skipped_count": len(fallidos)})
+    except ValueError as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[diseño] no se pudo entregar la tarea")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
 @app.get("/diseno", endpoint="diseno_view")
 @admin_required
 def diseno_view():
-    return _render_department_inbox(
-        "DISENO", "Diseño", "fa-palette",
-        "Peticiones y encargos de diseño.",
+    """LA BANDEJA DE DISEÑO: todo lo que le han pedido, de la entrega más cercana a la más lejana.
+
+    Es la MISMA lista que su módulo de Inicio (`_design_tasks`, punto único), aquí con el pop-up de
+    cada tarea para verla entera y entregarla sin salir de la pantalla."""
+    session_db = db()
+    try:
+        tareas = _design_tasks(session_db)
+    except Exception:
+        app.logger.exception("[diseño] no se pudo montar la bandeja")
+        tareas = []
+    finally:
+        session_db.close()
+    return render_template(
+        "diseno_inbox.html",
+        title="Diseño", icon="fa-palette",
+        subtitle="Todo lo que te han pedido, por fecha de entrega.",
+        tasks=tareas,
+        # Lo que lee el pop-up: lo mismo, pero sin la fecha en crudo (que no es JSON).
+        tasks_json=[{k: v for k, v in t.items() if k != "due_date"} for t in tareas],
+        # Lo que ya venció y lo que vence en los 7 próximos días: es la urgencia real.
+        late_count=len([t for t in tareas if t.get("late")]),
+        soon_count=len([t for t in tareas if (t.get("days_left") is not None
+                                              and 0 <= t["days_left"] <= 7)]),
     )
 
 
@@ -66472,6 +67244,17 @@ def _can_validate_artwork(concert=None, row=None) -> bool:
         return propio
 
 
+def can_upload_artwork() -> bool:
+    """¿Puede esta persona SUBIR carteles a una actividad (o a una gira/ciclo/evento)?
+
+    ⚠️⚠️ **DISEÑO es quien los hace**: exigir `can_edit_concerts()` dejaba a un diseñador sin poder
+    subir lo que le acababan de encargar —el botón se le pintaba y el POST devolvía «Sin permiso»—.
+    Punto único: contratación (que los pide y los sube a mano), **diseño** y dirección."""
+    return (can_edit_concerts()
+            or is_master()
+            or has_access_key('diseno', include_descendants=True))
+
+
 def _artwork_ensure_request(session_db, concert):
     """La solicitud de cartelería de la actividad (se crea vacía si hace falta, para poder colgar de
     ella los carteles subidos a mano)."""
@@ -66913,7 +67696,7 @@ def group_artwork_upload_direct(gkind, gid):
         grupo, _n = _artwork_group_owner(session_db, gkind, gid)
         if grupo is None:
             return jsonify({"ok": False, "error": "Grupo no encontrado."}), 404
-        if not can_edit_concerts():
+        if not can_upload_artwork():
             return jsonify({"ok": False, "error": "Sin permiso para subir carteles."}), 403
         row = _artwork_group_request(session_db, gkind, gid, create=True)
         estado = _current_user_state()
@@ -67166,7 +67949,7 @@ def concert_artwork_upload_direct(cid):
                    .filter(Concert.id == to_uuid(cid)).first())
         if concert is None:
             return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
-        if not can_edit_concerts():
+        if not can_upload_artwork():
             return jsonify({"ok": False, "error": "Sin permiso para subir carteles."}), 403
         row = _artwork_ensure_request(session_db, concert)
         estado = _current_user_state()
@@ -67884,7 +68667,8 @@ def concert_artwork_mark_shared(cid):
 @app.post('/conciertos/<cid>/carteleria/assets/<asset_id>/primary', endpoint='concert_artwork_asset_primary')
 @admin_required
 def concert_artwork_asset_primary(cid, asset_id):
-    if not (is_master() or can_edit_concerts()):
+    # ⚠️ También DISEÑO: es quien sube los carteles y quien elige cuál es el principal.
+    if not can_upload_artwork():
         return forbid('Tu usuario no tiene permisos para editar la cartelería.')
     session = db()
     try:
@@ -67917,7 +68701,8 @@ def concert_artwork_asset_primary(cid, asset_id):
 @app.post('/conciertos/<cid>/carteleria/assets/<asset_id>/delete', endpoint='concert_artwork_asset_delete')
 @admin_required
 def concert_artwork_asset_delete(cid, asset_id):
-    if not (is_master() or can_edit_concerts()):
+    # ⚠️ También DISEÑO: si sube un archivo equivocado tiene que poder quitarlo.
+    if not can_upload_artwork():
         return forbid('Tu usuario no tiene permisos para eliminar formatos de cartelería.')
     session = db()
     try:
@@ -83702,6 +84487,182 @@ def _prl_person_from_request(session_db, req: "PrlUploadRequest"):
     return concert, person, promoter
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  ALTA Y PRL · EL RECORDATORIO POR SMS A 48 h Y A 24 h
+#
+#  Pedir la documentación por correo no basta: el día antes del evento sigue faltando gente y ya no
+#  hay tiempo de arreglarlo. **A 48 horas y a 24 horas** del comienzo, a quien todavía le falte algo
+#  le llega un SMS que dice **cuánto queda**, **de qué actividad** se trata (el concierto, el evento
+#  promocional…), **de quién** y **dónde**, **QUÉ le falta exactamente** —solo lo suyo, según su tipo
+#  de trabajador— y **el enlace** para subirlo.
+#
+#  ⚠️ Se manda UNA sola vez por ventana (`PrlUploadRequest.reminder_48_at` / `reminder_24_at`), así
+#     que el barrido puede correr cada pocos minutos sin machacar a nadie.
+#  ⚠️ Lo que falta sale de **`_prl_person_status`**, el MISMO punto único que pintan los semáforos de
+#     la hoja de ruta y la página pública: no hay una segunda idea de qué está pendiente.
+#  ⚠️ Si a alguien ya no le falta nada, no se le escribe (aunque tuviera el recordatorio pendiente):
+#     un aviso es «esto te está esperando».
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# Las dos ventanas, de la más lejana a la más cercana: (horas, columna donde se apunta).
+PRL_REMINDER_WINDOWS = ((48, "reminder_48_at"), (24, "reminder_24_at"))
+# Margen: el barrido no corre al segundo exacto, así que la ventana de 48 h se da por buena desde
+# que quedan 48 h hasta que quedan 24 h (y la de 24 h, hasta que empieza).
+PRL_REMINDER_DEFAULT_TIME = "20:00"   # sin hora de show ni de puertas, se cuenta desde esta hora
+
+# Cómo se le dice a una persona lo que le falta (en el SMS, no el rótulo del documento).
+PRL_MISSING_SMS_LABELS = {
+    "alta": {"AUTONOMO": "tu recibo de autonomos",
+             "PUNTUAL": "tu alta en la Seguridad Social",
+             "EMPRESA": "el ITA de tu empresa",
+             "OFICINA": "tu alta"},
+    "informacion": "la informacion de PRL",
+    "formacion": "la formacion de PRL",
+    "epis": "el recibi de los EPIs",
+    "renuncia_medico": "la renuncia al examen medico",
+    "baja": "tu baja en la Seguridad Social",
+}
+
+
+def _prl_activity_start(concert):
+    """CUÁNDO empieza la actividad (hora de España). Punto único del reloj de los recordatorios.
+
+    La hora es la del **show**; si no está, la de **puertas**; y si no hay ninguna, se cuenta desde
+    `PRL_REMINDER_DEFAULT_TIME` —no se inventa una hora distinta en cada sitio—."""
+    dia = getattr(concert, "date", None)
+    if not dia:
+        return None
+    for valor in (getattr(concert, "show_time", None), getattr(concert, "doors_time", None),
+                  PRL_REMINDER_DEFAULT_TIME):
+        txt = str(valor or "").strip()[:5]
+        if len(txt) == 5 and txt[2] == ":" and txt[:2].isdigit() and txt[3:].isdigit():
+            try:
+                return datetime.combine(dia, dtime(int(txt[:2]), int(txt[3:])), tzinfo=TZ_MADRID)
+            except Exception:
+                continue
+    return None
+
+
+def _prl_person_missing(status: dict) -> list[str]:
+    """QUÉ le falta a esta persona, ya escrito para el SMS (solo lo que le toca a ella)."""
+    wt = (status.get("worker_type") or "").upper()
+    falta = []
+    if not (status.get("alta") or {}).get("ok"):
+        etiquetas = PRL_MISSING_SMS_LABELS["alta"]
+        falta.append(etiquetas.get(wt) or "tu alta")
+    for clave in ("informacion", "formacion", "epis", "renuncia_medico", "baja"):
+        st = status.get(clave) or {}
+        # Los tres últimos solo se le piden a quien le corresponden (`required`).
+        if clave in ("epis", "renuncia_medico", "baja") and not st.get("required"):
+            continue
+        if not st.get("ok"):
+            falta.append(PRL_MISSING_SMS_LABELS[clave])
+    return falta
+
+
+def _prl_reminder_sms_text(concert, nombre: str, horas: int, falta: list[str], enlace: str) -> str:
+    """EL MENSAJE. Lo compone el servidor y es el único sitio donde se escribe.
+
+    «Hola Ana: quedan 24 horas para el concierto de Los Ñus en Sonorama y todavía no tenemos tu alta
+    en la Seguridad Social ni la formación de PRL. Por favor súbelo antes del concierto: <enlace>»
+    ⚠️ Un SMS se cobra POR TROZOS: si falta media docena de documentos no se enumeran todos (se dicen
+    los tres primeros y «y N cosas más»); la página del enlace ya los pide uno a uno."""
+    palabra = _artwork_activity_word(concert)                      # «el concierto» · «el evento»…
+    # «antes del concierto» (no «antes de el concierto»).
+    antes = ("antes del " + palabra[3:]) if palabra.startswith("el ") else ("antes de " + palabra)
+    artista = (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+    titulo = (getattr(concert, "festival_name", None) or "").strip()
+    ciudad = (_concert_city(concert) or "").strip()
+    # DE QUIÉN es (el artista; si no lo hay, cómo se llama la actividad) y DÓNDE (el nombre de la
+    # actividad si lo tiene —«en Sonorama»— y, si no, el municipio).
+    quien = artista or titulo
+    donde = titulo or ciudad
+    if donde == quien:
+        donde = ciudad
+    if len(falta) > 3:
+        pendiente = ", ".join(falta[:3]) + " y %d cosas mas" % (len(falta) - 3)
+    elif len(falta) > 1:
+        pendiente = ", ".join(falta[:-1]) + " ni " + falta[-1]
+    else:
+        pendiente = falta[0]
+    return ("Hola%s: quedan %d horas para %s%s%s y todavia no tenemos %s. Por favor subelo %s: %s"
+            % ((" " + nombre.split(" ")[0]) if nombre else "", horas, palabra,
+               (" de %s" % quien) if quien else "", (" en %s" % donde) if donde else "",
+               pendiente, antes, enlace))
+
+
+def _prl_reminder_sweep() -> dict:
+    """Recordatorio por SMS a quien le falta el alta o la PRL: a 48 h y a 24 h de la actividad."""
+    salida = {"actividades": 0, "personas": 0, "enviados": 0, "sin_telefono": 0, "errores": 0}
+    if not _sms_available():
+        salida["saltada"] = "la pasarela de SMS no está configurada"
+        return salida
+    session_db = db()
+    try:
+        ahora = _now_madrid()
+        hoy = ahora.date()
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(Concert.date.isnot(None))
+                 .filter(Concert.date >= hoy, Concert.date <= hoy + timedelta(days=3))
+                 .filter(func.upper(func.coalesce(Concert.status, "")).in_(("CONFIRMADO", "ANUNCIADO")))
+                 .order_by(Concert.date.asc()).limit(120).all())
+        ita_docs = _prl_company_ita_docs(session_db)
+        for concert in filas:
+            empieza = _prl_activity_start(concert)
+            if empieza is None:
+                continue
+            quedan = (empieza - ahora).total_seconds() / 3600.0
+            if quedan <= 0 or quedan > PRL_REMINDER_WINDOWS[0][0]:
+                continue
+            # En qué ventana estamos: la de 24 h manda en cuanto se entra en ella.
+            ventana, columna = next(((h, c) for h, c in PRL_REMINDER_WINDOWS if quedan <= h),
+                                    PRL_REMINDER_WINDOWS[0])
+            payload = _roadmap_load(concert)
+            personas = payload.get("personnel") or []
+            if not personas:
+                continue
+            salida["actividades"] += 1
+            for person in personas:
+                st = _prl_person_status(session_db, concert, person, concert.date, ita_docs)
+                falta = _prl_person_missing(st)
+                if not falta:
+                    continue
+                salida["personas"] += 1
+                req = _prl_get_or_create_request(session_db, concert, person)
+                if getattr(req, columna, None):
+                    continue                       # ya se le avisó en esta ventana
+                telefono = (st.get("phone") or "").strip()
+                if not telefono:
+                    salida["sin_telefono"] += 1
+                    continue
+                texto = _prl_reminder_sms_text(
+                    concert, (st.get("full_name") or st.get("name") or ""),
+                    max(1, int(round(quedan))), falta,
+                    _external_url_for("public_prl_upload", token=req.public_token))
+                ok, err = _send_optional_sms(session_db, telefono, texto, kind="PRL")
+                if ok:
+                    setattr(req, columna, ahora)
+                    # La ventana de 24 h no reabre la de 48: si se entra directamente en la de 24
+                    # (la actividad se creó tarde), se da por avisada también la de 48.
+                    if columna == "reminder_24_at" and not req.reminder_48_at:
+                        req.reminder_48_at = ahora
+                    salida["enviados"] += 1
+                else:
+                    salida["errores"] += 1
+                    app.logger.warning("[prl] no se pudo mandar el recordatorio a %s: %s",
+                                       telefono, err)
+            session_db.commit()
+        return salida
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[prl] el recordatorio de alta y PRL falló")
+        salida["errores"] += 1
+        return salida
+    finally:
+        session_db.close()
+
+
 @app.route('/prl/<token>', methods=['GET'], endpoint='public_prl_upload')
 def public_prl_upload(token):
     session_db = db()
@@ -89396,7 +90357,7 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "promocion", "label": "Marketing", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 200, "description": "Marketing y promoción: medios, prensa y campañas de los lanzamientos/actividades."},
     {"key": "promo", "label": "Promoción", "section_key": "promo", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 205, "description": "Promoción: bandeja de peticiones de promoción (entrevistas, medios, prensa) que gestiona el equipo de promoción."},
-    {"key": "diseno", "label": "Diseño", "section_key": "diseno", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 206, "description": "Diseño: bandeja de peticiones y encargos de diseño."},
+    {"key": "diseno", "label": "Diseño", "section_key": "diseno", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 206, "description": "Diseño: la bandeja con TODO lo que le piden (cartelería, portadas, creatividades, miniaturas, notas de prensa, materiales) por fecha de entrega, y la entrega de cada cosa. Tenerlo basta para subir el trabajo."},
 
     {"key": "invitaciones", "label": "Invitaciones", "section_key": "invitaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 210, "description": "Invitaciones a conciertos: pedir y gestionar. Función de acción (tener la pestaña habilitada = poder usarla)."},
     {"key": "invitaciones.pedir", "label": "Pedir invitaciones", "section_key": "invitaciones", "parent_key": "invitaciones", "level": "TAB", "economic_capable": False, "sort_order": 211, "description": "Pedir invitaciones para un evento mediante el asistente (acción)."},
@@ -89607,6 +90568,42 @@ def _profile_in_department(profile, *names) -> bool:
     if not buscados:
         return False
     return bool(buscados & set(_profile_departments(profile)))
+
+
+def _current_user_in_department(*names) -> bool:
+    """¿Está en alguno de esos departamentos la persona que está mirando?
+
+    Mismo criterio que `_profile_in_department` (contra el catálogo, así da igual la caja, los
+    acentos y los alias), pero leyendo la sesión. Punto único de «esto es de tal departamento».
+    ⚠️ Fuera de una petición (un cron, un hilo) `_current_user_state` no sabe de nadie: devuelve
+    False, que es lo prudente."""
+    buscados = set(_normalize_departments(names))
+    if not buscados:
+        return False
+    try:
+        estado = _current_user_state() or {}
+    except Exception:
+        return False
+    return bool(buscados & set(_normalize_departments(estado.get("departments") or [])))
+
+
+def _is_contratacion_person() -> bool:
+    """¿Es de CONTRATACIÓN la persona que está mirando? Punto único.
+
+    ⚠️⚠️ Lo es quien está en ese DEPARTAMENTO o quien tiene concedida la SECCIÓN ENTERA. Lo que **no**
+    vale es tener una pestaña suelta: «Peticiones» (`contratacion.peticiones`) se le da a media
+    oficina para que cualquiera pueda pedir una actividad, y con
+    `has_access_key("contratacion", include_descendants=True)` eso colaba — así es como a diseño, a
+    producción o a promoción les salía en Inicio el trabajo y el dinero de contratación."""
+    if is_master():
+        return True
+    if _current_user_in_department("Contratación"):
+        return True
+    try:
+        # Sin `include_descendants`: la sección entera, no una pestaña suelta.
+        return has_access_key("contratacion")
+    except Exception:
+        return False
 
 
 def _normalize_admin_responsibilities(values) -> list[str]:
@@ -90600,7 +91597,11 @@ ARTWORK_ACCESS_KEYS = ("diseno", "contratacion.conciertos", "contratacion")
 
 ACTIVITY_READ_ACCESS_KEYS = ("contratacion", "produccion", "administracion", "promocion",
                              "registros", "contabilidad", "acciones", "invitaciones",
-                             "ventas", "promo", "discografica")
+                             "ventas", "promo", "discografica",
+                             # ⚠️ DISEÑO trabaja DENTRO de la ficha (la pestaña «Cartelería»: los
+                             # carteles que se le piden, los del promotor que tiene que aprobar y el
+                             # de Sold Out): sin esto, al pinchar su propio aviso se comía un 403.
+                             "diseno")
 
 
 def _activity_read_resource_key(default_key: str) -> str:
@@ -90629,7 +91630,9 @@ def _activity_read_resource_key(default_key: str) -> str:
 # `_release_read_resource_key` acepta la PRIMERA de estas secciones que el usuario tenga —igual que
 # `_activity_read_resource_key` con una actividad—. Sin esto, quien trabaja en Registros o en
 # Syncros se comía un 403 al pinchar el nombre de la canción (bug real, 6 enlaces).
-RELEASE_READ_ACCESS_KEYS = ("discografica", "registros", "syncros", "radio", "promocion")
+# ⚠️ DISEÑO entra también: la MINIATURA DEL VIDEOCLIP se le pide desde la ficha de la canción y su
+# aviso lleva ahí (sin esto, 403 al pinchar lo que le acaban de encargar).
+RELEASE_READ_ACCESS_KEYS = ("discografica", "registros", "syncros", "radio", "promocion", "diseno")
 # ⚠️ Las pestañas ECONÓMICAS de un lanzamiento NO se abren por trabajar en otra sección: ahí siguen
 # mandando sus recursos de Discográfica.
 RELEASE_READ_ECON_TABS = {"royalties", "ingresos", "gastos", "beneficiarios"}
@@ -90650,6 +91653,25 @@ def _third_party_read_resource_key(default_key: str) -> str:
         for key in THIRD_PARTY_READ_ACCESS_KEYS:
             if has_access_key(key, include_descendants=True):
                 return key
+    except Exception:
+        pass
+    return default_key
+
+
+# ⚠️⚠️ LO QUE SE LE PIDE A DISEÑO VIVE EN LA FICHA DE OTRA SECCIÓN: la portada, las creatividades y
+# la miniatura están en el PROYECTO discográfico, el gráfico de una nota de prensa en PROMOCIÓN y los
+# materiales de una campaña en MARKETING. Diseño no tiene (ni tiene por qué tener) esas secciones, así
+# que al pinchar su propio aviso se comía un 403 —el error que no se puede explicar—. En LECTURA se
+# acepta la primera clave que tenga, igual que una actividad o un lanzamiento; **modificar sigue
+# exigiendo la sección**, y lo que diseño HACE (subir la pieza) se hace desde su propia bandeja.
+def _design_read_resource_key(default_key: str) -> str:
+    """Recurso con el que se comprueba el acceso de LECTURA a una ficha en la que trabaja diseño."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        return default_key
+    try:
+        if (not has_access_key(default_key, include_descendants=True)
+                and has_access_key("diseno", include_descendants=True)):
+            return "diseno"
     except Exception:
         pass
     return default_key
@@ -90780,7 +91802,10 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint.startswith("disco_project") or endpoint.startswith("disco_plan"):
         # ⚠️ El PLAN DE LANZAMIENTO son endpoints `disco_plan_*`, fuera del prefijo `disco_project_`:
         # sin nombrarlos aquí, un POST suyo solo lo pasaría dirección.
-        return "discografica.proyectos"
+        # ⚠️ ABRIR el proyecto lo tiene que poder hacer también DISEÑO: la portada, las
+        # creatividades, la miniatura del videoclip y los contenidos del plan se le piden ahí y
+        # su aviso lleva a esa ficha (escribir sigue exigiendo Discográfica).
+        return _design_read_resource_key("discografica.proyectos")
     # Cuadro de mando de PREVISIONES (endpoints `forecast_*`, fuera de cualquier prefijo cubierto).
     if endpoint.startswith("forecast_"):
         return "discografica.previsiones"
@@ -90942,6 +91967,9 @@ def _resolve_request_resource_key() -> str | None:
             for clave in ("promo", "produccion", "promocion", "administracion"):
                 if has_access_key(clave, include_descendants=True):
                     return clave
+        # La NOTA DE PRENSA lleva un GRÁFICO que hace diseño (su tarea y su aviso llevan a la nota).
+        if endpoint == "promo_press_detail":
+            return _design_read_resource_key("promo")
         return "promo"
     # ⚠️⚠️ LAS PLANTILLAS DE PRODUCCIÓN Y LOS RIDERS van por PREFIJO, aquí arriba: puestos en el
     # `mapping` de más abajo serían **CÓDIGO MUERTO** (ese dict vive dentro de un
@@ -90951,7 +91979,10 @@ def _resolve_request_resource_key() -> str | None:
     # documenta la resolución por pestaña de contabilidad.
     if endpoint.startswith("rider_") or endpoint.startswith("production_template"):
         return "produccion"
-    if endpoint == "diseno_view" or endpoint.startswith("diseno_peticion"):
+    # DISEÑO: su bandeja y TODO lo que se hace desde ella (abrir una tarea, subir la pieza). Antes
+    # solo se nombraban la vista y `diseno_peticion*`, así que un endpoint nuevo de la sección
+    # devolvía None y el gate no comprobaba nada en un GET (y en un POST solo pasaba dirección).
+    if endpoint == "diseno_view" or endpoint.startswith("diseno_"):
         return "diseno"
     if endpoint == "admin_ita_upload":
         return "administracion.altas"
@@ -90999,6 +92030,9 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint.startswith("action_") or endpoint.startswith("acciones_"):
         return "acciones"
     if endpoint.startswith("promotion_"):
+        # Los MATERIALES de una campaña los hace diseño: su aviso lleva a la pestaña «Materiales».
+        if endpoint == "promotion_detail_view":
+            return _design_read_resource_key("promocion")
         return "promocion"
     if endpoint.startswith("media_"):
         return "databases.media"
@@ -92659,9 +93693,6 @@ HOME_TASK_SOURCES = [
      "subtasks": "tasks", "subtask_label": "label", "action": "Entregarlo"},
     {"ctx": "HOME_PRESS_TASKS", "kind": "LANZAMIENTO", "order": 3,
      "subtasks": "tasks", "subtask_label": "label", "action": "Hacerlo"},
-    {"ctx": "HOME_SOLDOUT_ARTWORK", "kind": "ACTIVIDAD", "order": 2,
-     "label": "Los carteles de Sold Out", "action": "Subirlos",
-     "artist": ("artist",), "note": ("place",)},
     # ── PROMOCIÓN Y MARKETING ──────────────────────────────────────────────────────────────────
     {"ctx": "HOME_PROMO_TASKS", "kind": "PROMOCION", "order": 3,
      "label_key": "role", "action": "Gestionarla"},
@@ -93744,9 +94775,14 @@ def inject_personnel_globals():
     # EL DÍA DEL EVENTO: invitaciones bloqueadas o subidas sin asignar (solo si las hay).
     _invleft = _home_invitation_leftovers() if _home and "_home_invitation_leftovers" in globals() else []
     _plans = _home_plans_awaiting_direccion() if _dir and "_home_plans_awaiting_direccion" in globals() else []
-    # LO QUE ESTÁ POR COBRAR y LO FACTURADO EN EL AÑO: los ven CONTRATACIÓN y DIRECCIÓN, y solo en
-    # Inicio (recorren los planes de pago de todas las actividades).
-    _home_billing_ok = bool(_home and (_dir or has_access_key("contratacion", include_descendants=True)))
+    # ⚠️⚠️ LO QUE ESTÁ POR COBRAR y LO FACTURADO EN EL AÑO son de **CONTRATACIÓN y DIRECCIÓN**, y de
+    # nadie más: es el dinero de la casa. Antes bastaba con tener CUALQUIER pestaña de Contratación
+    # (`has_access_key("contratacion", include_descendants=True)`), y con «Peticiones» —que se le da
+    # a media oficina para que puedan pedir una actividad— se colaba: diseño, producción o promoción
+    # abrían su Inicio y lo primero que veían era la facturación del grupo.
+    # Ahora se mira el DEPARTAMENTO, que es lo que decide de quién es ese trabajo. Y solo en Inicio
+    # (recorren los planes de pago de todas las actividades).
+    _home_billing_ok = bool(_home and (_dir or _is_contratacion_person()))
     _billing_pending = None
     _billing_year = None
     if _home_billing_ok:
@@ -93859,9 +94895,6 @@ def inject_personnel_globals():
         # LO DE DISEÑO, agrupado por proyecto (la portada y las creatividades de cada lanzamiento).
         "HOME_DESIGN_TASKS": (_home_design_tasks()
                               if _home and "_home_design_tasks" in globals() else []),
-        # CARTELES DE SOLD OUT pendientes (se piden solos al 90% de venta).
-        "HOME_SOLDOUT_ARTWORK": (_home_soldout_artwork()
-                                 if _home and "_home_soldout_artwork" in globals() else []),
         # CONTRATOS DE PRODUCTOR por mandar (quien es Registros y Sello a la vez).
         "HOME_PRODUCER_CONTRACTS": (_home_producer_contracts()
                                     if _home and "_home_producer_contracts" in globals() else []),
@@ -93925,9 +94958,11 @@ def inject_personnel_globals():
         # Inicio de CONTRATACIÓN: sus tareas y la compuerta que esconde los módulos de los demás
         # departamentos. ⚠️ Las tareas son CARAS (recorren las actividades vivas): solo en Inicio y
         # solo a quien tenga contratación.
+        # ⚠️ Las TAREAS de contratación son de contratación: con `include_descendants` bastaba con
+        # tener «Peticiones» —que tiene media oficina— y a diseño o a producción les salía en su
+        # Inicio «Sin contrato · Pendiente de anunciar» de actividades que no llevan.
         "HOME_CONTRATACION_TASKS": (_home_contracting_tasks()
-                                    if _dept and has_access_key("contratacion", include_descendants=True)
-                                    else []),
+                                    if _dept and _is_contratacion_person() else []),
         # LO QUE ESTÁ POR COBRAR y LO QUE SE LLEVA FACTURADO en el año (contratación y dirección).
         "HOME_BILLING_PENDING": _billing_pending,
         "HOME_BILLING_YEAR": _billing_year,
@@ -94679,7 +95714,12 @@ def _enforce_role_permissions_v2():
     # ejecutar sus acciones —pedir/gestionar SON la función en sí, no un "editar" sobre datos—; el
     # control fino de gestión lo hacen los propios endpoints (_ensure_can_manage_invitations) y el
     # flujo de aprobación de solicitudes. Así, quien tiene habilitada la pestaña completa el proceso.
-    action_only = bool(key) and (key == "invitaciones" or key.startswith("invitaciones."))
+    # ⚠️ DISEÑO es el mismo caso: en su bandeja solo se ENTREGA lo que a uno le han pedido (subir el
+    # cartel, la portada, la creatividad). Eso ES la función, no «editar» los datos de otra sección,
+    # así que tener Diseño basta — y sin esto, un diseñador con «Ver» se comía un «no tienes permisos
+    # de edición» al subir su propio trabajo.
+    action_only = bool(key) and (key == "invitaciones" or key.startswith("invitaciones.")
+                                 or key == "diseno")
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         if action_only:
             if not has_access_key(key, include_descendants=True):
@@ -118614,59 +119654,6 @@ def _soldout_artwork_check(session_db, concert_ids) -> int:
     except Exception:
         app.logger.exception("[soldout] no se pudo comprobar el 90%% de venta")
     return pedidos
-
-
-def _home_soldout_artwork(limit: int = 20) -> list[dict]:
-    """CARTELES DE SOLD OUT pendientes (módulo de Inicio de DISEÑO).
-
-    Una fila por actividad, con los formatos que se piden y los días que faltan. Desaparece sola en
-    cuanto diseño sube el cartel (mira el DATO, no una marca)."""
-    estado = _current_user_state() or {}
-    yo = str(estado.get("user_id") or "")
-    if not yo:
-        return []
-    session_db = db()
-    try:
-        de_diseno = yo in [str(x) for x in _department_user_ids(session_db, "Diseño")]
-        if not (de_diseno or int(estado.get("role") or 0) == 10):
-            return []
-        filas = (session_db.query(Concert)
-                 .join(ConcertArtworkRequest, ConcertArtworkRequest.concert_id == Concert.id)
-                 .options(joinedload(Concert.artist), joinedload(Concert.venue),
-                          selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
-                 .filter(ConcertArtworkRequest.soldout_requested_at.isnot(None))
-                 .filter(or_(Concert.end_date >= today_local(), and_(Concert.end_date.is_(None),
-                                                                     Concert.date >= today_local())))
-                 .order_by(Concert.date.asc()).limit(120).all())
-        salida = []
-        for c in filas:
-            st = _soldout_artwork_state(session_db, c)
-            if not st["requested"] or st["delivered"]:
-                continue
-            salida.append({
-                "concert_id": str(c.id),
-                "title": ((getattr(c, "festival_name", None) or "").strip()
-                          or (getattr(getattr(c, "artist", None), "name", "") or "").strip() or "Actividad"),
-                "artist": (getattr(getattr(c, "artist", None), "name", "") or ""),
-                "artist_photo": (getattr(getattr(c, "artist", None), "photo_url", "") or ""),
-                "date_label": (c.date.strftime("%d/%m/%Y") if c.date else ""),
-                "place": _place_label(_concert_city(c), _concert_province_value(c)),
-                "formats": st["format_labels"],
-                "deadline_label": st["deadline_label"],
-                "days_left": st["days_left"],
-                "late": st["late"],
-                "pct_label": st["pct_label"],
-                "pending": len(st["pending"]),
-                "url": url_for("concert_detail_view", cid=str(c.id), tab="carteleria"),
-            })
-            if len(salida) >= limit:
-                break
-        return salida
-    except Exception:
-        app.logger.exception("[soldout] no se pudo montar el módulo de Sold Out")
-        return []
-    finally:
-        session_db.close()
 
 
 def _sale_sello_user_ids(session_db, artist_id) -> list[str]:
@@ -150253,11 +151240,13 @@ def _home_producer_contracts(limit: int = 12) -> list[dict]:
 
 
 def _home_design_tasks(limit: int = 12) -> list[dict]:
-    """LO QUE DISEÑO TIENE PENDIENTE, agrupado POR PROYECTO discográfico (módulo de Inicio).
+    """LO QUE DISEÑO TIENE PENDIENTE (módulo de Inicio), agrupado por aquello a lo que pertenece.
 
-    Una fila por proyecto y, dentro, **una subtarea por cosa**: la portada y cada creatividad que se
-    le haya pedido. Cada una con **los días que faltan** para entregarla, que es lo que hay que
-    mirar. Así todo lo de diseño de un lanzamiento se ve junto y no repartido."""
+    ⚠️⚠️ Sale de **`_design_tasks`**, el MISMO punto único que la bandeja `/diseno`: antes este
+    módulo solo miraba los proyectos discográficos y la bandeja otra cosa, así que Inicio y la
+    sección decían números distintos. Una fila por sujeto (el lanzamiento, la actividad, la
+    campaña) y, dentro, una subtarea por cosa, con **los días que faltan**, que es lo que hay que
+    mirar. El enlace lleva a la bandeja, que es donde se entrega."""
     estado = _current_user_state() or {}
     yo = str(estado.get("user_id") or "")
     if not yo:
@@ -150267,94 +151256,39 @@ def _home_design_tasks(limit: int = 12) -> list[dict]:
         de_diseno = yo in [str(x) for x in _department_user_ids(session_db, "Diseño")]
         if not (de_diseno or int(estado.get("role") or 0) == 10):
             return []
-        filas = []
-        proyectos = (session_db.query(DiscoProject)
-                     .options(joinedload(DiscoProject.artist))
-                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
-                     .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
-        for p in proyectos:
-            subtareas = []
-            # La PORTADA, si nos toca a nosotros y todavía no está entregada.
-            try:
-                art = _disco_artwork_state(session_db, p)
-                if (art.get("who") or "").upper() == "US" and art.get("requested") and not art.get("delivered"):
-                    subtareas.append({"label": "Portada", "icon": "fa-image",
-                                      "due_label": art.get("due_label") or "",
-                                      "days": _disco_days_left_label(art.get("due_date")),
-                                      "late": bool(art.get("due_date") and art["due_date"] < today_local())})
-            except Exception:
-                app.logger.exception("[diseño] no se pudo leer la portada del proyecto")
-            # La MINIATURA del videoclip, si se la han pedido y todavía no está.
-            try:
-                if _disco_project_has_videoclip(p):
-                    _mini = _disco_video_state(session_db, p)["thumb"]
-                    if _mini["asked"] and not _mini["done"]:
-                        subtareas.append({"label": "Miniatura del videoclip", "icon": "fa-image",
-                                          "due_label": "", "days": "", "late": False})
-            except Exception:
-                app.logger.exception("[diseño] no se pudo leer la miniatura del videoclip")
-            # Y cada CREATIVIDAD solicitada que aún no se ha subido.
-            try:
-                cre = _disco_creatives_state(session_db, p)
-                vence = cre.get("due_date")
-                for fila in (cre.get("rows") or []):
-                    if (fila.get("status") or "").upper() != "SOLICITADA":
-                        continue
-                    subtareas.append({"label": fila["label"], "icon": fila.get("icon") or "fa-shapes",
-                                      "due_label": cre.get("due_label") or "",
-                                      "days": _disco_days_left_label(vence),
-                                      "late": bool(vence and vence < today_local())})
-            except Exception:
-                app.logger.exception("[diseño] no se pudieron leer las creatividades del proyecto")
-            if not subtareas:
-                continue
-            artista = getattr(p, "artist", None)
-            filas.append({
-                "id": str(p.id),
-                "title": _disco_project_title(p),
-                "artist_name": (getattr(artista, "name", "") or ""),
-                "artist_photo": (getattr(artista, "photo_url", "") or ""),
-                "release_label": (p.release_date.strftime("%d/%m/%Y") if getattr(p, "release_date", None) else ""),
-                "tasks": subtareas,
-                "late": any(t["late"] for t in subtareas),
-                "url": url_for("disco_project_detail", project_id=p.id, tab="calendario"),
-            })
-            if len(filas) >= limit:
-                break
-        # LAS CANCIONES SUELTAS: la miniatura de un videoclip que no prepara ningún proyecto se pide
-        # desde la ficha de la canción, así que también tiene que salir aquí.
-        # ⚠️ Se cae sola en cuanto hay una miniatura subida (se mira el DATO, no una marca aparte).
         try:
-            pedidas = (session_db.query(Song)
-                       .filter(Song.videoclip_thumb_json["asked_at"].astext.isnot(None))
-                       .order_by(Song.release_date.asc().nullslast()).limit(60).all())
-            if pedidas:
-                con_mini = {str(r[0]) for r in (
-                    session_db.query(SongMaterial.song_id)
-                    .filter(SongMaterial.song_id.in_([c.id for c in pedidas]),
-                            func.upper(func.coalesce(SongMaterial.category, "")) == "VIDEO_THUMB")
-                    .distinct().all())}
-                for cancion in pedidas:
-                    if len(filas) >= limit:
-                        break
-                    if str(cancion.id) in con_mini:
-                        continue
-                    artista = (cancion.artists[0] if getattr(cancion, "artists", None) else None)
-                    filas.append({
-                        "id": str(cancion.id),
-                        "title": (cancion.title or "Canción"),
-                        "artist_name": (getattr(artista, "name", "") or ""),
-                        "artist_photo": (getattr(artista, "photo_url", "") or ""),
-                        "release_label": (cancion.release_date.strftime("%d/%m/%Y")
-                                          if getattr(cancion, "release_date", None) else ""),
-                        "tasks": [{"label": "Miniatura del videoclip", "icon": "fa-image",
-                                   "due_label": "", "days": "", "late": False}],
-                        "late": False,
-                        "url": url_for("discografica_song_detail", song_id=cancion.id,
-                                       tab="videoclip"),
-                    })
+            destino = url_for("diseno_view")
         except Exception:
-            app.logger.exception("[diseño] no se pudieron leer las miniaturas pedidas de canciones")
+            destino = "/diseno"
+        filas, por_sujeto = [], {}
+        for t in _design_tasks(session_db):
+            # Las PETICIONES ya tienen su propio módulo en Inicio: aquí se verían dos veces.
+            if t["kind"] == "PETICION":
+                continue
+            clave = t.get("subject") or t.get("title") or t["key"]
+            fila = por_sujeto.get(clave)
+            if fila is None:
+                if len(filas) >= limit:
+                    continue
+                fila = {
+                    "id": t["key"],
+                    "title": clave,
+                    "artist_name": "",
+                    "artist_photo": (t.get("photo") or ""),
+                    "release_label": (t.get("due_label") or ""),
+                    "tasks": [],
+                    "late": False,
+                    "url": destino,
+                }
+                por_sujeto[clave] = fila
+                filas.append(fila)
+            fila["tasks"].append({"label": t["title"], "icon": t.get("icon") or "fa-palette",
+                                  "due_label": (t.get("due_label") or ""),
+                                  "days": (t.get("days_label") or ""),
+                                  "late": bool(t.get("late"))})
+            fila["late"] = fila["late"] or bool(t.get("late"))
+            if not fila["artist_photo"] and t.get("photo"):
+                fila["artist_photo"] = t["photo"]
         return filas
     except Exception:
         app.logger.exception("[diseño] no se pudieron montar las tareas de diseño")
@@ -150364,10 +151298,13 @@ def _home_design_tasks(limit: int = 12) -> list[dict]:
 
 
 def _home_press_tasks(limit: int = 12) -> list[dict]:
-    """NOTAS DE PRENSA pendientes (módulo de Inicio de **promoción** y de **diseño**).
+    """NOTAS DE PRENSA pendientes (módulo de Inicio de **promoción**).
 
-    A cada uno lo suyo: promoción **redactarla** y después **enviarla**; diseño **el gráfico**. Con el
-    plazo (el lunes previo al lanzamiento) y en rojo si ya se pasó."""
+    Promoción **redactarla** y después **enviarla**, con el plazo (el lunes previo al lanzamiento) y
+    en rojo si ya se pasó.
+    ⚠️ **El gráfico de la nota NO va aquí**: es trabajo de diseño y sale de `_design_tasks`, su punto
+    único, que es lo que pintan su bandeja y su módulo de Inicio. Si se dijera en los dos sitios,
+    saldría dos veces en «Mis tareas pendientes»."""
     estado = _current_user_state() or {}
     yo = str(estado.get("user_id") or "")
     if not yo:
@@ -150375,11 +151312,10 @@ def _home_press_tasks(limit: int = 12) -> list[dict]:
     session_db = db()
     try:
         de_promo = yo in _disco_press_people(session_db, "text")
-        de_diseno = yo in _disco_press_people(session_db, "design")
-        if not (de_promo or de_diseno or int(estado.get("role") or 0) == 10):
+        if not (de_promo or int(estado.get("role") or 0) == 10):
             return []
         if int(estado.get("role") or 0) == 10:
-            de_promo = de_diseno = True
+            de_promo = True
         filas = []
         proyectos = (session_db.query(DiscoProject)
                      .options(joinedload(DiscoProject.artist))
@@ -150404,9 +151340,6 @@ def _home_press_tasks(limit: int = 12) -> list[dict]:
                 if plan_st.get("promo_asked") and not plan_st.get("promo_done"):
                     tareas.append({"key": "promo_plan", "label": "Preparar el plan de promoción",
                                    "icon": "fa-bullhorn"})
-            if de_diseno and not pr["design_done"]:
-                tareas.append({"key": "design", "label": "Diseño de la nota de prensa",
-                               "icon": "fa-palette"})
             if de_promo and pr["text_done"]:
                 tareas.append({"key": "send", "label": "Enviar la nota de prensa",
                                "icon": "fa-paper-plane"})
@@ -163087,6 +164020,10 @@ CRON_TASKS = [
     # ── cada pocos minutos ─────────────────────────────────────────────────────────────────
     {"key": "publicaciones", "label": "Recordatorios de publicación (plan de lanzamiento)",
      "every": 5, "fn": "_disco_plan_reminder_sweep", "icon": "fa-bullhorn"},
+    # ⚠️ Cada 15 min: las ventanas son de 48 h y 24 h, así que el SMS sale como mucho un cuarto de
+    # hora después de tocar (y `reminder_48_at`/`reminder_24_at` impiden que se repita).
+    {"key": "prl_recordatorio", "label": "Recordar por SMS el alta y la PRL que faltan (48 h y 24 h)",
+     "every": 15, "fn": "_prl_reminder_sweep", "icon": "fa-helmet-safety"},
     {"key": "enterticket", "label": "Enterticket · ventas en vivo", "every": 15,
      "run": _cron_thread_task("_et_sync_all_bg", "_cron_enterticket_guard"), "icon": "fa-ticket"},
     # ── cada hora ──────────────────────────────────────────────────────────────────────────

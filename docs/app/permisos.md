@@ -18,6 +18,8 @@
 - UN ENDPOINT PUESTO EN EL mapping DE _resolve_request_resource_key ES CÓDIGO MUERTO
 - UNA PESTAÑA CON RECURSO PROPIO HAY QUE MAPEARLA, O SE VE PERO DA 403 (bug real, ago 2026).
 - EL CATÁLOGO DE PERMISOS SE PONE AL DÍA AL ABRIR ACCESOS (ago 2026,
+- DISEÑO NO PODÍA ABRIR NI ENTREGAR LO QUE LE PEDÍAN
+- include_descendants=True SOBRE UNA SECCIÓN ABRE LA PUERTA A MEDIA OFICINA
 - NADIE SE COME UN 403 EN UNA FUNCIÓN QUE TIENE ASIGNADA.
 
 ---
@@ -283,6 +285,37 @@
   explicar («la pestaña se ve pero da 403»). Ahora se sincroniza también al abrir la **ficha de
   personal** y los **accesos en bloque** —una consulta de ~100 filas, y solo escribe lo que falte—,
   que es justo cuando hace falta. Es *best-effort*: si fallara, la pantalla se pinta igual.
+
+- ⚠️⚠️⚠️ **DISEÑO NO PODÍA ABRIR NI ENTREGAR LO QUE LE PEDÍAN** (sep 2026). El trabajo de diseño vive
+  en la ficha de OTRA sección —la cartelería en la actividad (Contratación), la portada, las
+  creatividades, la miniatura y los contenidos en el PROYECTO (Discográfica), el gráfico en la NOTA
+  DE PRENSA (Promoción) y los materiales en la CAMPAÑA (Marketing)— y diseño no tiene esas secciones:
+  **al pinchar su propio aviso se comía un 403**.
+  · **LEER**: `diseno` entra en **`ACTIVITY_READ_ACCESS_KEYS`** y en **`RELEASE_READ_ACCESS_KEYS`**, y
+  **`_design_read_resource_key(default)`** hace lo mismo con `disco_project_detail`,
+  `promo_press_detail` y `promotion_detail_view`. **Solo en GET**: escribir sigue exigiendo la sección.
+  · **SUBIR CARTELES**: punto único **`can_upload_artwork()`** (contratación · **diseño** · dirección).
+  Los cuatro endpoints de cartelería exigían `can_edit_concerts()`, que diseño no tiene: el botón se
+  le pintaba y el POST le devolvía «Sin permiso».
+  · **SU SECCIÓN**: el mapeo pasa de `endpoint.startswith("diseno_peticion")` a
+  **`endpoint.startswith("diseno_")`** — si no, un endpoint nuevo de Diseño devolvía **None** y el
+  gate no comprobaba nada en un GET. (Es la trampa de siempre.)
+  · Lo que diseño **HACE** se hace desde su propia bandeja (`POST /diseno/tarea/<kind>/<id>/subir`,
+  recurso `diseno` con edición), así que no hace falta darle edición en ninguna otra sección.
+  → `docs/app/diseno.md`
+
+- ⚠️⚠️ **`include_descendants=True` SOBRE UNA SECCIÓN ABRE LA PUERTA A MEDIA OFICINA** (sep 2026). Los
+  módulos de dinero de Inicio —«Pendiente de cobrar» y «Facturado en \<año\>»— y las **tareas de
+  contratación** colgaban de `has_access_key("contratacion", include_descendants=True)`. Como
+  «Peticiones» (`contratacion.peticiones`) se le concede a casi todo el mundo para que pueda **pedir**
+  una actividad, eso lo cumplían también diseño, producción y promoción: abrían su Inicio y lo
+  primero que veían era **la facturación del grupo** y el trabajo de otro departamento.
+  · Punto único **`_is_contratacion_person()`**: el **DEPARTAMENTO** «Contratación», o la **sección
+  entera** concedida (`has_access_key("contratacion")`, **sin** `include_descendants`), o dirección.
+  · Helper nuevo **`_current_user_in_department(*nombres)`** (el hermano de `_profile_in_department`,
+  leyendo la sesión) para cuando lo que decide es el departamento y no un permiso.
+  ⚠️ Comprobado con cuatro usuarios: diseño y producción **no** ven el dinero; contratación y
+  dirección **sí**.
 
 - ⚠️⚠️⚠️ **NADIE SE COME UN 403 EN UNA FUNCIÓN QUE TIENE ASIGNADA** (sep 2026, regla de la casa).
   Era el error más molesto de la app y salía «todo el rato»: **las barras de pestañas se pintaban

@@ -95,6 +95,9 @@
   ejecutarla ahora (`cron_run_now`, solo dirección). ⚠️ Sin latido **NO sale ningún aviso
   automático** y en la app no se nota hasta que alguien echa de menos uno: por eso lo primero que
   dice la pantalla es si el servidor le está pegando.
+  · **Tareas nuevas (sep 2026)**: **`prl_recordatorio`** — recordar por SMS a 48 h y a 24 h el alta y
+  la PRL que le faltan al personal de una actividad (`_prl_reminder_sweep`, cada 15 min).
+  → `docs/app/giras-ciclos-eventos.md`
   ⚠️ La clave es **`APP_CRON_KEY`**; se aceptan también las de siempre (`DOCS_CRON_KEY`,
   `PLEO_CRON_KEY`…) para no romper lo que ya está puesto. `cron_tick` va en las listas de PÚBLICOS
   (lo autoriza su `?key=`), y `cron_run_now` se mapea a `integraciones`.

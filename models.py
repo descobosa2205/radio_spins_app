@@ -4089,6 +4089,11 @@ class PrlUploadRequest(Base):
     person_name = Column(Text, nullable=False, server_default=text("''"))
     worker_type = Column(Text)                       # AUTONOMO | PUNTUAL | EMPRESA (elegido en la página)
     status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))  # ACTIVE | DONE
+    # ⚠️ CUÁNDO SE LE RECORDÓ POR SMS que le falta la documentación (48 h y 24 h antes de la
+    # actividad). Se apunta aquí —y no en el payload de la hoja de ruta— porque esta fila YA es
+    # «lo que le falta a ESTA persona en ESTE evento», y así el recordatorio no se puede repetir.
+    reminder_48_at = Column(DateTime(timezone=True))
+    reminder_24_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -10000,6 +10005,10 @@ def ensure_third_party_and_contract_sheet_schema():
             updated_at timestamptz DEFAULT now()
         );
         """,
+        # ⚠️ UNA COLUMNA NUEVA VA EN SU PROPIA SENTENCIA (nunca dentro de un `DO $$ … IF NOT EXISTS`):
+        # así pasa por `_ddl_already_applied`, que solo la salta si YA existe.
+        "ALTER TABLE IF EXISTS prl_upload_requests ADD COLUMN IF NOT EXISTS reminder_48_at timestamptz;",
+        "ALTER TABLE IF EXISTS prl_upload_requests ADD COLUMN IF NOT EXISTS reminder_24_at timestamptz;",
 
         """
         CREATE TABLE IF NOT EXISTS promoter_companies (

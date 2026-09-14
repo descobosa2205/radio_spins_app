@@ -422,6 +422,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 - **`recintos-mapas.md`** — recintos, el mapa de butacas y las autorizaciones de menores.
 - **`carteleria.md`** — cartelería (nuestra y del promotor), Sold Out, logos de marca, fotos y vídeos.
   ⚠️ *Lo que sale de casa es la PÁGINA, nunca la URL de Storage.*
+- **`diseno.md`** — la bandeja de Diseño: TODO lo que le piden en una lista por fecha de entrega, el
+  pop-up con lo que se pide y la zona de subir, y los permisos para ver y entregar.
+  ⚠️ *`_design_tasks` es el punto único: la pantalla, Inicio y el cuadro salen de ahí.*
 
 ### Ventas, invitaciones y producción
 - **`ventas-ticketing.md`** — actualizar ventas, el reporte, salida a la venta, Enterticket, aforo.

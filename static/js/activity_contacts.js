@@ -132,11 +132,16 @@
           lista.appendChild(it);
         });
         document.body.appendChild(lista);
+        /* ⚠️⚠️ `.ta-results` NACE CON `display:none` EN EL CSS (la lista de la casa la enseña quien
+           la usa). Aquí no se ponía, así que la búsqueda TRAÍA los resultados y se pintaban… en un
+           elemento invisible: parecía que «el buscador no encuentra a nadie». Es lo que ya hacen
+           `typeahead.js` y los demás buscadores; si se copia este bloque, se copia esta línea. */
+        lista.style.display = 'block';
         if (window.app33FloatList && window.app33FloatList.place) {
           window.app33FloatList.place(inp, lista, { max: 320, abajo: true });
         } else {
           var r = inp.getBoundingClientRect();
-          lista.style.cssText += ';position:fixed;z-index:2147482000;left:' + r.left + 'px;top:'
+          lista.style.cssText += ';display:block;position:fixed;z-index:2147482000;left:' + r.left + 'px;top:'
             + (r.bottom + 2) + 'px;width:' + r.width + 'px;max-height:320px;overflow:auto';
         }
       })
@@ -167,18 +172,34 @@
     var op = sel.options[sel.selectedIndex] || {};
     elige(c, { id: sel.value, name: op.text || '', photo: op.getAttribute ? (op.getAttribute('data-photo') || '') : '' });
   });
-  // El botón «+» necesita saber en qué <select> dejar lo creado: se le dice EN EL CLIC (con
-  // `modal_stack.js` por medio, `shown.bs.modal` no siempre llega).
+  /* El botón «+» necesita saber en qué <select> dejar lo creado: se le dice EN EL CLIC (con
+     `modal_stack.js` por medio, `shown.bs.modal` no siempre llega).
+     ⚠️⚠️ **EN CAPTURA** (`true`): `quick_create.js` se carga ANTES que este fichero, así que su
+     listener de `click` en `document` corría PRIMERO y leía `data-target` cuando todavía no estaba
+     puesto — la persona se creaba y NO se quedaba elegida (y a la segunda sí, porque el atributo ya
+     estaba del clic anterior). En fase de captura esto corre antes que cualquier listener de burbuja.
+     ⚠️ El id del <select> es un CONTADOR global: este bloque se pinta hasta dos veces en la misma
+     página (la ficha y el asistente), y el id de antes podía repetirse entre copias. */
+  var nSel = 0;
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest && ev.target.closest('[data-ac-plus]');
     if (!b) return;
     var c = caja(b), sel = q(c, '[data-ac-select]');
     if (!sel) return;
-    if (!sel.id) sel.id = 'acSel' + Math.abs((c.getAttribute('data-ac-role') || '').split('')
-      .reduce(function (a, ch) { return a + ch.charCodeAt(0); }, 0)) + '_' + (document.querySelectorAll('[data-ac-select]').length);
+    if (!sel.id) sel.id = 'acSel_' + (++nSel) + '_' + Date.now().toString(36);
     b.setAttribute('data-target', sel.id);
     b.setAttribute('data-target-hidden', '');
-  });
+  }, true);
+
+  /* API para otras pantallas: poner el contacto de una función desde fuera. La usa el asistente
+     cuando un COMISIONISTA se marca como «es la producción local». */
+  window.app33ActivityContacts = {
+    set: function (rol, datos) {
+      var c = document.querySelector('[data-activity-contacts] [data-ac-role="' + rol + '"]');
+      if (!c || !datos) return;
+      elige(c, datos);
+    },
+  };
 
   // Escribir un correo a mano sin haber elegido ficha: es el modo EMAIL.
   document.addEventListener('input', function (ev) {

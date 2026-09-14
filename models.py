@@ -3398,6 +3398,10 @@ class ConcertZoneAgent(Base):
     # El GASTO que esta comisión tiene en la bolsa (cuando se aplica como gasto): es el mismo dinero
     # visto desde dos sitios, así que se guarda el vínculo y no se apunta dos veces.
     bag_expense_id = Column(PGUUID(as_uuid=True))
+    # ⚠️ ¿ESTE COMISIONISTA ES LA PRODUCCIÓN LOCAL? Muchas veces quien se lleva la comisión de zona
+    # es justo quien está en el sitio el día de la actividad. Si se dice que sí, se pone SOLO como
+    # contacto de «Producción local» de la actividad (con su representante, si lo tiene).
+    is_local_production = Column(Boolean, nullable=False, server_default=text("false"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -10142,6 +10146,8 @@ def ensure_third_party_and_contract_sheet_schema():
         ALTER TABLE IF EXISTS concert_zone_agents
             ADD COLUMN IF NOT EXISTS promoter_company_id uuid;
         """,
+        # ⚠️ Una columna nueva va en SU PROPIA sentencia (así pasa por `_ddl_already_applied`).
+        "ALTER TABLE IF EXISTS concert_zone_agents ADD COLUMN IF NOT EXISTS is_local_production boolean NOT NULL DEFAULT false;",
         # CÓMO SE APLICA la comisión (gasto sobre el caché o reducción del caché) y su factura.
         """
         ALTER TABLE IF EXISTS concert_zone_agents

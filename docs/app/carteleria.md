@@ -9,6 +9,9 @@
 - UNA FOTO O UN LOGO SE SUBEN CON upload_image, NUNCA CON «solo PNG».
 - Foto del artista junto al nombre (global): para mostrar la foto del artista en círculo delante
 - Enlazar a la ficha del artista (global): para que el nombre/foto de un artista lleve a su ficha
+- EL MÓDULO DE CONTACTOS POR FUNCIÓN · dos bugs y un solo sitio
+- UN COMISIONISTA PUEDE SER LA PRODUCCIÓN LOCAL
+- EL ALTA DE UNA ACTIVIDAD NO PREGUNTA POR LA HOJA DE RUTA
 - CONTACTOS DE UNA ACTIVIDAD · se ponen SIN TOCAR EL PROMOTOR (sep 2026, rediseño de
 - MIS TAREAS PENDIENTES · LO DE UN MISMO TODO ES UNA SOLA TAREA (ago 2026, rediseño de
 - Simulaciones (Contratación) — rediseño jul 2026: el sujeto puede ser un artista o un EVENTO
@@ -60,6 +63,46 @@
   abre en pestaña nueva; CSS `[data-artist-link]{cursor:pointer}`). Los helpers `artist_chip`/`artist_avatar`
   aceptan `artist_id=` y lo emiten solos. **No** marcar elementos que ya enlazan a otra cosa (filtros/toggles
   como los chips de artista del calendario o los `data-*-artist-filter`, filas-enlace a otro destino).
+- ⚠️⚠️ **EL MÓDULO DE CONTACTOS POR FUNCIÓN · dos bugs y un solo sitio** (sep 2026).
+  · ⚠️⚠️ **EL BUSCADOR NO ENSEÑABA NADA**: `activity_contacts.js` construía la lista, la llenaba con
+  los resultados y la colgaba del `<body>`… pero **`.ta-results` nace con `display:none` en el CSS**
+  (la enseña quien la usa) y ahí no se ponía. Traía los resultados y se pintaban en un elemento
+  invisible: parecía que «no encuentra a nadie». Una línea: **`lista.style.display = 'block'`**. Lo
+  hacen ya `typeahead.js`, `song_genres.js`, `bag_expense_form.js` y `performance_songs.js`: **si se
+  copia ese bloque, se copia esa línea**.
+  · ⚠️⚠️ **EL «+» NO DEJABA LO CREADO SELECCIONADO (la primera vez)**: `quick_create.js` se carga
+  **antes** que `activity_contacts.js`, así que su listener de `click` en `document` corría PRIMERO y
+  leía `data-target` cuando este todavía no lo había puesto — la persona se creaba y no se quedaba
+  elegida (y a la segunda sí, porque el atributo ya estaba del clic anterior). Se arregla poniendo
+  ese listener **EN CAPTURA** (`addEventListener('click', fn, true)`), que corre antes que cualquiera
+  de burbuja. ⚠️ Y el id del `<select>` oculto pasa a ser un **contador global**: el bloque se pinta
+  hasta dos veces en la misma página (la ficha y el asistente) y el id de antes podía repetirse.
+  · **LA FICHA SE VE IGUAL QUE EL ASISTENTE**: `_activity_contacts.html` gana el modo **`ac_readonly`**
+  y la ficha lo usa para PINTAR (antes lo hacía por su cuenta: una tira fina al final, sin la ayuda de
+  cada función y **escondiendo las que no tenían a nadie**). Ahora las cuatro salen siempre —lo que
+  está sin asignar es justo lo que hay que rellenar— y debajo, «Otras personas de contacto».
+  ⚠️ Un solo parcial para las tres pantallas: no se pueden desparejar.
+
+- ⚠️⚠️ **UN COMISIONISTA PUEDE SER LA PRODUCCIÓN LOCAL** (sep 2026). Al añadir un comisionista se
+  pregunta **«¿Es la producción local de la actividad?»** (en el asistente y en la ficha). Si lo es:
+  · se guarda en **`ConcertZoneAgent.is_local_production`**, y
+  · se pone como contacto de **Producción local** — y si esa empresa tiene **REPRESENTANTE**, es **SU
+  ficha** la que queda de contacto, que es a quien se llama el día de la actividad.
+  · Punto único **`_zone_agents_apply_local_production`** (+ `_local_production_contact_for`), que
+  corre al guardar el asistente y la sección «Comisiones» de la ficha; el asistente además rellena la
+  tarjeta **en vivo** (`/api/terceros/<pid>/produccion-local` + `app33ActivityContacts.set`), así que
+  se ve puesto antes de llegar al paso de contactos.
+  ⚠️ **No pisa lo que se haya puesto a mano**: solo rellena si esa función está vacía o si la ocupaba
+  otro comisionista de la misma actividad. Y solo UNA comisión puede serlo (marcar una desmarca las
+  demás).
+  ⚠️ El contacto se guarda como **`THIRD` apuntando a la ficha**, así que el correo y el teléfono se
+  leen EN VIVO: corregirlos en su ficha vale para todas sus actividades.
+
+- ⚠️ **EL ALTA DE UNA ACTIVIDAD NO PREGUNTA POR LA HOJA DE RUTA** (sep 2026): las etiquetas de hojas
+  de ruta salieron del asistente. Eso es trabajo de producción y se decide después, en su pestaña.
+  Al no venir el centinela `roadmap_kinds_present`, `_parse_roadmap_kinds_form` deja **las dos
+  activas**, que es lo de por defecto de siempre.
+
 - ⚠️⚠️ **CONTACTOS DE UNA ACTIVIDAD · se ponen SIN TOCAR EL PROMOTOR** (sep 2026, rediseño de
   `_concert_contacts_picker.html` + `static/js/concert_contacts.js`). Antes solo se podía elegir UNA
   persona por función de entre las que ya colgaban del promotor, y **sin promotor no se podía poner

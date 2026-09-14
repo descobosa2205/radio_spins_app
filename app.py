@@ -45383,6 +45383,32 @@ def api_promoter_default_contacts():
         session_db.close()
 
 
+@app.get("/api/terceros/<pid>/produccion-local", endpoint="api_promoter_local_production")
+@admin_required
+def api_promoter_local_production(pid):
+    """QUIÉN sería el contacto de PRODUCCIÓN LOCAL de este tercero (su representante, si lo tiene).
+
+    Lo usa el asistente al marcar un comisionista como «es la producción local»: la tarjeta de esa
+    función se rellena al momento. El punto único es el mismo que aplica el servidor al guardar
+    (`_local_production_contact_for`), así que lo que se ve y lo que se guarda no se desparejan."""
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, _safe_uuid(pid))
+        if promoter is None:
+            return jsonify({"ok": False, "error": "Ese tercero ya no existe."}), 404
+        fila = _local_production_contact_for(session_db, promoter)
+        resuelto = _ticketing_contact_resolve(session_db, fila, promoter)
+        return jsonify({"ok": True, "contact": {
+            "id": resuelto.get("promoter_id") or "",
+            "name": resuelto.get("name") or "",
+            "email": resuelto.get("email") or "",
+            "phone": resuelto.get("phone") or "",
+            "photo": resuelto.get("photo") or "",
+        }})
+    finally:
+        session_db.close()
+
+
 @app.get("/api/contactos/buscar", endpoint="api_contact_search")
 @admin_required
 def api_contact_search():
@@ -51156,6 +51182,10 @@ def promoter_update(pid):
     try:
         if logo and logo.filename:
             p.logo_url = upload_image(logo, "promoters")
+        # EL REPRESENTANTE LEGAL (otro tercero vinculado). ⚠️ CENTINELA: solo se toca si el
+        # formulario trae esa sección; si no, un guardado de otra pantalla lo borraría.
+        if "rep_present" in request.form:
+            _promoter_apply_representative(session, p)
         linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
         # El correo y el teléfono de la ficha son DATOS DE CONTACTO: se cruzan con su pestaña.
         _promoter_sync_contact_rows(session, p)
@@ -52153,7 +52183,7 @@ def _commission_apply_mode(value) -> str:
 
 
 def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_list, concept_list,
-                     apply_list=None):
+                     apply_list=None, local_list=None):
     """Parsea comisionistas (promotores de zona).
 
     - mode: FIXED | PERCENT
@@ -52205,6 +52235,9 @@ def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_li
             # Cómo se aplica: gasto sobre el caché (por defecto) o reducción del caché.
             "apply_mode": _commission_apply_mode(
                 (apply_list[i] if (apply_list and i < len(apply_list)) else None)),
+            # ¿Es además LA PRODUCCIÓN LOCAL de la actividad?
+            "is_local_production": _truthy(
+                (local_list[i] if (local_list and i < len(local_list)) else None)),
         })
 
     # dedupe (último gana)
@@ -52231,6 +52264,7 @@ def _replace_concert_zone_agents(session, concert_id, rows):
                 exempt_amount=r.get("exempt_amount"),
                 concept=r.get("concept"),
                 apply_mode=_commission_apply_mode(r.get("apply_mode")),
+                is_local_production=bool(r.get("is_local_production")),
             )
         )
 
@@ -69052,9 +69086,14 @@ def concert_section_update_handler(cid, section):
                 request.form.getlist("zone_exempt_amount[]"),
                 request.form.getlist("zone_concept[]"),
                 request.form.getlist("zone_apply_mode[]"),
+                request.form.getlist("zone_local[]"),
             )
             _replace_concert_zone_agents(session, c.id, z_rows)
             session.flush()
+            session.refresh(c)
+            # El comisionista que además es la PRODUCCIÓN LOCAL queda de contacto de esa función.
+            if _zone_agents_apply_local_production(session, c):
+                flash("El comisionista queda también como contacto de Producción local.", "info")
             # Una comisión que es un GASTO se ve en la bolsa (el mismo dinero desde dos sitios).
             _concert_commissions_sync_bag(session, c)
             session.commit()
@@ -69406,14 +69445,18 @@ def _promoter_social_links_from_form(form) -> dict:
     return out
 
 
-def _quick_create_representative(session_db, empresa):
-    """Crea el REPRESENTANTE de una empresa (otro tercero) y lo VINCULA con ella. Punto único.
+def _promoter_apply_representative(session_db, empresa, form=None):
+    """EL REPRESENTANTE LEGAL de una empresa (otro tercero vinculado). **Punto único**.
 
-    Los dos terceros se crean en la misma operación: el representante es una PERSONA con su nombre,
+    Lo usan el ALTA rápida (`api_create_promoter`, el «Nuevo tercero» de Terceros) y la EDICIÓN de la
+    ficha, así que se pone igual por los dos caminos. El representante es una PERSONA con su nombre,
     su DNI, su correo y su teléfono, y queda vinculado a la empresa con la relación «Representante».
     ⚠️ La vinculación (`ThirdPartyLink`) es BIDIRECCIONAL: se ve en la ficha de los dos.
-    Si no se rellena nada del representante, no se crea nada."""
-    form = request.form
+    ⚠️⚠️ **Si ya tiene representante se ACTUALIZA el que hay, no se crea otro**: al editar la ficha
+    los campos vienen rellenos con sus datos, así que crear uno nuevo dejaría dos representantes
+    (y dos terceros duplicados) cada vez que se guardara.
+    ⚠️ Si no se rellena nada, no se toca nada (ni se crea ni se borra el que hubiera)."""
+    form = request.form if form is None else form
     nombre_completo = (form.get("rep_full_name") or "").strip()
     dni = (form.get("rep_tax_id") or "").strip()
     email = (form.get("rep_email") or "").strip()
@@ -69421,6 +69464,22 @@ def _quick_create_representative(session_db, empresa):
     if not any((nombre_completo, dni, email, telefono)):
         return None
     nombre, apellidos = _split_full_name(nombre_completo)
+    actuales = _promoter_representatives(session_db, getattr(empresa, "id", None))
+    if actuales:
+        rep = actuales[0]
+        if nombre_completo:
+            rep.first_name = nombre or None
+            rep.last_name = apellidos or None
+            # El nick es como lo llamamos: solo se cambia si era el de un alta automática.
+            if not (rep.nick or "").strip() or (rep.nick or "").startswith("Representante de "):
+                rep.nick = _intake_unique_nick(session_db, nombre_completo, exclude_id=rep.id)
+        if dni:
+            rep.tax_id = dni
+        if email:
+            rep.contact_email = email
+        if telefono:
+            rep.contact_phone = telefono
+        return rep
     # ⚠️ `Promoter.nick` es UNIQUE: `_intake_unique_nick` le busca uno libre.
     base = nombre_completo or dni or email or ("Representante de %s" % (empresa.nick or ""))
     rep = Promoter(
@@ -69505,7 +69564,7 @@ def api_create_promoter():
         # ⚠️ EL REPRESENTANTE de una empresa es OTRO TERCERO: se crean los dos en la misma operación
         # y quedan VINCULADOS entre sí (la vinculación es bidireccional, así que se ve en las dos
         # fichas). Si no se rellena nada, no se crea nada.
-        representante = _quick_create_representative(session, p) if kind else None
+        representante = _promoter_apply_representative(session, p) if kind else None
         linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
         session.commit()
         return jsonify(
@@ -75578,6 +75637,10 @@ def promoter_detail_view(pid):
                                   if getattr(promoter, "parent_promoter_id", None) else ""),
             travel_prefs=_travel_prefs_of(promoter),
             travel_summary=_travel_summary(promoter),
+            # EL REPRESENTANTE LEGAL: solo se PINTA si lo hay, pero al EDITAR se ofrece siempre
+            # (antes solo se podía poner al crear el tercero, así que a los ya creados no había
+            # forma de ponérselo sin crear el tercero a mano y vincularlo).
+            promoter_representatives=_promoter_representatives(session, promoter.id),
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
             promoter_email_addresses=promoter_email_addresses,
             promoter_phone_numbers=promoter_phone_numbers,
@@ -76907,6 +76970,8 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
     bases = form.getlist('wizard_zone_base[]')
     concepts = form.getlist('wizard_zone_concept[]')
     applies = form.getlist('wizard_zone_apply[]')
+    # ¿Este comisionista es además LA PRODUCCIÓN LOCAL de la actividad?
+    locales = form.getlist('wizard_zone_local[]')
     for i, raw_id in enumerate(ids or []):
         raw_id = (raw_id or '').strip()
         if not raw_id:
@@ -76931,6 +76996,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
                 'concept': (concepts[i] if i < len(concepts) else '').strip() or None,
                 'exempt_amount': None,
                 'apply_mode': _commission_apply_mode(applies[i] if i < len(applies) else None),
+                'is_local_production': _truthy(locales[i] if i < len(locales) else None),
             })
         else:
             pct = _parse_optional_pct(pcts[i] if i < len(pcts) else None)
@@ -76947,6 +77013,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
                 'concept': (concepts[i] if i < len(concepts) else '').strip() or None,
                 'exempt_amount': None,
                 'apply_mode': _commission_apply_mode(applies[i] if i < len(applies) else None),
+                'is_local_production': _truthy(locales[i] if i < len(locales) else None),
             })
     return rows
 
@@ -77463,6 +77530,11 @@ def concert_wizard_create():
 
         _replace_concert_promoter_shares(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_promoter_share_rows(request.form)))
         _replace_concert_zone_agents(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_zone_rows(request.form)))
+        session.flush()
+        # ⚠️ Un comisionista marcado como «es la producción local» se pone SOLO de contacto de esa
+        # función (con su representante si lo tiene). Va DESPUÉS de los contactos del paso 14: si
+        # ahí se puso a alguien a mano, no se le pisa.
+        _zone_agents_apply_local_production(session, concert)
         session.flush()
         # ⚠️ Una comisión que es un GASTO se ve en la bolsa: el mismo dinero desde dos sitios.
         _concert_commissions_sync_bag(session, concert)
@@ -95301,6 +95373,9 @@ SUPPORT_READ_ENDPOINTS = {
     "api_concert_contact_options",
     "api_contact_search",
     "api_promoter_default_contacts",
+    # Quién sería el contacto de producción local de un tercero (su representante): lo pregunta el
+    # asistente al marcar un comisionista como «es la producción local».
+    "api_promoter_local_production",
     # El proveedor de un MEDIO (su ficha de tercero) y sus sociedades: en una campaña de radio el
     # proveedor ES la emisora.
     "api_media_provider",
@@ -121990,6 +122065,73 @@ def _activity_contacts_apply_form(session_db, concert, form, *, promoter=None,
             # Ya era el de por defecto: basta con asegurar la vinculación.
             _activity_contact_link(session_db, promoter, fila, rol)
     return avisos
+
+
+def _local_production_contact_for(session_db, promoter):
+    """QUIÉN es el contacto de PRODUCCIÓN LOCAL de un tercero. Punto único.
+
+    Es su **REPRESENTANTE** si lo tiene (una empresa de producción local se lleva la comisión, pero a
+    quien se llama el día de la actividad es a la persona que la representa) y, si no lo tiene, el
+    propio tercero. En los dos casos se guarda como `THIRD` apuntando a la ficha, así que el correo y
+    el teléfono se leen EN VIVO: corregirlos en su ficha vale para todas sus actividades."""
+    if promoter is None:
+        return {}
+    destino = promoter
+    try:
+        reps = _promoter_representatives(session_db, getattr(promoter, "id", None))
+        if reps:
+            destino = reps[0]
+    except Exception:
+        app.logger.exception("[contactos] no se pudo leer el representante del comisionista")
+    return _ticketing_contact_clean({
+        "kind": "THIRD",
+        "name": _promoter_display_name(destino) or (getattr(destino, "nick", "") or ""),
+        "promoter_id": str(getattr(destino, "id", "") or ""),
+        "set_at": _now_madrid().isoformat(),
+        "set_by": ((_current_user_state() or {}).get("nick") or ""),
+    })
+
+
+def _zone_agents_apply_local_production(session_db, concert) -> bool:
+    """⚠️⚠️ UN COMISIONISTA MARCADO COMO «PRODUCCIÓN LOCAL» SE PONE DE CONTACTO SOLO.
+
+    Al añadir un comisionista se pregunta si es la producción local de la actividad. Si lo es, se
+    pone como contacto de **Producción local** —y, si esa empresa tiene REPRESENTANTE, es SU ficha la
+    que queda de contacto, que es a quien se llama—. Así no hay que apuntar a la misma gente dos
+    veces, que es justo lo que se olvidaba.
+    ⚠️ Solo se pone si esa función está VACÍA o si la ocupaba otro comisionista que ya no lo es: lo
+    que alguien haya puesto a mano NO se pisa.
+    Devuelve si ha cambiado algo."""
+    if concert is None:
+        return False
+    try:
+        agentes = list(getattr(concert, "zone_agents", None) or [])
+    except Exception:
+        return False
+    elegido = next((a for a in agentes if bool(getattr(a, "is_local_production", False))), None)
+    actual = _activity_contact_raw(concert, "PRODUCCION_LOCAL")
+    if elegido is None:
+        return False
+    promoter = getattr(elegido, "promoter", None) or session_db.get(Promoter, elegido.promoter_id)
+    fila = _local_production_contact_for(session_db, promoter)
+    if not fila:
+        return False
+    # Ya estaba puesto ese mismo: no se toca (ni se vuelve a sellar la fecha).
+    if (actual or {}).get("kind") == "THIRD" and (actual or {}).get("promoter_id") == fila["promoter_id"]:
+        return False
+    if actual:
+        # Hay alguien puesto a mano: se respeta salvo que fuera OTRO comisionista de esta actividad.
+        otros = {str(getattr(a, "promoter_id", "") or "") for a in agentes}
+        try:
+            otros |= {str(getattr(r, "id", "") or "")
+                      for a in agentes
+                      for r in _promoter_representatives(session_db, getattr(a, "promoter_id", None))}
+        except Exception:
+            pass
+        if (actual.get("promoter_id") or "") not in otros:
+            return False
+    _activity_contact_set(concert, "PRODUCCION_LOCAL", fila)
+    return True
 
 
 def _activity_contacts_promoter_chip(session_db, concert) -> dict:

@@ -153,6 +153,21 @@
   ⚠️ Los catálogos que necesitan los módulos (`PRL_WORKER_TYPES`, `NOTIFY_CHANNELS`) se inyectan en
   `inject_globals`: el parcial se pinta en **cualquier** pantalla y son constantes (ninguna consulta).
 
+- ⚠️⚠️ **EL REPRESENTANTE LEGAL SE PONE TAMBIÉN AL EDITAR** (sep 2026). Solo se podía poner **al
+  crear** el tercero, así que a uno ya creado no había forma de ponérselo (había que crear el otro
+  tercero a mano y vincularlo). Ahora:
+  · **Editando**, la viñeta «Representante legal» sale **SIEMPRE** (en una empresa o una institución;
+  una persona no tiene representante y el JS la oculta **Y deshabilita sus campos** —oculto se envía
+  igual—), con sus datos ya puestos si lo tiene.
+  · **Viendo la ficha, solo si lo TIENE** (con enlace a SU ficha, su DNI, su correo y su teléfono):
+  una función que no aplica no se pinta. Mismo criterio que «Sociedades vinculadas».
+  · **Punto único `_promoter_apply_representative(session_db, empresa, form=None)`**, que usan el
+  ALTA rápida y la EDICIÓN: si ya tiene representante **se ACTUALIZA el que hay, no se crea otro**
+  (si no, cada guardado dejaba un tercero duplicado más). El nick solo se cambia si era el
+  automático («Representante de …»).
+  ⚠️ **CENTINELA `rep_present`**: sin él, un guardado de otra pantalla borraría el representante.
+  ⚠️ De ahí lo lee la **ficha de contratación** (`company_representative*`), que ya lo enseñaba.
+
 - **FICHA DEL TERCERO · el formulario por VIÑETAS y los datos de contacto CRUZADOS** (ago 2026):
   · **Editar la ficha va por bocadillos** (`.demo-card`, los mismos del formulario de una maqueta),
   cada tipo de dato en el suyo: **¿Quién es?** · **Datos de contacto** · **Dirección** ·

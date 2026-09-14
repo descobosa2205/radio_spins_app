@@ -1,8 +1,8 @@
 {# ══════════════════════════════════════════════════════════════════════════════════════════════
    CONTACTOS DE UNA ACTIVIDAD, POR FUNCIÓN — ticketing · producción · producción local · contratación
 
-   Un solo sitio: lo usan el ASISTENTE de alta y la ficha de la actividad, así que se pone y se ve
-   igual en los dos y una mejora vale para ambos.
+   Un solo sitio: lo usan el ASISTENTE de alta, la ficha de la actividad **y la ficha cuando solo se
+   está mirando**, así que se pone y se ve igual en los tres y una mejora vale para todos.
 
    Por cada función: el botón «El mismo contacto que el promotor», la barra de búsqueda de terceros
    con su foto (y el «+» para crear uno nuevo) y, si el promotor ya tiene a alguien puesto para esa
@@ -15,19 +15,27 @@
      ac_rows        · lo que devuelve `_activity_contacts_context`
      ac_promoter    · el promotor (para el botón «el mismo que el promotor»)
      ac_ask_scope   · preguntar el alcance (en la FICHA sí; en el alta no hace falta)
+     ac_readonly    · SOLO VER (la ficha sin editar): las MISMAS cuatro tarjetas, sin botones ni
+                      campos. ⚠️ Es el mismo parcial A PROPÓSITO: así lo que se ve y lo que se edita
+                      no se pueden desparejar (antes la ficha lo pintaba por su cuenta, con otro
+                      aspecto, en otro orden y escondiendo las funciones sin asignar).
    ══════════════════════════════════════════════════════════════════════════════════════════════ #}
 {% set ac_ask_scope = ac_ask_scope if ac_ask_scope is defined else true %}
-<input type="hidden" name="contacts_present" value="1">
-<div class="row g-3" data-activity-contacts>
+{% set ac_readonly = ac_readonly if ac_readonly is defined else false %}
+{% if not ac_readonly %}<input type="hidden" name="contacts_present" value="1">{% endif %}
+<div class="row g-3" {% if not ac_readonly %}data-activity-contacts{% endif %}>
   {% for r in ac_rows %}
     {% set k = r.raw.get('kind') if r.raw else '' %}
     <div class="col-12 col-lg-6">
       <div class="border rounded-3 p-3 h-100 bg-white" data-ac-role="{{ r.role }}">
-        <div class="d-flex align-items-center gap-2 mb-1">
+        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
           <i class="fa {{ r.icon }} text-danger"></i>
           <strong>{{ r.label }}</strong>
-          {% if r.suggested and not r.own %}
+          {% if r.suggested and not r.own and not ac_readonly %}
             <span class="badge bg-light text-dark border">Propuesto</span>
+          {% endif %}
+          {% if ac_readonly and r.resolved and r.resolved.source == 'PROMOTER_DEFAULT' %}
+            <span class="badge bg-light text-dark border">El del promotor</span>
           {% endif %}
         </div>
         <div class="small text-muted mb-2">{{ r.help }}</div>
@@ -36,14 +44,28 @@
         <div class="d-flex align-items-center gap-2 mb-2 {% if not r.resolved %}d-none{% endif %}"
              data-ac-picked>
           <img src="{{ r.resolved.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" data-ac-photo
-               style="width:34px;height:34px;border-radius:50%;object-fit:cover" alt="">
-          <div class="min-w-0">
+               style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto" alt="">
+          <div style="min-width:0">
             <div class="fw-semibold text-truncate" data-ac-name>{{ r.resolved.name }}</div>
             <div class="small text-muted text-truncate" data-ac-contact>
-              {{ r.resolved.email }}{% if r.resolved.email and r.resolved.phone %} · {% endif %}{{ r.resolved.phone }}
+              {%- if ac_readonly -%}
+                {% if r.resolved.email %}<a class="text-reset" href="mailto:{{ r.resolved.email }}">{{ r.resolved.email }}</a>{% endif %}
+                {%- if r.resolved.email and r.resolved.phone %} · {% endif -%}
+                {% if r.resolved.phone %}<a class="text-reset" href="tel:{{ r.resolved.phone }}">{{ r.resolved.phone }}</a>{% endif %}
+              {%- else -%}
+                {{ r.resolved.email }}{% if r.resolved.email and r.resolved.phone %} · {% endif %}{{ r.resolved.phone }}
+              {%- endif -%}
             </div>
           </div>
         </div>
+
+        {# ⚠️ Viendo la ficha, las CUATRO salen siempre: un hueco vacío es justo lo que hay que
+           rellenar, y esconderlo lo deja sin hacer para siempre. #}
+        {% if ac_readonly %}
+          {% if not r.resolved %}
+            <div class="text-muted small"><i class="fa fa-circle-minus me-1"></i>Sin asignar</div>
+          {% endif %}
+        {% else %}
 
         <div class="d-flex flex-wrap gap-2 mb-2">
           {% if ac_promoter %}
@@ -105,6 +127,7 @@
                value="{{ r.raw.get('promoter_id', '') if r.raw else '' }}">
         <input type="hidden" name="{{ r.prefix }}name" data-ac-hidden-name
                value="{{ r.raw.get('name', '') if r.raw else '' }}">
+        {% endif %}
       </div>
     </div>
   {% endfor %}

@@ -1204,7 +1204,20 @@
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-address-book"></i>Contactos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
       <div class="ficha-section__body" data-section-view>
+        {# ⚠️⚠️ LAS CUATRO FUNCIONES, con el MISMO módulo que el asistente y que la edición
+           (`_activity_contacts.html` en modo `ac_readonly`): antes la ficha las pintaba por su
+           cuenta —una tira fina abajo, sin ayuda y escondiendo las que no tenían a nadie—, así que
+           lo que se veía y lo que se editaba no se parecían en nada. Un solo sitio. #}
+        {% if activity_contacts %}
+          {% set ac_rows = activity_contacts %}
+          {% set ac_promoter = None %}
+          {% set ac_readonly = True %}
+          {% include '_activity_contacts.html' %}
+        {% endif %}
+
+        {# Y debajo, las OTRAS personas de contacto de la actividad (funciones libres). #}
         {% if concert_contacts %}
+          <div class="small text-muted mt-3 mb-2"><i class="fa fa-user-group me-1"></i>Otras personas de contacto</div>
           <div class="cc-list">
             {% for p in concert_contacts %}
               <div class="cc-card">
@@ -1226,33 +1239,8 @@
               </div>
             {% endfor %}
           </div>
-        {% else %}
+        {% elif not activity_contacts %}
           <div class="ficha-empty">Sin contactos. Pulsa <i class="fa fa-pen"></i> para asignar quién lleva producción, ticketing y comunicación.</div>
-        {% endif %}
-        {# LAS CUATRO FUNCIONES, tal como quedan: con su foto y diciendo si sale de la actividad o
-           es el de por defecto del promotor. Solo se pinta lo que hay. #}
-        {% if activity_contacts %}
-          {% set _hay = activity_contacts|selectattr('resolved')|list %}
-          {% if _hay %}
-            <div class="row g-2 mt-1">
-              {% for r in _hay %}
-                <div class="col-12 col-sm-6 col-lg-3">
-                  <div class="d-flex align-items-center gap-2">
-                    <img src="{{ r.resolved.photo or DEFAULT_AVATAR_URL }}" data-avatar="1"
-                         style="width:32px;height:32px;border-radius:50%;object-fit:cover" alt="">
-                    <div class="min-w-0">
-                      <div class="ficha-field__label"><i class="fa {{ r.icon }} me-1"></i>{{ r.label }}</div>
-                      <div class="ficha-field__value text-truncate" title="{{ r.resolved.email }}{% if r.resolved.phone %} · {{ r.resolved.phone }}{% endif %}">
-                        {{ r.resolved.name or '—' }}</div>
-                      {% if r.resolved.source == 'PROMOTER_DEFAULT' %}
-                        <div class="small text-muted">El del promotor</div>
-                      {% endif %}
-                    </div>
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-          {% endif %}
         {% endif %}
         {% include '_concert_ticketing_owner.html' %}
       </div>
@@ -1608,7 +1596,7 @@
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='comisionistas') }}" data-inline data-inline-target="#concert-general-zone">
-        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or ''), 'zone_apply_mode': (z.apply_mode or 'EXPENSE')}|tojson }}</script>{% endfor %}</div>
+        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or ''), 'zone_apply_mode': (z.apply_mode or 'EXPENSE'), 'zone_local': ('1' if z.is_local_production else '0')}|tojson }}</script>{% endfor %}</div>
         <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="zone"><i class="fa fa-plus me-1"></i>Añadir comisión</button>
         <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
       </form>

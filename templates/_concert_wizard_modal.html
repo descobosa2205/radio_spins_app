@@ -1149,20 +1149,10 @@
 
           {# ============================ PASO 11 (direct) · Estado + anuncio ============================ #}
           <section class="wizard-step" data-step="11" data-mode="direct">
-            {# Hojas de ruta que tendrá la actividad: etiquetas, las dos activas por defecto. #}
-            <div class="wizard-card">
-              <div class="wizard-card__title"><i class="fa fa-route"></i>Hojas de ruta</div>
-              <div class="wizard-card__hint">Cada una se comparte con su propio enlace. Desmarca la que no vaya a hacer falta.</div>
-              <input type="hidden" name="roadmap_kinds_present" value="1">
-              <div class="filter-chips">
-                {% for key, label, icon in ROADMAP_KINDS %}
-                  <label class="filter-chip">
-                    <input type="checkbox" name="roadmap_kinds" value="{{ key }}" checked>
-                    <i class="fa {{ icon }}"></i>{{ label }}
-                  </label>
-                {% endfor %}
-              </div>
-            </div>
+            {# ⚠️ LA HOJA DE RUTA NO SE PREGUNTA AL DAR DE ALTA: eso es trabajo de producción y se
+               decide después, en su pestaña de la ficha. Al no venir el centinela
+               `roadmap_kinds_present`, `_parse_roadmap_kinds_form` deja las DOS activas, que es lo
+               de por defecto de siempre. #}
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-flag"></i>Estado de la actividad</div>
               <div class="row g-2">
@@ -1671,6 +1661,39 @@
           </div>
           <input type="hidden" name="wizard_zone_apply[]" class="wz-zone-apply-value" value="EXPENSE">
         </div>
+
+        {# ⚠️⚠️ ¿ES LA PRODUCCIÓN LOCAL? Muchas veces quien se lleva la comisión de zona es justo
+           quien está en el sitio el día de la actividad. Si se dice que sí, se pone SOLO como
+           contacto de «Producción local» —y, si esa empresa tiene REPRESENTANTE, es su ficha la que
+           queda de contacto, que es a quien se llama—. Así no hay que apuntar a la misma gente dos
+           veces, que es justo lo que se olvidaba. #}
+        <div class="col-12">
+          <label class="form-label">¿Es la producción local de la actividad?</label>
+          <div class="row g-2">
+            <div class="col-6 col-md-3">
+              <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                <input class="form-check-input visually-hidden wizard-zone-local" type="radio"
+                       name="wizard_zone_local_${uid}" value="1">
+                <i class="fa fa-people-carry-box d-block fs-4 mb-2 text-dark"></i>
+                <span class="fw-semibold small d-block">Sí</span>
+                <span class="small text-muted">Es quien está en el sitio</span>
+              </label>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                <input class="form-check-input visually-hidden wizard-zone-local" type="radio"
+                       name="wizard_zone_local_${uid}" value="0" checked>
+                <i class="fa fa-ban d-block fs-4 mb-2 text-dark"></i>
+                <span class="fw-semibold small d-block">No</span>
+                <span class="small text-muted">Solo se lleva la comisión</span>
+              </label>
+            </div>
+          </div>
+          <input type="hidden" name="wizard_zone_local[]" class="wz-zone-local-value" value="0">
+          <div class="form-text d-none wz-zone-local-hint">
+            <i class="fa fa-circle-check text-success me-1"></i>Queda puesto como contacto de
+            <strong>Producción local</strong> (con su representante, si lo tiene).</div>
+        </div>
       </div>`;
     c.appendChild(row);
     const search = row.querySelector('#' + uid);
@@ -1709,6 +1732,37 @@
       const el = row.querySelector('.wizard-zone-apply:checked');
       aplicaValor.value = (el && el.value) || 'EXPENSE';
     }));
+    /* ¿ES LA PRODUCCIÓN LOCAL? Al decir que sí se pone YA en la tarjeta de «Producción local» del
+       paso de contactos, para que se vea puesto antes de llegar (el servidor lo aplica igual al
+       guardar, que es el punto único: `_zone_agents_apply_local_production`). */
+    const localValor = row.querySelector('.wz-zone-local-value');
+    const localPista = row.querySelector('.wz-zone-local-hint');
+    function aplicaLocal(){
+      const el = row.querySelector('.wizard-zone-local:checked');
+      const si = !!el && el.value === '1';
+      localValor.value = si ? '1' : '0';
+      if (localPista) localPista.classList.toggle('d-none', !si);
+      if (!si) return;
+      // Solo UNA comisión puede ser la producción local: las demás se ponen a «No».
+      document.querySelectorAll('#wizardZoneRows .wz-commission').forEach(function (otra) {
+        if (otra === row) return;
+        const v = otra.querySelector('.wz-zone-local-value');
+        if (v) v.value = '0';
+        const no = otra.querySelector('.wizard-zone-local[value="0"]');
+        if (no) { no.checked = true; no.dispatchEvent(new Event('change', { bubbles: true })); }
+        const h = otra.querySelector('.wz-zone-local-hint');
+        if (h) h.classList.add('d-none');
+      });
+      const pid = (idInput.value || '').trim();
+      if (!pid || (kindInput.value || 'promoter') !== 'promoter') return;
+      fetch('/api/terceros/' + encodeURIComponent(pid) + '/produccion-local',
+            { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.json()).then(function (d) {
+          if (!d || !d.ok || !window.app33ActivityContacts) return;
+          window.app33ActivityContacts.set('PRODUCCION_LOCAL', d.contact);
+        }).catch(function () {});
+    }
+    row.querySelectorAll('.wizard-zone-local').forEach(r => r.addEventListener('change', aplicaLocal));
     if (prefill?.mode === 'FIXED') {
       const f = row.querySelector('.wizard-zone-mode[value="FIXED"]');
       if (f) f.checked = true;

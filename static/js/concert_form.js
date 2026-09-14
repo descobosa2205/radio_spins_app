@@ -159,6 +159,15 @@
         +     '<option value="EXPENSE" selected>Gasto sobre el caché</option>'
         +     '<option value="REDUCE">Reduce el caché</option>'
         +   '</select></div>'
+        /* ⚠️ ¿ES LA PRODUCCIÓN LOCAL? Muchas veces quien se lleva la comisión de zona es justo quien
+           está en el sitio el día de la actividad: si se dice que sí, se pone SOLO como contacto de
+           «Producción local» (con su representante, si lo tiene). El <select> viaja siempre, así que
+           «No» también se guarda y se puede deshacer. */
+        + '<div class="col-md-5"><label class="form-label small">¿Es la producción local?</label>'
+        +   '<select name="zone_local[]" class="form-select">'
+        +     '<option value="0" selected>No</option>'
+        +     '<option value="1">Sí · es quien está en el sitio</option>'
+        +   '</select></div>'
         + '<div class="col-md-2 d-grid"><label class="form-label small">&nbsp;</label><button type="button" class="btn btn-outline-danger" data-remove-row><i class="fa fa-trash"></i></button></div>'
         + '</div></div>');
     }

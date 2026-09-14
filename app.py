@@ -60224,9 +60224,14 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                         specs=[{"label": "Formatos", "value": " · ".join(st.get("format_labels") or [])},
                                {"label": "Venta", "value": (st.get("pct_label") or "")}],
                         url=ficha, upload_label="los carteles de Sold Out"))
-            # c) Los carteles que ha subido OTRO y diseño tiene que aprobar (no es una subida).
-            pendientes = [a for a in vigentes if (a.validation_status or "APPROVED") == "PENDING"]
-            if pendientes and hecho_por == "PROMOTER":
+            # c) Los carteles que diseño tiene que aprobar (no es una subida).
+            # ⚠️⚠️ Un cartel en **PENDING espera SIEMPRE a diseño**, lo haya subido el promotor,
+            # contratación o quien sea (`ARTWORK_PHASE_WHO`: PENDING → DISEÑO, DESIGN_OK → quien
+            # gestiona). Antes esto solo miraba los del PROMOTOR y el resto no le entraba nunca a
+            # diseño: se quedaban esperando un visto bueno que nadie le había pedido.
+            # ⚠️ La fase se lee con `_artwork_asset_phase`, el punto único que la normaliza.
+            pendientes = [a for a in vigentes if _artwork_asset_phase(a) == "PENDING"]
+            if pendientes:
                 tareas.append(_design_task(
                     "ARTWORK_REVIEW", row.id, title="Carteles por aprobar",
                     subject="%s%s" % (nombre, (" · " + donde) if donde else ""),
@@ -92719,6 +92724,9 @@ def _infer_group_key_from_path(path: str) -> str | None:
 # contratación (la pide y aprueba la nuestra). Se acepta la PRIMERA que el usuario tenga.
 ARTWORK_ACCESS_KEYS = ("diseno", "contratacion.conciertos", "contratacion")
 
+# ⚠️ CREAR UNA ACTIVIDAD con el asistente: la lista está junto a `CONTRACTING_TAB_DEFS`, de donde
+# sale (**`ACTIVITY_CREATE_ACCESS_KEYS`**), porque son sus pestañas.
+
 ACTIVITY_READ_ACCESS_KEYS = ("contratacion", "produccion", "administracion", "promocion",
                              "registros", "contabilidad", "acciones", "invitaciones",
                              "ventas", "promo", "discografica",
@@ -93040,6 +93048,11 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint.startswith("concert_artwork") or endpoint.startswith("group_artwork"):
         return _first_access_key(ARTWORK_ACCESS_KEYS, "contratacion.conciertos",
                                  edit=(request.method in ("POST", "PUT", "PATCH", "DELETE")))
+    # ⚠️ El ALTA con el asistente: la primera pestaña de Contratación que tenga, para que el gate
+    # deje pasar exactamente a quien la vista deja guardar (y a quien se le pinta el botón).
+    if endpoint == "concert_wizard_create":
+        return _first_access_key(ACTIVITY_CREATE_ACCESS_KEYS, "contratacion.conciertos",
+                                 edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     if endpoint == "concerts_view":
         tab = (request.args.get("tab") or "vista").strip().lower()
         if tab == "facturacion":
@@ -94252,6 +94265,17 @@ CONTRACTING_TAB_DEFS = (
     ("facturacion",       "contratacion.facturacion",  "fa-file-invoice-dollar",   "Facturación"),
     ("simulaciones",      "contratacion.simulaciones", "fa-calculator",            "Simulaciones"),
 )
+
+
+# ⚠️⚠️ QUIÉN PUEDE CREAR UNA ACTIVIDAD con el asistente: quien tenga edición en CUALQUIERA de esas
+# pestañas — es lo que comprueba la vista (`can_edit_concerts()`) y lo que decide si se pinta el
+# botón (`wizard_available`). El GATE, en cambio, resolvía el endpoint por su RUTA (`/conciertos/…`
+# → `contratacion.conciertos`) y lo rebotaba ANTES de llegar a la vista: a quien lleva «Otras
+# actividades», «Eventos» o «Festivales» se le pintaba el asistente entero y el guardado le devolvía
+# un 403 (18 enlaces en `tools/check_permisos.py`). Con esta lista los TRES miran lo mismo.
+# ⚠️ Sale del catálogo de pestañas: una pestaña nueva de Contratación entra sola.
+ACTIVITY_CREATE_ACCESS_KEYS = ("contratacion.conciertos", "contratacion") + tuple(
+    k for _c, k, _i, _l in CONTRACTING_TAB_DEFS if k != "contratacion.conciertos")
 
 
 def _contracting_tab_url(clave: str) -> str:

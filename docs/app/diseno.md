@@ -29,7 +29,7 @@ salen **los tres sitios** donde se enseña, así que no pueden decir cosas disti
 |---|---|---|---|
 | `ARTWORK` | la cartelería de una actividad | `ConcertArtworkRequest` OURS en REQUESTED/CORRECTIONS sin carteles | subiendo los carteles |
 | `SOLDOUT` | el cartel de Sold Out (se pide solo al 90 %) | `soldout_requested_at` sin entregar | subiendo los carteles |
-| `ARTWORK_REVIEW` | los carteles por aprobar (el **primer** visto bueno) | `validation_status='PENDING'` | **no se sube**: lleva a la pestaña Cartelería (se aprueban uno a uno) |
+| `ARTWORK_REVIEW` | los carteles por aprobar (el **primer** visto bueno) | fase `PENDING` (`_artwork_asset_phase`) | **no se sube**: lleva a la pestaña Cartelería (se aprueban uno a uno) |
 | `DISCO_ARTWORK` | la portada de un lanzamiento | `_disco_artwork_state` who=US, pedida y sin entregar | el JPG **y** el PSD |
 | `DISCO_CREATIVE` | cada creatividad (una tarea por pieza) | `DiscoProjectCreative` en SOLICITADA | un archivo por pieza |
 | `DISCO_PLAN_CONTENT` | un contenido del plan de lanzamiento | `DiscoReleaseContent.design_requested_at` sin archivo | un archivo |
@@ -50,6 +50,15 @@ estados. Los dos más pesados (`_disco_video_state`, que consulta los logos de m
 `_disco_press_state`) se saltan mirando **primero el payload en crudo** (`_disco_video(p)['thumb']`,
 `_disco_press(p)`) y solo se llaman cuando de verdad hay algo pedido. Con 61 lanzamientos vivos:
 **155 ms**.
+
+⚠️⚠️ **UN CARTEL EN `PENDING` ESPERA SIEMPRE A DISEÑO**, lo haya subido el promotor, contratación o
+quien sea: con la **doble aprobación** (`PENDING` → `DESIGN_OK` → `APPROVED`, ver
+`docs/app/carteleria.md`) el PRIMER visto bueno es suyo (`ARTWORK_PHASE_WHO`). Esta tarea solo miraba
+las solicitudes del **PROMOTOR**, así que un cartel pendiente de una solicitud NUESTRA no le entraba
+a nadie y se quedaba esperando un OK que nadie le había pedido. La fase se lee con
+**`_artwork_asset_phase`**, el punto único que la normaliza.
+⚠️ Lo que sube diseño nace en `DESIGN_OK` (`_artwork_new_asset_status`), así que su propia entrega
+**no se reclama a sí misma**. Comprobado en las cuatro fases.
 
 ## EL POP-UP DE UNA TAREA · lo que se pide, los adjuntos y la zona de subir
 

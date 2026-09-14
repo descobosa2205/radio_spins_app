@@ -357,10 +357,22 @@
   edición en «Otras actividades», «Eventos» o «Festivales» **podía guardar la actividad pero el
   asistente ni se pintaba**: en `/actividades` (donde el botón cuelga de `CAN_EDIT_CONCERTS` y el
   modal de `wizard_available`) salía **un botón que no hacía nada**, y en Giras o Festivales —donde
-  el botón va DENTRO de `wizard_available`— **desaparecía**. Es el mismo bug de siempre visto del
-  revés: el botón y la puerta tienen que mirar **la misma función**, no dos que se parezcan.
-  ⚠️ Comprobado con cuatro usuarios (edición en Otras · en Eventos · en Conciertos · sin nada):
-  botón y asistente coinciden en los cuatro.
+  el botón va DENTRO de `wizard_available`— **desaparecía**.
+  ⚠️⚠️⚠️ **Y AL IGUALARLOS SALTÓ EL DE VERDAD, QUE ESTABA DEBAJO**: `concert_wizard_create` **no
+  estaba mapeado**, así que el gate lo resolvía **por su RUTA** (`_infer_group_key_from_path`:
+  `/conciertos/…` → `contratacion.conciertos`) y lo rebotaba **ANTES de llegar a la vista** — la
+  vista sí les dejaba. Con el asistente ya pintado, `tools/check_permisos.py` cantó **18 enlaces**
+  (9 recursos × 2 pantallas), todos al mismo `POST /conciertos/wizard/create`.
+  · Punto único **`ACTIVITY_CREATE_ACCESS_KEYS`** + `_first_access_key` (el patrón de
+  `BAG_ACCESS_KEYS` / `INVOICE_EDIT_ACCESS_KEYS`): el gate acepta la primera pestaña de Contratación
+  que tenga con edición, que es exactamente lo que comprueba la vista. Así **el botón, el gate y el
+  guardado miran los tres lo mismo**.
+  ⚠️ La lista SALE de `CONTRACTING_TAB_DEFS`, así que una pestaña nueva de Contratación entra sola;
+  y va definida **justo después de ese catálogo**, no arriba con las demás listas de accesos
+  (el módulo se evalúa de arriba abajo: puesta antes, **NameError al importar**).
+  ⚠️ Comprobado con cinco usuarios: el gate y la vista coinciden en los cinco, y `check_permisos`
+  vuelve a **cero** (⚠️ con la BD de prueba **recreada**: la que tenía datos sembrados a mano daba
+  decenas de 403 de `ventas.reportes` que no eran reales).
   ⚠️⚠️ Pero el CONTEXTO del asistente se monta **siempre** (`_with_concert_wizard`): hay plantillas
   que incluían el modal sin mirar `wizard_available` y se caían con un **500** (`promoters_payload`
   Undefined). Ya lo miran las 14; una pantalla nueva que lo incluya, también.

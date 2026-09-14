@@ -4808,8 +4808,9 @@ ARTWORK_MAIL_KINDS = {
 
 
 def _artwork_mail_sections(row, *, note="", changes=()) -> list[dict]:
-    """Los bloques del correo: qué ha cambiado, la nota, los formatos y los logos que tienen que
-    salir. ⚠️ Los `items` del motor de correos son DICTS (`title`/`meta`), no cadenas."""
+    """Los bloques del correo: qué ha cambiado, la nota, los formatos y **lo que el cartel tiene que
+    incluir** (los logos marcados y lo escrito a mano, en UN solo bloque que no sale si está vacío).
+    ⚠️ Los `items` del motor de correos son DICTS (`title`/`meta`), no cadenas."""
     secciones = []
     if changes:
         secciones.append({"title": "Qué ha cambiado",
@@ -4840,16 +4841,20 @@ def _artwork_mail_sections(row, *, note="", changes=()) -> list[dict]:
                 ses.close()
     except Exception:
         app.logger.exception("[carteleria] no se pudieron leer los logos de la solicitud")
-    if empresas:
-        secciones.append({"title": "Logos que tienen que salir", "items": empresas})
     notas = []
     for etiqueta, valor in (("Logos", getattr(row, "logo_notes", "")),
                             ("Ticketeras", getattr(row, "ticketer_notes", "")),
                             ("Otras notas", getattr(row, "other_notes", ""))):
         if str(valor or "").strip():
             notas.append("%s: %s" % (etiqueta, str(valor).strip()))
-    if notas:
-        secciones.append({"title": "Lo que tiene que salir", "text": "\n".join(notas)})
+    # ⚠️ **UN SOLO BLOQUE** con lo que tiene que llevar el cartel: los logos MARCADOS y lo escrito a
+    # mano. Antes eran DOS («Logos que tienen que salir» y «Lo que tiene que salir»), que decían casi
+    # lo mismo con dos títulos casi iguales y al promotor le llegaban seguidos.
+    # ⚠️ **Si no se ha marcado ni escrito nada, el bloque NO se pinta** (ni su título): un apartado
+    # vacío en el correo es peor que no tenerlo.
+    if empresas or notas:
+        secciones.append({"title": "Los carteles tienen que incluir:",
+                          "items": empresas, "text": "\n".join(notas)})
     plazo = getattr(row, "delivery_deadline", None)
     if plazo:
         secciones.append({"title": "Fecha máxima de entrega", "text": plazo.strftime("%d/%m/%Y")})

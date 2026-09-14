@@ -31,6 +31,7 @@
 - ACTUALIZAR VENTAS · la foto del artista, y sin los vinculados
 - «ACTUALIZAR VENTAS» NO SERVÍA PARA NADA SUELTO (bug real, sep 2026, lo sacó
 - LA RECAUDACIÓN SOLO ES NUESTRA SI LA PROMUEVE (o participa) UNA EMPRESA DEL GRUPO
+- LO GRATUITO NO TIENE SALIDA A LA VENTA: si no se venden entradas, no hay fecha ni aviso que dar
 - ACTUALIZAR VENTAS · EL COLOR DE CADA TARJETA DICE SI HAY TRABAJO Y DE QUÉ TIPO
 
 ---
@@ -929,6 +930,49 @@
   ⚠️ `_concerts_group_promoted_map` se alineó con `_concert_is_group_promoted` (le faltaba «a
   EMPRESA con empresa que factura»): con dos criterios distintos, la misma fecha salía como del
   grupo en un sitio y de un tercero en otro.
+
+- ⚠️⚠️⚠️ **LO GRATUITO NO TIENE SALIDA A LA VENTA** (sep 2026, lo pidió Dani: «en las gratuitas no
+  debe aparecer la fecha de anuncio de venta de entradas ni nada relacionado, ni en la
+  configuración, ni en los detalles de la ficha, ni en las notificaciones al artista; si es gratuito
+  aparece con su etiqueta y ya está»). Si no se venden entradas **no hay fecha de salida a la
+  venta**, así que enseñar «Salida a la venta: por confirmar» al lado de la etiqueta «Gratuito» era
+  información contradictoria — y un campo que no sirve para nada.
+  · **Punto único: `_concert_is_free`**, el MISMO que pinta la etiqueta, así que lo que se enseña y
+  lo que se esconde no se pueden desparejar. **No hay una segunda regla**: si sale la etiqueta
+  «Gratuito», no sale nada de la venta. Textos en **`CONCERT_FREE_ENTRY_LABEL`** («Gratuita», para
+  las cabeceras) y **`CONCERT_FREE_ENTRY_TEXT`** («Gratuita · no se venden entradas», para las
+  fichas y los avisos).
+  · **DÓNDE deja de aparecer**: el formulario de **«Datos»** de la ficha (donde iba el campo va
+  ahora la etiqueta «Gratuito» y una línea que lo explica) · la vista de **«Entradas y venta»** ·
+  la **etiqueta de venta de la cabecera** (`_concert_onsale_badge.html`) · la ficha de contratación
+  (`_concert_contracting_general_rows`) y **su PDF** (donde iba «A la venta» va «Entrada ·
+  Gratuita»; y el aforo de la cabecera usa ya `_concert_capacity_label`, que en una gratuita es
+  «Aforo» a secas) · el **aviso al artista** (`_activity_notice_announcement`: en vez de la salida a
+  la venta, «Entrada · Gratuita · no se venden entradas», y se sigue diciendo cuándo se anuncia) ·
+  el **SMS del día del anuncio** (`_announce_sale_url` no da enlace de venta) · la fila de
+  **Conciertos** de `concerts.html` · y el **formulario del promotor**, que no le pregunta nada de
+  ticketing más allá del aforo.
+  · **LA CABECERA DE LA ACTIVIDAD LO DICE** (`_contract_sheet_hero_rows`, la que comparten la ficha,
+  los correos y el formulario del promotor): **«Entrada · Gratuita»** con el icono del regalo. Así lo
+  ve también quien recibe el correo, que es donde se pidió.
+  ⚠️ **Y no reclama trabajo de venta**: `_concert_sale_state` devuelve vacío en una gratuita, así que
+  no salen «Activar la venta», «Sin activar la venta» (tarea de Contratación) ni «Notificar la salida
+  a la venta». Antes bastaba con que el modo de entrada dijera SALE; ahora la etiqueta manda, así que
+  una actividad **mal apuntada** (modo «venta» + tipo GRATUITO, que es lo de antes) tampoco los pide.
+  ⚠️⚠️ **EL BUG DE VERDAD ESTABA EN GUARDAR «DATOS»**: el campo llegaba vacío y el guardado hacía
+  `sale_start_tbc = True`, así que **cualquier** actividad gratuita a la que se le tocara un dato
+  pasaba a decir «Salida a la venta: por confirmar» en la ficha y en el aviso al artista. Ahora, si es
+  gratuita se **limpia** (fecha, TBC y hora) y, si no, se guarda **solo si el formulario trae el
+  campo** (centinela: una pantalla vieja no lo pisa). Lo mismo al cambiar el acceso a gratuito en
+  «Entradas y venta» — y al volver a «venta de entradas» se puede poner otra vez.
+  ⚠️ El panel de venta de «Entradas y venta» sigue en el HTML (es como se cambia el acceso), pero
+  nace **oculto y con sus campos DESHABILITADOS** (`entPanel`/`entPanelsInit` en `concert_detail.html`,
+  que se rehacen tras el refresco AJAX con `inline:updated`): un campo oculto se envía igual.
+  ⚠️ **El servidor lo vuelve a comprobar**: `concert_onsale_set` rechaza ponerle fecha a una gratuita
+  (su etiqueta ni se pinta, pero el endpoint existe) y `_prepare_contract_sheet_merge` no le propone
+  la fecha aunque la ficha del promotor la traiga guardada de antes.
+  · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_gratuito.py`** (35 comprobaciones con
+  la app real, de punta a punta, incluidas las 12 pestañas de las dos fichas).
 
 - ⚠️⚠️ **ACTUALIZAR VENTAS · EL COLOR DE CADA TARJETA DICE SI HAY TRABAJO Y DE QUÉ TIPO**
   (sep 2026, punto único **`_sales_update_cards`** → `card_map`):

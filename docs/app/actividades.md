@@ -224,6 +224,10 @@
   ⚠️ **Sin fecha de salida a la venta NO se bloquea el guardado**: se apunta como «por confirmar».
   Antes reventaba con «la fecha de salida a la venta es obligatoria» y **no se guardaba nada del
   resto del formulario**, así que una actividad sin fecha de venta no se podía editar.
+  ⚠️⚠️ **Y en una actividad GRATUITA no se pregunta siquiera** (sep 2026): donde iba el campo va su
+  etiqueta «Gratuito», y el guardado **limpia** la fecha en vez de dejar un «por confirmar» fantasma
+  —que es lo que hacía que la ficha y el aviso al artista hablaran de una venta que no existe—.
+  Toda la regla (y dónde más deja de aparecer) está en `docs/app/ventas-ticketing.md`.
   ⚠️ Los campos que se guardan **solo si el formulario los trae** (`if "x" in request.form`) son los
   que también se tocan desde otra pantalla (la gira, el ciclo, el tipo de actividad, el promotor):
   así un guardado parcial de otra sección no los borra.

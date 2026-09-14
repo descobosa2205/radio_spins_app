@@ -5959,6 +5959,11 @@ def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[di
     auto_updates = []
     conflicts = []
     candidates = _sheet_merge_candidates(data or {})
+    # ⚠️ En una actividad GRATUITA no hay salida a la venta. El formulario del promotor ya no la
+    # pregunta, pero una ficha de antes puede traer la fecha guardada: no se le pone a la actividad
+    # (si no, volvería a aparecer «Salida a la venta» en algo que es gratis).
+    if _concert_is_free(concert):
+        candidates.pop('sale_start_date', None)
     current_values = {
         'date': concert.date.isoformat() if getattr(concert, 'date', None) else None,
         'manual_municipality': _concert_city(concert) or None,
@@ -6221,6 +6226,20 @@ def _concert_capacity_label(concert) -> str:
     ⚠️ En una actividad GRATUITA no se vende ninguna entrada, así que su aforo no es «a la venta»:
     es el aforo a secas. Lo usan la cabecera de la ficha, sus formularios y la fila del listado."""
     return CONCERT_CAPACITY_LABEL_FREE if _concert_is_free(concert) else CONCERT_CAPACITY_LABEL
+
+
+# =================================================================================================
+# LO GRATUITO NO TIENE SALIDA A LA VENTA
+# -------------------------------------------------------------------------------------------------
+# ⚠️⚠️ En una actividad GRATUITA no hay entradas que vender, así que NO hay fecha de salida a la
+# venta: ni se pregunta (asistente y formularios de la ficha), ni se pinta (la ficha, la ficha de
+# contratación, su PDF), ni se comunica (el aviso al artista). Lo que se dice es que es GRATUITA,
+# con su etiqueta y su icono. Enseñar «Salida a la venta: por confirmar» en algo que no se vende es
+# justo la información contradictoria que se quería quitar.
+# El punto único de «es gratuita» es `_concert_is_free`, el MISMO que pinta la etiqueta: así la
+# etiqueta y lo que se esconde no se pueden desparejar.
+CONCERT_FREE_ENTRY_LABEL = "Gratuita"                          # cabeceras: «Entrada · Gratuita»
+CONCERT_FREE_ENTRY_TEXT = "Gratuita · no se venden entradas"   # fichas y avisos
 
 
 def _concert_type_label(concert) -> str:
@@ -68134,6 +68153,9 @@ def _announce_sale_url(concert) -> str:
     """El enlace de VENTA de la actividad, si ya se puede comprar HOY. Si la salida a la venta es
     más tarde (o no hay enlace), no se pone: mandar un enlace que no vende es peor que no mandarlo."""
     try:
+        # ⚠️ En una actividad GRATUITA no hay entradas que comprar: ningún enlace de venta.
+        if _concert_is_free(concert):
+            return ""
         salida = getattr(concert, "sale_start_date", None)
         if salida and salida > today_local():
             return ""
@@ -69986,13 +70008,23 @@ def concert_section_update_handler(cid, section):
             # ⚠️ Sin fecha NO se bloquea el guardado: se apunta como «por confirmar». Antes reventaba
             # con «la fecha de salida a la venta es obligatoria» y no se guardaba NADA del resto del
             # formulario, así que una actividad que todavía no tiene fecha de venta no se podía editar.
-            c.sale_start_tbc = _truthy(request.form.get("sale_start_tbc"))
-            _venta = (request.form.get("sale_start_date") or "").strip()
-            if not _venta:
-                c.sale_start_tbc = True
+            # ⚠️⚠️ En una actividad GRATUITA no hay entradas que vender: el formulario ni pregunta y
+            # aquí se LIMPIA lo que hubiera. Antes, guardar «Datos» de una actividad gratuita la
+            # dejaba con `sale_start_tbc = True` (el campo llegaba vacío) y la ficha y el aviso al
+            # artista pasaban a decir «Salida a la venta: por confirmar» en algo que es gratis.
+            # ⚠️ Con CENTINELA: si el formulario no trae el campo (una pantalla vieja), no se toca.
+            if _concert_is_free(c):
+                c.sale_start_tbc = False
                 c.sale_start_date = None
-            else:
-                c.sale_start_date = parse_concert_sale_start_date(_venta, sale_type)
+                c.sale_start_time = None
+            elif "sale_start_date" in request.form or "sale_start_tbc" in request.form:
+                c.sale_start_tbc = _truthy(request.form.get("sale_start_tbc"))
+                _venta = (request.form.get("sale_start_date") or "").strip()
+                if not _venta:
+                    c.sale_start_tbc = True
+                    c.sale_start_date = None
+                else:
+                    c.sale_start_date = parse_concert_sale_start_date(_venta, sale_type)
             # ⚠️ EL PUNTO DE EMPATE se guarda SIEMPRE: antes se BORRABA en los conciertos vendidos y
             # gratuitos, así que escribirlo no servía de nada.
             c.break_even_ticket = _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
@@ -70174,8 +70206,10 @@ def concert_section_update_handler(cid, section):
             if entry_mode == "FREE":
                 c.no_capacity = _truthy(request.form.get("free_capacity_unlimited"))
                 c.capacity = 0 if c.no_capacity else (_parse_optional_positive_int(request.form.get("free_capacity")) or 0)
+                # Gratuita: no hay salida a la venta, ni fecha ni hora (ni un «por confirmar»).
                 c.sale_start_tbc = False
                 c.sale_start_date = None
+                c.sale_start_time = None
                 ticket_type_rows = []
                 payload["sale_seller"] = None
                 payload["sale_owner"] = ""
@@ -70928,6 +70962,11 @@ def concert_onsale_set(cid):
         concert = session_db.get(Concert, to_uuid(cid) or uuid.uuid4())
         if concert is None:
             flash("Actividad no encontrada.", "warning")
+            return redirect(next_url)
+        # ⚠️ En una actividad GRATUITA no hay entradas que vender: su etiqueta ni se pinta, pero el
+        # servidor lo vuelve a comprobar para que no quede una fecha de venta en algo que es gratis.
+        if _concert_is_free(concert):
+            flash("Esta actividad es gratuita: no tiene salida a la venta.", "warning")
             return redirect(next_url)
         modo = (request.form.get("mode") or "").strip().upper()
         # La HORA de salida a la venta (opcional): se guarda igual en «a la venta» y en «sale el día».
@@ -78730,6 +78769,9 @@ def _contract_sheet_form_context(session_db, concert, sheet, data, *, public_mod
     return {
         "hero_rows": _contract_sheet_hero_rows(concert),
         "activity_type_label": _activity_kind_label(getattr(concert, "activity_type", None)),
+        # ⚠️ ACTIVIDAD GRATUITA: no se le pregunta al promotor nada de la venta de entradas (ni la
+        # fecha de salida a la venta, ni ticketeras, ni tipos de entrada). Punto único de siempre.
+        "activity_is_free": _concert_is_free(concert),
         "ticketers": ticketeras,
         "ticketer_names": [t.name for t in ticketeras],
         "local_by_choices": CONTRACT_SHEET_CHOICES["local_by"],
@@ -79307,7 +79349,9 @@ def concert_contract_sheet_pdf(cid):
         if venue_bits:
             extra = ''
             if not getattr(concert, 'no_capacity', False) and getattr(concert, 'capacity', None):
-                extra = f"<br/><font size=6.5 color='#6b7280'>Aforo a la venta: {concert.capacity}</font>"
+                # ⚠️ En una gratuita es «Aforo» a secas, no «a la venta» (punto único de la casa).
+                extra = (f"<br/><font size=6.5 color='#6b7280'>"
+                         f"{_concert_capacity_label(concert)}: {concert.capacity}</font>")
             items.append(('Recinto', Paragraph('<b>' + ' · '.join(venue_bits[:1]) + '</b><br/><font size=6.5 color="#6b7280">' + ' · '.join(venue_bits[1:]) + '</font>' + extra, cell_val)))
 
         if getattr(concert, 'billing_company', None):
@@ -79334,7 +79378,10 @@ def concert_contract_sheet_pdf(cid):
             items.append(('Anuncio', Paragraph(concert.announcement_date.strftime('%d/%m/%Y'), cell_val_b)))
         else:
             items.append(('Anuncio', Paragraph('TBC', cell_val)))
-        if getattr(concert, 'sale_start_tbc', False):
+        # ⚠️ En una actividad GRATUITA no hay salida a la venta: se dice que la entrada es gratis.
+        if _concert_is_free(concert):
+            items.append(('Entrada', Paragraph(CONCERT_FREE_ENTRY_LABEL, cell_val_b)))
+        elif getattr(concert, 'sale_start_tbc', False):
             items.append(('A la venta', Paragraph('TBC', cell_val)))
         elif getattr(concert, 'sale_start_date', None):
             items.append(('A la venta', Paragraph(concert.sale_start_date.strftime('%d/%m/%Y'), cell_val_b)))
@@ -116080,10 +116127,13 @@ def _concert_contracting_general_rows(session_db, concert):
         add("Apertura de puertas", "TBC")
     else:
         add("Apertura de puertas", getattr(concert, "doors_time", None))
-    if getattr(concert, "sale_start_tbc", False):
-        add("Salida a la venta", "TBC")
-    elif getattr(concert, "sale_start_date", None):
-        add("Salida a la venta", concert.sale_start_date.strftime("%d/%m/%Y"))
+    # SALIDA A LA VENTA · solo si se venden entradas. En una actividad GRATUITA no se pinta: lo que
+    # se dice es que la entrada es gratis, y eso ya lo dice la fila «Entrada» de más abajo.
+    if not _concert_is_free(concert):
+        if getattr(concert, "sale_start_tbc", False):
+            add("Salida a la venta", "TBC")
+        elif getattr(concert, "sale_start_date", None):
+            add("Salida a la venta", concert.sale_start_date.strftime("%d/%m/%Y"))
     if not getattr(concert, "no_capacity", False) and getattr(concert, "capacity", None):
         add("Aforo", str(concert.capacity))
     elif getattr(concert, "no_capacity", False):
@@ -116127,8 +116177,10 @@ def _concert_contracting_general_rows(session_db, concert):
     ticketing = _json_loads_safe(getattr(concert, "ticketing_payload", None), {})
     ticketing = ticketing if isinstance(ticketing, dict) else {}
     entry_mode = (ticketing.get("entry_mode") or "").upper()
-    if entry_mode == "FREE":
-        add("Entrada", "Evento gratuito")
+    # ⚠️ Lo GRATUITO manda, y lo dice también una actividad ANTIGUA guardada como GRATUITO aunque no
+    # traiga modo de entrada: es la fila que sustituye a la salida a la venta, que ahí no existe.
+    if entry_mode == "FREE" or _concert_is_free(concert):
+        add("Entrada", CONCERT_FREE_ENTRY_TEXT)
     elif entry_mode == "SALE":
         add("Entrada", "Venta de entradas")
     seller = ticketing.get("sale_seller") if isinstance(ticketing.get("sale_seller"), dict) else None
@@ -117711,6 +117763,10 @@ def _contract_sheet_hero_rows(concert) -> list:
         filas.append(("fa-location-dot", "Recinto", sitio))
     if getattr(concert, "festival_name", None):
         filas.append(("fa-star", "Festival", concert.festival_name))
+    # ⚠️ Lo GRATUITO se dice AQUÍ, que es la cabecera que ven el artista y el promotor: así queda
+    # claro de una vez —y en vez de una salida a la venta que no existe— que no se venden entradas.
+    if _concert_is_free(concert):
+        filas.append(("fa-gift", "Entrada", CONCERT_FREE_ENTRY_LABEL))
     if getattr(concert, "no_capacity", False):
         filas.append(("fa-people-group", "Aforo", "Libre"))
     elif getattr(concert, "capacity", None):
@@ -119130,6 +119186,12 @@ def _activity_notice_announcement(concert) -> dict:
     if fecha:
         filas.append({"label": "Se anuncia", "value": ("Hoy" if fecha == hoy else fecha.strftime("%d/%m/%Y")),
                       "note": ""})
+    # ⚠️⚠️ En una actividad GRATUITA no se vende ninguna entrada: al artista se le dice ESO y nunca
+    # una salida a la venta (ni «por confirmar»). Anunciar una venta que no existe es justo lo que
+    # hacía que el aviso se contradijera con la etiqueta «Gratuito» de la actividad.
+    if _concert_is_free(concert):
+        filas.append({"label": "Entrada", "value": CONCERT_FREE_ENTRY_TEXT, "note": ""})
+        return {"rows": filas}
     venta = getattr(concert, "sale_start_date", None)
     if venta:
         hora = (getattr(concert, "sale_start_time", None) or "").strip()
@@ -120762,6 +120824,10 @@ def _concert_sale_state(session_db, concert) -> dict:
     if (getattr(concert, "status", None) or "").strip().upper() != "CONFIRMADO":
         return vacio
     if not _concert_sells_tickets(concert):
+        return vacio
+    # ⚠️ Ni aunque lo diga el modo de entrada: si la actividad está marcada como GRATUITA (su
+    # etiqueta) no hay entradas que sacar a la venta ni salida que comunicar a nadie.
+    if _concert_is_free(concert):
         return vacio
     # El HISTÓRICO no genera trabajo (misma regla que producción) y lo que ya pasó tampoco.
     try:

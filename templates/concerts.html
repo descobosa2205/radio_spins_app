@@ -232,10 +232,14 @@
                         <span class="badge text-bg-light border">Punto de empate: <strong>{{ c.break_even_ticket }}</strong></span>
                       {% endif %}
 
-                      {% if c.sale_start_tbc %}
-                        <span class="badge bg-danger">Salida a la venta TBC</span>
-                      {% elif c.sale_start_date %}
-                        <span class="badge text-bg-light border">Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') }}</strong></span>
+                      {# ⚠️ En una actividad GRATUITA no hay salida a la venta: lo dice su etiqueta
+                         «Gratuito» y una fecha de venta aquí sería contradecirla. #}
+                      {% if not concert_is_free(c) %}
+                        {% if c.sale_start_tbc %}
+                          <span class="badge bg-danger">Salida a la venta TBC</span>
+                        {% elif c.sale_start_date %}
+                          <span class="badge text-bg-light border">Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') }}</strong></span>
+                        {% endif %}
                       {% endif %}
 
                       {% if c.doors_time_tbc %}

@@ -351,8 +351,16 @@
             <input class="form-control" name="gala_capacity" inputmode="numeric" value="{{ data.gala_capacity or '' }}">
           </div>
         </div>
-        {# En un concierto GRATUITO solo se pregunta el aforo. #}
-        <div id="cshTicketingBox" class="{% if data.show_kind == 'GRATUITO' %}d-none{% endif %}">
+        {# En un concierto GRATUITO solo se pregunta el aforo: ni la fecha de salida a la venta, ni
+           puntos de venta, ni ticketeras, ni tipos de entrada. Lo dice el tipo de show que marque
+           el promotor Y, de entrada, la propia actividad (`activity_is_free`). #}
+        {% if activity_is_free %}
+          <div class="alert alert-light border small py-2 mb-0">
+            <i class="fa fa-gift me-1"></i><strong>Actividad gratuita:</strong> no hay venta de
+            entradas, así que no hace falta nada más de ticketing.
+          </div>
+        {% endif %}
+        <div id="cshTicketingBox" class="{% if activity_is_free or data.show_kind == 'GRATUITO' %}d-none{% endif %}">
           <div class="row g-3">
             <div class="col-12 col-md-4">
               <label class="form-label">Fecha de salida a la venta</label>
@@ -485,8 +493,9 @@
         <textarea class="form-control mb-3" name="promotion_poster_logos" rows="3"
                   placeholder="Logotipos, patrocinadores, textos obligatorios…">{{ data.promotion_poster_logos or '' }}</textarea>
         {# La fecha de salida a la venta es la MISMA que la de ticketing: se recuerda aquí, no se
-           vuelve a pedir (un dato, un sitio). #}
-        <div class="alert alert-light border small py-2">
+           vuelve a pedir (un dato, un sitio). ⚠️ En una actividad GRATUITA no se recuerda nada:
+           no hay venta de entradas. #}
+        <div class="alert alert-light border small py-2 {% if activity_is_free %}d-none{% endif %}" id="cshSaleEchoBox">
           <i class="fa fa-calendar-check me-1"></i>Fecha de salida a la venta:
           <strong data-csh-saledate-echo>{{ data.promotion_sale_date or 'sin fecha' }}</strong>
           <span class="text-muted">· se rellena en el módulo de ticketing</span>
@@ -534,10 +543,15 @@
 
   var seriesBox = document.getElementById('cshSeriesBox');
   var ticketing = document.getElementById('cshTicketingBox');
+  /* ⚠️ La actividad ya puede ser GRATUITA de por sí (lo dice el servidor): entonces no se pregunta
+     nada de la venta de entradas, marque el promotor el tipo de show que marque. */
+  var FREE_ACTIVITY = {{ (activity_is_free or false)|tojson }};
   function onKind() {
     var v = (document.querySelector('[data-csh-kind]:checked') || {}).value || '';
     toggle(seriesBox, v === 'FESTIVAL' || v === 'CICLO');
-    toggle(ticketing, v !== 'GRATUITO');      // gratuito: solo el aforo
+    toggle(ticketing, !FREE_ACTIVITY && v !== 'GRATUITO');   // gratuito: solo el aforo
+    var echo = document.getElementById('cshSaleEchoBox');
+    if (echo) echo.classList.toggle('d-none', FREE_ACTIVITY || v === 'GRATUITO');
   }
   document.querySelectorAll('[data-csh-kind]').forEach(function (r) { r.addEventListener('change', onKind); });
   onKind();

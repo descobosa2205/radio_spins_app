@@ -894,14 +894,24 @@
                 <span>Aforo libre</span>
               </label>
             </div>
-            <div class="col-md-3" data-sale-start-wrap>
-              <label class="form-label">Salida a la venta</label>
-              <input type="date" name="sale_start_date" class="form-control" value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
-              <label class="d-inline-flex align-items-center gap-2 small mt-1">
-                <input class="form-check-input m-0" type="checkbox" name="sale_start_tbc" value="1" {% if concert.sale_start_tbc %}checked{% endif %}>
-                <span>Por confirmar</span>
-              </label>
-            </div>
+            {# ⚠️ En una actividad GRATUITA no hay entradas que vender, así que no se pregunta por la
+               salida a la venta: el acceso se cambia en «Entradas y venta» (gratuito ↔ venta). #}
+            {% if concert_is_free(concert) %}
+              <div class="col-md-3">
+                <label class="form-label">Entrada</label>
+                <div class="form-control-plaintext"><span class="badge-gratuito"><i class="fa fa-gift"></i>Gratuito</span></div>
+                <div class="form-text">Sin venta de entradas, así que no hay salida a la venta.</div>
+              </div>
+            {% else %}
+              <div class="col-md-3" data-sale-start-wrap>
+                <label class="form-label">Salida a la venta</label>
+                <input type="date" name="sale_start_date" class="form-control" value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
+                <label class="d-inline-flex align-items-center gap-2 small mt-1">
+                  <input class="form-check-input m-0" type="checkbox" name="sale_start_tbc" value="1" {% if concert.sale_start_tbc %}checked{% endif %}>
+                  <span>Por confirmar</span>
+                </label>
+              </div>
+            {% endif %}
             <div class="col-md-3">
               {# El TIPO DE VENTA describe conciertos. En un evento promocional (o TV, o marca) lo que
                  se decide es si lleva caché, así que se pregunta eso y no se ofrecen tipos de
@@ -1552,8 +1562,12 @@
             {% elif tpay.get('sale_owner') %}
               <div><div class="ficha-field__label">Saca las entradas a la venta</div><div class="ficha-field__value">{{ tpay.get('sale_owner') }}</div></div>
             {% endif %}
-            {% if concert.sale_start_tbc %}<div><div class="ficha-field__label">Salida a la venta</div><div class="ficha-field__value">TBC</div></div>
-            {% elif concert.sale_start_date %}<div><div class="ficha-field__label">Salida a la venta</div><div class="ficha-field__value">{{ concert.sale_start_date.strftime('%d/%m/%Y') }}</div></div>{% endif %}
+            {# ⚠️ SALIDA A LA VENTA solo si se venden entradas: en una gratuita ya lo dice «Acceso» y
+               una fecha de venta (o un TBC) ahí sería información contradictoria. #}
+            {% if not concert_is_free(concert) %}
+              {% if concert.sale_start_tbc %}<div><div class="ficha-field__label">Salida a la venta</div><div class="ficha-field__value">TBC</div></div>
+              {% elif concert.sale_start_date %}<div><div class="ficha-field__label">Salida a la venta</div><div class="ficha-field__value">{{ concert.sale_start_date.strftime('%d/%m/%Y') }}</div></div>{% endif %}
+            {% endif %}
             {% if (tpay.get('invitations_mode') or '')|upper == 'TOTAL' and tpay.get('invitations_total') %}
               <div><div class="ficha-field__label">Invitaciones pactadas</div><div class="ficha-field__value">{{ tpay.get('invitations_total') }} por contrato</div></div>
             {% endif %}
@@ -4496,6 +4510,25 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   })();
 
+  // Enseña u oculta un panel de «Entradas y venta» y DESHABILITA sus campos al esconderlo: un campo
+  // oculto se envía igual, así que el de la salida a la venta no puede viajar en una gratuita (ni un
+  // `required` invisible bloquear el envío sin decir por qué).
+  function entPanel(panel, on){
+    if (!panel) return;
+    panel.classList.toggle('d-none', !on);
+    panel.querySelectorAll('input, select, textarea').forEach(function(el){ el.disabled = !on; });
+  }
+  // Y al cargar (y tras cada refresco AJAX de la zona), el panel que nace oculto ya nace apagado.
+  function entPanelsInit(){
+    document.querySelectorAll('[data-entradas-form]').forEach(function(f){
+      const mode = f.querySelector('[data-ent-mode]:checked')?.value || 'SALE';
+      entPanel(f.querySelector('[data-ent-free-panel]'), mode === 'FREE');
+      entPanel(f.querySelector('[data-ent-sale-panel]'), mode === 'SALE');
+    });
+  }
+  entPanelsInit();
+  document.addEventListener('inline:updated', entPanelsInit);
+
   // Toggles de las secciones nuevas de la ficha (Actividad / gastos del promotor / Entradas):
   // por delegación, para que funcionen también tras el refresco AJAX de la zona.
   document.addEventListener('change', function(ev){
@@ -4523,8 +4556,10 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     if (t.matches('[data-ent-mode]') && form) {
       const mode = form.querySelector('[data-ent-mode]:checked')?.value || 'SALE';
-      form.querySelector('[data-ent-free-panel]')?.classList.toggle('d-none', mode !== 'FREE');
-      form.querySelector('[data-ent-sale-panel]')?.classList.toggle('d-none', mode !== 'SALE');
+      /* ⚠️ Al esconder un panel hay que DESHABILITAR sus campos: uno oculto se envía igual (y en
+         una actividad gratuita el de la salida a la venta no tiene que viajar a ninguna parte). */
+      entPanel(form.querySelector('[data-ent-free-panel]'), mode === 'FREE');
+      entPanel(form.querySelector('[data-ent-sale-panel]'), mode === 'SALE');
     }
     if (t.matches('[data-ent-unlimited]') && form) {
       form.querySelector('[data-ent-free-capacity]')?.classList.toggle('d-none', t.checked);

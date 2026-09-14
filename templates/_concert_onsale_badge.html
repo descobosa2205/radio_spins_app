@@ -6,7 +6,10 @@
    Clicable para quien puede editar (POST a `concert_onsale_set`). Uso:
    {% include '_concert_onsale_badge.html' %} con `concert` en el contexto (el modo de entrada se
    saca del propio concierto, para que el parcial valga en cualquier pantalla). #}
-{% set _venta = ((concert.ticketing_payload or {}).get('entry_mode') or '')|upper == 'SALE' %}
+{# ⚠️ Y NUNCA en una actividad GRATUITA: ahí manda su etiqueta «Gratuito» (punto único
+   `concert_is_free`). Las dos juntas —«Gratuito» y «Venta: por confirmar»— se contradicen. #}
+{% set _venta = ((concert.ticketing_payload or {}).get('entry_mode') or '')|upper == 'SALE'
+                and not concert_is_free(concert) %}
 {% if _venta %}
   {% set _hoy = today_local_date() %}
   {% set _f = concert.sale_start_date %}

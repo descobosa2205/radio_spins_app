@@ -132,6 +132,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_audio_tags.py` | metadatos que se escriben en lo que se descarga | al tocar `audio_tags.py` |
 | `check_press_render.py` | notas de prensa: el correo sale como se ve en el editor | al tocar `press_render.py` |
 | `check_hoja_ruta.py` · `check_externos.py` · `check_invitaciones_generadas.py` | esas épicas de punta a punta con la app real | al tocarlas |
+| `check_anuncio_carteleria.py` | pedirle al promotor la fecha de anuncio y los carteles, los dos vistos buenos y el recordatorio del día | al tocar el anuncio o la cartelería |
 | `diag_reparto_editorial.py` | dónde se corta el reparto editorial de un autor (solo lee) | al depurar royalties |
 
 **Ver la app en el navegador**: `.claude/launch.json` → `tools/dev_server.py` (Flask contra la BD de

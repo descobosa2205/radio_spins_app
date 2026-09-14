@@ -34,6 +34,9 @@
 - CONTACTOS · SE BUSCA EN TODA LA BASE Y SE VE LA FOTO: api_contact_search devuelve
 - UNA FOTO DE TAMAÑO FIJO NO SE ENCOGE NUNCA: NI ELLA NI EL ENLACE QUE LA ENVUELVE (bug
 - CARTELERÍA · SI EL CARTEL LO HACE EL PROMOTOR, SE LE PIDE A ÉL. Hasta ahora la
+- LA FECHA DE ANUNCIO Y LOS CARTELES SE LE PIDEN AL PROMOTOR EN UN SOLO CORREO (sep 2026)
+- UN CARTEL PASA POR DOS VISTOS BUENOS: DISEÑO Y DESPUÉS CONTRATACIÓN (sep 2026)
+- CON LOS DOS VISTOS BUENOS, LOS CARTELES SE LE MANDAN SOLOS AL ARTISTA (sep 2026)
 
 ---
 
@@ -691,3 +694,97 @@
   **el aviso de la campanita no llega a nadie** y el `except` se lo traga (la trampa que ya costó el
   Sold Out).
 
+- ⚠️⚠️⚠️ **LA FECHA DE ANUNCIO Y LOS CARTELES SE LE PIDEN AL PROMOTOR EN UN SOLO CORREO** (sep
+  2026, lo pidió Dani). Una actividad sin anunciar no se vende, y **quién decide cuándo se anuncia
+  es casi siempre el promotor** — que además es quien hace el cartel en la mitad de las fechas.
+  Hasta ahora eso era una llamada de teléfono.
+  · **UN BOTÓN EN LA BARRA DE LA FICHA** que dice EXACTAMENTE lo que se va a pedir:
+  **«Solicitar cartelería y fecha de anuncio»** · **«Solicitar cartelería»** (la fecha ya está
+  puesta) · **«Solicitar fecha de anuncio»** (los carteles los hacemos nosotros). Cuando no queda
+  nada que pedir **no hay botón**, y si el promotor ya contestó, la etiqueta verde **«Fecha de
+  anuncio confirmada»**.
+  · **Punto ÚNICO `_announce_ask_state(session_db, concert)`**: de ahí salen el botón, su pop-up, el
+  correo y las dos páginas, así que no pueden decir cosas distintas. Lo que se pide lo decide el
+  SERVIDOR también al enviar (si mientras el pop-up estaba abierto la fecha se puso por otro lado,
+  no se pide dos veces).
+  ⚠️ **Se le piden los CARTELES solo si los hace él y todavía no los ha mandado**: si están subidos
+  esperando el visto bueno, lo que falta no es suyo. Y **sin promotor no sale el botón**: lo nuestro
+  lo decidimos nosotros.
+  · **EL CORREO** (`_announce_ask_email`, con su **vista previa EN VIVO** en el pop-up, que ES el
+  correo): logo de la empresa del grupo arriba a la **derecha**, el título centrado —
+  **«Confirmación fecha de anuncio y Cartelería»** · «Solicitud cartelería» · «Confirmación fecha de
+  anuncio»—, el texto *«Tenemos pendiente anunciar el concierto de Móstoles, de Los Ñus. Por favor
+  confirma la fecha de anuncio y compártenos el diseño de carteles.»*, la **cabecera de la
+  actividad** con sus datos e iconos y, dentro y abajo a la derecha, **los DOS botones**: «Subir
+  carteles» (rojo) y «Confirmar fecha de anuncio» (azul).
+  ⚠️⚠️ **`_notice_email_html` ADMITE VARIOS BOTONES** (`buttons=[{label,url,style}]`): el de siempre
+  (`button`) sigue igual. Dos botones rojos seguidos no se leen, así que el segundo va en el AZUL de
+  la marca. Es el motor de TODOS los correos: se toca una vez y vale para todos.
+  ⚠️ Con NOMBRE PROPIO la frase va pegada («el festival Sonorama») y con MUNICIPIO con «de» («el
+  concierto de Móstoles»): al promotor se le escribe como se habla. Y **a una actividad de EVENTO no
+  se le repite el artista** (es su espejo: sería «el evento X, de X»).
+  · **PEDIR LOS CARTELES ES UN SOLO CORREO**: el modal de siempre de la pestaña Cartelería
+  («Solicitar carteles al promotor») manda **ese mismo** y, si además falta la fecha, la pide en él
+  (`_artwork_promoter_email` delega en `_announce_ask_email` cuando el motivo es REQUEST). Antes
+  había dos textos para lo mismo. Los otros dos motivos —**han cambiado los datos** y **hay que
+  corregirlos**— siguen con el suyo, que dicen otra cosa.
+  · **LA PÁGINA DE LA FECHA** (`/anuncio/<token>`, `public_announce_confirm`): logo, título
+  centrado, la cabecera de la actividad y un **CALENDARIO que va de HOY al día de la actividad**,
+  con ese día **marcado** (`_announce_calendar_months`). Se pincha un día, se puede marcar **hora
+  concreta** (opcional) y al confirmar **queda puesto en la actividad** (`announcement_date` +
+  **`announcement_time`**, el mismo dato que se pone a mano desde la etiqueta de la cabecera). Se
+  avisa a quien la gestiona (`ANNOUNCE_CONFIRMED`) y el reclamo de «sigue sin anunciar» **se cierra
+  solo**.
+  ⚠️ El calendario lo pinta el **SERVIDOR** (los días de fuera del tramo llegan apagados), así que la
+  página vale aunque el JS no corra; y el servidor **vuelve a validar** el rango (una fecha pasada o
+  posterior a la actividad no entra). La hora se **deshabilita** mientras no se marque: un campo
+  oculto se envía igual.
+  ⚠️ Es la vía de siempre de la casa: **se abre sin identificarse, lo autoriza su TOKEN y solo se ve
+  ESO** (no mete a nadie en el portal de externos). Va en las tres listas de públicos y en
+  `_CSRF_EXEMPT_ENDPOINTS` — un POST público sin eximir muere en un 302 a `/home` sin decir nada.
+  · **LAS DOS PÁGINAS SE ENLAZAN ENTRE SÍ**: si se le pidieron las dos cosas, la de los carteles
+  ofrece confirmar la fecha y la de la fecha ofrece subir los carteles. Se hacen de una sentada.
+  · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_anuncio_carteleria.py`** (57
+  comprobaciones con la app real, de punta a punta).
+
+- ⚠️⚠️⚠️ **UN CARTEL PASA POR DOS VISTOS BUENOS: DISEÑO Y DESPUÉS CONTRATACIÓN** (sep 2026, lo pidió
+  Dani para TODOS los carteles, los suba el promotor o los haga diseño). Diseño mira que **esté bien
+  hecho** y quien gestiona la actividad, que **los datos sean los buenos** (la fecha, el recinto, los
+  logos, la ticketera). Hasta que no tiene los dos, **el cartel no se puede usar, ni compartir, ni
+  descargar, ni ser el principal**.
+
+      PENDING  →(diseño)→  DESIGN_OK  →(contratación)→  APPROVED
+                                └────(cualquiera de los dos)────→  REJECTED
+
+  · Puntos únicos: **`_artwork_asset_phase`** (en qué fase está), **`_artwork_can_review_phase`**
+  (quién puede dar ESE visto bueno) y **`_artwork_apply_review`** (lo aplica; la usan la vuelta de la
+  actividad y la de la gira/ciclo/evento). El PRIMERO queda apuntado aparte
+  (`design_reviewed_at`/`design_reviewed_by_nick`), así que la ficha puede decir quién dio cada uno.
+  · **El botón de aprobar sale SOLO a quien le toca esa fase** (`_artwork_review_rows`): pintárselo a
+  quien no puede es un botón que devuelve 403. Los demás ven el cartel y su etiqueta —«Pendiente del
+  visto bueno de diseño» / «Diseño le ha dado el OK · falta el de contratación»—.
+  ⚠️ **NADIE NACE APROBADO**: lo que sube diseño nace en **`DESIGN_OK`** (sería absurdo pedirle que
+  se apruebe lo que acaba de hacer) y lo que sube cualquier otro, en `PENDING`
+  (`_artwork_new_asset_status`).
+  ⚠️ **«Aprobar todos» da EL VISTO BUENO QUE TE TOCA**, no los dos: si lo pulsa diseño, los carteles
+  se quedan esperando a contratación (y lo dice).
+  ⚠️⚠️ **«PENDIENTE» ES LE FALTA ALGUNO DE LOS DOS**: todo lo que mira si la solicitud está entregada
+  (`row.status`), el panel de la gira, la sección de Sold Out y lo que se enseña como «subido» cuenta
+  **PENDING y DESIGN_OK**. Sin eso, un cartel a medio aprobar se enseñaba como bueno —y hasta como
+  cartel PRINCIPAL de la actividad— antes de que nadie lo hubiera dado por bueno.
+  · Diseño sigue viendo en su bandeja lo que espera **a ella** (`ARTWORK_REVIEW` = `PENDING`), y a
+  contratación se le **reclama el segundo** en cuanto diseño ha mirado todos (`ARTWORK_APPROVAL`,
+  `_artwork_ask_second_ok`) — no cartel a cartel.
+
+- ⚠️⚠️ **CON LOS DOS VISTOS BUENOS, LOS CARTELES SE LE MANDAN SOLOS AL ARTISTA** (sep 2026, lo pidió
+  Dani). Es lo que necesita para poder anunciar, y esperar a que alguien se acuerde de compartirlos
+  es justo lo que se pierde. Punto único **`_announce_share_artwork_with_artist`**, que dispara
+  **`_artwork_review_after`** en cuanto no queda ningún cartel esperando.
+  · Va con el tipo de aviso nuevo **`CARTELERIA` («Ya tienes los carteles»)**, que es el contenido de
+  siempre de la actividad **más la cartelería y el anuncio** (los mismos módulos que `ANUNCIO`), y se
+  manda por el canal configurado del artista.
+  ⚠️⚠️ **NO marca la actividad como ANUNCIADA**: se anuncia el día que toca. El aviso de **ANUNCIO**
+  —el que sí la marca— sigue siendo el que se manda a mano desde la ficha.
+  ⚠️ **Se hace UNA sola vez**: la marca es `shared_with_artist_at`, la misma que enseña la etiqueta
+  «Compartido con el artista» de la pestaña (no hay dos verdades). Y si no hay a quién mandárselo,
+  **no se calla**: queda el aviso de que no se ha podido avisar (`SIN_NOTIFICACIONES`).

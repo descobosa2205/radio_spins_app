@@ -29,7 +29,7 @@ salen **los tres sitios** donde se enseña, así que no pueden decir cosas disti
 |---|---|---|---|
 | `ARTWORK` | la cartelería de una actividad | `ConcertArtworkRequest` OURS en REQUESTED/CORRECTIONS sin carteles | subiendo los carteles |
 | `SOLDOUT` | el cartel de Sold Out (se pide solo al 90 %) | `soldout_requested_at` sin entregar | subiendo los carteles |
-| `ARTWORK_REVIEW` | los carteles del promotor por aprobar | `validation_status='PENDING'` | **no se sube**: lleva a la pestaña Cartelería (se aprueban uno a uno) |
+| `ARTWORK_REVIEW` | los carteles por aprobar (el **primer** visto bueno) | `validation_status='PENDING'` | **no se sube**: lleva a la pestaña Cartelería (se aprueban uno a uno) |
 | `DISCO_ARTWORK` | la portada de un lanzamiento | `_disco_artwork_state` who=US, pedida y sin entregar | el JPG **y** el PSD |
 | `DISCO_CREATIVE` | cada creatividad (una tarea por pieza) | `DiscoProjectCreative` en SOLICITADA | un archivo por pieza |
 | `DISCO_PLAN_CONTENT` | un contenido del plan de lanzamiento | `DiscoReleaseContent.design_requested_at` sin archivo | un archivo |
@@ -74,9 +74,12 @@ moriría.
 → `_design_task_deliver`, que reparte por tipo. Cada rama hace **lo mismo que ya hacía el sitio de
 siempre** (el enlace público o la ficha), así que no hay dos verdades:
 
-- **Cartelería / Sold Out**: crea los `ConcertArtworkAsset` **ya APROBADOS** (los sube quien los
-  hace), pone la solicitud en `UPLOADED` (o sella `soldout_uploaded_at`), elige el principal por lo
-  cuadrado y avisa a **quien gestiona la actividad** (`_announce_alert_owner_ids`).
+- **Cartelería / Sold Out**: crea los `ConcertArtworkAsset` con **el visto bueno de diseño ya
+  puesto** (`DESIGN_OK`) —⚠️ **no aprobados**: desde sep 2026 un cartel pasa por **DOS** vistos
+  buenos y el segundo lo da **contratación**, así que la solicitud se queda **en revisión** y se le
+  reclama a quien gestiona la actividad (`_artwork_review_after`; el detalle, en
+  `docs/app/carteleria.md`)—, sella el Sold Out, elige el principal por lo cuadrado y avisa a **quien
+  gestiona la actividad** (`_announce_alert_owner_ids`).
 - **Portada**: exige los **dos** archivos (la imagen y el abierto: PSD/PSB/ZIP/RAR), sella
   `delivered_at` y avisa a quien lleva el proyecto.
 - **Creatividad**: la pieza a ENTREGADA y, si ya no queda ninguna, el **encargo entero** también.

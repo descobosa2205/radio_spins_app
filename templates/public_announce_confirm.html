@@ -1,0 +1,150 @@
+{% extends "layout.html" %}
+{# LA PÁGINA DEL PROMOTOR PARA CONFIRMAR LA FECHA DE ANUNCIO (enlace público, sin identificarse).
+   Maqueta de la casa: logo de la empresa del grupo arriba a la DERECHA, título centrado, la
+   cabecera de la actividad con sus datos e iconos y, debajo, el calendario.
+   ⚠️ El calendario lo pinta el SERVIDOR (`_announce_calendar_months`): los días fuera del tramo
+   «hoy → día de la actividad» ya llegan apagados, así que la página vale aunque el JS no corra. #}
+{% block content %}
+<style>
+  .anc-cal { display:grid; grid-template-columns:repeat(auto-fill, minmax(17rem, 1fr)); gap:1rem; }
+  .anc-month__head { font-weight:700; text-align:center; text-transform:capitalize; margin-bottom:.35rem; }
+  .anc-week { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+  .anc-dow { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; margin-bottom:2px; }
+  .anc-dow span { text-align:center; font-size:.72rem; color:#6b7683; font-weight:700; }
+  .anc-day { border:1px solid transparent; background:transparent; border-radius:.5rem; padding:.35rem 0;
+             font-size:.85rem; line-height:1.1; text-align:center; color:#212529; position:relative; }
+  .anc-day[disabled] { color:#c9ced4; cursor:not-allowed; }
+  .anc-day:not([disabled]) { cursor:pointer; background:#fff; border-color:#e6e8eb; }
+  .anc-day:not([disabled]):hover { border-color:var(--brand-primary, #E33D48); }
+  .anc-day.is-today { font-weight:800; box-shadow:inset 0 0 0 1px #007CA2; }
+  .anc-day.is-selected { background:var(--brand-primary, #E33D48); border-color:var(--brand-primary, #E33D48); color:#fff; font-weight:800; }
+  .anc-day.is-event { background:#fdecee; border-color:#f3b6bb; color:#b3242e; font-weight:800; }
+  .anc-day.is-event.is-selected { background:var(--brand-primary, #E33D48); color:#fff; }
+  .anc-day__dot { display:block; font-size:.6rem; line-height:1; margin-top:1px; }
+  .anc-legend { font-size:.8rem; color:#6b7683; }
+  .anc-legend i { color:var(--brand-primary, #E33D48); }
+</style>
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:900px;">
+    {# Logo de la empresa del grupo arriba a la DERECHA + título centrado. #}
+    <div class="text-end mb-2">
+      <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or (concert.group_company.logo_url if concert.group_company else None) or url_for('static', filename='img/logo_33_producciones.png') }}"
+           alt="" style="max-height:56px;max-width:200px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-3">Confirmación fecha de anuncio</h3>
+
+    {# La CABECERA de la actividad: la misma que va en los correos, con sus datos y sus iconos. #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+        <img src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_AVATAR_URL }}" alt=""
+             style="flex:0 0 auto;width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
+        <div class="flex-grow-1" style="min-width:0;">
+          <div class="text-uppercase small fw-bold" style="letter-spacing:.4px;color:#8b95a1;">{{ activity_kind }}</div>
+          <h4 class="mb-1">{{ subject_name }}</h4>
+          <div class="d-flex flex-wrap gap-3 text-muted small">
+            {% for r in hero_rows %}
+              <span><i class="fa {{ r.icon }} me-1"></i>{{ r.label }}: <strong class="text-dark">{{ r.value }}</strong></span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if confirmed_at and selected_label %}
+      <div class="alert alert-success">
+        <i class="fa fa-circle-check me-1"></i>Ya nos dijiste que se anuncia el <strong>{{ selected_label }}</strong>{% if selected_time %} a las <strong>{{ selected_time }}</strong>{% endif %}.
+        Si cambia, elige otro día aquí abajo y vuelve a confirmarlo.
+      </div>
+    {% endif %}
+
+    <form method="post" action="{{ action }}">
+      <input type="hidden" name="announce_date" id="ancDate" value="{{ selected }}">
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <h5 class="mb-1">¿Qué día se anuncia?</h5>
+          <p class="text-muted small mb-3">
+            Elige un día entre hoy y el día {{ activity_word_de }}{% if event_date_label %} ({{ event_date_label }}, marcado en el calendario){% endif %}.
+          </p>
+          <div class="anc-cal mb-2">
+            {% for m in months %}
+              <div class="anc-month">
+                <div class="anc-month__head">{{ m.label }}</div>
+                <div class="anc-dow"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+                {% for week in m.weeks %}
+                  <div class="anc-week">
+                    {% for d in week %}
+                      {% if d.selectable %}
+                        <button type="button" data-anc-day="{{ d.iso }}"
+                                class="anc-day{{ ' is-today' if d.is_today }}{{ ' is-event' if d.is_event }}{{ ' is-selected' if d.is_selected }}"
+                                title="{{ 'Día ' ~ activity_word_de if d.is_event else 'Anunciar el ' ~ d.iso }}">
+                          {{ d.day }}
+                          {% if d.is_event %}<span class="anc-day__dot"><i class="fa fa-calendar-day"></i></span>{% endif %}
+                        </button>
+                      {% else %}
+                        <button type="button" class="anc-day{{ ' is-event' if d.is_event }}" disabled>
+                          {{ d.day if d.in_month else '' }}
+                          {% if d.is_event %}<span class="anc-day__dot"><i class="fa fa-calendar-day"></i></span>{% endif %}
+                        </button>
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+          </div>
+          <div class="anc-legend"><i class="fa fa-calendar-day me-1"></i>Día {{ activity_word_de }}</div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <div class="form-check mb-2">
+            {# ⚠️ Un campo oculto SE ENVÍA IGUAL: la hora se DESHABILITA mientras no se marque. #}
+            <input class="form-check-input" type="checkbox" name="with_time" id="ancWithTime" value="1"
+                   {% if selected_time %}checked{% endif %}>
+            <label class="form-check-label" for="ancWithTime">Se anuncia a una hora concreta</label>
+          </div>
+          <div class="row g-2 align-items-center" id="ancTimeZone">
+            <div class="col-auto"><label class="form-label mb-0" for="ancTime">Hora</label></div>
+            <div class="col-auto">
+              <input type="time" class="form-control" name="announce_time" id="ancTime"
+                     value="{{ selected_time }}" {% if not selected_time %}disabled{% endif %} style="max-width:9rem;">
+            </div>
+            <div class="col text-muted small">Si no la marcas, se anuncia ese día sin hora fija.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap justify-content-end gap-2 mb-4">
+        {% if upload_url %}
+          <a class="btn btn-outline-danger" href="{{ upload_url }}"><i class="fa fa-cloud-arrow-up me-1"></i>Subir los carteles</a>
+        {% endif %}
+        <button class="btn btn-danger" type="submit">
+          <i class="fa fa-calendar-check me-1"></i>Confirmar la fecha de anuncio
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  // Elegir el día: se marca en el calendario y viaja en el oculto. Delegado en `document` porque
+  // el calendario se puede repintar entero al volver de guardar.
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest ? ev.target.closest('[data-anc-day]') : null;
+    if (!btn) return;
+    var campo = document.getElementById('ancDate');
+    if (campo) campo.value = btn.getAttribute('data-anc-day') || '';
+    document.querySelectorAll('[data-anc-day].is-selected').forEach(function (x) { x.classList.remove('is-selected'); });
+    btn.classList.add('is-selected');
+  });
+  document.addEventListener('change', function (ev) {
+    if (!ev.target || ev.target.id !== 'ancWithTime') return;
+    var hora = document.getElementById('ancTime');
+    if (!hora) return;
+    hora.disabled = !ev.target.checked;
+    if (ev.target.checked && !hora.value) hora.value = '12:00';
+  });
+})();
+</script>
+{% endblock %}

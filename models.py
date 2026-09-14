@@ -555,6 +555,19 @@ def ensure_artist_notifications_schema():
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS digital_payload jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_2_at timestamptz;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_dir_at timestamptz;",
+        # PEDIRLE AL PROMOTOR la fecha de anuncio y los carteles: su enlace, cuándo, a quién y qué.
+        # ⚠️ CADA UNA EN SU PROPIA SENTENCIA (la regla de la casa).
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announcement_time text;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_ask_token text;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_ask_at timestamptz;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_ask_kind text;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_ask_by_nick text;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_ask_recipients jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_confirmed_at timestamptz;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_confirmed_by text;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_reminder_at timestamptz;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_announce_ask_token "
+        "ON concerts(announce_ask_token) WHERE announce_ask_token IS NOT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_artwork_share_token "
         "ON concerts(artwork_share_token) WHERE artwork_share_token IS NOT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_sales_request_token "
@@ -3019,7 +3032,25 @@ class Concert(Base):
     invitations_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     payment_terms_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     announcement_date = Column(Date)
+    # ⚠️ LA HORA del anuncio («HH:MM», opcional): hay actividades que se publican a una hora pactada
+    # y otras que solo tienen día. La confirma el promotor desde su enlace y es la que se dice en el
+    # recordatorio del día. Sin hora, el anuncio es «ese día» y ya está.
+    announcement_time = Column(Text)
     do_not_announce = Column(Boolean, nullable=False, server_default=text("false"))
+    # ⚠️⚠️ PEDIRLE AL PROMOTOR LA FECHA DE ANUNCIO (y, si los carteles los hace él, los carteles):
+    # el enlace público que se le manda (token opaco), cuándo se le pidió, quién lo pidió, a quién
+    # se le mandó y QUÉ se le pidió (`BOTH` | `ANNOUNCE` | `ARTWORK`).
+    announce_ask_token = Column(Text)
+    announce_ask_at = Column(DateTime(timezone=True))
+    announce_ask_kind = Column(Text)
+    announce_ask_by_nick = Column(Text)
+    announce_ask_recipients = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Lo que CONTESTÓ desde ese enlace: cuándo y quién (la fecha elegida vive en `announcement_date`
+    # y la hora en `announcement_time`, que es el dato de siempre — no hay dos verdades).
+    announce_confirmed_at = Column(DateTime(timezone=True))
+    announce_confirmed_by = Column(Text)
+    # El RECORDATORIO del día del anuncio (el SMS al artista): cuándo salió, para no repetirlo.
+    announce_reminder_at = Column(DateTime(timezone=True))
 
     # Registros: conciertos comunicados/declarados en la sección Registros.
     registration_declared_done = Column(Boolean, nullable=False, server_default=text("false"))
@@ -3731,7 +3762,10 @@ class ConcertArtworkAsset(Base):
     # como principal el más cuadrado.
     width = Column(Integer)
     height = Column(Integer)
-    # Validación de diseño para carteles subidos por el PROMOTOR: PENDING | APPROVED | REJECTED.
+    # ⚠️⚠️ DOBLE APROBACIÓN: un cartel pasa por DOS vistos buenos, primero DISEÑO (que esté bien
+    # hecho) y después CONTRATACIÓN (que los datos sean los buenos):
+    #   PENDING → DESIGN_OK (lo aprobó diseño, falta contratación) → APPROVED | REJECTED
+    # ⚠️ Solo **APPROVED** se puede usar, compartir o descargar: `DESIGN_OK` va a medio camino.
     validation_status = Column(Text, nullable=False, server_default=text("'APPROVED'"))
     # Cartel principal (el que se muestra en cabeceras). Si solo hay uno, ese es el principal.
     is_primary = Column(Boolean, nullable=False, server_default=text("false"))
@@ -3742,6 +3776,10 @@ class ConcertArtworkAsset(Base):
     rejection_note = Column(Text)
     reviewed_at = Column(DateTime(timezone=True))
     reviewed_by_nick = Column(Text)
+    # El PRIMER visto bueno (el de diseño), que se conserva al dar el segundo: así la ficha puede
+    # decir quién dio cada uno y cuándo.
+    design_reviewed_at = Column(DateTime(timezone=True))
+    design_reviewed_by_nick = Column(Text)
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     archived_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -10389,6 +10427,10 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS height integer,
             ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'APPROVED';
         """,
+        # DOBLE APROBACIÓN (diseño → contratación): quién dio el PRIMER visto bueno y cuándo.
+        # ⚠️ CADA UNA EN SU PROPIA SENTENCIA (la regla de la casa).
+        "ALTER TABLE IF EXISTS concert_artwork_assets ADD COLUMN IF NOT EXISTS design_reviewed_at timestamptz;",
+        "ALTER TABLE IF EXISTS concert_artwork_assets ADD COLUMN IF NOT EXISTS design_reviewed_by_nick text;",
         # Carteles subidos a mano: quién los subió (para avisarle si diseño los rechaza) y el
         # resultado de la revisión uno a uno.
         """

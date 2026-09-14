@@ -13,7 +13,10 @@
 {% elif _fecha and _fecha <= _hoy %}
   {% set _cls, _lab, _tip = 'text-bg-success', 'Anunciado', 'Anunciado el ' ~ _fecha.strftime('%d/%m/%Y') %}
 {% elif _fecha %}
-  {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Anuncio: ' ~ _fecha.strftime('%d/%m/%Y'), 'Se anuncia el ' ~ _fecha.strftime('%d/%m/%Y') %}
+  {% set _hora = (concert.announcement_time or '') %}
+  {% set _cls, _lab, _tip = 'text-bg-warning text-dark',
+      'Anuncio: ' ~ _fecha.strftime('%d/%m/%Y') ~ (' · ' ~ _hora if _hora else ''),
+      'Se anuncia el ' ~ _fecha.strftime('%d/%m/%Y') ~ (' a las ' ~ _hora if _hora else '') %}
 {% else %}
   {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Anuncio: sin fecha', 'Todavía no hay fecha de anuncio' %}
 {% endif %}
@@ -61,6 +64,9 @@
           <div class="input-group input-group-sm">
             <input type="date" class="form-control" name="announcement_date"
                    value="{{ _fecha.isoformat() if _fecha else '' }}" required>
+            {# La HORA es opcional: hay actividades que se publican a una hora pactada. #}
+            <input type="time" class="form-control" name="announcement_time" style="max-width:7rem;"
+                   value="{{ concert.announcement_time or '' }}" title="Hora (opcional)">
             <button class="btn btn-primary" type="submit"><i class="fa fa-check"></i></button>
           </div>
           <div class="form-text">Déjalo en blanco y elige «Anunciado» si ya está anunciado.</div>

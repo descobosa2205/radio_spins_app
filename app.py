@@ -492,10 +492,10 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
     "concert_artwork_public_upload",
     # La MINIATURA de un cartel recién subido, por nuestro dominio (la ve quien está subiendo).
-    "concert_artwork_public_file",
+    "concert_artwork_public_file", "public_announce_confirm",
     # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
     "public_buyer_unsubscribe",
     # ACTUALIZAR VENTAS: el promotor de fuera no tiene sesión (su enlace es el token).
@@ -940,7 +940,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -3531,13 +3531,22 @@ def _announcement_state(concert: Concert | None, today: date | None = None) -> s
     return 'ANNOUNCED' if ad <= today else 'UPCOMING'
 
 
+def _announcement_time_label(concert) -> str:
+    """La HORA del anuncio, si la hay («12:00»). Punto único: la dicen la etiqueta de la cabecera,
+    la ficha y el recordatorio del día."""
+    return (getattr(concert, 'announcement_time', None) or '').strip()
+
+
 def _announcement_badge(concert: Concert | None, today: date | None = None):
     state = _announcement_state(concert, today)
     ad = getattr(concert, 'announcement_date', None) if concert else None
     if state == 'NO_ANNOUNCE':
         return {'state': state, 'label': 'No anunciar', 'class': 'bg-danger'}
     if state == 'UPCOMING' and ad:
-        return {'state': state, 'label': f'Anunciar: {ad.strftime("%d/%m/%Y")}', 'class': 'bg-warning text-dark'}
+        hora = _announcement_time_label(concert)
+        return {'state': state,
+                'label': 'Anunciar: %s%s' % (ad.strftime('%d/%m/%Y'), (' · %s' % hora) if hora else ''),
+                'class': 'bg-warning text-dark'}
     return None
 
 
@@ -4847,13 +4856,22 @@ def _artwork_mail_sections(row, *, note="", changes=()) -> list[dict]:
     return secciones
 
 
-def _artwork_promoter_email(concert, row, *, kind="REQUEST", note="", changes=()) -> tuple[str, str]:
+def _artwork_promoter_email(concert, row, *, kind="REQUEST", note="", changes=(),
+                            announce_token="") -> tuple[str, str]:
     """(asunto, HTML) del correo al promotor, con el ESQUELETO de la casa: logo de la empresa arriba
     a la derecha, el título centrado, la cabecera de la actividad y, DENTRO de ella y abajo a la
     derecha, el botón **Subir carteles**.
 
+    ⚠️⚠️ **PEDIR LOS CARTELES ES UN SOLO CORREO** (`_announce_ask_email`): el mismo que manda el
+    botón de la ficha, y si además falta la FECHA DE ANUNCIO lleva sus **dos** botones. Antes había
+    dos textos para lo mismo y se desparejaban. Los otros dos motivos (han cambiado los datos ·
+    hay que corregirlos) siguen con el suyo, que dicen otra cosa.
     ⚠️ Lo usan el ENVÍO y su VISTA PREVIA, así que lo que se ve es lo que se manda."""
     kind = (kind or "REQUEST").upper()
+    if kind == "REQUEST":
+        return _announce_ask_email(
+            concert, row, want_artwork=True, want_announce=_announce_needs_date(concert),
+            token=(announce_token or (getattr(concert, "announce_ask_token", "") or "")), note=note)
     titulo, asunto_corto = ARTWORK_MAIL_KINDS.get(kind, ARTWORK_MAIL_KINDS["REQUEST"])
     que = _artwork_activity_word(concert)
     artista = (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
@@ -4896,6 +4914,237 @@ def _send_promoter_artwork_email(concert, row, kind: str = "REQUEST", note: str 
     return _send_optional_email(destinos, asunto, html, text_body=enlace)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️⚠️ PEDIRLE AL PROMOTOR LA FECHA DE ANUNCIO (y, si los carteles los hace él, los carteles).
+#
+# Una actividad sin anunciar no se vende: la entrada no se vende sola. Y quien decide CUÁNDO se
+# anuncia es casi siempre el promotor. Hasta ahora había que llamarle. Ahora se le manda UN correo
+# con **la cabecera de la actividad y dos botones**: subir los carteles y confirmar la fecha de
+# anuncio (cada uno lleva a SU página pública, sin identificarse).
+#
+# ⚠️ Punto ÚNICO de qué se le pide: `_announce_ask_state`. De ahí salen el botón de la ficha, el
+# pop-up con su vista previa, el correo y las dos páginas — así no pueden decir cosas distintas.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# El TÍTULO del correo (y el asunto) según lo que se pida. Es lo que dijo Dani, literal.
+ANNOUNCE_ASK_TITLES = {
+    "BOTH": "Confirmación fecha de anuncio y Cartelería",
+    "ANNOUNCE": "Confirmación fecha de anuncio",
+    "ARTWORK": "Solicitud cartelería",
+}
+
+
+def _announce_needs_date(concert) -> bool:
+    """¿A esta actividad le falta la FECHA de anuncio? (marcada «No anunciar» es una decisión
+    tomada, no algo pendiente). Punto único: lo miran el estado del botón y los dos correos."""
+    return not (getattr(concert, "announcement_date", None)
+                or _truthy(getattr(concert, "do_not_announce", False)))
+
+
+def _announce_ask_key(*, want_artwork: bool, want_announce: bool) -> str:
+    """QUÉ se le está pidiendo: las dos cosas, solo la fecha o solo los carteles."""
+    if want_artwork and want_announce:
+        return "BOTH"
+    return "ARTWORK" if want_artwork else "ANNOUNCE"
+
+
+def _announce_ask_artwork_assets(row):
+    """Los CARTELES de una solicitud que cuentan para saber si «ya hay carteles»: los vigentes que
+    no están rechazados (los de Sold Out son otra cosa y tienen su propia sección)."""
+    salida = {"approved": [], "waiting": []}
+    for a in (getattr(row, "assets", None) or []):
+        if bool(getattr(a, "is_archived", False)):
+            continue
+        if _artwork_asset_category(a) != "POSTER":
+            continue
+        estado = (getattr(a, "validation_status", None) or "APPROVED").strip().upper()
+        if estado == "APPROVED":
+            salida["approved"].append(a)
+        elif estado != "REJECTED":          # PENDING o DESIGN_OK: ya los mandó, están en camino
+            salida["waiting"].append(a)
+    return salida
+
+
+def _announce_ask_state(session_db, concert) -> dict:
+    """QUÉ le falta a esta actividad de cara al anuncio, y qué se le puede pedir al promotor.
+
+    · **la FECHA de anuncio** mientras no la tenga (y no esté marcada «No anunciar»: eso es una
+      decisión tomada, no algo pendiente);
+    · **los CARTELES**, solo si los hace **el promotor** y todavía no los ha mandado.
+    ⚠️ Si ya los subió y están esperando el visto bueno, **no se le vuelven a pedir**: no es suyo lo
+    que falta. Y sin **promotor** no hay a quién pedirle nada (lo nuestro lo decidimos nosotros)."""
+    vacio = {"applies": False, "want_artwork": False, "want_announce": False, "label": "",
+             "kind": "", "asked_at": None, "asked_label": "", "recipients": [],
+             "confirmed_at": None, "confirmed_label": "", "artwork_by_promoter": False}
+    if concert is None:
+        return dict(vacio)
+    try:
+        tipo = (getattr(concert, "activity_type", None) or "CONCIERTO").strip().upper()
+        if tipo not in ANNOUNCE_ACTIVITY_TYPES:
+            return dict(vacio)
+        if (getattr(concert, "status", None) or "").strip().upper() in ("BORRADOR", "CANCELADO", "APLAZADO"):
+            return dict(vacio)
+        if _concert_is_legacy(concert):
+            return dict(vacio)
+        fecha = getattr(concert, "date", None)
+        if not fecha or fecha < today_local():
+            return dict(vacio)
+        if not getattr(concert, "promoter_id", None):
+            return dict(vacio)
+        row = getattr(concert, "artwork_request", None)
+        hecho_por = (getattr(row, "handled_by", None) or "").strip().upper()
+        # Quién hace los carteles: lo que diga la solicitud y, si no hay ninguna, lo normal según
+        # quién promueva (lo promueve un tercero → lo normal es que los haga él).
+        if hecho_por:
+            por_promotor = (hecho_por == "PROMOTER")
+        else:
+            por_promotor = not _concert_is_group_promoted(session_db, concert)
+        carteles = _announce_ask_artwork_assets(row)
+        want_artwork = bool(por_promotor and not carteles["approved"] and not carteles["waiting"])
+        want_announce = _announce_needs_date(concert)
+        clave = _announce_ask_key(want_artwork=want_artwork, want_announce=want_announce)
+        pedido = getattr(concert, "announce_ask_at", None)
+        confirmado = getattr(concert, "announce_confirmed_at", None)
+        return {
+            "applies": bool(want_artwork or want_announce),
+            "want_artwork": want_artwork,
+            "want_announce": want_announce,
+            "artwork_by_promoter": por_promotor,
+            "kind": clave,
+            # El rótulo del botón dice EXACTAMENTE lo que se va a pedir.
+            "label": {"BOTH": "Solicitar cartelería y fecha de anuncio",
+                      "ARTWORK": "Solicitar cartelería",
+                      "ANNOUNCE": "Solicitar fecha de anuncio"}.get(clave, ""),
+            "asked_at": pedido,
+            "asked_label": (pedido.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if pedido else ""),
+            "asked_kind": (getattr(concert, "announce_ask_kind", None) or ""),
+            "recipients": [x for x in (getattr(concert, "announce_ask_recipients", None) or []) if x],
+            "confirmed_at": confirmado,
+            "confirmed_label": (confirmado.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if confirmado else ""),
+        }
+    except Exception:
+        app.logger.exception("[anuncio] no se pudo calcular qué pedirle al promotor")
+        return dict(vacio)
+
+
+def _ensure_announce_ask_token(session_db, concert) -> str:
+    """El token del enlace de «confirmar la fecha de anuncio» (opaco y propio: no vale el de los
+    carteles, que sirve para subir archivos)."""
+    token = (getattr(concert, "announce_ask_token", None) or "").strip()
+    if token:
+        return token
+    token = uuid.uuid4().hex
+    concert.announce_ask_token = token
+    try:
+        session_db.flush()
+    except Exception:
+        pass
+    return token
+
+
+def _announce_ask_subject_name(concert) -> str:
+    """Cómo se identifica la actividad HACIA FUERA: su nombre propio (el festival, el ciclo, el
+    evento) y, si no tiene, el MUNICIPIO. Punto único `_announce_activity_place`."""
+    return (_announce_activity_place(concert) or "").strip()
+
+
+def _announce_word_de(concert) -> str:
+    """«del concierto» · «del evento» · «de la acción»: la contracción bien hecha (nunca «de el»)."""
+    con_articulo = _artwork_activity_word(concert)          # «el concierto» · «la acción»
+    if con_articulo.startswith("el "):
+        return "del " + con_articulo[3:]
+    return "de " + con_articulo
+
+
+def _announce_ask_intro(concert, *, want_artwork: bool, want_announce: bool) -> str:
+    """El texto del correo, tal cual lo pidió Dani: «Tenemos pendiente anunciar el concierto de
+    Móstoles, de Los Ñus. Por favor confirma la fecha de anuncio y compártenos el diseño de
+    carteles.» — y solo la parte que toque cuando solo se pide una de las dos cosas.
+
+    ⚠️ Con NOMBRE PROPIO va pegado («el festival Sonorama») y con MUNICIPIO con «de» («el concierto
+    de Móstoles»): al promotor se le escribe como se habla."""
+    que = _artwork_activity_word(concert)                      # «el concierto» · «el evento»
+    propio = (getattr(concert, "festival_name", None) or "").strip()
+    # ⚠️ `Concert` NO tiene relación `event` (solo la columna): en una actividad de EVENTO el nombre
+    # propio es el de su ARTISTA ESPEJO, que es justo el del evento.
+    if not propio and getattr(concert, "event_id", None):
+        propio = (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+    if propio:
+        sujeto = "%s %s" % (que, propio)
+    else:
+        lugar = (_concert_city(concert) or "").strip()
+        sujeto = ("%s de %s" % (que, lugar)) if lugar else que
+    artista = (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+    # ⚠️ En una actividad de EVENTO el artista es su ESPEJO: decir «el evento X, de X» sobra.
+    if artista and (getattr(concert, "event_id", None) or artista.lower() == propio.lower()):
+        artista = ""
+    frase = "Tenemos pendiente anunciar %s%s." % (sujeto, (", de %s" % artista) if artista else "")
+    if want_artwork and want_announce:
+        pide = "Por favor confirma la fecha de anuncio y compártenos el diseño de carteles."
+    elif want_announce:
+        pide = "Por favor confirma la fecha de anuncio."
+    else:
+        pide = "Por favor compártenos el diseño de carteles."
+    return "%s %s" % (frase, pide)
+
+
+def _announce_ask_buttons(concert, row, *, want_artwork: bool, want_announce: bool,
+                          token: str = "") -> list[dict]:
+    """Los DOS botones del correo, abajo a la derecha de la cabecera y separados: cada uno lleva a
+    SU página pública."""
+    botones = []
+    if want_artwork and (getattr(row, "public_token", "") or ""):
+        botones.append({"label": "Subir carteles", "style": "primary",
+                        "url": _external_url_for("concert_artwork_public_upload",
+                                                 token=row.public_token)})
+    if want_announce and token:
+        botones.append({"label": "Confirmar fecha de anuncio", "style": "accent",
+                        "url": _external_url_for("public_announce_confirm", token=token)})
+    return botones
+
+
+def _announce_ask_email(concert, row, *, want_artwork: bool, want_announce: bool,
+                        token: str = "", note: str = "") -> tuple[str, str]:
+    """(asunto, HTML) del correo al promotor: logo de la empresa del grupo arriba a la derecha, el
+    título centrado, el texto, la cabecera de la actividad con sus datos e iconos y, dentro y abajo
+    a la derecha, los DOS botones.
+
+    ⚠️ Lo usan el ENVÍO y su VISTA PREVIA: lo que se ve es lo que se manda."""
+    clave = _announce_ask_key(want_artwork=want_artwork, want_announce=want_announce)
+    titulo = ANNOUNCE_ASK_TITLES[clave]
+    nombre = _announce_ask_subject_name(concert) or (
+        getattr(getattr(concert, "artist", None), "name", "") or "actividad")
+    # ⚠️ El `intro` de `_notice_email_html` es TEXTO PLANO: el motor lo escapa y lo mete en su
+    # propio <p>. Con HTML dentro, las etiquetas saldrían A LA VISTA (la trampa de siempre).
+    secciones = list(_artwork_mail_sections(row, note="") if want_artwork else [])
+    if (note or "").strip():
+        secciones.append({"title": "Nota", "text": note.strip()})
+    datos = _notice_email_activity(
+        concert, title=titulo, subject="%s · %s" % (titulo, nombre),
+        intro=_announce_ask_intro(concert, want_artwork=want_artwork, want_announce=want_announce),
+        buttons=_announce_ask_buttons(concert, row, want_artwork=want_artwork,
+                                      want_announce=want_announce, token=token),
+        sections=secciones)
+    # Al promotor no se le dice «Evento promocional»: eso es como lo llamamos nosotros.
+    datos["eyebrow"] = _artwork_activity_word(concert, articulo=False).capitalize()
+    asunto = datos.pop("subject", titulo)
+    return asunto, _notice_email_html(**datos)
+
+
+def _send_announce_ask_email(concert, row, *, want_artwork: bool, want_announce: bool,
+                             token: str = "", note: str = "",
+                             recipients=()) -> tuple[bool, str | None]:
+    """Manda el correo. Punto ÚNICO de salida (lo usan el pop-up de la ficha y el reenvío)."""
+    destinos = [x for x in (recipients or []) if x]
+    if not destinos:
+        return False, "No consta a quién mandárselo: añade el correo del promotor."
+    asunto, html = _announce_ask_email(concert, row, want_artwork=want_artwork,
+                                       want_announce=want_announce, token=token, note=note)
+    enlaces = [b["url"] for b in _announce_ask_buttons(concert, row, want_artwork=want_artwork,
+                                                       want_announce=want_announce, token=token)]
+    return _send_optional_email(destinos, asunto, html, text_body="\n".join(enlaces))
+
+
 def _artwork_notify_resolve_if_done(session_db, row) -> None:
     """El aviso de «nueva solicitud de diseño» se cierra solo en cuanto la solicitud ya tiene
     cartelería APROBADA: a partir de ahí no espera a nadie."""
@@ -4924,11 +5173,15 @@ def _artwork_pick_primary_by_squareness(row: ConcertArtworkRequest, category: st
     cat = _artwork_category_arg(category)
     vigentes = [a for a in (row.assets or [])
                 if not getattr(a, 'is_archived', False) and _artwork_asset_category(a) == cat]
-    if not vigentes or any(getattr(a, 'is_primary', False) for a in vigentes):
+    if not vigentes or any(getattr(a, 'is_primary', False) and _artwork_asset_phase(a) == "APPROVED"
+                           for a in vigentes):
         return
     # ⚠️ Solo una IMAGEN puede ser el principal: es la que representa a la actividad (la miniatura
     # del enlace, el aviso de salida a la venta). Un vídeo o un PDF no valen ahí.
-    assets = [a for a in vigentes if _artwork_can_be_primary(a)]
+    # ⚠️⚠️ Y solo un cartel APROBADO del todo: uno a medias (`DESIGN_OK`) no se puede enseñar
+    # todavía, así que tampoco puede ser la cara de la actividad.
+    assets = [a for a in vigentes
+              if _artwork_can_be_primary(a) and _artwork_asset_phase(a) == "APPROVED"]
     if not assets:
         return
 
@@ -60222,8 +60475,10 @@ def _design_deliver_artwork(session_db, row_id, ficheros, *, soldout: bool) -> t
             format_label=os.path.splitext(nombre)[0][:120],
             file_url=file_url, original_name=nombre[:200], mime_type=mime_type,
             kind=kind, category=cat,
-            # Lo que sube DISEÑO no espera el visto bueno de nadie: es quien lo hace.
-            validation_status="APPROVED",
+            # ⚠️⚠️ DOBLE APROBACIÓN: lo que sube DISEÑO lleva ya SU visto bueno (sería absurdo
+            # pedirle que se apruebe lo que acaba de hacer), pero **falta el de contratación**:
+            # hasta entonces no se puede usar ni compartir.
+            validation_status=_artwork_new_asset_status(),
             uploaded_by_user_id=_safe_uuid(estado.get("user_id")),
             uploaded_by_nick=(estado.get("nick") or "").strip() or None)
         session_db.add(asset)
@@ -60238,7 +60493,9 @@ def _design_deliver_artwork(session_db, row_id, ficheros, *, soldout: bool) -> t
         row.soldout_uploaded_at = _now_madrid()
         _artwork_pick_primary_by_squareness(row, "SOLDOUT")
     else:
-        row.status = "UPLOADED"
+        # ⚠️ Subido NO es aprobado: con la doble aprobación, lo que entrega diseño lleva su visto
+        # bueno y espera el de contratación, así que la solicitud se queda EN REVISIÓN.
+        row.status = "REVIEW" if _artwork_waiting_assets(row) else "UPLOADED"
         _artwork_pick_primary_by_squareness(row)
     row.updated_at = _now_madrid()
     _artwork_notify_resolve_if_done(session_db, row)
@@ -60248,9 +60505,13 @@ def _design_deliver_artwork(session_db, row_id, ficheros, *, soldout: bool) -> t
         _design_notify_done(
             session_db, _announce_alert_owner_ids(session_db, concert),
             ("Cartel de Sold Out subido" if soldout else "Cartelería subida"),
-            "%s · %d archivo(s) de diseño. Ya se pueden usar." % (titulo, subidos),
+            "%s · %d archivo(s) de diseño. Falta tu visto bueno para poder usarlos."
+            % (titulo, subidos),
             _safe_url_for("concert_detail_view", cid=str(concert.id), tab="carteleria"),
             ref_type="ARTWORK_DONE", ref_id=str(row.id))
+        # ⚠️ Y lo de después: reclamar el SEGUNDO visto bueno (o, si ya están los dos, compartir
+        # los carteles con el artista). Punto único con la revisión de la ficha.
+        _artwork_review_after(session_db, concert, row)
     return subidos, fallidos
 
 
@@ -66486,6 +66747,8 @@ def concert_detail_view(cid):
             _soldout_artwork_check(session, [c.id])
         artwork_request = getattr(c, 'artwork_request', None)
         artwork_needs_refresh = _artwork_request_has_event_changes(artwork_request, c) if artwork_request else False
+        # LOS DOS VISTOS BUENOS de cada cartel (fase, de quién es y si te toca): una sola vez.
+        artwork_review_rows = _artwork_review_rows(c, artwork_request)
         if artwork_request:
             artwork_request.needs_refresh = bool(artwork_needs_refresh or getattr(artwork_request, 'needs_refresh', False))
         artwork_assets = list(getattr(artwork_request, 'assets', None) or []) if artwork_request else []
@@ -66643,6 +66906,10 @@ def concert_detail_view(cid):
             sale_type_label=_concert_type_label(c),
             is_free=_concert_is_free(c),
             announcement_badge=_announcement_badge(c, today),
+            # QUÉ LE FALTA A ESTA ACTIVIDAD DE CARA AL ANUNCIO y qué se le puede pedir al promotor
+            # (la fecha, los carteles o las dos cosas). Punto único `_announce_ask_state`: de aquí
+            # salen el botón de la barra, su pop-up, el correo y las páginas del promotor.
+            announce_ask=_announce_ask_state(session, c),
             contract_sheet_badge=_contract_sheet_badge(sheet),
             contract_sheet_status=_contract_sheet_status(sheet),
             contract_sheet_data=contract_sheet_data,
@@ -66701,6 +66968,13 @@ def concert_detail_view(cid):
             artwork_ticketer_ids=artwork_ticketer_ids,
             artwork_needs_refresh=artwork_needs_refresh,
             artwork_edit=artwork_edit,
+            # LOS DOS VISTOS BUENOS: qué carteles esperan uno, de quién es cada uno y si te toca.
+            artwork_review_rows=artwork_review_rows,
+            artwork_review_mine=any(r["mine"] for r in artwork_review_rows),
+            # Quién puede dar CADA visto bueno (el de diseño y el de contratación): lo mira la
+            # sección de Sold Out para no pintar un botón que devolvería 403.
+            artwork_can_design=_artwork_can_review_phase("PENDING", c),
+            artwork_can_owner=_artwork_can_review_phase("DESIGN_OK", c),
             location_summary=_concert_location_summary(c),
             artwork_upload_url=_external_url_for('concert_artwork_public_upload', token=artwork_request.public_token) if artwork_request else None,
             artwork_share_url=artwork_share_url,
@@ -66992,9 +67266,172 @@ def concert_artwork_public_upload(token):
             artwork_assets=sorted([x for x in (row.assets or []) if not bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'created_at', None) or datetime.min, reverse=True),
             upload_action=url_for('concert_artwork_public_upload', token=token),
             submit_action=url_for('concert_artwork_public_submit', token=token),
+            # ⚠️ Si al promotor se le pidió TAMBIÉN la fecha de anuncio (el correo llevaba los dos
+            # botones), aquí tiene el suyo: las dos cosas se hacen de una sentada.
+            announce_url=(url_for('public_announce_confirm', token=concert.announce_ask_token)
+                          if (getattr(concert, 'announce_ask_token', None)
+                              and not getattr(concert, 'announcement_date', None)
+                              and not _truthy(getattr(concert, 'do_not_announce', False))) else ''),
         )
     finally:
         session.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LA PÁGINA DEL PROMOTOR PARA CONFIRMAR LA FECHA DE ANUNCIO (enlace público)
+# ⚠️ Es la otra vía de la casa: se abre SIN identificarse, la autoriza su TOKEN y solo se ve ESO
+# (no mete a nadie en el portal de externos ni da acceso a la ficha de dentro).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _announce_calendar_months(desde, hasta, *, seleccion=None, evento=None) -> list[dict]:
+    """El CALENDARIO que ve el promotor: los meses que van de HOY al día de la actividad, con los
+    días de fuera de ese tramo apagados y el día del evento marcado.
+
+    Lo pinta el SERVIDOR (la regla de la casa: el estado no lo inventa el JS), así que la página
+    funciona igual aunque el JS no llegue a correr."""
+    if not desde or not hasta or hasta < desde:
+        return []
+    cal = _cal.Calendar(firstweekday=0)          # 0 = lunes
+    meses, cursor = [], date(desde.year, desde.month, 1)
+    fin = date(hasta.year, hasta.month, 1)
+    hoy = today_local()
+    while cursor <= fin and len(meses) <= 24:    # tope de seguridad: dos años de calendario
+        semanas = []
+        for semana in cal.monthdatescalendar(cursor.year, cursor.month):
+            filas = []
+            for dia in semana:
+                filas.append({
+                    "day": dia.day,
+                    "iso": dia.isoformat(),
+                    "in_month": dia.month == cursor.month,
+                    # ⚠️ Solo se puede elegir DESDE HOY y HASTA el día de la actividad: anunciar
+                    # ayer no existe y anunciar después de la fecha, tampoco.
+                    "selectable": (desde <= dia <= hasta) and dia.month == cursor.month,
+                    "is_today": dia == hoy,
+                    "is_event": bool(evento and dia == evento),
+                    "is_selected": bool(seleccion and dia == seleccion),
+                })
+            semanas.append(filas)
+        meses.append({"label": "%s %d" % (MONTHS_ES[cursor.month - 1], cursor.year),
+                      "weeks": semanas})
+        cursor = date(cursor.year + (1 if cursor.month == 12 else 0),
+                      1 if cursor.month == 12 else cursor.month + 1, 1)
+    return meses
+
+
+def _announce_confirm_notify(session_db, concert) -> None:
+    """EL PROMOTOR YA HA DICHO CUÁNDO: se le dice a quien gestiona la actividad (y se cierra el
+    reclamo de «sigue sin anunciar», que es la regla de la casa: el aviso mira el DATO).
+
+    ⚠️ *Best-effort*: esto corre desde el enlace público y no puede tumbar su respuesta."""
+    try:
+        fecha = getattr(concert, "announcement_date", None)
+        hora = (getattr(concert, "announcement_time", None) or "").strip()
+        quien = (getattr(getattr(concert, "promoter", None), "nick", "") or "El promotor").strip()
+        cuando = fecha.strftime("%d/%m/%Y") if fecha else ""
+        titulo = "%s ha confirmado la fecha de anuncio" % quien
+        cuerpo = "Se anuncia el %s%s." % (cuando, (" a las %s" % hora) if hora else "")
+        url = _safe_url_for("concert_detail_view", cid=concert.id, tab="general")
+        correo = _notice_email_activity(
+            concert, title="Fecha de anuncio confirmada", subject=titulo, intro=cuerpo,
+            button_label="Ver la actividad",
+            button_url=_external_url_for("concert_detail_view", cid=concert.id, tab="general"))
+        for uid in _announce_alert_owner_ids(session_db, concert):
+            _notify_user(session_db, uid, "ANNOUNCE_CONFIRMED", titulo, cuerpo, url,
+                         ref_type="ANNOUNCE_CONFIRMED", ref_id=str(concert.id), actor_user_id="",
+                         actor_name=quien,
+                         actor_photo=(getattr(getattr(concert, "artist", None), "photo_url", "") or ""),
+                         email=correo)
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[anuncio] no se pudo avisar de la fecha confirmada")
+
+
+@app.route("/anuncio/<token>", methods=["GET", "POST"], endpoint="public_announce_confirm")
+def public_announce_confirm(token):
+    """El promotor elige el día (y la hora, si la hay) en que se anuncia la actividad.
+
+    Logo de la empresa del grupo arriba a la derecha, el título centrado, la cabecera de la
+    actividad y el calendario **de hoy al día de la actividad**, con ese día marcado."""
+    token = (token or "").strip()
+    if not token:
+        abort(404)
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                            joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                            joinedload(Concert.promoter),
+                            selectinload(Concert.artwork_request)
+                            .selectinload(ConcertArtworkRequest.assets))
+                   .filter(Concert.announce_ask_token == token).first())
+        if not concert:
+            abort(404)
+        hoy = today_local()
+        tope = getattr(concert, "date", None)
+        if request.method == "POST":
+            fecha = parse_optional_date(request.form.get("announce_date"))
+            # ⚠️ Un campo oculto SE ENVÍA IGUAL: la hora solo cuenta si se ha marcado que la hay.
+            hora = (_agenda_clean_time(request.form.get("announce_time"))
+                    if _truthy(request.form.get("with_time")) else "")
+            if not fecha:
+                flash("Elige en el calendario el día en el que se anuncia.", "warning")
+                return redirect(url_for("public_announce_confirm", token=token))
+            if fecha < hoy or (tope and fecha > tope):
+                flash("El día del anuncio tiene que estar entre hoy y el día de la actividad.",
+                      "warning")
+                return redirect(url_for("public_announce_confirm", token=token))
+            if _truthy(request.form.get("with_time")) and not hora:
+                flash("Esa hora no vale: escríbela como HH:MM.", "warning")
+                return redirect(url_for("public_announce_confirm", token=token))
+            ahora = _now_madrid()
+            concert.announcement_date = fecha
+            concert.announcement_time = hora or None
+            concert.do_not_announce = False
+            concert.announce_confirmed_at = ahora
+            concert.announce_confirmed_by = ((getattr(concert, "promoter", None).nick
+                                              if getattr(concert, "promoter", None) else "")
+                                             or "el promotor")
+            concert.updated_at = ahora
+            _announce_alert_resolve(session_db, concert)
+            session_db.commit()
+            _announce_confirm_notify(session_db, concert)
+            flash("¡Gracias! Queda apuntado: se anuncia el %s%s."
+                  % (fecha.strftime("%d/%m/%Y"), (" a las %s" % hora) if hora else ""), "success")
+            return redirect(url_for("public_announce_confirm", token=token))
+
+        row = getattr(concert, "artwork_request", None)
+        estado = _announce_ask_state(session_db, concert)
+        elegido = getattr(concert, "announcement_date", None)
+        # ⚠️ Si LO MISMO le pide los carteles, se le enseña también ese botón: es el mismo correo y
+        # las dos cosas se hacen de una sentada.
+        subir_url = ""
+        if (getattr(row, "public_token", "") or "") and (
+                estado["want_artwork"] or (getattr(row, "handled_by", "") or "") == "PROMOTER"):
+            subir_url = url_for("concert_artwork_public_upload", token=row.public_token)
+        return render_template(
+            "public_announce_confirm.html",
+            concert=concert,
+            hero_rows=[{"icon": i, "label": l, "value": str(v)}
+                       for i, l, v in _contract_sheet_hero_rows(concert)],
+            # ⚠️ La cabecera se lee como la del CORREO: el antetítulo es qué es («Concierto») y el
+            # titular, de quién es (el artista o el evento). El municipio ya va en el recinto.
+            activity_kind=_artwork_activity_word(concert, articulo=False).capitalize(),
+            activity_word_de=_announce_word_de(concert),
+            subject_name=((getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+                          or _announce_ask_subject_name(concert) or "Actividad"),
+            months=_announce_calendar_months(hoy, tope, seleccion=elegido, evento=tope),
+            selected=(elegido.isoformat() if elegido else ""),
+            selected_label=(elegido.strftime("%d/%m/%Y") if elegido else ""),
+            selected_time=(getattr(concert, "announcement_time", None) or ""),
+            confirmed_at=getattr(concert, "announce_confirmed_at", None),
+            event_date_label=(tope.strftime("%d/%m/%Y") if tope else ""),
+            upload_url=subir_url,
+            action=url_for("public_announce_confirm", token=token),
+        )
+    finally:
+        session_db.close()
 
 
 def _artwork_notify_received(session_db, concert, row, cuantos: int) -> None:
@@ -67099,7 +67536,8 @@ def concert_artwork_public_submit(token):
         )
         if not concert:
             return abort(404)
-        pending = [a for a in (row.assets or []) if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING']
+        pending = [a for a in (row.assets or [])
+                   if not a.is_archived and _artwork_asset_phase(a) in ('PENDING', 'DESIGN_OK')]
         if not pending:
             flash('Sube al menos un cartel antes de enviar.', 'warning')
             return redirect(url_for('concert_artwork_public_upload', token=token))
@@ -67162,8 +67600,11 @@ def concert_artwork_promoter_preview(cid):
             other_notes=(datos.get("other_notes") or "").strip(),
             delivery_deadline=parse_optional_date(datos.get("delivery_deadline")),
         )
-        asunto, html = _artwork_promoter_email(concert, previa,
-                                               kind=(datos.get("kind") or "REQUEST"))
+        asunto, html = _artwork_promoter_email(
+            concert, previa, kind=(datos.get("kind") or "REQUEST"),
+            # ⚠️ En la previa todavía puede no haber token (nunca se le ha pedido): con uno de
+            # mentira se ve el botón, que es de lo que va la previa. El de verdad lo crea el envío.
+            announce_token=(getattr(concert, "announce_ask_token", "") or "PREVIA"))
         return jsonify({"ok": True, "subject": asunto, "html": html})
     except Exception as exc:
         app.logger.exception("[carteleria] no se pudo componer la vista previa")
@@ -67224,10 +67665,22 @@ def concert_artwork_promoter_request(cid):
         row.updated_at = now
         row.event_snapshot = _concert_artwork_snapshot(concert)
         row.needs_refresh = False
+        # ⚠️⚠️ SI ADEMÁS FALTA LA FECHA DE ANUNCIO, se le pide EN EL MISMO CORREO (sus dos botones):
+        # es la misma conversación y no tiene sentido mandarle dos. Queda apuntado igual que cuando
+        # se pide desde el botón de la barra de la ficha.
+        tambien_fecha = _announce_needs_date(concert)
+        if tambien_fecha:
+            _ensure_announce_ask_token(session, concert)
+            concert.announce_ask_at = now
+            concert.announce_ask_kind = 'BOTH'
+            concert.announce_ask_by_nick = ((_current_user_state() or {}).get('nick') or '').strip() or None
+            concert.announce_ask_recipients = emails
+            concert.updated_at = now
         session.commit()
         ok, error = _send_promoter_artwork_email(concert, row, kind='REQUEST')
         if ok:
-            flash('Solicitud de carteles enviada al promotor.', 'success')
+            flash('Solicitud de carteles enviada al promotor%s.'
+                  % (' (y la fecha de anuncio)' if tambien_fecha else ''), 'success')
         else:
             flash(f'Solicitud registrada, pero el correo no se pudo enviar: {error}', 'warning')
         return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
@@ -67239,43 +67692,202 @@ def concert_artwork_promoter_request(cid):
         session.close()
 
 
-def _artwork_approver_msg(concert=None, row=None) -> str:
-    """Por qué no puedes aprobar este cartel (y quién tiene que hacerlo)."""
-    hecho_por = (getattr(row, 'handled_by', None) or 'OURS').strip().upper()
-    if hecho_por == 'PROMOTER':
-        return 'Los carteles del promotor los aprueba DISEÑO.'
-    return ('Este cartel lo hemos hecho nosotros, así que el visto bueno lo da quien gestiona la '
-            'actividad (contratación o quien la creó).')
+# ─────────────────────────────────────────────────────────────────────────────
+# EL POP-UP DE «SOLICITAR CARTELERÍA Y FECHA DE ANUNCIO» (y su vista previa en vivo)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _announce_ask_preview_row(concert, datos):
+    """La solicitud de mentirijillas con lo que hay AHORA en el formulario (todavía no se ha
+    guardado nada), para que la vista previa **sea** el correo."""
+    row = getattr(concert, "artwork_request", None)
+    _vid = _parse_artwork_video(datos)
+    return SimpleNamespace(
+        public_token=(getattr(row, "public_token", "") or "PREVIA"),
+        requested_formats=_parse_artwork_formats(datos),
+        video_requested=_vid["requested"], video_formats=_vid["formats"], video_notes=_vid["notes"],
+        group_company_ids=[x for x in (datos.getlist("group_company_ids[]")
+                                       if hasattr(datos, "getlist")
+                                       else (datos.get("group_company_ids") or [])) if x],
+        logo_notes=(datos.get("logo_notes") or "").strip(),
+        ticketer_notes=(datos.get("ticketer_notes") or "").strip(),
+        other_notes=(datos.get("other_notes") or "").strip(),
+        delivery_deadline=parse_optional_date(datos.get("delivery_deadline")),
+    )
 
 
-def _can_validate_artwork(concert=None, row=None) -> bool:
-    """QUIÉN LE DA EL OK A UN CARTEL. ⚠️⚠️ Depende de QUIÉN LO HA HECHO:
-
-      · lo hace el **PROMOTOR** → lo aprueba **DISEÑO** (es quien mira que esté bien hecho);
-      · lo hacemos **NOSOTROS** (lo sube diseño) → lo aprueba **QUIEN GESTIONA la actividad**
-        (contratación, o quien la haya creado): diseño no puede ser juez y parte de su propio
-        cartel, y quien lo va a anunciar es quien tiene que darlo por bueno.
-    **Dirección** puede siempre, y sin saber de qué actividad se trata manda el criterio de siempre
-    (diseño), que es lo que usan los listados."""
+@app.post("/conciertos/<cid>/anuncio/solicitar/previa", endpoint="concert_announce_ask_preview")
+@admin_required
+def concert_announce_ask_preview(cid):
+    """LA VISTA PREVIA **ES** EL CORREO: el mismo HTML que se manda (`_announce_ask_email`)."""
+    if not (is_master() or can_edit_concerts()):
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
     try:
-        if is_master():
-            return True
-        propio = bool(has_access_key('diseno', include_descendants=True))
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                            joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                            selectinload(Concert.artwork_request)
+                            .selectinload(ConcertArtworkRequest.assets))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        if not concert:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        datos = request.get_json(silent=True) if request.is_json else None
+        datos = datos if isinstance(datos, dict) else request.form
+        estado = _announce_ask_state(session_db, concert)
+        previa = _announce_ask_preview_row(concert, datos)
+        # ⚠️ El token todavía puede no existir (nunca se le ha pedido): para la PREVIA basta uno de
+        # mentira, porque lo único que hace es pintar el botón.
+        token = (getattr(concert, "announce_ask_token", None) or "PREVIA")
+        asunto, html = _announce_ask_email(concert, previa,
+                                           want_artwork=estado["want_artwork"],
+                                           want_announce=estado["want_announce"],
+                                           token=token,
+                                           note=(datos.get("note") or ""))
+        return jsonify({"ok": True, "subject": asunto, "html": html})
+    except Exception as exc:
+        app.logger.exception("[anuncio] no se pudo componer la vista previa")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/anuncio/solicitar", endpoint="concert_announce_ask_send")
+@admin_required
+def concert_announce_ask_send(cid):
+    """Le pide al PROMOTOR la fecha de anuncio y, si los carteles los hace él, los carteles.
+
+    ⚠️ QUÉ se le pide lo decide el SERVIDOR (`_announce_ask_state`), no el formulario: si mientras
+    el pop-up estaba abierto la fecha se ha configurado por otro lado, no se le pide dos veces."""
+    if not (is_master() or can_edit_concerts()):
+        return forbid("Tu usuario no tiene permisos para gestionar actividades.")
+    destino = safe_next_or(url_for("concert_detail_view", cid=cid, tab="general"))
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                            joinedload(Concert.billing_company), joinedload(Concert.promoter),
+                            selectinload(Concert.artwork_request)
+                            .selectinload(ConcertArtworkRequest.assets))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        if not concert:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(url_for("concerts_view", tab="vista"))
+        estado = _announce_ask_state(session_db, concert)
+        if not estado["applies"]:
+            flash("No hay nada que pedirle al promotor: ya está todo.", "info")
+            return redirect(destino)
+        emails = []
+        for raw in request.form.getlist("to_email") + [request.form.get("extra_emails")]:
+            for chunk in re.split(r"[;,\n]+", str(raw or "")):
+                email = chunk.strip()
+                if email and email.lower() not in [x.lower() for x in emails]:
+                    emails.append(email)
+        if not emails:
+            _flash_form_error("Añade al menos un correo del promotor para poder pedírselo.",
+                              campos=["extra_emails"], abrir="announceAskModal")
+            return redirect(destino)
+        ahora = _now_madrid()
+        nota = (request.form.get("note") or "").strip()
+        row = getattr(concert, "artwork_request", None)
+        if estado["want_artwork"]:
+            # LOS CARTELES: es la solicitud de siempre al promotor (misma tabla, mismo proceso de
+            # validación y mismo enlace de subida). Aquí solo se rellena y se deja pedida.
+            if not row:
+                row = ConcertArtworkRequest(concert_id=concert.id, public_token=uuid.uuid4().hex)
+                session_db.add(row)
+                session_db.flush()
+            row.handled_by = "PROMOTER"
+            row.status = "REQUESTED"
+            row.recipients_json = emails
+            row.group_company_ids = _parse_uuid_list(request.form.getlist("group_company_ids[]"))
+            row.requested_formats = _parse_artwork_formats(request.form)
+            _vid = _parse_artwork_video(request.form)
+            row.video_requested = _vid["requested"]
+            row.video_notes = _vid["notes"]
+            row.video_formats = _vid["formats"]
+            row.logo_notes = (request.form.get("logo_notes") or "").strip() or None
+            row.other_notes = (request.form.get("other_notes") or "").strip() or None
+            row.delivery_deadline = parse_optional_date(request.form.get("delivery_deadline"))
+            row.requested_at = ahora
+            row.updated_at = ahora
+            row.event_snapshot = _concert_artwork_snapshot(concert)
+            row.needs_refresh = False
+        token = _ensure_announce_ask_token(session_db, concert) if estado["want_announce"] else ""
+        concert.announce_ask_at = ahora
+        concert.announce_ask_kind = estado["kind"]
+        concert.announce_ask_by_nick = ((_current_user_state() or {}).get("nick") or "").strip() or None
+        concert.announce_ask_recipients = emails
+        concert.updated_at = ahora
+        session_db.commit()
+        ok, error = _send_announce_ask_email(concert, row, want_artwork=estado["want_artwork"],
+                                             want_announce=estado["want_announce"],
+                                             token=token, note=nota, recipients=emails)
+        # ⚠️ NUNCA se dice que algo se ha enviado si no salió (la regla de la casa).
+        if ok:
+            flash("%s: se le ha pedido al promotor." % ANNOUNCE_ASK_TITLES.get(estado["kind"], "Solicitud"),
+                  "success")
+        else:
+            flash("Queda apuntado, pero el correo no se pudo enviar: %s" % (error or "error desconocido"),
+                  "warning")
+        return redirect(destino)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[anuncio] no se pudo pedir la fecha de anuncio")
+        flash("No se pudo mandar la solicitud: %s" % exc, "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️⚠️ DOBLE APROBACIÓN DE UN CARTEL: PRIMERO DISEÑO Y DESPUÉS CONTRATACIÓN
+#
+# Un cartel se mira DOS veces y en este orden: **diseño** (que esté bien hecho) y **quien gestiona
+# la actividad** (que los datos sean los buenos: la fecha, el recinto, los logos, la ticketera).
+# Hasta que no tiene los dos vistos buenos **no se puede usar, ni compartir, ni descargar**.
+#
+#     PENDING  →(diseño)→  DESIGN_OK  →(contratación)→  APPROVED
+#                                └──────(cualquiera de los dos)──────→ REJECTED
+#
+# ⚠️ Vale para TODOS los carteles, los suba el promotor o los haga diseño (lo pidió Dani). El que
+# sube **diseño** nace ya con SU visto bueno puesto (`DESIGN_OK`): sería absurdo pedirle que se
+# apruebe a sí misma lo que acaba de hacer.
+# ⚠️ Punto único: `_artwork_asset_phase` (en qué fase está) y `_artwork_can_review_phase` (quién
+# puede dar ESE visto bueno). Lo miran los dos endpoints de revisión y la ficha.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# En qué fase está un cartel y a quién le toca mirarlo.
+ARTWORK_PHASE_WHO = {"PENDING": "DISENO", "DESIGN_OK": "GESTOR"}
+ARTWORK_PHASE_LABELS = {
+    "PENDING": "Pendiente del visto bueno de diseño",
+    "DESIGN_OK": "Diseño le ha dado el OK · falta el de contratación",
+    "APPROVED": "Aprobado",
+    "REJECTED": "Rechazado",
+}
+
+
+def _artwork_asset_phase(asset) -> str:
+    """PENDING | DESIGN_OK | APPROVED | REJECTED (lo que hay guardado, normalizado)."""
+    estado = (getattr(asset, "validation_status", None) or "APPROVED").strip().upper()
+    return estado if estado in ARTWORK_PHASE_LABELS else "APPROVED"
+
+
+def _artwork_is_design() -> bool:
+    try:
+        return bool(has_access_key("diseno", include_descendants=True))
     except Exception:
         return False
+
+
+def _artwork_is_activity_owner(concert) -> bool:
+    """¿Es esta persona QUIEN GESTIONA la actividad? (quien la creó o, si no consta, su
+    departamento — el mismo criterio que el reclamo del anuncio: `_announce_alert_owner_ids`)."""
     if concert is None:
-        return propio
-    if row is None:
-        row = getattr(concert, 'artwork_request', None)
-    hecho_por = (getattr(row, 'handled_by', None) or 'OURS').strip().upper()
-    if hecho_por == 'PROMOTER':
-        return propio
-    # Lo hacemos nosotros: el OK es de quien la gestiona (y diseño, si además la gestiona).
+        return False
     try:
-        estado = _current_user_state() or {}
-        yo = str(estado.get('user_id') or '')
+        yo = str((_current_user_state() or {}).get("user_id") or "")
         if not yo:
-            return propio
+            return False
         ses = object_session(concert) or db()
         try:
             return yo in [str(x) for x in _announce_alert_owner_ids(ses, concert)]
@@ -67283,8 +67895,361 @@ def _can_validate_artwork(concert=None, row=None) -> bool:
             if ses is not object_session(concert):
                 ses.close()
     except Exception:
-        app.logger.exception('[carteleria] no se pudo resolver quién aprueba')
-        return propio
+        app.logger.exception("[carteleria] no se pudo resolver quién gestiona la actividad")
+        return False
+
+
+def _artwork_can_review_phase(fase: str, concert=None) -> bool:
+    """¿Puede esta persona dar el visto bueno que le toca a un cartel en ESA fase?
+
+    · `PENDING`   → **diseño** (dirección siempre);
+    · `DESIGN_OK` → **quien gestiona la actividad**; sin actividad delante (los listados y la
+      cartelería de una gira) vale contratación.
+    ⚠️ Lo demás (aprobado o rechazado) no espera a nadie."""
+    try:
+        if is_master():
+            return True
+    except Exception:
+        return False
+    fase = (fase or "").strip().upper()
+    if fase == "PENDING":
+        return _artwork_is_design()
+    if fase == "DESIGN_OK":
+        if concert is not None:
+            return _artwork_is_activity_owner(concert)
+        try:
+            return bool(can_edit_concerts())
+        except Exception:
+            return False
+    return False
+
+
+def _artwork_approver_msg(concert=None, row=None, fase: str = "") -> str:
+    """Por qué no puedes dar TÚ este visto bueno (y quién tiene que darlo)."""
+    fase = (fase or "").strip().upper()
+    if fase == "DESIGN_OK":
+        return ("Diseño ya le ha dado el visto bueno: el segundo lo da QUIEN GESTIONA la actividad "
+                "(contratación o quien la creó).")
+    if fase == "PENDING":
+        return "El primer visto bueno de un cartel lo da DISEÑO."
+    return "Este cartel ya no espera ningún visto bueno."
+
+
+def _can_validate_artwork(concert=None, row=None) -> bool:
+    """¿Puede esta persona dar ALGUNO de los dos vistos buenos aquí? (es lo que decide si se le
+    pinta el bloque de revisión). El de CADA cartel lo decide `_artwork_can_review_phase`."""
+    return bool(_artwork_can_review_phase("PENDING", concert)
+                or _artwork_can_review_phase("DESIGN_OK", concert))
+
+
+def _artwork_new_asset_status() -> str:
+    """En qué fase NACE un cartel que se sube desde dentro: si lo sube **diseño**, con su visto
+    bueno ya puesto (`DESIGN_OK`, falta el de contratación); si lo sube cualquier otro, esperando
+    a diseño (`PENDING`).
+
+    ⚠️ **Nadie nace aprobado**: la doble aprobación es lo que garantiza que un cartel con la fecha
+    mal no se pueda compartir (lo pidió Dani)."""
+    return "DESIGN_OK" if (_artwork_is_design() and not _artwork_is_master_only()) else "PENDING"
+
+
+def _artwork_is_master_only() -> bool:
+    """Dirección sin diseño: puede aprobar las dos fases, pero lo que SUBE pasa el proceso igual."""
+    try:
+        return bool(is_master()) and not _artwork_is_design()
+    except Exception:
+        return False
+
+
+def _artwork_apply_review(asset, decision: str, *, nota: str = "", nick: str = "", ahora=None) -> str:
+    """Aplica UN visto bueno (o el rechazo) y devuelve la fase en la que queda el cartel.
+
+    ⚠️ Punto único de las dos vueltas: la de la actividad y la de la gira/ciclo/evento."""
+    ahora = ahora or datetime.now(ZoneInfo("Europe/Madrid"))
+    fase = _artwork_asset_phase(asset)
+    if (decision or "").strip().upper() == "REJECT":
+        asset.validation_status = "REJECTED"
+        asset.rejection_note = nota
+        asset.is_primary = False
+    elif fase == "PENDING":
+        # El PRIMER visto bueno: diseño. Se guarda aparte para poder decir quién dio cada uno.
+        asset.validation_status = "DESIGN_OK"
+        asset.rejection_note = None
+        asset.design_reviewed_at = ahora
+        asset.design_reviewed_by_nick = nick or None
+    else:
+        asset.validation_status = "APPROVED"
+        asset.rejection_note = None
+        if not getattr(asset, "design_reviewed_at", None):
+            # Lo aprueba dirección de una vez (o un cartel viejo sin la primera marca).
+            asset.design_reviewed_at = ahora
+            asset.design_reviewed_by_nick = nick or None
+    asset.reviewed_at = ahora
+    asset.reviewed_by_nick = nick or None
+    return _artwork_asset_phase(asset)
+
+
+def _artwork_waiting_assets(row, *, category: str = "POSTER") -> list:
+    """Los carteles que TODAVÍA esperan un visto bueno (el de diseño o el de contratación)."""
+    return [a for a in (getattr(row, "assets", None) or [])
+            if not getattr(a, "is_archived", False)
+            and _artwork_asset_category(a) == category
+            and _artwork_asset_phase(a) in ("PENDING", "DESIGN_OK")]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LO QUE PASA SOLO CUANDO UN CARTEL TIENE SUS DOS VISTOS BUENOS
+#
+# ⚠️⚠️ **LOS CARTELES SE LE MANDAN SOLOS AL ARTISTA** en cuanto están aprobados por los dos (lo
+# pidió Dani): es lo que necesita para poder anunciar, y esperar a que alguien se acuerde de
+# compartirlos es justo lo que se pierde. Y el DÍA del anuncio le llega un **SMS** recordándoselo.
+# ⚠️ Todo esto es *best-effort*: no puede tumbar la revisión de un cartel.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _artwork_review_rows(concert, row, *, category: str = "POSTER") -> list[dict]:
+    """Los carteles que ESPERAN un visto bueno, con su fase, quién lo tiene que dar y si te toca a ti.
+
+    Punto único de lo que pinta la pestaña Cartelería (y lo que permite el endpoint): así el botón
+    de aprobar sale exactamente a quien puede pulsarlo."""
+    filas = []
+    for a in _artwork_waiting_assets(row, category=category):
+        fase = _artwork_asset_phase(a)
+        filas.append({
+            "asset": a,
+            "phase": fase,
+            "label": ARTWORK_PHASE_LABELS.get(fase, ""),
+            "mine": _artwork_can_review_phase(fase, concert),
+            "who": ("Lo tiene que aprobar diseño" if fase == "PENDING"
+                    else "Lo tiene que aprobar quien gestiona la actividad"),
+        })
+    return filas
+
+
+def _artwork_review_after(session_db, concert, row) -> None:
+    """Después de un visto bueno: reclamar el SEGUNDO o, si ya están los dos, compartir.
+
+    · quedan carteles con el OK de diseño → se le dice a **quien gestiona la actividad** (y solo
+      cuando diseño ya ha mirado todos: si no, se le avisaría cartel a cartel);
+    · están TODOS aprobados → los carteles se **comparten solos con el artista**."""
+    try:
+        if concert is None or row is None:
+            return
+        vigentes = [a for a in (getattr(row, "assets", None) or [])
+                    if not getattr(a, "is_archived", False)
+                    and _artwork_asset_category(a) == "POSTER"]
+        if not vigentes:
+            return
+        fases = [_artwork_asset_phase(a) for a in vigentes]
+        if "PENDING" in fases:
+            return                                  # diseño todavía tiene trabajo
+        if "DESIGN_OK" in fases:
+            _artwork_ask_second_ok(session_db, concert, row, fases.count("DESIGN_OK"))
+            return
+        if "APPROVED" in fases:
+            _announce_share_artwork_with_artist(session_db, concert, row)
+    except Exception:
+        app.logger.exception("[carteleria] no se pudo seguir con lo de después del visto bueno")
+
+
+def _artwork_ask_second_ok(session_db, concert, row, cuantos: int) -> None:
+    """DISEÑO YA LOS HA MIRADO: falta el visto bueno de quien gestiona la actividad."""
+    try:
+        titulo = "Carteles con el OK de diseño: falta el tuyo"
+        cuerpo = ("Diseño ha dado por bueno%s %d cartel%s de %s. Con tu visto bueno ya se pueden "
+                  "usar y se le mandan solos al artista."
+                  % ("s" if cuantos != 1 else "", cuantos, "es" if cuantos != 1 else "",
+                     _artwork_activity_word(concert)))
+        url = _safe_url_for("concert_detail_view", cid=concert.id, tab="carteleria")
+        correo = _notice_email_activity(
+            concert, title="Carteles por aprobar", subject=titulo, intro=cuerpo,
+            button_label="Revisar los carteles",
+            button_url=_external_url_for("concert_detail_view", cid=concert.id, tab="carteleria"))
+        for uid in _announce_alert_owner_ids(session_db, concert):
+            _notify_user(session_db, uid, "ARTWORK_REVIEW", titulo, cuerpo, url,
+                         ref_type="ARTWORK_APPROVAL", ref_id=str(row.id), email=correo)
+    except Exception:
+        app.logger.exception("[carteleria] no se pudo reclamar el segundo visto bueno")
+
+
+def _announce_share_artwork_with_artist(session_db, concert, row) -> tuple[bool, str]:
+    """LOS CARTELES YA ESTÁN APROBADOS POR LOS DOS: se le mandan SOLOS al artista, con la fecha en
+    la que se anuncia y el enlace para descargarlos.
+
+    ⚠️⚠️ **NO marca la actividad como anunciada**: se anuncia el día que toca (y ese día sale el
+    recordatorio por SMS). El aviso de ANUNCIO —el que la marca— sigue siendo el que se manda a
+    mano desde la ficha.
+    ⚠️ Se hace UNA sola vez: la marca es `shared_with_artist_at`, la misma que enseña la etiqueta
+    «Compartido con el artista» de la pestaña Cartelería (no hay dos verdades)."""
+    if row is None or getattr(row, "shared_with_artist_at", None):
+        return False, "ya estaba compartido"
+    if not getattr(concert, "artist_id", None):
+        return False, "la actividad no tiene artista"
+    try:
+        ctx = _activity_notice_context(session_db, concert, kind="CARTELERIA")
+        filas = _artist_notification_recipients(session_db, concert.artist_id, ctx["channel_key"],
+                                                aviso="los carteles ya aprobados")
+        destinos = [r["email"] for r in filas if r.get("email")]
+        if not destinos:
+            # ⚠️ No se calla: `_artist_notification_recipients` ya deja el aviso de que no se ha
+            # podido avisar a nadie (SIN_NOTIFICACIONES).
+            return False, "el artista no tiene a nadie con correo en ese canal"
+        aviso = ConcertArtistNotification(
+            concert_id=concert.id, channel="EMAIL", kind="CARTELERIA",
+            recipients=[{"email": d} for d in destinos],
+            note=None, hidden_modules=[], snapshot={},
+            signature=_concert_notice_signature(session_db, concert),
+            sent_by_user_id=None, sent_by_nick="la app (carteles aprobados)")
+        session_db.add(aviso)
+        session_db.flush()
+        aviso.public_token = _activity_notice_token()
+        cuerpo = _activity_notice_html(ctx)
+        aviso.snapshot = {"context": dict(ctx), "html": cuerpo}
+        asunto = "%s · %s" % (ctx["title"], ctx["subject_name"])
+        ok, error = _send_optional_email(destinos, asunto, cuerpo)
+        if not ok:
+            session_db.delete(aviso)
+            app.logger.warning("[carteleria] no se pudieron compartir los carteles con el artista: %s", error)
+            return False, (error or "no se pudo mandar el correo")
+        row.shared_with_artist_at = _now_madrid()
+        return True, ""
+    except Exception as exc:
+        app.logger.exception("[carteleria] no se pudo compartir la cartelería con el artista")
+        return False, str(exc)
+
+
+# ── EL RECORDATORIO DEL DÍA DEL ANUNCIO (SMS al artista) ─────────────────────
+# «Recuerda que hoy a las 12:00 se publica el concierto de Móstoles. Aquí tienes los carteles: …
+#  Venta de entradas: …» — el enlace de venta SOLO si ya está a la venta (si sale más tarde, no).
+ANNOUNCE_REMINDER_HOUR = 9          # sin hora concreta, a primera hora de la mañana
+
+
+def _announce_sale_url(concert) -> str:
+    """El enlace de VENTA de la actividad, si ya se puede comprar HOY. Si la salida a la venta es
+    más tarde (o no hay enlace), no se pone: mandar un enlace que no vende es peor que no mandarlo."""
+    try:
+        salida = getattr(concert, "sale_start_date", None)
+        if salida and salida > today_local():
+            return ""
+        if not salida and _truthy(getattr(concert, "sale_start_tbc", False)):
+            return ""
+        for fila in _concert_sale_channel_rows(concert):
+            if (fila.get("sale_url") or "").strip():
+                return fila["sale_url"].strip()
+    except Exception:
+        app.logger.exception("[anuncio] no se pudo resolver el enlace de venta")
+    return ""
+
+
+def _announce_reminder_text(session_db, concert) -> str:
+    """El SMS del día, tal cual lo pidió Dani."""
+    hora = (getattr(concert, "announcement_time", None) or "").strip()
+    que = _artwork_activity_word(concert)
+    propio = (getattr(concert, "festival_name", None) or "").strip()
+    if not propio and getattr(concert, "event_id", None):
+        propio = (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+    sujeto = ("%s %s" % (que, propio)) if propio else (
+        ("%s de %s" % (que, _concert_city(concert))) if _concert_city(concert) else que)
+    texto = "Recuerda que hoy%s se publica %s." % ((" a las %s" % hora) if hora else "", sujeto)
+    try:
+        carteles = _concert_artwork_share_url(session_db, concert)
+    except Exception:
+        carteles = ""
+    if carteles:
+        texto += " Aquí tienes los carteles: %s" % carteles
+    venta = _announce_sale_url(concert)
+    if venta:
+        texto += " Venta de entradas: %s" % venta
+    return texto
+
+
+def _announce_reminder_due(concert, ahora) -> bool:
+    """¿Le toca ya el recordatorio? Con hora concreta, a esa hora; sin ella, a primera hora."""
+    if getattr(concert, "announce_reminder_at", None):
+        return False
+    fecha = getattr(concert, "announcement_date", None)
+    if not fecha or fecha != ahora.date():
+        return False
+    hora = _agenda_clean_time(getattr(concert, "announcement_time", None) or "")
+    if hora:
+        h, m = [int(x) for x in hora.split(":")]
+        return (ahora.hour, ahora.minute) >= (h, m)
+    return ahora.hour >= ANNOUNCE_REMINDER_HOUR
+
+
+def _announce_reminder_sweep(limit: int = 200) -> dict:
+    """EL BARRIDO del recordatorio (cron único, cada 5 min): HOY se publica, y el artista lo tiene
+    que saber. Le llega por **SMS** con sus carteles y —si ya está a la venta— el enlace de venta.
+
+    ⚠️ Hace falta un contexto de PETICIÓN (`_notify_user` mira la sesión), así que corre dentro de
+    `_soldout_app_context()` como el resto de lo que dispara el cron."""
+    hechos, fallos = 0, 0
+    session_db = db()
+    try:
+        ahora = _now_madrid()
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(Concert.announcement_date == ahora.date(),
+                         Concert.announce_reminder_at.is_(None),
+                         Concert.do_not_announce.is_(False))
+                 .limit(limit).all())
+        with _soldout_app_context():
+            for c in filas:
+                try:
+                    if (getattr(c, "status", None) or "").strip().upper() in ("BORRADOR", "CANCELADO", "APLAZADO"):
+                        continue
+                    if (getattr(c, "activity_type", None) or "CONCIERTO").strip().upper() not in ANNOUNCE_ACTIVITY_TYPES:
+                        continue
+                    if not _announce_reminder_due(c, ahora):
+                        continue
+                    texto = _announce_reminder_text(session_db, c)
+                    canal = _activity_notification_channel(session_db, c)
+                    destinos = _artist_notification_recipients(session_db, c.artist_id, canal)
+                    telefonos = [r["phone"] for r in destinos if r.get("phone")]
+                    salio, error = False, ""
+                    if telefonos and _sms_available():
+                        salio, error = _activity_notice_send_sms(
+                            session_db, telefonos, texto, "ANUNCIO_HOY",
+                            nombres={(r.get("phone") or ""): (r.get("name") or "") for r in destinos})
+                    # ⚠️ Sin SMS (sin pasarela o sin teléfono) NO se calla: sale por CORREO y, si
+                    # tampoco hay a quién, se le dice a quien gestiona la actividad. Un recordatorio
+                    # que no sale es justo el que hacía falta.
+                    if not salio:
+                        correos = [r["email"] for r in destinos if r.get("email")]
+                        if correos:
+                            salio, error = _send_optional_email(
+                                correos,
+                                "Hoy se publica %s" % (_announce_activity_place(c) or "la actividad"),
+                                "<p>%s</p>" % escape(texto), text_body=texto)
+                    # Sea como sea se sella: el recordatorio del día no se manda dos veces (y si no
+                    # salió, quien gestiona la actividad ya tiene su aviso para avisarle a mano).
+                    c.announce_reminder_at = ahora
+                    if salio:
+                        hechos += 1
+                    else:
+                        fallos += 1
+                        _announce_reminder_failed(session_db, c, error or "No había a quién avisar.")
+                except Exception:
+                    app.logger.exception("[anuncio] falló el recordatorio de %s", getattr(c, "id", ""))
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[anuncio] falló el barrido del recordatorio del día")
+    finally:
+        session_db.close()
+    return {"avisados": hechos, "sin_salir": fallos}
+
+
+def _announce_reminder_failed(session_db, concert, motivo: str) -> None:
+    """El recordatorio NO ha salido: se le dice a quien gestiona la actividad (nunca se calla)."""
+    try:
+        titulo = "Hoy se publica y no se ha podido avisar al artista"
+        cuerpo = "%s Avísale tú." % (motivo or "No se pudo mandar el recordatorio.")
+        url = _safe_url_for("concert_detail_view", cid=concert.id, tab="general")
+        for uid in _announce_alert_owner_ids(session_db, concert):
+            _notify_user(session_db, uid, "SIN_NOTIFICACIONES", titulo, cuerpo, url,
+                         ref_type="ANNOUNCE_REMINDER", ref_id=str(concert.id))
+    except Exception:
+        app.logger.exception("[anuncio] no se pudo avisar de que el recordatorio no salió")
+
 
 
 def can_upload_artwork() -> bool:
@@ -67500,10 +68465,14 @@ def _artwork_group_context(session_db, kind: str, gid) -> dict:
     todos = [a for a in ((row.assets if row else None) or []) if not a.is_archived]
 
     def _por(cat, estado):
-        """Las piezas de una categoría en un estado, la PRINCIPAL primero."""
+        """Las piezas de una categoría en un estado, la PRINCIPAL primero.
+
+        ⚠️ «PENDING» aquí es **le falta algún visto bueno**: con la doble aprobación, un cartel con
+        el OK de diseño (`DESIGN_OK`) sigue sin poder usarse, así que va en la lista de pendientes
+        (si no, se enseñaría como bueno a mitad de camino)."""
+        estados = ("PENDING", "DESIGN_OK") if estado == "PENDING" else (estado,)
         filas = [a for a in todos
-                 if _artwork_asset_category(a) == cat
-                 and (a.validation_status or "APPROVED") == estado]
+                 if _artwork_asset_category(a) == cat and _artwork_asset_phase(a) in estados]
         return sorted(filas, key=lambda x: (not bool(x.is_primary), x.created_at or datetime.min))
 
     _artwork_posters_backfill(todos)      # miniaturas y medidas de los vídeos que aún no las tienen
@@ -67522,6 +68491,10 @@ def _artwork_group_context(session_db, kind: str, gid) -> dict:
         "gk_brand_pending": _por("LOGO", "PENDING"),
         "gk_brand_rejected": _por("LOGO", "REJECTED"),
         "gk_brand_formats": ARTWORK_BRAND_FORMATS,
+        # QUIÉN puede dar cada visto bueno aquí (sin actividad delante, el segundo es de quien
+        # puede editar actividades): así el botón sale solo a quien puede pulsarlo.
+        "gk_can_design": _artwork_can_review_phase("PENDING"),
+        "gk_can_owner": _artwork_can_review_phase("DESIGN_OK"),
         # La imagen que representa hoy al grupo (la que pinta su ficha y los listados).
         "gk_image_url": (getattr(grupo, ARTWORK_GROUP_IMAGE_FIELD, None) or "").strip() if grupo else "",
         # ⚠️ LO QUE SE COMPARTE ES LA PÁGINA PÚBLICA, no la URL de Storage de cada archivo (quien lo
@@ -67743,7 +68716,6 @@ def group_artwork_upload_direct(gkind, gid):
             return jsonify({"ok": False, "error": "Sin permiso para subir carteles."}), 403
         row = _artwork_group_request(session_db, gkind, gid, create=True)
         estado = _current_user_state()
-        aprobado_ya = _can_validate_artwork()
         # CARTEL o pieza de MARCA (logotipo): misma solicitud, secciones distintas.
         categoria = _artwork_category_arg(request.form.get("category"))
         ficheros = request.files.getlist("files") or request.files.getlist("file")
@@ -67772,7 +68744,7 @@ def group_artwork_upload_direct(gkind, gid):
                 file_url=file_url, original_name=nombre[:200], mime_type=mime_type, kind=kind,
                 width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
                 height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
-                validation_status=("APPROVED" if aprobado_ya else "PENDING"),
+                validation_status=_artwork_new_asset_status(),
                 category=categoria,
                 uploaded_by_user_id=to_uuid(estado.get("user_id")),
                 uploaded_by_nick=(estado.get("nick") or "").strip() or None,
@@ -67787,7 +68759,7 @@ def group_artwork_upload_direct(gkind, gid):
             return jsonify({"ok": False,
                             "error": ("No se pudo subir ningún archivo."
                                       + (" Se han quedado fuera: " + ", ".join(fallidos[:5]) if fallidos else ""))}), 400
-        hay_pendientes = any((a.validation_status or "APPROVED") == "PENDING"
+        hay_pendientes = any(_artwork_asset_phase(a) in ("PENDING", "DESIGN_OK")
                              for a in (row.assets or []) if not a.is_archived)
         row.status = "REVIEW" if hay_pendientes else "UPLOADED"
         if not hay_pendientes:
@@ -67811,32 +68783,33 @@ def group_artwork_upload_direct(gkind, gid):
 @app.post('/carteleria-grupo/<gkind>/<gid>/assets/<asset_id>/revisar', endpoint='group_artwork_asset_review')
 @admin_required
 def group_artwork_asset_review(gkind, gid, asset_id):
-    """Diseño aprueba o rechaza UN cartel de la gira/evento (con su nota de qué cambiar)."""
-    if not _can_validate_artwork():
-        return jsonify({"ok": False, "error": "Solo diseño puede aprobar carteles."}), 403
+    """Un visto bueno (o el rechazo) a UN cartel de la gira/evento.
+
+    ⚠️⚠️ **DOBLE APROBACIÓN**, igual que en una actividad: primero DISEÑO (`DESIGN_OK`) y después
+    CONTRATACIÓN. Sin actividad delante, el segundo lo da quien puede editar actividades."""
     session_db = db()
     try:
         row = _artwork_group_request(session_db, gkind, gid)
         asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
         if row is None or asset is None or str(asset.artwork_request_id) != str(row.id):
             return jsonify({"ok": False, "error": "Cartel no encontrado."}), 404
+        fase = _artwork_asset_phase(asset)
+        if not _artwork_can_review_phase(fase):
+            return jsonify({"ok": False, "error": _artwork_approver_msg(fase=fase)}), 403
         decision = (request.form.get("decision") or "").strip().upper()
         nota = (request.form.get("note") or "").strip()
         ahora = datetime.now(ZoneInfo('Europe/Madrid'))
-        if decision == "APPROVE":
-            asset.validation_status, asset.rejection_note = "APPROVED", None
-        elif decision == "REJECT":
-            if not nota:
-                return jsonify({"ok": False, "error": "Escribe qué hay que cambiar."}), 400
-            asset.validation_status, asset.rejection_note, asset.is_primary = "REJECTED", nota, False
-        else:
+        if decision not in ("APPROVE", "REJECT"):
             return jsonify({"ok": False, "error": "Decisión no válida."}), 400
-        asset.reviewed_at = ahora
-        asset.reviewed_by_nick = (_current_user_state().get("nick") or "").strip() or None
+        if decision == "REJECT" and not nota:
+            return jsonify({"ok": False, "error": "Escribe qué hay que cambiar."}), 400
+        _artwork_apply_review(asset, decision, nota=nota,
+                              nick=((_current_user_state() or {}).get("nick") or "").strip(),
+                              ahora=ahora)
         pendientes = [a for a in (row.assets or [])
-                      if not a.is_archived and (a.validation_status or "APPROVED") == "PENDING"]
+                      if not a.is_archived and _artwork_asset_phase(a) in ("PENDING", "DESIGN_OK")]
         aprobados = [a for a in (row.assets or [])
-                     if not a.is_archived and (a.validation_status or "APPROVED") == "APPROVED"]
+                     if not a.is_archived and _artwork_asset_phase(a) == "APPROVED"]
         if not pendientes:
             row.status = "UPLOADED" if aprobados else "CORRECTIONS"
         if aprobados:
@@ -67846,7 +68819,9 @@ def group_artwork_asset_review(gkind, gid, asset_id):
         _artwork_group_sync_brand_image(session_db, gkind, gid, row)
         row.updated_at = ahora
         session_db.commit()
-        return jsonify({"ok": True, "status": asset.validation_status, "pending": len(pendientes)})
+        return jsonify({"ok": True, "status": asset.validation_status,
+                        "phase_label": ARTWORK_PHASE_LABELS.get(_artwork_asset_phase(asset), ""),
+                        "pending": len(pendientes)})
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -68033,9 +69008,10 @@ def concert_artwork_upload_direct(cid):
                 category=cat,
                 width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
                 height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
-                # ⚠️ Queda APROBADO solo si quien lo sube es quien tiene que darle el OK
-                # (diseño en un cartel del promotor; quien gestiona, en uno nuestro).
-                validation_status=('APPROVED' if _can_validate_artwork(concert, row) else 'PENDING'),
+                # ⚠️⚠️ DOBLE APROBACIÓN: un cartel NUNCA nace aprobado. Si lo sube diseño, con su
+                # visto bueno puesto (`DESIGN_OK`) y esperando el de contratación; si lo sube otro,
+                # esperando el de diseño.
+                validation_status=_artwork_new_asset_status(),
                 uploaded_by_user_id=to_uuid(estado.get("user_id")),
                 uploaded_by_nick=(estado.get("nick") or "").strip() or None,
             )
@@ -68056,7 +69032,7 @@ def concert_artwork_upload_direct(cid):
             _artwork_pick_primary_by_squareness(row, 'SOLDOUT')
         else:
             # Solo se marca «en revisión» si de verdad queda algo pendiente de aprobar.
-            hay_pendientes = any((a.validation_status or 'APPROVED') == 'PENDING'
+            hay_pendientes = any(_artwork_asset_phase(a) in ('PENDING', 'DESIGN_OK')
                                  for a in (row.assets or [])
                                  if not a.is_archived and _artwork_asset_category(a) == 'POSTER')
             if hay_pendientes and (row.status or 'DRAFT').upper() in ('DRAFT', 'PROMOTER', 'REQUESTED', 'CORRECTIONS', 'UPLOADED'):
@@ -68081,48 +69057,45 @@ def concert_artwork_upload_direct(cid):
 @app.post('/conciertos/<cid>/carteleria/assets/<asset_id>/revisar', endpoint='concert_artwork_asset_review')
 @admin_required
 def concert_artwork_asset_review(cid, asset_id):
-    """Se le da el OK (o se rechaza con una nota) a UN cartel. Los aprobados ya se pueden usar; los
-    rechazados se quedan a la vista con su aviso y se le reclaman a quien los subió.
+    """Se le da UN visto bueno (o se rechaza con una nota) a UN cartel.
 
-    ⚠️ Quién puede darlo depende de QUIÉN LO HA HECHO (`_can_validate_artwork`), así que se comprueba
-    con la actividad delante: el cartel del promotor lo aprueba diseño y el nuestro, contratación."""
+    ⚠️⚠️ **DOBLE APROBACIÓN**: el primer OK lo da **diseño** (el cartel queda en `DESIGN_OK`) y el
+    segundo **quien gestiona la actividad**; hasta que no tiene los dos, el cartel no se puede usar
+    ni compartir. Quién puede dar CADA uno lo decide `_artwork_can_review_phase` con la FASE del
+    cartel delante — no vale el permiso «en general»."""
     session_db = db()
     try:
         concert = (session_db.query(Concert)
-                   .options(joinedload(Concert.artist),
+                   .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                            joinedload(Concert.billing_company),
                             selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
                    .filter(Concert.id == to_uuid(cid)).first())
         row = getattr(concert, 'artwork_request', None) if concert else None
-        if not _can_validate_artwork(concert, row):
-            return jsonify({"ok": False, "error": _artwork_approver_msg(concert, row)}), 403
         asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
         if row is None or asset is None or str(asset.artwork_request_id) != str(row.id):
             return jsonify({"ok": False, "error": "Cartel no encontrado."}), 404
+        fase = _artwork_asset_phase(asset)
+        if not _artwork_can_review_phase(fase, concert):
+            return jsonify({"ok": False, "error": _artwork_approver_msg(concert, row, fase)}), 403
         decision = (request.form.get("decision") or "").strip().upper()
         nota = (request.form.get("note") or "").strip()
-        ahora = datetime.now(ZoneInfo('Europe/Madrid'))
-        estado = _current_user_state()
-        if decision == "APPROVE":
-            asset.validation_status = "APPROVED"
-            asset.rejection_note = None
-        elif decision == "REJECT":
-            if not nota:
-                return jsonify({"ok": False, "error": "Escribe qué hay que cambiar."}), 400
-            asset.validation_status = "REJECTED"
-            asset.rejection_note = nota
-            asset.is_primary = False
-        else:
+        if decision not in ("APPROVE", "REJECT"):
             return jsonify({"ok": False, "error": "Decisión no válida."}), 400
-        asset.reviewed_at = ahora
-        asset.reviewed_by_nick = (estado.get("nick") or "").strip() or None
-        # Cuando ya no queda ninguno pendiente, la solicitud deja de estar «en revisión».
+        if decision == "REJECT" and not nota:
+            return jsonify({"ok": False, "error": "Escribe qué hay que cambiar."}), 400
+        ahora = datetime.now(ZoneInfo('Europe/Madrid'))
+        nick = ((_current_user_state() or {}).get("nick") or "").strip()
+        nueva = _artwork_apply_review(asset, decision, nota=nota, nick=nick, ahora=ahora)
+        # Cuando ya no queda ninguno esperando, la solicitud deja de estar «en revisión».
         # ⚠️ El estado de la SOLICITUD lo marcan los carteles normales: un Sold Out pendiente (o
         # rechazado) no puede dejar la cartelería «en revisión» ni al revés.
+        # ⚠️⚠️ Esperando = PENDING **y** DESIGN_OK: con el primer OK dado, el cartel sigue sin poder
+        # usarse (bug evitado: la solicitud se daba por entregada a mitad del proceso).
         pendientes = [a for a in (row.assets or [])
-                      if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING'
+                      if not a.is_archived and _artwork_asset_phase(a) in ('PENDING', 'DESIGN_OK')
                       and _artwork_asset_category(a) != 'SOLDOUT']
         aprobados = [a for a in (row.assets or [])
-                     if not a.is_archived and (a.validation_status or 'APPROVED') == 'APPROVED'
+                     if not a.is_archived and _artwork_asset_phase(a) == 'APPROVED'
                      and _artwork_asset_category(a) != 'SOLDOUT']
         if not pendientes:
             row.status = 'UPLOADED' if aprobados else 'CORRECTIONS'
@@ -68130,8 +69103,10 @@ def concert_artwork_asset_review(cid, asset_id):
         for _cat in ('POSTER', 'SOLDOUT'):
             _artwork_pick_primary_by_squareness(row, _cat)
         _artwork_notify_resolve_if_done(session_db, row)
+        _artwork_review_after(session_db, concert, row)
         session_db.commit()
-        return jsonify({"ok": True, "status": asset.validation_status,
+        return jsonify({"ok": True, "status": nueva,
+                        "phase_label": ARTWORK_PHASE_LABELS.get(nueva, ""),
                         "pending": len(pendientes), "approved": len(aprobados)})
     except Exception as exc:
         session_db.rollback()
@@ -68192,15 +69167,35 @@ def concert_artwork_validate(cid):
         if not _can_validate_artwork(concert, row):
             return forbid(_artwork_approver_msg(concert, row))
         now = datetime.now(ZoneInfo('Europe/Madrid'))
+        nick = ((_current_user_state() or {}).get('nick') or '').strip()
+        # ⚠️ DOBLE APROBACIÓN: a cada cartel se le da EL VISTO BUENO QUE TE TOCA, no el de los dos.
+        # Si diseño pulsa «Aprobar todos», los deja en DESIGN_OK y siguen esperando a contratación.
+        tocados = 0
         for a in (row.assets or []):
-            if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING':
-                a.validation_status = 'APPROVED'
-        row.status = 'UPLOADED'
+            if a.is_archived:
+                continue
+            fase = _artwork_asset_phase(a)
+            if fase in ('PENDING', 'DESIGN_OK') and _artwork_can_review_phase(fase, concert):
+                _artwork_apply_review(a, 'APPROVE', nick=nick, ahora=now)
+                tocados += 1
+        esperando = _artwork_waiting_assets(row)
+        aprobados = [a for a in (row.assets or [])
+                     if not a.is_archived and _artwork_asset_phase(a) == 'APPROVED'
+                     and _artwork_asset_category(a) != 'SOLDOUT']
+        row.status = ('UPLOADED' if (not esperando and aprobados)
+                      else ('REVIEW' if esperando else row.status))
         row.correction_notes = None
         row.updated_at = now
         _artwork_pick_primary_by_squareness(row)
+        _artwork_review_after(session, concert, row)
         session.commit()
-        flash('Carteles validados: ya aparecen en la ficha del evento.', 'success')
+        if not tocados:
+            flash('No había ningún cartel esperando TU visto bueno.', 'info')
+        elif esperando:
+            flash('Visto bueno dado. Ahora los tiene que aprobar %s.'
+                  % ('contratación' if _artwork_is_design() else 'diseño'), 'success')
+        else:
+            flash('Carteles aprobados: ya aparecen en la ficha del evento.', 'success')
     except Exception as exc:
         session.rollback()
         flash(f'Error validando carteles: {exc}', 'danger')
@@ -68235,8 +69230,11 @@ def concert_artwork_reject(cid):
             return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
         now = datetime.now(ZoneInfo('Europe/Madrid'))
         for a in (row.assets or []):
-            if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING':
+            if not a.is_archived and _artwork_asset_phase(a) in ('PENDING', 'DESIGN_OK'):
                 a.validation_status = 'REJECTED'
+                a.rejection_note = note
+                a.reviewed_at = now
+                a.reviewed_by_nick = ((_current_user_state() or {}).get('nick') or '').strip() or None
                 a.is_archived = True
                 a.archived_at = now
         row.status = 'CORRECTIONS'
@@ -69871,6 +70869,7 @@ def concert_announcement_set(cid):
         if modo == "NONE":
             concert.do_not_announce = True
             concert.announcement_date = None
+            concert.announcement_time = None
             aviso = "Esta actividad no se anuncia."
         elif modo == "DONE":
             concert.do_not_announce = False
@@ -69886,7 +70885,12 @@ def concert_announcement_set(cid):
                 return redirect(next_url)
             concert.do_not_announce = False
             concert.announcement_date = fecha
-            aviso = "Se anuncia el %s." % fecha.strftime("%d/%m/%Y")
+            # ⚠️ La HORA es opcional y es EL MISMO dato que confirma el promotor desde su enlace
+            # (`announcement_time`): un solo dato con dos sitios donde ponerlo.
+            hora = _agenda_clean_time(request.form.get("announcement_time"))
+            concert.announcement_time = hora or None
+            aviso = "Se anuncia el %s%s." % (fecha.strftime("%d/%m/%Y"),
+                                             (" a las %s" % hora) if hora else "")
         else:
             flash("No se ha entendido qué hacer con el anuncio.", "warning")
             return redirect(next_url)
@@ -90555,7 +91559,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -95270,7 +96274,7 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -116810,6 +117814,10 @@ ACTIVITY_NOTICE_KINDS = {
     # ⚠️ ANUNCIO: «ya se puede anunciar». Es el MISMO contenido de la actividad más la CARTELERÍA y
     # los detalles del anuncio — se manda al marcar la actividad como anunciada.
     "ANUNCIO": "Ya se puede anunciar",
+    # ⚠️ CARTELERÍA: «ya tienes los carteles». Lo manda la app SOLA en cuanto los carteles tienen
+    # los DOS vistos buenos (diseño y contratación), con la fecha en la que se anuncia. NO marca la
+    # actividad como anunciada: eso lo hace ANUNCIO, que es otra comunicación.
+    "CARTELERIA": "Ya tienes los carteles",
     "CAMBIOS": "Cambios en la actividad",
     "CANCELACION": "Actividad cancelada",
     "APLAZAMIENTO": "Actividad aplazada",
@@ -118162,8 +119170,10 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         "conditions": _activity_notice_conditions(session_db, concert),
         # ⚠️ Solo en el aviso de ANUNCIO: la CARTELERÍA con la que se anuncia y los detalles del
         # anuncio. En los demás tipos van vacíos y sus módulos no se pintan.
-        "artwork": (_activity_notice_artwork(session_db, concert) if kind == "ANUNCIO" else {}),
-        "announcement": (_activity_notice_announcement(concert) if kind == "ANUNCIO" else {}),
+        "artwork": (_activity_notice_artwork(session_db, concert)
+                    if kind in ("ANUNCIO", "CARTELERIA") else {}),
+        "announcement": (_activity_notice_announcement(concert)
+                         if kind in ("ANUNCIO", "CARTELERIA") else {}),
         "has_cache": _concert_has_cache(session_db, concert),
         "channel_key": _activity_notification_channel(session_db, concert),
         # ¿Este aviso PIDE respuesta? (los botones Confirmar / Rechazar del correo y de la landing).
@@ -119861,9 +120871,11 @@ def _soldout_artwork_state(session_db, concert, sold_total=None) -> dict:
         return vacio
     row = getattr(concert, "artwork_request", None)
     todos = _soldout_artwork_assets(row)
-    aprobados = [a for a in todos if (getattr(a, "validation_status", None) or "APPROVED") == "APPROVED"]
-    pendientes = [a for a in todos if (getattr(a, "validation_status", None) or "APPROVED") == "PENDING"]
-    rechazados = [a for a in todos if (getattr(a, "validation_status", None) or "APPROVED") == "REJECTED"]
+    aprobados = [a for a in todos if _artwork_asset_phase(a) == "APPROVED"]
+    # ⚠️ PENDIENTE = le falta ALGUNO de los dos vistos buenos (el de diseño o el de contratación):
+    # con el primero dado, el cartel de Sold Out sigue sin poder usarse.
+    pendientes = [a for a in todos if _artwork_asset_phase(a) in ("PENDING", "DESIGN_OK")]
+    rechazados = [a for a in todos if _artwork_asset_phase(a) == "REJECTED"]
     pedido = bool(getattr(row, "soldout_requested_at", None)) if row else False
     if not pedido and not todos and not _soldout_artwork_applies(concert):
         return vacio
@@ -134754,6 +135766,8 @@ NOTIFICATION_KIND_META = {
     # El promotor ha subido los carteles: le llega a quien gestiona la actividad (a diseño le llega
     # como DISENO, que es lo que tiene que aprobar).
     "ARTWORK_RECEIVED": ("Ya están los carteles", "fa-images"),
+    # El promotor ha dicho QUÉ DÍA se anuncia (desde el enlace que se le mandó).
+    "ANNOUNCE_CONFIRMED": ("Fecha de anuncio confirmada", "fa-calendar-check"),
 }
 
 # Los avisos que salen en ROJO. El resto son AMARILLOS, que es como se ven los avisos de la casa.
@@ -135001,10 +136015,19 @@ def _notice_icon_img(nombre: str, size: int = 16) -> str:
         return ""
 
 
+# El color de un botón de correo. El de la casa es el ROJO; el AZUL es para el segundo botón de un
+# correo que pide DOS cosas (los dos rellenos y distinguibles: dos rojos seguidos no se leen).
+NOTICE_BUTTON_COLORS = {"primary": "#E33D48", "accent": "#007CA2"}
+
+
 def _notice_email_html(*, title: str, intro: str = "", logo_url: str = "", image_url: str = "",
                        image_round: bool = True, eyebrow: str = "", heading: str = "",
-                       facts=(), button=None, sections=(), note: str = "") -> str:
-    """El HTML de un aviso. Punto ÚNICO: si se toca el diseño, se tocan todos los avisos a la vez."""
+                       facts=(), button=None, buttons=(), sections=(), note: str = "") -> str:
+    """El HTML de un aviso. Punto ÚNICO: si se toca el diseño, se tocan todos los avisos a la vez.
+
+    ⚠️ `buttons` es la lista cuando el correo pide **más de una cosa** (subir los carteles Y
+    confirmar la fecha de anuncio): salen los dos juntos, abajo a la derecha de la cabecera y
+    separados, cada uno con su color (`style`: primary | accent). `button` (uno solo) sigue igual."""
     esc = lambda v: escape("" if v is None else str(v))
     logo = _absolute_media_url(logo_url or "")
     logo_html = ("" if not logo else
@@ -135024,12 +136047,21 @@ def _notice_email_html(*, title: str, intro: str = "", logo_url: str = "", image
                   '<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">%s</td>'
                   '<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">%s</td></tr>'
                   % (_notice_icon_img(icono, 14), esc(etiqueta), esc(valor)))
-    boton = button or {}
-    boton_html = ("" if not (boton.get("url") and boton.get("label")) else
-                  '<div style="margin-top:14px;text-align:right;">'
-                  '<a href="%s" style="display:inline-block;padding:11px 18px;background:#E33D48;'
-                  'color:#fff;text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">'
-                  '%s</a></div>' % (esc(boton.get("url")), esc(boton.get("label"))))
+    # ⚠️ Un solo botón o varios: la lista manda si llega (así el correo que pide DOS cosas no
+    # tiene que componer su propio HTML y desparejarse de todos los demás).
+    lista_botones = [b for b in (list(buttons or []) or ([button] if button else []))
+                     if isinstance(b, dict) and b.get("url") and b.get("label")]
+    boton_html = ""
+    if lista_botones:
+        enlaces = ""
+        for i, b in enumerate(lista_botones):
+            color = NOTICE_BUTTON_COLORS.get(str(b.get("style") or "").strip().lower(),
+                                             NOTICE_BUTTON_COLORS["accent" if i else "primary"])
+            enlaces += ('<a href="%s" style="display:inline-block;margin:4px 0 4px 8px;padding:11px 18px;'
+                        'background:%s;color:#fff;text-decoration:none;border-radius:9px;'
+                        'font-weight:700;font-size:14px;">%s</a>'
+                        % (esc(b.get("url")), color, esc(b.get("label"))))
+        boton_html = '<div style="margin-top:14px;text-align:right;">%s</div>' % enlaces
     bloques = ""
     for sec in (sections or ()):
         filas = ""
@@ -135218,7 +136250,7 @@ def _notice_activity_kind_label(concert) -> str:
 
 def _notice_email_activity(concert, *, title: str, subject: str, intro: str = "",
                            button_label: str = "", button_url: str = "", note: str = "",
-                           sections=()) -> dict:
+                           sections=(), buttons=()) -> dict:
     """El correo de un aviso sobre una ACTIVIDAD (concierto, evento promocional, TV, ensayo…).
 
     Cabecera: la foto del artista, qué es la actividad, su nombre y sus datos con iconos — la MISMA
@@ -135243,6 +136275,9 @@ def _notice_email_activity(concert, *, title: str, subject: str, intro: str = ""
         "heading": nombre,
         "facts": _contract_sheet_hero_rows(concert),
         "button": ({"label": button_label, "url": button_url} if (button_label and button_url) else None),
+        # ⚠️ Cuando el correo pide DOS cosas (subir los carteles Y confirmar la fecha), los botones
+        # van aquí: los pinta el motor, juntos y abajo a la derecha de la cabecera.
+        "buttons": list(buttons or []),
         "sections": sections,
         "note": note,
     }
@@ -164514,6 +165549,10 @@ CRON_TASKS = [
     # ── cada pocos minutos ─────────────────────────────────────────────────────────────────
     {"key": "publicaciones", "label": "Recordatorios de publicación (plan de lanzamiento)",
      "every": 5, "fn": "_disco_plan_reminder_sweep", "icon": "fa-bullhorn"},
+    # ⚠️ Cada 5 min: la fecha de anuncio puede llevar HORA concreta, así que el recordatorio sale
+    # como mucho cinco minutos después de tocar (y `announce_reminder_at` impide que se repita).
+    {"key": "anuncio_hoy", "label": "Recordar al artista que HOY se publica (con sus carteles)",
+     "every": 5, "fn": "_announce_reminder_sweep", "icon": "fa-bullhorn"},
     # ⚠️ Cada 15 min: las ventanas son de 48 h y 24 h, así que el SMS sale como mucho un cuarto de
     # hora después de tocar (y `reminder_48_at`/`reminder_24_at` impiden que se repita).
     {"key": "prl_recordatorio", "label": "Recordar por SMS el alta y la PRL que faltan (48 h y 24 h)",

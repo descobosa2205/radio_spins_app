@@ -6,7 +6,7 @@
     <div class="text-end mb-2">
       <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="max-height:56px;max-width:200px;object-fit:contain;">
     </div>
-    <h3 class="text-center mb-3">{{ 'Subida de carteles' if is_promoter_flow else 'Solicitud de cartelería' }}</h3>
+    <h3 class="text-center mb-3">{{ 'Subir cartelería' if is_promoter_flow else 'Solicitud de cartelería' }}</h3>
     <div class="card shadow-sm mb-4">
       <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
         <img src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_AVATAR_URL }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
@@ -24,10 +24,18 @@
       </div>
     </div>
 
+    {% if announce_url %}
+      <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2">
+        <i class="fa fa-calendar-check text-danger"></i>
+        <span class="flex-grow-1">Nos falta también <strong>la fecha de anuncio</strong>: dinos qué día se anuncia.</span>
+        <a class="btn btn-outline-danger btn-sm" href="{{ announce_url }}">
+          <i class="fa fa-calendar-check me-1"></i>Confirmar la fecha de anuncio</a>
+      </div>
+    {% endif %}
     {% if artwork_request.status == 'CORRECTIONS' and artwork_request.correction_notes %}
       <div class="alert alert-danger"><strong>Los carteles no han sido aprobados.</strong> Por favor, realiza los siguientes cambios y vuelve a subirlos: <span class="fst-italic">{{ artwork_request.correction_notes }}</span></div>
     {% elif artwork_request.status == 'REVIEW' %}
-      <div class="alert alert-warning"><i class="fa fa-clock me-1"></i>Carteles enviados: pendientes de validación por nuestro equipo de diseño.</div>
+      <div class="alert alert-warning"><i class="fa fa-clock me-1"></i>Carteles enviados: los estamos revisando. Te decimos algo si hay que cambiar cualquier cosa.</div>
     {% endif %}
     {% if style_guide_url %}
       <div class="mb-3"><a class="btn btn-outline-dark" href="{{ style_guide_url }}" target="_blank"><i class="fa fa-book me-1"></i>Descargar guía de estilo y materiales</a></div>
@@ -284,9 +292,12 @@
                       <div class="small fw-semibold text-truncate" title="{{ asset.format_label }}">{{ asset.format_label }}</div>
                       <div class="small text-muted">
                         {{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '' }}
+                        {# ⚠️ Al promotor no se le cuentan nuestras dos vueltas de aprobación: para
+                           él solo hay «sin enviar» y «recibido» (un cartel con el OK de diseño ya
+                           está en nuestras manos). #}
                         {% if (asset.validation_status or 'APPROVED') == 'PENDING' %}
                           · <span class="text-warning-emphasis">sin enviar</span>
-                        {% elif (asset.validation_status or '') == 'APPROVED' %}
+                        {% elif (asset.validation_status or '') in ['APPROVED', 'DESIGN_OK'] %}
                           · <span class="text-success">recibido</span>
                         {% endif %}
                       </div>

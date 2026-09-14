@@ -98,7 +98,7 @@
 
     {% if gk_brand_pending %}
       <hr>
-      <h6 class="mb-2 text-warning-emphasis"><i class="fa fa-clock me-1"></i>Pendientes de aprobación por diseño</h6>
+      <h6 class="mb-2 text-warning-emphasis"><i class="fa fa-clock me-1"></i>Pendientes de aprobación</h6>
       <div class="row g-3">
         {% for asset in gk_brand_pending %}
           <div class="col-6 col-md-4 col-xl-3">
@@ -106,13 +106,18 @@
               <span {{ artm.art_open_attrs(asset, set='gk-brand-pend', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', dim=True) }}</span>
               <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
               {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
-              {% if can_validate_artwork and not gk_readonly %}
+              {# ⚠️⚠️ DOBLE APROBACIÓN: primero DISEÑO y después CONTRATACIÓN. El botón se pinta
+                 SOLO a quien le toca esa fase (si no, sería un botón que devuelve 403). #}
+              {% set _fase = asset.validation_status or 'PENDING' %}
+              <span class="badge {{ 'text-bg-info text-dark' if _fase == 'DESIGN_OK' else 'text-bg-warning text-dark' }} mt-1">
+                <i class="fa {{ 'fa-user-check' if _fase == 'DESIGN_OK' else 'fa-clock' }} me-1"></i>
+                {{ 'Diseño OK · falta contratación' if _fase == 'DESIGN_OK' else 'Pendiente de diseño' }}
+              </span>
+              {% if not gk_readonly and ((_fase == 'PENDING' and gk_can_design) or (_fase == 'DESIGN_OK' and gk_can_owner)) %}
                 <div class="d-flex justify-content-center gap-2 mt-2">
-                  <button type="button" class="btn btn-success btn-sm" data-gart-ok="{{ asset.id }}" title="Aprobar"><i class="fa fa-check"></i></button>
+                  <button type="button" class="btn btn-success btn-sm" data-gart-ok="{{ asset.id }}" title="Dar tu visto bueno"><i class="fa fa-check"></i></button>
                   <button type="button" class="btn btn-outline-danger btn-sm" data-gart-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
                 </div>
-              {% else %}
-                <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
               {% endif %}
             </div>
           </div>
@@ -227,7 +232,7 @@
     {# Pendientes del OK de diseño: se ven, pero no se pueden usar. Los botones, solo para diseño. #}
     {% if gk_pending %}
       <hr>
-      <h6 class="mb-2 text-warning-emphasis"><i class="fa fa-clock me-1"></i>Pendientes de aprobación por diseño</h6>
+      <h6 class="mb-2 text-warning-emphasis"><i class="fa fa-clock me-1"></i>Pendientes de aprobación</h6>
       <div class="row g-3">
         {% for asset in gk_pending %}
           <div class="col-6 col-md-4 col-xl-3">
@@ -235,13 +240,18 @@
               <span {{ artm.art_open_attrs(asset, set='gk-pend', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:130px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
               <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
               {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
-              {% if can_validate_artwork and not gk_readonly %}
+              {# ⚠️⚠️ DOBLE APROBACIÓN: primero DISEÑO y después CONTRATACIÓN. El botón se pinta
+                 SOLO a quien le toca esa fase (si no, sería un botón que devuelve 403). #}
+              {% set _fase = asset.validation_status or 'PENDING' %}
+              <span class="badge {{ 'text-bg-info text-dark' if _fase == 'DESIGN_OK' else 'text-bg-warning text-dark' }} mt-1">
+                <i class="fa {{ 'fa-user-check' if _fase == 'DESIGN_OK' else 'fa-clock' }} me-1"></i>
+                {{ 'Diseño OK · falta contratación' if _fase == 'DESIGN_OK' else 'Pendiente de diseño' }}
+              </span>
+              {% if not gk_readonly and ((_fase == 'PENDING' and gk_can_design) or (_fase == 'DESIGN_OK' and gk_can_owner)) %}
                 <div class="d-flex justify-content-center gap-2 mt-2">
-                  <button type="button" class="btn btn-success btn-sm" data-gart-ok="{{ asset.id }}" title="Aprobar"><i class="fa fa-check"></i></button>
+                  <button type="button" class="btn btn-success btn-sm" data-gart-ok="{{ asset.id }}" title="Dar tu visto bueno"><i class="fa fa-check"></i></button>
                   <button type="button" class="btn btn-outline-danger btn-sm" data-gart-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
                 </div>
-              {% else %}
-                <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
               {% endif %}
             </div>
           </div>

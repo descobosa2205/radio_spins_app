@@ -262,6 +262,23 @@
       {% endif %}
     {% endif %}
   {% endif %}
+  {# ⚠️⚠️ PEDIRLE AL PROMOTOR LO QUE FALTA PARA ANUNCIAR: la FECHA de anuncio y, si los carteles
+     los hace él, los CARTELES. El rótulo dice exactamente lo que se le va a pedir y lo decide el
+     servidor (`_announce_ask_state`), que es el mismo que compone el correo. Con la fecha ya
+     puesta solo se le piden los carteles, y si los carteles los hacemos nosotros, solo la fecha. #}
+  {% if announce_ask and announce_ask.applies and CAN_EDIT_CONCERTS %}
+    <button class="btn btn-outline-primary btn-sm" type="button"
+            data-bs-toggle="modal" data-bs-target="#announceAskModal"
+            title="Se le manda un correo al promotor con la cabecera de la actividad y sus botones">
+      <i class="fa fa-calendar-check me-1"></i>{{ announce_ask.label }}
+      {% if announce_ask.asked_label %}<span class="badge text-bg-light border ms-1" title="Se le pidió el {{ announce_ask.asked_label }}">pedido</span>{% endif %}
+    </button>
+  {% elif announce_ask and announce_ask.confirmed_label and concert.announcement_date %}
+    <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
+          title="{{ announce_ask.confirmed_label }} · lo confirmó el promotor desde el enlace que se le mandó">
+      <i class="fa fa-calendar-check me-1"></i>Fecha de anuncio confirmada
+    </span>
+  {% endif %}
   <a class="btn btn-outline-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-envelope-open-text me-1"></i>Invitaciones</a>
   {# LA RUEDA va a la DERECHA DEL TODO de esta fila de botones (no en la cabecera):
      es lo que se hace de tarde en tarde y lo que no se puede deshacer. #}
@@ -313,6 +330,121 @@
       {% endif %}
 
 </div>
+
+{# ---------- Pop-up: PEDIRLE AL PROMOTOR la fecha de anuncio (y los carteles) ----------
+   ⚠️ Va FUERA de las pestañas: el botón está en la barra y se ve desde cualquiera de ellas.
+   ⚠️⚠️ LA VISTA PREVIA **ES** EL CORREO: la compone el servidor con el mismo motor que lo manda
+   (`concert_announce_ask_preview` → `_announce_ask_email`). Escrita a mano se desparejaría. #}
+{% if announce_ask and announce_ask.applies and CAN_EDIT_CONCERTS %}
+<div class="modal fade" id="announceAskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('concert_announce_ask_send', cid=concert.id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-calendar-check me-2"></i>{{ announce_ask.label }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-lg-5">
+              {% if promoter_email_suggestions %}
+                <label class="form-label mb-1">A quién se le pide</label>
+                <div class="list-group mb-3">
+                  {% for row in promoter_email_suggestions %}
+                    <label class="list-group-item d-flex gap-2 align-items-center">
+                      <input class="form-check-input" type="checkbox" name="to_email" value="{{ row.email }}" checked>
+                      <span><span class="fw-semibold">{{ row.email }}</span><span class="text-muted small"> · {{ row.label }}</span></span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="alert alert-warning py-2">No hay correos guardados en el promotor. Escríbelos aquí abajo.</div>
+              {% endif %}
+              <div class="mb-3">
+                <label class="form-label mb-1">Otros correos</label>
+                <input class="form-control" name="extra_emails" placeholder="correo@dominio.com, otro@dominio.com">
+              </div>
+              {% if announce_ask.want_artwork %}
+                <div class="mb-3">
+                  <label class="form-label mb-1">Logos que debe llevar el cartel</label>
+                  <div class="row g-2">
+                    {% for co in artwork_companies %}
+                      <div class="col-12">
+                        <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
+                          <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}" {% if (co.id|string) in artwork_company_ids %}checked{% endif %}>
+                          {{ company_logo(co, size=30) }}
+                          <span class="small">{{ co.name }}</span>
+                        </label>
+                      </div>
+                    {% endfor %}
+                  </div>
+                  <input class="form-control mt-2" name="logo_notes" value="{{ artwork_request.logo_notes if artwork_request else '' }}" placeholder="Otros logos (escríbelos aquí)">
+                </div>
+                <div class="mb-3">
+                  <label class="form-label mb-1">Fecha máxima de entrega de los carteles <span class="text-danger">*</span></label>
+                  <input type="date" class="form-control" name="delivery_deadline" required
+                         value="{{ artwork_request.delivery_deadline.isoformat() if artwork_request and artwork_request.delivery_deadline else '' }}">
+                </div>
+              {% endif %}
+              <div class="mb-2">
+                <label class="form-label mb-1">Nota para el promotor <span class="text-muted small">(opcional)</span></label>
+                <input class="form-control" name="note" placeholder="Lo que quieras añadirle…">
+              </div>
+              {% if announce_ask.want_announce %}
+                <div class="form-text">
+                  <i class="fa fa-circle-info me-1"></i>El botón de la fecha le abre un calendario de hoy
+                  al día de {{ 'la actividad' if not concert.date else concert.date.strftime('%d/%m/%Y') }},
+                  donde elige el día y —si la hay— la hora. Lo que confirme queda puesto en la actividad.
+                </div>
+              {% endif %}
+            </div>
+            <div class="col-lg-7">
+              <label class="form-label mb-1">Vista previa · lo que recibirá el promotor
+                <span class="text-muted small" data-an-subject></span></label>
+              <div class="border rounded p-3" style="max-height:520px;overflow:auto;background:#fff"
+                   data-an-preview data-url="{{ url_for('concert_announce_ask_preview', cid=concert.id) }}">
+                <div class="text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Preparando la vista previa…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar la solicitud</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  // La previa la compone el SERVIDOR con el MISMO HTML del correo: aquí solo se pide y se pinta.
+  var modal = document.getElementById('announceAskModal');
+  if (!modal || modal.__anPrev) return;
+  modal.__anPrev = true;
+  var zona = modal.querySelector('[data-an-preview]');
+  var asunto = modal.querySelector('[data-an-subject]');
+  var form = modal.querySelector('form');
+  var timer = null;
+  function pinta() {
+    if (!zona || !form) return;
+    fetch(zona.getAttribute('data-url'), { method: 'POST', body: new FormData(form) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) return;
+        zona.innerHTML = d.html || '';
+        if (asunto) asunto.textContent = d.subject ? ('· ' + d.subject) : '';
+      }).catch(function () {});
+  }
+  function pintaLuego() { clearTimeout(timer); timer = setTimeout(pinta, 300); }
+  modal.addEventListener('show.bs.modal', pinta);
+  form.addEventListener('change', pintaLuego);
+  form.addEventListener('input', pintaLuego);
+  if (modal.classList.contains('show')) pinta();
+})();
+</script>
+{% endif %}
 
 <ul class="nav nav-tabs ficha-tabs mb-0">
   {# INICIO: las tareas de la actividad paso a paso (como en un proyecto discográfico), con quién
@@ -1717,7 +1849,7 @@
         {% if gk_assets %}
           {# Con carteles de la gira hay dos módulos: aquí se comparte TODO junto (los de la fecha y
              los de la gira); cada módulo tiene además su propio «compartir». #}
-          {% set _todos_urls = (current_artwork_assets|rejectattr('validation_status', 'in', ['PENDING', 'REJECTED'])|map(attribute='file_url')|list) + (gk_assets|map(attribute='file_url')|list) %}
+          {% set _todos_urls = (current_artwork_assets|rejectattr('validation_status', 'in', ['PENDING', 'DESIGN_OK', 'REJECTED'])|map(attribute='file_url')|list) + (gk_assets|map(attribute='file_url')|list) %}
           {% set _todos_txt = ('Carteles ' ~ (concert.artist.name if concert.artist else 'actividad') ~ (' · ' ~ concert.date.strftime('%d/%m/%Y') if concert.date else '') ~ ':\n' ~ (_todos_urls|join('\n'))) %}
           <div class="dropdown">
             <button class="btn btn-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir todos los carteles</button>
@@ -2012,56 +2144,53 @@
       </div>
       {% endif %}
 
-      {# ---------- VALIDACIÓN por diseño (carteles del promotor pendientes) ---------- #}
-      {% if art_status == 'REVIEW' and can_validate_artwork %}
+      {# ---------- LOS DOS VISTOS BUENOS de un cartel (diseño → contratación) ----------
+         ⚠️⚠️ DOBLE APROBACIÓN: un cartel se mira DOS veces —primero DISEÑO (que esté bien hecho) y
+         después QUIEN GESTIONA la actividad (que los datos sean los buenos)— y hasta que no tiene
+         los dos NO se puede usar ni compartir. Cada uno ve el botón solo en la fase que le toca
+         (`_artwork_review_rows`, el punto único que dice en qué fase está cada cartel y de quién
+         es); el resto lo ve, para saber que están subidos, pero no puede aprobarlo. #}
+      {% if artwork_review_rows %}
         <div class="card border-warning mt-3">
           <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-              <h6 class="mb-0"><i class="fa fa-clipboard-check me-1 text-warning"></i>Carteles pendientes de validación</h6>
-              <div class="d-flex gap-2">
-                <form method="post" action="{{ url_for('concert_artwork_validate', cid=concert.id) }}">
-                  <button class="btn btn-success btn-sm"><i class="fa fa-check-double me-1"></i>Aprobar todos</button>
-                </form>
-                <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkRejectModal"><i class="fa fa-xmark me-1"></i>Rechazar todos</button>
-              </div>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+              <h6 class="mb-0"><i class="fa fa-clipboard-check me-1 text-warning"></i>Carteles pendientes de aprobación</h6>
+              {% if artwork_review_mine %}
+                <div class="d-flex gap-2">
+                  <form method="post" action="{{ url_for('concert_artwork_validate', cid=concert.id) }}">
+                    <button class="btn btn-success btn-sm"><i class="fa fa-check-double me-1"></i>Dar mi visto bueno a todos</button>
+                  </form>
+                  <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkRejectModal"><i class="fa fa-xmark me-1"></i>Rechazar todos</button>
+                </div>
+              {% endif %}
+            </div>
+            <div class="small text-muted mb-3">
+              Un cartel pasa por <strong>dos vistos buenos</strong>: primero <strong>diseño</strong> y
+              después <strong>contratación</strong>. Con los dos, se le mandan solos al artista.
             </div>
             <div class="row g-3">
-              {% for asset in current_artwork_assets if asset.validation_status == 'PENDING' %}
+              {% for r in artwork_review_rows %}
+                {% set asset = r.asset %}
                 <div class="col-6 col-md-4 col-xl-3">
                   <div class="border rounded p-2 h-100 text-center" data-art-asset="{{ asset.id }}">
-                    <span {{ artm.art_open_attrs(asset, set='cart-val', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;') }}</span>
+                    <span {{ artm.art_open_attrs(asset, set='cart-val', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=(not r.mine)) }}</span>
                     <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                     {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
                     {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
-                    {% if can_validate_artwork %}
-                      {# Uno a uno, como las fotos: en cuanto diseño le da el OK ya se puede usar. #}
+                    <span class="badge {{ 'text-bg-info text-dark' if r.phase == 'DESIGN_OK' else 'text-bg-warning text-dark' }} mt-1">
+                      <i class="fa {{ 'fa-user-check' if r.phase == 'DESIGN_OK' else 'fa-clock' }} me-1"></i>{{ r.label }}
+                    </span>
+                    {% if r.phase == 'DESIGN_OK' and asset.design_reviewed_by_nick %}
+                      <div class="small text-muted">Diseño: {{ asset.design_reviewed_by_nick }}</div>
+                    {% endif %}
+                    {% if r.mine %}
                       <div class="d-flex justify-content-center gap-2 mt-2">
-                        <button type="button" class="btn btn-success btn-sm" data-art-ok="{{ asset.id }}" title="Aprobar este cartel"><i class="fa fa-check"></i></button>
+                        <button type="button" class="btn btn-success btn-sm" data-art-ok="{{ asset.id }}" title="{{ 'Dar el visto bueno de diseño' if r.phase == 'PENDING' else 'Dar el visto bueno de contratación' }}"><i class="fa fa-check"></i></button>
                         <button type="button" class="btn btn-outline-danger btn-sm" data-art-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
                       </div>
+                    {% else %}
+                      <div class="small text-muted mt-1">{{ r.who }}</div>
                     {% endif %}
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-          </div>
-        </div>
-      {% elif art_status == 'REVIEW' %}
-        {# Sin permisos de diseño: se VEN los carteles pendientes (para saber que están subidos) pero
-           no se pueden aprobar ni usar hasta que diseño les dé el OK. #}
-        {% set pendientes = current_artwork_assets|selectattr('validation_status', 'equalto', 'PENDING')|list %}
-        <div class="card border-warning mt-3">
-          <div class="card-body">
-            <h6 class="mb-2"><i class="fa fa-clock me-1 text-warning"></i>Carteles pendientes de aprobación por diseño</h6>
-            <div class="small text-muted mb-3">Están subidos pero todavía no se pueden usar: los aprueba <strong>diseño</strong>.</div>
-            <div class="row g-3">
-              {% for asset in pendientes %}
-                <div class="col-6 col-md-4 col-xl-3">
-                  <div class="border rounded p-2 h-100 text-center">
-                    <span {{ artm.art_open_attrs(asset, set='cart-pend', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
-                    <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
-                    <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
-                    {% if asset.uploaded_by_nick %}<div class="small text-muted mt-1">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
                   </div>
                 </div>
               {% endfor %}
@@ -2169,10 +2298,10 @@
                 </div>
               {% endif %}
 
-              {# Pendientes de que diseño les dé el OK (uno a uno, como el resto de la cartelería). #}
+              {# Pendientes de sus DOS vistos buenos (diseño → contratación), como el resto. #}
               {% if so_pend %}
                 <hr>
-                <h6 class="mb-2"><i class="fa fa-clock me-1 text-warning"></i>Pendientes de aprobación por diseño</h6>
+                <h6 class="mb-2"><i class="fa fa-clock me-1 text-warning"></i>Pendientes de aprobación</h6>
                 <div class="row g-3">
                   {% for asset in so_pend %}
                     <div class="col-6 col-md-4 col-xl-3">
@@ -2180,13 +2309,18 @@
                         <span {{ artm.art_open_attrs(asset, set='soldout-pend', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
                         <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                         {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
-                        {% if can_validate_artwork %}
+                        {# ⚠️ El botón solo a quien le toca ESTA fase: diseño da el primero y
+                           contratación el segundo (si no, sería un botón que devuelve 403). #}
+                        {% set so_fase = asset.validation_status or 'PENDING' %}
+                        <span class="badge {{ 'text-bg-info text-dark' if so_fase == 'DESIGN_OK' else 'text-bg-warning text-dark' }} mt-1">
+                          <i class="fa {{ 'fa-user-check' if so_fase == 'DESIGN_OK' else 'fa-clock' }} me-1"></i>
+                          {{ 'Diseño OK · falta contratación' if so_fase == 'DESIGN_OK' else 'Pendiente de diseño' }}
+                        </span>
+                        {% if (so_fase == 'PENDING' and artwork_can_design) or (so_fase == 'DESIGN_OK' and artwork_can_owner) %}
                           <div class="d-flex justify-content-center gap-2 mt-2">
-                            <button type="button" class="btn btn-success btn-sm" data-art-ok="{{ asset.id }}" title="Aprobar"><i class="fa fa-check"></i></button>
+                            <button type="button" class="btn btn-success btn-sm" data-art-ok="{{ asset.id }}" title="Dar tu visto bueno"><i class="fa fa-check"></i></button>
                             <button type="button" class="btn btn-outline-danger btn-sm" data-art-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
                           </div>
-                        {% else %}
-                          <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
                         {% endif %}
                       </div>
                     </div>
@@ -2226,7 +2360,7 @@
       {# ---------- FORMATOS SUBIDOS ----------
          Solo aparece cuando hay carteles (aprobados, rechazados o antiguos). Usables = los APROBADOS;
          los pendientes esperan el OK de diseño y los rechazados salen en su bloque con el aviso. #}
-      {% set visible_assets = current_artwork_assets|rejectattr('validation_status', 'in', ['PENDING', 'REJECTED'])|list %}
+      {% set visible_assets = current_artwork_assets|rejectattr('validation_status', 'in', ['PENDING', 'DESIGN_OK', 'REJECTED'])|list %}
       {% set rejected_assets = current_artwork_assets|selectattr('validation_status', 'equalto', 'REJECTED')|list %}
       {% if visible_assets or rejected_assets or archived_artwork_assets %}
       <div class="card mt-3">

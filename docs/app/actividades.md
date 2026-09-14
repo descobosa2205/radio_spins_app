@@ -82,6 +82,8 @@
 - UN PAYLOAD SIN CLASIFICAR SE PINTA COMO JSON EN CRUDO EN LA FICHA
 - LA FICHA DE CONTRATACIÓN, EL AVISO AL ARTISTA Y LOS BOTONES DESTACADOS (sep 2026, tres
 - QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR. A CUATRO SEMANAS
+- LA FECHA DE ANUNCIO PUEDE LLEVAR HORA, Y LA CONFIRMA EL PROMOTOR (sep 2026)
+- EL DÍA DEL ANUNCIO, AL ARTISTA LE LLEGA UN SMS CON SUS CARTELES (sep 2026)
 
 ---
 
@@ -1560,3 +1562,26 @@
   propia sentencia** del `ensure_*` (la regla de la casa: dentro de un ALTER que ya existe puede no
   ejecutarse nunca y la app revienta al leerla).
 
+- ⚠️⚠️ **LA FECHA DE ANUNCIO PUEDE LLEVAR HORA, Y LA CONFIRMA EL PROMOTOR** (sep 2026). Hay
+  actividades que se publican a una hora pactada, así que `Concert` gana **`announcement_time`**
+  («HH:MM», opcional, **en su propia sentencia** del `ensure_*`) y se pone en **dos sitios que son el
+  mismo dato**: el desplegable de la **etiqueta del anuncio** de la cabecera (que ahora la enseña:
+  «Anuncio: 09/10/2026 · 12:00») y el **enlace que se le manda al promotor** para que la confirme él.
+  · Todo lo de pedírsela —el botón de la barra, el correo con sus dos botones y la página del
+  calendario— está en **`docs/app/carteleria.md`** (es la misma conversación que la de los carteles).
+  ⚠️ «No anunciar» y «Anunciado hoy» **limpian la hora**: si no, quedaría una hora de un plan que ya
+  no existe.
+
+- ⚠️⚠️ **EL DÍA DEL ANUNCIO, AL ARTISTA LE LLEGA UN SMS CON SUS CARTELES** (sep 2026, lo pidió Dani).
+  Los carteles se le mandan en cuanto están aprobados (ver `carteleria.md`), pero el día que toca
+  publicar hay que **recordárselo**: **`_announce_reminder_sweep`** (cron único, **cada 5 minutos**,
+  para que la hora concreta se respete de verdad) manda
+  *«Recuerda que hoy a las 12:30 se publica el concierto de Móstoles. Aquí tienes los carteles: … »*.
+  · **CON HORA**, a esa hora; **sin hora**, a partir de las 9:00 (`ANNOUNCE_REMINDER_HOUR`).
+  · **EL ENLACE DE VENTA solo si ya se puede comprar**: si la salida a la venta es más tarde (o no
+  hay enlace) **no se pone** — mandar un enlace que no vende es peor que no mandar nada
+  (`_announce_sale_url`).
+  ⚠️ **Si el SMS no puede salir** (sin pasarela, sin teléfono) **va por correo**, y si tampoco hay a
+  quién, se le dice a **quien gestiona la actividad** para que avise él: un recordatorio que no sale
+  es justo el que hacía falta. Se sella `announce_reminder_at` en cualquier caso, así que no se manda
+  dos veces.

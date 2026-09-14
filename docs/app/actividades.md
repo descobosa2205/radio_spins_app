@@ -22,6 +22,7 @@
 - PROMOCIÓN · la ficha se lee como la de una ACTIVIDAD: misma cabecera
 - CANCELAR o APLAZAR una actividad es un PROCESO, no cambiar una etiqueta.
 - A UN ARTISTA (O A UN EVENTO) SOLO SE LE MANDA LO QUE ESTÉ CONFIGURADO EN SUS
+- ANUNCIAR Y SACAR A LA VENTA LE DAN TRABAJO A DIGITAL
 - AVISO AL ARTISTA DE UNA ACTIVIDAD. Antes de CONFIRMAR una actividad hay que
 - ELIMINAR UNA ACTIVIDAD · la RUEDA de la cabecera
 - FICHA DE CONTRATACIÓN · una sola, y lo del promotor aparte
@@ -548,6 +549,35 @@
   (`pedirDecisionAviso` en `scripts.js`: con un `confirm()` no caben; sin Bootstrap se cae al de
   siempre). Queda marcado en `artist_notified_to = [{"manual": true}]` → `_concert_notice_state`
   devuelve `manual` y la etiqueta dice «Notificado (a mano)».
+
+- ⚠️⚠️ **ANUNCIAR Y SACAR A LA VENTA LE DAN TRABAJO A DIGITAL, Y NADIE SE LO DECÍA** (sep 2026).
+  Las dos comunicaciones que salen de casa son el pistoletazo de dos trabajos suyos:
+  · se **ANUNCIA** la actividad → hay que **anunciarla en redes**;
+  · **SALE A LA VENTA** → hay que **subir los enlaces de venta**.
+  Ahora, en las dos, a digital le llega **EL MISMO CORREO** que a los demás y le entra su **tarea
+  pendiente**, que **él mismo marca como hecha** y entonces desaparece.
+  · **Punto único `_digital_task_ask` / `_digital_task_done`** (+ el catálogo `DIGITAL_TASKS`), y el
+  estado en **`Concert.digital_payload`**: `asked_at` sin `done_at` = sigue pendiente. Se mira el
+  DATO, no una marca paralela.
+  · **El correo**: en el ANUNCIO se le manda el **mismo HTML** que se acaba de mandar al artista (el
+  aviso, con su cabecera y sus carteles); en la SALIDA A LA VENTA no hace falta repetirlo porque
+  **digital entra en `_sale_notice_recipients`** con su papel «Digital» (y su casilla, como todos),
+  así que ya le llega con la tabla de canales de venta dentro, que es justo lo que necesita.
+  ⚠️ La tarea en la app va con **`email=False`**: el correo ya ha salido y `_notify_user` mandaría
+  otro distinto.
+  · **Dónde lo ve**: «Mis tareas pendientes» de su Inicio (`HOME_DIGITAL_TASKS`) y el **cuadro de
+  dirección** (área Digital). El botón **«Hecho»** es genérico del módulo de tareas (`done_url` en la
+  subtarea): cuando lo que falta es DECIR QUE YA ESTÁ —se hace fuera de la app—, se marca desde
+  Inicio sin entrar en la ficha.
+  · **QUIÉN es digital**: el departamento **«Redes sociales»** (`DIGITAL_DEPARTMENT`), que es como se
+  llama en la ficha de cada uno. ⚠️ **No se cae en otro departamento** si no hay nadie: se apunta en
+  el log y la tarea queda, pero mandársela a quien no lleva las redes solo haría ruido.
+  · **Permisos**: marcarla es suyo y su llave es el **DEPARTAMENTO**, no un permiso de sección
+  (digital no tiene por qué poder editar Contratación, que es de quien es la ficha): regla propia en
+  `_support_endpoint_decision` (`concert_digital_task_done` + `_user_is_digital`), y el endpoint lo
+  vuelve a comprobar. Comprobado: contratación intentando marcarla se lleva un **403**.
+  ⚠️ Si la actividad se vuelve a anunciar (o se reprograma la venta) **después** de haberla dado por
+  hecha, se le vuelve a pedir: es trabajo nuevo. Mientras siga pendiente **no se repite**.
 
 - **ELIMINAR UNA ACTIVIDAD · la RUEDA de la cabecera** (ago 2026). La ficha tiene arriba a la derecha
   un botón de **rueda** (`.ficha-hero__gear`) con lo que se hace de tarde en tarde: asignar/cambiar

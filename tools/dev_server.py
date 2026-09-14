@@ -54,6 +54,12 @@ def dev_entrar(nick):
         if not prof:
             return "no existe " + nick, 404
         session["user_id"] = str(prof.user_id)
+        # ⚠️⚠️ EL ROL TAMBIÉN: `current_role()` lee la SESIÓN y, si no está, **da 10 (dirección)** —
+        # así que entrar sin ponerlo hacía que cualquiera se viera la app como dirección y las
+        # comprobaciones en el navegador mentían.
+        u = s.get(app.User, prof.user_id)
+        session["role"] = int(getattr(u, "role", 1) or 1)
+        session["nick"] = (prof.nick or "")
         return redirect("/home")
     finally:
         s.close()

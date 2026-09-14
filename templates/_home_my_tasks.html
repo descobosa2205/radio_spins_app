@@ -75,6 +75,16 @@
               {# BOTÓN SIN RELLENAR, a la derecha: lleva directo a hacer lo que se requiere. #}
               <a class="btn btn-sm btn-outline-danger ms-auto flex-shrink-0" href="{{ s.url or t.url }}">
                 {{ s.action_label }}<i class="fa fa-arrow-right ms-1"></i></a>
+              {# ⚠️ Y, cuando lo que falta es DECIR QUE YA ESTÁ (se hace fuera de la app: publicarlo
+                 en redes, poner los enlaces de compra), su botón «Hecho»: se marca desde aquí y la
+                 tarea desaparece, sin tener que entrar en la ficha. #}
+              {% if s.done_url %}
+                <form method="post" action="{{ s.done_url }}" class="flex-shrink-0 ms-2">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-success" type="submit" title="Darlo por hecho">
+                    <i class="fa fa-check me-1"></i>Hecho</button>
+                </form>
+              {% endif %}
             </div>
           {% endfor %}
         </div>

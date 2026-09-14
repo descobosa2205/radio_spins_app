@@ -93763,6 +93763,10 @@ HOME_TASK_SOURCES = [
     # ── DISEÑO Y PRENSA ────────────────────────────────────────────────────────────────────────
     {"ctx": "HOME_DESIGN_TASKS", "kind": "LANZAMIENTO", "order": 3,
      "subtasks": "tasks", "subtask_label": "label", "action": "Entregarlo"},
+    # ── DIGITAL ────────────────────────────────────────────────────────────────────────────────
+    # ⚠️ Es una ACTIVIDAD (se anuncia en redes, se suben sus enlaces de venta), no un lanzamiento.
+    {"ctx": "HOME_DIGITAL_TASKS", "kind": "ACTIVIDAD", "order": 2,
+     "subtasks": "tasks", "subtask_label": "label", "action": "Hacerlo", "note": ("place_label",)},
     {"ctx": "HOME_PRESS_TASKS", "kind": "LANZAMIENTO", "order": 3,
      "subtasks": "tasks", "subtask_label": "label", "action": "Hacerlo"},
     # ── PROMOCIÓN Y MARKETING ──────────────────────────────────────────────────────────────────
@@ -93830,7 +93834,7 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
 
     def añade(kind, sid, titulo, ficha_url, *, label, action_url="", action_label="",
               state="todo", artist="", photo="", fecha="", note="", order=5,
-              activity_type="", ref_id=""):
+              activity_type="", ref_id="", done_url=""):
         """Una subtarea. Las de un MISMO sujeto (kind+id) se juntan en una sola fila."""
         if not label:
             return
@@ -93855,8 +93859,12 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                     QUAD_ACTIVITY_ALIASES.get((activity_type or "").strip().upper(), ""), "")
                     or meta[1]),
             }
+        # ⚠️ `done_url`: cuando lo que falta es DECIR QUE YA ESTÁ (anunciarlo en redes, subir los
+        # enlaces de venta: se hace fuera de la app), la fila lleva su botón «Hecho» y se marca
+        # desde aquí, sin entrar en la ficha. Sin él, la tarea solo lleva a donde se hace.
         fila["tasks"].append({"label": label, "url": (action_url or ficha_url or ""),
-                              "action_label": (action_label or "Hacerlo"), "state": state})
+                              "action_label": (action_label or "Hacerlo"), "state": state,
+                              "done_url": (done_url or "")})
         fila["order"] = min(fila["order"], order)
 
     for row in (batches or []):
@@ -93972,7 +93980,8 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                               label=(sub.get(fuente.get("subtask_label") or "label") or ""),
                               action_url=(sub.get("url") or url),
                               action_label=(sub.get("action_label") or fuente.get("action") or "Hacerlo"),
-                              state=(sub.get("state") or "todo"), **comun)
+                              state=(sub.get("state") or "todo"),
+                              done_url=(sub.get("done_url") or ""), **comun)
                 else:
                     etiqueta = (str(fila.get(fuente["label_key"]) or "") if fuente.get("label_key")
                                 else (fuente.get("label") or ""))
@@ -94577,6 +94586,27 @@ def _dir_area_digital(session_db, idx) -> list[dict]:
                                                              (getattr(c, "title", None) or "").strip()] if x]),
                              url=url_for("disco_project_detail", project_id=p.id, tab="lanzamiento"),
                              date=(cuando.date() if cuando else None), icon="fa-photo-film"))
+    # Y LO DE LAS ACTIVIDADES: anunciarlas en redes y subir sus enlaces de venta (se le pide al
+    # anunciarlas y al comunicar la salida a la venta, y sale de aquí hasta que lo da por hecho).
+    try:
+        actividades = (session_db.query(Concert)
+                       .options(joinedload(Concert.artist))
+                       .filter(text("concerts.digital_payload <> '{}'::jsonb"))
+                       .order_by(Concert.date.asc().nullslast()).limit(200).all())
+    except Exception:
+        actividades = []
+    for c in actividades:
+        for clave, etiqueta, icono, tab, _ayuda in DIGITAL_TASKS:
+            if not _digital_task_pending(c, clave):
+                continue
+            out.append(_dir_task(
+                etiqueta,
+                subject=((getattr(c, "festival_name", None) or "").strip()
+                         or (getattr(getattr(c, "artist", None), "name", "") or "").strip()
+                         or "Actividad"),
+                photo=(getattr(getattr(c, "artist", None), "photo_url", None) or ""),
+                url=url_for("concert_detail_view", cid=str(c.id), tab=tab),
+                date=getattr(c, "date", None), icon=icono))
     return out
 
 
@@ -94967,6 +94997,9 @@ def inject_personnel_globals():
         # LO DE DISEÑO, agrupado por proyecto (la portada y las creatividades de cada lanzamiento).
         "HOME_DESIGN_TASKS": (_home_design_tasks()
                               if _home and "_home_design_tasks" in globals() else []),
+        # LO DE DIGITAL: anunciar en redes y subir los enlaces de venta de cada actividad.
+        "HOME_DIGITAL_TASKS": (_home_digital_tasks()
+                               if _home and "_home_digital_tasks" in globals() else []),
         # CONTRATOS DE PRODUCTOR por mandar (quien es Registros y Sello a la vez).
         "HOME_PRODUCER_CONTRACTS": (_home_producer_contracts()
                                     if _home and "_home_producer_contracts" in globals() else []),
@@ -95657,6 +95690,11 @@ def _support_endpoint_decision(endpoint: str):
     # logística que se le pidió) se le pide por su NOMBRE, y puede no tener el permiso de «Bolsas»,
     # así que se comía un 403 al cerrar su propia parte. La llave es tenerla asignada; el endpoint
     # vuelve a comprobar dentro qué parte le toca.
+    # ⚠️ DAR POR HECHA UNA TAREA DE DIGITAL (anunciar en redes, subir los enlaces de venta): su
+    # llave es el DEPARTAMENTO, no un permiso de sección —digital no tiene por qué poder editar
+    # Contratación, que es de quien es la ficha de la actividad—. El endpoint lo vuelve a comprobar.
+    if endpoint == "concert_digital_task_done" and _user_is_digital():
+        return (True, None)
     if endpoint in ("bag_close", "bag_detail_view") and _bag_close_is_mine_request():
         return (True, None)
     if endpoint in SUPPORT_READ_ENDPOINTS:
@@ -118400,6 +118438,257 @@ def _concert_for_notice(session_db, cid):
             .filter(Concert.id == to_uuid(cid)).first())
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  DIGITAL · LO QUE LE TOCA CUANDO UNA ACTIVIDAD SE ANUNCIA O SALE A LA VENTA
+#
+#  Las dos comunicaciones que salen de casa le dan trabajo a DIGITAL y nadie se lo decía: cuando se
+#  ANUNCIA una actividad hay que **anunciarla en redes**, y cuando SALE A LA VENTA hay que **subir
+#  los enlaces de venta**. Ahora, además del aviso al artista:
+#    · le llega **el MISMO correo** que a los demás (es algo que le ENTRA, la regla de la casa), y
+#    · le entra su **tarea pendiente**, que **él mismo marca como hecha** y entonces desaparece.
+#
+#  ⚠️ Se mira el DATO: pedida (`asked_at`) y sin hacer (`done_at`) = sigue pendiente. No hay una
+#     marca paralela que se pueda desparejar.
+#  ⚠️ DIGITAL es el departamento **«Redes sociales»** del catálogo de personal (`DIGITAL_DEPARTMENT`),
+#     que es como se llama en la ficha de cada uno; «Digital» es como lo llamamos al hablar.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+DIGITAL_DEPARTMENT = "Redes sociales"
+
+# (clave, qué hay que hacer, icono, a qué pestaña de la ficha lleva, ayuda)
+DIGITAL_TASKS = (
+    ("announce", "Anunciar en redes", "fa-bullhorn", "carteleria",
+     "La actividad ya está anunciada: toca publicarla en las redes del artista y de la casa."),
+    ("sale_links", "Subir los enlaces de venta", "fa-link", "ticketing",
+     "Ya está a la venta: hay que poner los enlaces de compra donde toca."),
+)
+DIGITAL_TASK_LABELS = {k: l for k, l, _i, _t, _h in DIGITAL_TASKS}
+DIGITAL_TASK_ICONS = {k: i for k, _l, i, _t, _h in DIGITAL_TASKS}
+DIGITAL_TASK_TABS = {k: t for k, _l, _i, t, _h in DIGITAL_TASKS}
+DIGITAL_TASK_HELP = {k: h for k, _l, _i, _t, h in DIGITAL_TASKS}
+
+
+def _digital_block(concert) -> dict:
+    """Lo guardado de digital en la actividad (siempre un dict)."""
+    data = getattr(concert, "digital_payload", None)
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def _digital_task(concert, key: str) -> dict:
+    """Cómo va UNA de las cosas de digital (`asked_at` / `done_at` / quién)."""
+    fila = (_digital_block(concert).get(key) or {})
+    return dict(fila) if isinstance(fila, dict) else {}
+
+
+def _digital_task_set(concert, key: str, fila: dict) -> None:
+    """Escribe el estado de una de las cosas de digital.
+
+    ⚠️ El patrón de leer-copiar-reasignar NO escribe la segunda vez en la misma petición: hay que
+    marcar el JSONB a mano (la trampa conocida de la casa)."""
+    if concert is None or key not in DIGITAL_TASK_LABELS:
+        return
+    bloque = _digital_block(concert)
+    bloque[key] = dict(fila or {})
+    concert.digital_payload = bloque
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(concert, "digital_payload")
+    except Exception:
+        pass
+
+
+def _digital_task_pending(concert, key: str) -> bool:
+    """¿Sigue esperando? Pedida y sin marcar como hecha."""
+    fila = _digital_task(concert, key)
+    return bool(fila.get("asked_at")) and not fila.get("done_at")
+
+
+def _digital_user_ids(session_db) -> list[str]:
+    """Quién es DIGITAL. Sin nadie apuntado no se avisa a otros: se deja constancia en el log.
+
+    ⚠️ No se cae en otro departamento a propósito: anunciar en redes es de quien lleva las redes, y
+    mandárselo a quien no lo lleva solo hace ruido."""
+    try:
+        return [str(x) for x in (_department_user_ids(session_db, DIGITAL_DEPARTMENT) or [])]
+    except Exception:
+        app.logger.exception("[digital] no se pudo leer el departamento")
+        return []
+
+
+def _digital_emails(session_db) -> list[str]:
+    """Los correos de quien es DIGITAL (para mandarle el MISMO correo que a los demás)."""
+    correos = []
+    for uid in _digital_user_ids(session_db):
+        try:
+            u = session_db.get(User, _safe_uuid(uid))
+        except Exception:
+            u = None
+        correo = ((getattr(u, "email", None) or "").strip() if u is not None else "")
+        if correo and correo.lower() not in [c.lower() for c in correos]:
+            correos.append(correo)
+    return correos
+
+
+def _digital_task_ask(session_db, concert, key: str, *, subject: str = "", html: str = "") -> bool:
+    """LE ENTRA A DIGITAL: se apunta la tarea, se le avisa en la app y se le manda **EL MISMO CORREO**.
+
+    Punto único de las dos puertas (el ANUNCIO al artista y la SALIDA A LA VENTA), así que las dos se
+    comportan igual. Devuelve si se ha apuntado algo nuevo.
+    ⚠️⚠️ El correo que se le manda es **el mismo que sale de casa** (`html`), no uno resumido: es lo
+    que hace falta para publicarlo. Si la comunicación ya se lo ha mandado por su cuenta —la salida a
+    la venta lo lleva en su lista de destinatarios— se llama SIN `html` y aquí solo se apunta la tarea.
+    ⚠️ Si ya estaba pedida y sin hacer, **no se vuelve a pedir**: seguía esperando. Si ya estaba HECHA
+    y la actividad se vuelve a anunciar (o se reprograma la venta), se pide otra vez: es trabajo nuevo.
+    ⚠️ Va en `try` y no tira nada: que no se pueda avisar a digital no puede tumbar la comunicación al
+    artista, que es lo importante de esos dos endpoints."""
+    if concert is None or key not in DIGITAL_TASK_LABELS:
+        return False
+    try:
+        if _digital_task_pending(concert, key):
+            return False
+        yo = _current_user_state() or {}
+        _digital_task_set(concert, key, {
+            "asked_at": _now_madrid().isoformat(),
+            "asked_by": (yo.get("nick") or ""),
+        })
+        quienes = _digital_user_ids(session_db)
+        if not quienes:
+            app.logger.warning("[digital] nadie en «%s»: la tarea «%s» queda apuntada sin avisar",
+                               DIGITAL_DEPARTMENT, key)
+            return True
+        artista = (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+        cuerpo = " · ".join([x for x in [
+            ((getattr(concert, "festival_name", None) or "").strip() or artista or "Actividad"),
+            (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+            _place_label(_concert_city(concert), _concert_province_value(concert)),
+        ] if x])
+        # EL MISMO CORREO que ha salido de casa (si esta puerta lo trae).
+        if html:
+            correos = _digital_emails(session_db)
+            if correos:
+                ok, err = _send_optional_email(correos, subject or DIGITAL_TASK_LABELS[key], html)
+                if not ok:
+                    app.logger.warning("[digital] no salió el correo a digital: %s", err or "")
+        # Y su TAREA en la app. ⚠️ `email=False`: el correo ya ha salido (o lo manda la propia
+        # comunicación), y `_notify_user` mandaría otro distinto.
+        _notify_users(
+            session_db, quienes, "TAREA", DIGITAL_TASK_LABELS[key], cuerpo,
+            _safe_url_for("concert_detail_view", cid=str(concert.id),
+                          tab=DIGITAL_TASK_TABS.get(key, "general")),
+            ref_type=("DIGITAL_" + key.upper()), ref_id=str(concert.id),
+            actor_name=artista,
+            actor_photo=(getattr(getattr(concert, "artist", None), "photo_url", "") or ""),
+            email=False)
+        return True
+    except Exception:
+        app.logger.exception("[digital] no se pudo pedir «%s»", key)
+        return False
+
+
+def _digital_task_done(session_db, concert, key: str, *, done: bool = True) -> bool:
+    """Digital DA POR HECHA (o deshace) una de sus tareas. El aviso se cierra solo."""
+    if concert is None or key not in DIGITAL_TASK_LABELS:
+        return False
+    fila = _digital_task(concert, key)
+    if not fila.get("asked_at"):
+        return False
+    yo = _current_user_state() or {}
+    if done:
+        fila["done_at"] = _now_madrid().isoformat()
+        fila["done_by"] = (yo.get("nick") or "")
+        _notify_resolve(session_db, "DIGITAL_" + key.upper(), str(concert.id))
+    else:
+        fila.pop("done_at", None)
+        fila.pop("done_by", None)
+    _digital_task_set(concert, key, fila)
+    concert.updated_at = _now_madrid()
+    return True
+
+
+def _user_is_digital() -> bool:
+    """¿La persona que está mirando es de DIGITAL? (o dirección, que puede con todo)."""
+    return bool(is_master() or _current_user_in_department(DIGITAL_DEPARTMENT))
+
+
+def _home_digital_tasks(limit: int = 20) -> list[dict]:
+    """LO QUE DIGITAL TIENE PENDIENTE (módulo de Inicio): una fila por actividad y, dentro, una
+    subtarea por cosa (anunciar en redes · subir los enlaces de venta).
+
+    ⚠️ Se mira el DATO (pedida y sin marcar como hecha), así que desaparece sola en cuanto digital
+    la da por hecha."""
+    if not _user_is_digital():
+        return []
+    session_db = db()
+    try:
+        # Solo las que tienen algo apuntado de digital (la inmensa mayoría no tiene nada).
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(text("concerts.digital_payload <> '{}'::jsonb"))
+                 .order_by(Concert.date.asc().nullslast()).limit(200).all())
+        salida = []
+        for c in filas:
+            tareas = []
+            for clave, etiqueta, icono, tab, _ayuda in DIGITAL_TASKS:
+                if not _digital_task_pending(c, clave):
+                    continue
+                tareas.append({
+                    "key": clave, "label": etiqueta, "icon": icono,
+                    "url": url_for("concert_detail_view", cid=str(c.id), tab=tab),
+                    "done_url": url_for("concert_digital_task_done", cid=str(c.id), key=clave),
+                })
+            if not tareas:
+                continue
+            artista = getattr(c, "artist", None)
+            salida.append({
+                "id": str(c.id),
+                "title": ((getattr(c, "festival_name", None) or "").strip()
+                          or (getattr(artista, "name", "") or "").strip() or "Actividad"),
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "date_label": (c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else ""),
+                "place_label": _place_label(_concert_city(c), _concert_province_value(c)),
+                "tasks": tareas,
+                "url": tareas[0]["url"],
+            })
+            if len(salida) >= limit:
+                break
+        return salida
+    except Exception:
+        app.logger.exception("[digital] no se pudieron montar sus tareas")
+        return []
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/digital/<key>/hecho", endpoint="concert_digital_task_done")
+@admin_required
+def concert_digital_task_done(cid, key):
+    """DIGITAL da por hecha su tarea (o la deshace con `?deshacer=1`) y deja de estar pendiente."""
+    if not _user_is_digital():
+        return forbid("Esta tarea es del equipo de Digital.")
+    destino = request.form.get("next") or url_for("home")
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, _safe_uuid(cid))
+        if concert is None:
+            flash("Esa actividad ya no está.", "warning")
+            return redirect(safe_next_or(destino))
+        deshacer = _truthy(request.form.get("deshacer"))
+        if not _digital_task_done(session_db, concert, key, done=not deshacer):
+            flash("Esa tarea ya no está pendiente.", "info")
+            return redirect(safe_next_or(destino))
+        session_db.commit()
+        flash(("%s: hecho." % DIGITAL_TASK_LABELS.get(key, "Tarea")) if not deshacer
+              else ("%s: vuelve a estar pendiente." % DIGITAL_TASK_LABELS.get(key, "Tarea")), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[digital] no se pudo marcar la tarea")
+        flash("No se pudo marcar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
 @app.get("/conciertos/<cid>/avisar-artista", endpoint="concert_artist_notice_view")
 @admin_required
 def concert_artist_notice_view(cid):
@@ -118725,6 +119014,11 @@ def concert_artist_notice_send(cid):
             concert.announcement_date = fecha_anuncio
             concert.updated_at = _now_madrid()
             _announce_alert_resolve(session_db, concert)
+            # ⚠️ A DIGITAL: el MISMO correo que se acaba de mandar y su tarea «Anunciar en redes».
+            # Se anuncia la actividad → hay que publicarla, y antes nadie se lo decía.
+            _digital_task_ask(session_db, concert, "announce",
+                              subject=("%s · %s" % (ctx["title"], ctx["subject_name"])),
+                              html=cuerpo)
             session_db.commit()
             texto = _activity_notice_share_text(ctx)
             if es_json:
@@ -120206,6 +120500,11 @@ def _sale_notice_recipients(session_db, concert) -> list[dict]:
         for f in _sale_notice_people(session_db, _sale_sello_user_ids(session_db, concert.artist_id),
                                      "Sello"):
             anota(f)
+    # ⚠️ DIGITAL: sale a la venta → hay que subir los enlaces de compra. Le llega el MISMO correo
+    # que a los demás (con sus canales de venta dentro, que es justo lo que necesita) y, al
+    # mandarlo, su tarea (`_digital_task_ask`, en `concert_sale_notice_send`).
+    for f in _sale_notice_people(session_db, _digital_user_ids(session_db), "Digital"):
+        anota(f)
     return filas
 
 
@@ -121391,6 +121690,10 @@ def concert_sale_notice_send(cid):
         concert.updated_at = _now_madrid()
         # El aviso de «sacar a la venta» ya está hecho: se cierra solo (un aviso es «esto te espera»).
         _notify_resolve(session_db, "CONCERT_SALE", str(concert.id))
+        # ⚠️ Y a DIGITAL le entra «Subir los enlaces de venta». El correo NO se repite aquí: digital
+        # está en la lista de destinatarios (`_sale_notice_recipients`), así que ya le ha llegado el
+        # MISMO que a los demás — con la tabla de canales de venta dentro, que es lo que necesita.
+        _digital_task_ask(session_db, concert, "sale_links")
         session_db.commit()
         return jsonify({"ok": True, "recipients": destinos, "sms": enviados_sms,
                         "failed": fallos,

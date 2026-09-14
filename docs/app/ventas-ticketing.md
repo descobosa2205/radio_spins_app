@@ -255,9 +255,11 @@
   · **A QUIÉN se le manda** (`_sale_notice_recipients`, con su papel y su casilla para quitarlo): el
   **ARTISTA** a las cuentas configuradas para **notificaciones de actividades** (el mismo canal que el
   aviso de la actividad, con caché o sin caché), la persona de **PRODUCCIÓN** de esa actividad,
-  **CONTRATACIÓN** (el departamento) y **la persona del SELLO que tenga ese artista asignado**
-  (`assigned_artist_ids_sello`, **sin caer** en todo el departamento: es un aviso para quien lo lleva).
-  Se pueden añadir otros correos a mano.
+  **CONTRATACIÓN** (el departamento), **la persona del SELLO que tenga ese artista asignado**
+  (`assigned_artist_ids_sello`, **sin caer** en todo el departamento: es un aviso para quien lo lleva)
+  y **DIGITAL** (el departamento «Redes sociales»), que con el mismo correo tiene los canales de venta
+  para subir los enlaces — y al mandarlo le entra su tarea (`_digital_task_ask`, sep 2026:
+  → `docs/app/actividades.md`). Se pueden añadir otros correos a mano.
   · **Asunto**: «**Salida a la venta, \<festival o municipio\>, \<fecha de la actividad\>**».
   **Cuerpo** (`_sale_notice_html`, el MISMO HTML para el correo y la vista previa): logo de la empresa
   del grupo arriba a la **derecha**, «Salida a la venta» centrado, la **galleta** de la actividad (la

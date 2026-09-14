@@ -550,6 +550,9 @@ def ensure_artist_notifications_schema():
         # AVISO DE «FALTA UN MES Y SIGUE SIN ANUNCIAR»: cuándo se avisó a quien lo gestiona, cuándo
         # se le insistió por correo (a los 3 días) y cuándo se escaló a dirección (a los 15 días).
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_at timestamptz;",
+        # LO QUE LE TOCA A DIGITAL (anunciar en redes, subir los enlaces de venta): cuándo se le
+        # pidió cada cosa y cuándo la ha dado por hecha. En SU PROPIA sentencia, como manda la regla.
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS digital_payload jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_2_at timestamptz;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_dir_at timestamptz;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_artwork_share_token "
@@ -2991,6 +2994,10 @@ class Concert(Base):
     # tareas para producción (avisar a proveedores y al personal, cerrar la bolsa). Todo eso vive
     # aquí; el estado del concierto sigue siendo `status`.
     cancellation_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # ⚠️ LO QUE LE TOCA A DIGITAL de esta actividad: anunciarla en redes (cuando se anuncia) y subir
+    # los enlaces de venta (cuando sale a la venta). De cada cosa se guarda cuándo se le PIDIÓ y
+    # cuándo la ha dado por HECHA (`DIGITAL_TASKS`): pedida y sin hacer = sigue pendiente.
+    digital_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())

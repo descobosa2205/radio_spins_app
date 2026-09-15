@@ -8040,3 +8040,35 @@ body.accsc-open{ overflow:hidden; }
 .tc-logo{ width:56px; height:40px; object-fit:contain; border-radius:8px; padding:3px; border:1px solid #eef0f3;
   background:repeating-conic-gradient(#f1f3f5 0 25%, #fff 0 50%) 0 0 / 12px 12px; display:inline-grid; place-items:center; }
 .tc-logo--empty{ color:#adb5bd; background:#f8f9fa; }
+
+/* TRASLADOS (sep 2026): la tabla de pasajeros del asistente, las maletas, las paradas y el estado. */
+.rm-tag.warn{ background:#fff3cd; color:#8a6d1a; }
+.rm-pass2{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:.45rem .6rem; margin-bottom:.4rem; background:#fff; }
+.rm-pass2__who{ display:flex; align-items:center; gap:.5rem; min-width:0; flex:1 1 160px; }
+.rm-pass2__who img,.rm-pass2__who .noimg{ width:32px; height:32px; border-radius:50%; object-fit:cover; background:#e9ecef; display:grid; place-items:center; color:#adb5bd; flex:0 0 auto; }
+.rm-pass2__loc{ flex:0 1 150px; }
+.rm-pass2__ticket{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; }
+.rm-pass2__stop{ flex:1 1 220px; }
+.rm-pass2__del{ margin-left:auto; }
+.rm-pconf{ border:1px solid #dfe3e8; background:#fff; border-radius:999px; padding:.2rem .6rem; font-size:.8rem; display:inline-flex; align-items:center; gap:.3rem; color:#8a94a0; }
+.rm-pconf i{ color:#c5ccd3; }
+.rm-pconf.is-on{ border-color:#b7e1c1; background:#e8f6ec; color:#1e7e34; }
+.rm-pconf.is-on i{ color:#1e7e34; }
+.rm-pass2__bags{ display:flex; gap:.5rem; }
+.rm-bagctl{ display:inline-flex; align-items:center; gap:.2rem; border:1px solid #dfe3e8; border-radius:999px; padding:.1rem .3rem; font-size:.85rem; }
+.rm-bagctl button{ border:0; background:transparent; width:22px; height:22px; border-radius:50%; line-height:1; color:#6c757d; }
+.rm-bagctl button:hover{ background:#f1f3f5; }
+.rm-bagctl i{ color:var(--brand-accent,#007ca2); }
+.rm-bagctl i.is-off{ color:#c5ccd3; }
+.rm-bagctl b{ min-width:1ch; text-align:center; }
+/* Las maletas en la hoja de ruta: tachadas si no lleva (como la taza del desayuno), dobles o triples si lleva más. */
+.rm-bags{ display:inline-flex; gap:.5rem; align-items:center; }
+.rm-bag{ display:inline-flex; align-items:center; gap:.1rem; font-size:.95rem; }
+.rm-bag--on{ color:#07607e; }
+.rm-bag--on b{ font-size:.7rem; margin-left:.1rem; }
+.rm-bag--off{ color:#aab2bb; position:relative; }
+.rm-bag--off::after{ content:""; position:absolute; left:-2px; right:-2px; top:50%; height:2px; background:#6c757d; transform:rotate(-30deg); border-radius:1px; }
+.rm-pline{ display:flex; align-items:center; gap:.5rem; padding:.3rem 0; border-top:1px solid #f1f3f5; }
+.rm-pline img,.rm-pline .noimg{ width:28px; height:28px; border-radius:50%; object-fit:cover; background:#e9ecef; display:grid; place-items:center; color:#adb5bd; flex:0 0 auto; }
+.rm-stop{ display:flex; align-items:center; gap:.5rem; padding:.3rem 0; border-top:1px solid #f1f3f5; }
+.rm-stop__n{ width:22px; height:22px; border-radius:50%; background:var(--brand-accent,#007ca2); color:#fff; font-size:.75rem; font-weight:700; display:grid; place-items:center; flex:0 0 auto; }

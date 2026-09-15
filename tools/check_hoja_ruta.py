@@ -13,6 +13,9 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
     tercero del promotor), el sitio y su espacio, la reserva de una comida, la citación sin fin
   · las COMPAÑÍAS DE TRANSPORTE (Bases de datos): alta con sus tipos, búsqueda por tipo, su permiso, y el
     traslado que las elige guarda `company_id`
+  · los TRASLADOS: sitios con código y terminal, estado, pasajeros con localizador/confirmado/maletas, la
+    furgoneta con paradas, a quién afecta (los pasajeros siempre), el artista como pasajero, las APIs de
+    sitios y de ruta (sin salir a la red)
 
     /tmp/python/bin/python3 tools/check_hoja_ruta.py
 
@@ -608,6 +611,69 @@ def main():
     finally:
         s.close()
 
+    print("\n12 · Los traslados: sitios, estado, pasajeros con maletas, la furgoneta, a quién afecta")
+    # Nada sale a la red: los sitios y la ruta se responden desde aquí.
+    import transport_places as TP
+    _osm, _ruta = TP.search_osm_places, TP.route_estimate
+    TP.search_osm_places = lambda q, kind, **k: [{"kind": kind, "code": "", "label": "Estación de " + q.title(), "sub": "Jerez, España", "lat": 36.7, "lng": -6.1}]
+    TP.route_estimate = lambda pts, **k: {"distance_km": 12.3, "duration_min": 25}
+    geo_utils.geocode_address = lambda *a, **k: {"lat": 36.68, "lng": -6.13, "label": "Jerez"}
+    aer = casa.get("/api/lugares-transporte?kind=AIRPORT&q=xry").get_json() or []
+    check("los aeropuertos salen del catálogo, con su código", aer and aer[0]["code"] == "XRY" and "Jerez" in aer[0]["label"], str(aer)[:120])
+    est = casa.get("/api/lugares-transporte?kind=STATION&q=jerez").get_json() or []
+    check("las estaciones, por OpenStreetMap (filtrando por su etiqueta)", est and est[0]["kind"] == "STATION", str(est)[:120])
+    ruta = casa.post("/api/ruta-estimacion", json={"points": [{"lat": 40.49, "lng": -3.57}, {"address": "Estación de Atocha"}]}).get_json()
+    check("la ruta se calcula geocodificando lo que no tiene coordenadas", ruta.get("ok") and ruta["distance_km"] == 12.3 and ruta["duration_label"] == "25 min" and len(ruta["points"]) == 2, str(ruta)[:160])
+    check("con un solo punto lo dice, sin reventar", casa.post("/api/ruta-estimacion", json={"points": [{"lat": 1, "lng": 1}]}).get_json().get("ok") is False)
+    TP.search_osm_places, TP.route_estimate = _osm, _ruta
+    # El propio ARTISTA puede ir en un traslado: sale en el buscador y entra en el personal.
+    gente = casa.get("/api/hoja-ruta/personas?q=Los%20Ruta").get_json() or []
+    art_row = ([x for x in gente if x["kind"] == "ARTIST" and x["label"] == "Los Ruta"] or [None])[0]
+    check("el buscador de personas devuelve al ARTISTA", art_row is not None, str(gente)[:160])
+    rp = casa.post(base + "/personal", json={"kind": "ARTIST", "ref_id": art_row["id"], "name": "Los Ruta"}).get_json() if art_row else {}
+    pid_art = rp.get("person_id") or ""
+    check("y entra en el personal como ARTIST", bool(pid_art))
+    # Un VUELO con todo lo suyo.
+    r = casa.post(base + "/item", json={"kind": "VUELO", "day": DIA, "start_time": "08:00", "end_time": "09:30",
+        "transport": {"company": "Aerolínea Ruta", "number": "IB123", "status": "RESERVADO",
+                      "origin_place": {"label": "Madrid–Barajas", "code": "mad", "terminal": "T4", "lat": 40.49, "lng": -3.57, "kind": "AIRPORT"},
+                      "destination_place": {"label": "Jerez Airport", "code": "XRY", "kind": "AIRPORT", "lat": 36.74, "lng": -6.06},
+                      "passengers": [{"personnel_id": "p1", "locator": "ABC123", "confirmed": True, "bags_hand": 1, "bags_checked": 2},
+                                     {"personnel_id": pid_art, "bags_hand": 12}]}})
+    resp = r.get_json() or {}
+    vu = ([x for x in (resp.get("payload") or {}).get("agenda", []) if x.get("kind") == "VUELO" and (x.get("transport") or {}).get("number") == "IB123"] or [{}])[0]
+    tv = vu.get("transport") or {}
+    check("guardar devuelve el id del punto (para adjuntar nada más crearlo)", resp.get("item_id") == vu.get("id"))
+    check("el vuelo se lee «Madrid–Barajas (MAD) · T4 → Jerez Airport (XRY)»", tv.get("origin") == "Madrid–Barajas (MAD) · T4" and tv.get("destination") == "Jerez Airport (XRY)", str(tv.get("origin")) + " | " + str(tv.get("destination")))
+    check("RESERVADO cuenta como confirmado (solo PROVISIONAL se ve rayado)", vu.get("confirmed") is True and tv.get("status") == "RESERVADO")
+    check("los pasajeros: localizador, confirmado y maletas (tope 9)", (tv.get("passengers") or [{}])[0].get("confirmed") is True and tv["passengers"][0]["bags_checked"] == 2 and tv["passengers"][1]["bags_hand"] == 9)
+    check("por defecto lo ven SUS PASAJEROS", (vu.get("audience") or {}).get("mode") == "PASSENGERS")
+    yo = lambda ids: {"person_ids": ids, "roles": set(), "artist_keys": set()}
+    check("le afecta a quien va (p1 y el artista) y no a quien no (p2)", A._roadmap_item_affects(vu, yo(["p1"])) and A._roadmap_item_affects(vu, yo([pid_art])) and not A._roadmap_item_affects(vu, yo(["p2"])))
+    check("con «a todos» le afecta también a p2", A._roadmap_item_affects(dict(vu, audience={"mode": "EVERYONE", "roles": [], "ids": []}), yo(["p2"])))
+    check("el ALL de antes con pasajeros sigue siendo «solo los pasajeros»", not A._roadmap_item_affects(dict(vu, audience={"mode": "ALL", "roles": [], "ids": []}), yo(["p2"])))
+    info = A._roadmap_ext_person_info(resp.get("payload") or {}, ["00000000-0000-0000-0000-000000000000"], [art_row["id"]] if art_row else [])
+    check("un integrante del artista tiene la fila ARTIST como suya en el portal", pid_art in info["person_ids"])
+    # Un transfer de un JS viejo (los sitios como texto) y PROVISIONAL.
+    r = casa.post(base + "/item", json={"kind": "TRANSFER", "day": DIA, "start_time": "10:00", "transport": {"status": "PROVISIONAL", "origin": "Hotel Ruta", "destination": "Sala Ruta", "passengers": [{"personnel_id": "p2"}], "provider": {"kind": "PROMOTER", "driver_name": "Paco", "plate": "1234 abc"}}}).get_json() or {}
+    trf = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("kind") == "TRANSFER" and (x.get("transport") or {}).get("origin") == "Hotel Ruta"] or [{}])[0]
+    check("PROVISIONAL → no confirmado; el origen como texto entra como sitio; quién lo presta con matrícula en mayúsculas",
+          trf.get("confirmed") is False and (trf.get("transport") or {}).get("origin_place", {}).get("label") == "Hotel Ruta"
+          and trf["transport"]["provider"]["kind"] == "PROMOTER" and trf["transport"]["provider"]["plate"] == "1234 ABC", str(trf.get("transport", {}).get("provider")))
+    # La FURGONETA alquilada, con paradas y en cuál sube cada uno.
+    r = casa.post(base + "/item", json={"kind": "FURGONETA", "day": DIA, "start_time": "12:00", "transport": {
+        "origin_place": {"label": "Hotel Ruta", "kind": "HOTEL"}, "destination_place": {"label": "Sala Ruta", "kind": "VENUE"},
+        "stops": [{"id": "s1", "label": "Gasolinera", "time": "12:30"}, {"label": ""}], "distance_km": "12,5",
+        "van": {"rental": True, "pickup_place": {"label": "Europcar Jerez"}, "pickup_at": "2026-10-25T09:00", "locator": "RENT1", "driver": {"kind": "MANUAL", "name": "Pepe"}, "seats": 9, "cargo": "1", "plate": "5678 def"},
+        "passengers": [{"personnel_id": "p1", "boarding_stop": "s1"}]}}).get_json() or {}
+    fv = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("kind") == "FURGONETA"] or [{}])[0].get("transport") or {}
+    check("la furgoneta: alquiler con su recogida, conductor, plazas, carga, matrícula y los km con coma",
+          fv.get("van", {}).get("rental") is True and fv["van"]["pickup_place"]["label"] == "Europcar Jerez" and fv["van"]["driver"]["name"] == "Pepe"
+          and fv["van"]["seats"] == 9 and fv["van"]["cargo"] is True and fv["van"]["plate"] == "5678 DEF" and fv.get("distance_km") == 12.5, str(fv.get("van"))[:200])
+    check("las paradas (la vacía no entra), con su hora, y en cuál sube", len(fv.get("stops") or []) == 1 and fv["stops"][0]["time"] == "12:30" and fv["passengers"][0]["boarding_stop"] == "s1")
+    check("las APIs del traslado las tiene también el editor externo",
+          {"api_search_transport_companies", "api_transport_places", "api_route_estimate"} <= A.EXT_ROADMAP_EDITOR_ENDPOINTS)
+
     print("\n11 · Las compañías de transporte: la base, sus tipos y el traslado que las elige")
     A.upload_image = lambda fs, folder, **kw: "https://x/logo.png"
     r = casa.post("/api/transport-companies/create", data={"name": "Aerolínea Ruta", "kinds": ["VUELO", "TRANSFER"]})
@@ -642,7 +708,7 @@ def main():
                                         "transport": {"company_id": cia.get("id"), "company": "Aerolínea Ruta", "number": "IB123",
                                                       "origin": "MAD", "destination": "XRY", "passengers": []}})
     pay = (r.get_json() or {}).get("payload") or {}
-    vu = ([x for x in pay.get("agenda", []) if x.get("kind") == "VUELO"] or [{}])[0]
+    vu = ([x for x in pay.get("agenda", []) if x.get("kind") == "VUELO" and (x.get("transport") or {}).get("company_id") == cia.get("id")] or [{}])[0]
     check("el vuelo guarda la compañía de la base (`company_id`) y su nombre",
           (vu.get("transport") or {}).get("company_id") == cia.get("id") and (vu.get("transport") or {}).get("company") == "Aerolínea Ruta", str(vu.get("transport"))[:160])
     r = casa.post(base + "/item", json={"kind": "VUELO", "day": DIA, "start_time": "08:00", "transport": {"company_id": "no-es-uuid", "company": "X"}})

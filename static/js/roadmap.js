@@ -1091,9 +1091,8 @@
       var transLine = '';
       if (ki.transport && it.transport) {
         var t = it.transport;
-        var route = [t.origin, t.destination].filter(Boolean).map(esc).join(' → ');
-        var np = (t.passengers || []).length;
-        transLine = '<div class="rm-transport-line">' + (companyLogo(t) ? '<img src="' + esc(companyLogo(t)) + '" alt="">' : '') + (t.company ? '<span>' + esc(t.company) + '</span>' : '') + (t.number ? '<span>' + esc(t.number) + '</span>' : '') + (route ? '<span>' + route + '</span>' : '') + (t.duration ? '<span>· ' + esc(t.duration) + '</span>' : '') + (np ? '<span>· <i class="fa fa-user-group"></i> ' + np + '</span>' : '') + '</div>';
+        transLine = transLineHtml(t);
+        tags += transStatusTag(t);
         if (t.ends_next_day) tags += '<span class="rm-tag plus1">Fin +1</span>';
       }
       var meta = '';
@@ -1196,7 +1195,8 @@
       if (ruleHas('place', kind)) d.place = { mode: 'VENUE', space: '', venue_id: '', venue_name: '' };
       if (kind === 'MG') d.mg_count = MG_COUNT;
       if (kind === 'COMIDA') d.meal = { reservation: null, diners: '' };
-      if (kindInfo(kind).transport) d.transport = { mode: kind, company: '', logo_url: '', number: '', origin: '', destination: '', duration: '', ends_next_day: false, same_locator: false, locator_all: '', passengers: [] };
+      // Un TRASLADO: todo lo suyo (`newTransport`) y, por defecto, lo ven SUS PASAJEROS.
+      if (kindInfo(kind).transport) { d.transport = newTransport(kind); d.audience = { mode: 'PASSENGERS', roles: [], ids: [] }; }
       return d;
     }
 
@@ -1273,6 +1273,770 @@
       if (window.app33StepWizard) window.app33StepWizard.init(root);
       var inst = bs(id); if (inst) inst.show();
       return m;
+    }
+
+    // ================================================================ TRASLADOS
+    /* ⚠️⚠️ CADA TRASLADO PREGUNTA LO SUYO (sep 2026, lo pidió Dani, lote 3). Un solo asistente
+       (`openTransportEditor`) con cuatro caminos según el tipo:
+         · TRANSFER: dónde se recoge (se sugiere donde esté el artista según la agenda: el destino del
+           traslado anterior, el sitio del punto anterior, el hotel del día, el recinto), las
+           instrucciones del punto de recogida y el bono · a qué hora · a dónde (con la duración y los km
+           calculados por la ruta) · quién lo presta (el promotor, nosotros u otro: su persona de
+           contacto o el conductor, su teléfono y la matrícula) · los pasajeros · quién lo ve.
+         · VUELO · TREN · BARCO · AUTOBÚS («LINEA»): la compañía de la base, el origen y el destino con
+           su buscador (aeropuertos por nombre o código IATA con su TERMINAL; estaciones, puertos y
+           estaciones de autobuses por OpenStreetMap), el nº y las horas · el día y el estado · los
+           pasajeros en TABLA (localizador —o el mismo para todos—, confirmado, maletas de mano y
+           facturadas, la tarjeta de embarque) · quién lo ve.
+         · CABIFY / TAXI («RIDE»): la compañía, la recogida sugerida y el punto de encuentro · la hora,
+           el estado y el enlace de seguimiento · el destino sugerido · los pasajeros · quién lo ve.
+         · FURGONETA («VAN»): con conductor o alquilada (la recogida y la devolución de la reserva, su
+           localizador) · el conductor, las plazas, el espacio de carga y la matrícula · cuándo · el
+           trayecto con PARADAS (km y duración por la ruta) · los pasajeros (no más que plazas, y en
+           qué parada sube cada uno) · quién lo ve.
+       Lo que se guarda es UN solo `transport` para todos (ver `_roadmap_clean_transport`); lo que no
+       toca a un tipo queda vacío. El ESTADO (confirmado · reservado · provisional) manda sobre
+       «confirmado». Y UN TRASLADO LO VEN SUS PASAJEROS siempre (`audience.mode` PASSENGERS), más quien
+       se añada. El bono y las tarjetas de embarque de un traslado NUEVO se adjuntan al guardar (el
+       servidor devuelve `item_id`). */
+    var TR_CFG = {
+      VUELO:   { grupo: 'LINEA', place: 'AIRPORT', placeLabel: 'aeropuerto', placePh: 'Busca el aeropuerto por nombre o código (MAD, XRY…)…', num: 'Nº de vuelo', terminal: true, iconOut: 'fa-plane-departure', iconIn: 'fa-plane-arrival', q: '¿Qué vuelo es?' },
+      TREN:    { grupo: 'LINEA', place: 'STATION', placeLabel: 'estación', placePh: 'Busca la estación (Atocha, Sants…)…', num: 'Nº de tren', terminal: false, iconOut: 'fa-train', iconIn: 'fa-train', q: '¿Qué tren es?' },
+      BARCO:   { grupo: 'LINEA', place: 'PORT', placeLabel: 'puerto', placePh: 'Busca el puerto o la estación marítima…', num: 'Barco / nº', terminal: false, iconOut: 'fa-ship', iconIn: 'fa-anchor', q: '¿Qué barco es?' },
+      AUTOBUS: { grupo: 'LINEA', place: 'BUS', placeLabel: 'estación de autobuses', placePh: 'Busca la estación de autobuses…', num: 'Línea / nº', terminal: false, iconOut: 'fa-bus', iconIn: 'fa-bus', q: '¿Qué autobús es?', addr: true },
+      TRANSFER: { grupo: 'TRANSFER' }, CABIFY: { grupo: 'RIDE' }, TAXI: { grupo: 'RIDE' }, FURGONETA: { grupo: 'VAN' }
+    };
+    function trCfg(kind) { return TR_CFG[kind] || { grupo: 'LINEA', place: '', placeLabel: 'sitio', placePh: 'Escribe el sitio…', num: 'Nº', terminal: false, iconOut: 'fa-location-dot', iconIn: 'fa-flag-checkered', q: '¿De dónde a dónde?', addr: true }; }
+    function emptyPoint() { return { label: '', code: '', terminal: '', lat: null, lng: null, kind: '', ref_id: '', address: '' }; }
+    function newTransport(kind) {
+      return { mode: kind, company_id: '', company: '', logo_url: '', number: '', number_arrival: '', status: 'CONFIRMADO', tracking_url: '',
+               origin: '', destination: '', origin_place: emptyPoint(), destination_place: emptyPoint(), duration: '', distance_km: null,
+               ends_next_day: false, same_locator: false, locator_all: '', passengers: [], stops: [],
+               provider: { kind: '', contact: {}, driver_name: '', driver_phone: '', plate: '' },
+               van: { rental: false, pickup_place: emptyPoint(), pickup_at: '', return_place: emptyPoint(), return_at: '', locator: '', driver: {}, seats: 0, cargo: null, plate: '' } };
+    }
+    /* Un traslado de ANTES (compañía y sitios como texto) entra en la forma nueva sin perder nada. */
+    function normTransport(t, kind) {
+      var n = newTransport(kind);
+      t = t || {};
+      Object.keys(n).forEach(function (k) { if (t[k] === undefined || t[k] === null) t[k] = n[k]; });
+      if (!t.origin_place || !t.origin_place.label) t.origin_place = t.origin ? { label: t.origin, code: '', terminal: '', lat: null, lng: null, kind: 'ADDRESS', ref_id: '', address: '' } : (t.origin_place || emptyPoint());
+      if (!t.destination_place || !t.destination_place.label) t.destination_place = t.destination ? { label: t.destination, code: '', terminal: '', lat: null, lng: null, kind: 'ADDRESS', ref_id: '', address: '' } : (t.destination_place || emptyPoint());
+      ['origin_place', 'destination_place'].forEach(function (k) { var e = emptyPoint(); Object.keys(e).forEach(function (f) { if (t[k][f] === undefined) t[k][f] = e[f]; }); });
+      t.provider = Object.assign(n.provider, t.provider || {});
+      t.van = Object.assign(n.van, t.van || {});
+      if (!t.van.pickup_place) t.van.pickup_place = emptyPoint();
+      if (!t.van.return_place) t.van.return_place = emptyPoint();
+      t.passengers = (t.passengers || []).map(function (p) { return Object.assign({ locator: '', ticket_url: '', ticket_name: '', confirmed: false, bags_hand: 0, bags_checked: 0, boarding_stop: '' }, p); });
+      t.stops = t.stops || [];
+      if (!t.status) t.status = 'CONFIRMADO';
+      return t;
+    }
+    function pointText(p) {
+      if (!p) return '';
+      var txt = p.label || '';
+      if (p.code) txt = txt ? txt + ' (' + p.code + ')' : p.code;
+      if (p.terminal) txt = txt ? txt + ' · ' + p.terminal : p.terminal;
+      return txt;
+    }
+    function pointIcon(p) {
+      var k = (p && p.kind) || '';
+      return { AIRPORT: 'fa-plane', STATION: 'fa-train', PORT: 'fa-ship', BUS: 'fa-bus', HOTEL: 'fa-hotel', VENUE: 'fa-location-dot', ITEM: 'fa-clock' }[k] || 'fa-location-dot';
+    }
+    function structured(p) { return !!(p && p.label && p.kind && p.kind !== 'ADDRESS'); }
+    /* Los SITIOS de un traslado que se buscan: aeropuertos (con su IATA), estaciones, puertos y
+       estaciones de autobuses (`/api/lugares-transporte`). */
+    function searchPlaces(kind, q) {
+      return getJson('/api/lugares-transporte?kind=' + encodeURIComponent(kind || '') + '&q=' + encodeURIComponent(q)).then(function (list) {
+        return (list || []).map(function (r) {
+          return { id: (r.code || r.label), label: r.label + (r.code ? ' (' + r.code + ')' : ''), name: r.label, code: r.code || '', sub: r.sub || '',
+                   kind: r.kind || kind, lat: r.lat, lng: r.lng, icon: pointIcon({ kind: r.kind || kind }) };
+        });
+      });
+    }
+    /* DÓNDE ESTÁ EL ARTISTA según la agenda, para sugerir la RECOGIDA (el último sitio antes de la
+       hora: el destino del traslado anterior, el sitio del punto anterior, el recinto de la prueba de
+       sonido; si no hay nada, el hotel de ese día; si no, el recinto) y el DESTINO (el siguiente sitio
+       al que tiene que ir, el recinto, el hotel). */
+    function itemPlace(it, when) {
+      if (!it || it.cancelled) return null;
+      var ki = kindInfo(it.kind);
+      if (ki.transport && it.transport) {
+        // De un traslado ANTERIOR interesa dónde dejó al artista (su destino); del SIGUIENTE, de dónde
+        // sale (su origen: el aeropuerto al que hay que llegar).
+        var d = when === 'after' ? it.transport.origin_place : it.transport.destination_place;
+        var txt = when === 'after' ? it.transport.origin : it.transport.destination;
+        if (d && d.label) return { label: d.label, code: d.code || '', kind: d.kind || 'ADDRESS', lat: d.lat, lng: d.lng, ref_id: it.id, address: d.address || '' };
+        if (txt) return { label: txt, kind: 'ADDRESS', ref_id: it.id };
+        return null;
+      }
+      if (ruleHas('at_venue', it.kind) || (it.place && it.place.mode !== 'OTHER' && ruleHas('place', it.kind))) return venuePoint(it.place && it.place.space);
+      if (it.location) return { label: it.location, kind: 'ADDRESS', ref_id: it.id, address: it.location };
+      return null;
+    }
+    function venuePoint(space) {
+      if (!VENUE || !VENUE.name) return null;
+      var pin = hasPin(VENUE);
+      return { label: [VENUE.name, space].filter(Boolean).join(' · '), address: VENUE.maps_query || '', lat: pin ? VENUE.access_lat : (VENUE.lat || null), lng: pin ? VENUE.access_lng : (VENUE.lng || null),
+               kind: 'VENUE', ref_id: VENUE.id || '', icon: 'fa-location-dot', sub: 'El recinto' + (VENUE.place_label ? ' · ' + VENUE.place_label : '') };
+    }
+    function hotelPoints(day) {
+      return (P.hotels || []).filter(function (h) { return !day || !(h.days || []).length || (h.days || []).indexOf(day) >= 0; })
+        .map(function (h) { return { label: h.name || 'Hotel', address: h.address || '', kind: 'HOTEL', ref_id: h.id, icon: 'fa-hotel', sub: h.address || 'El hotel' }; });
+    }
+    function placeSuggestions(draft, when) {
+      var out = [], vistos = {};
+      function add(p) { if (!p || !p.label) return; var k = normText(p.label); if (vistos[k]) return; vistos[k] = 1; out.push(p); }
+      var day = draft.day, hora = draft.start_time || '';
+      var mismos = (P.agenda || []).filter(function (it) { return it.day === day && String(it.id) !== String(draft.id) && !it.cancelled; })
+        .sort(function (x, y) { return (x.start_time || '99') < (y.start_time || '99') ? -1 : 1; });
+      if (when === 'before') {
+        var previos = mismos.filter(function (it) { return !hora || (it.start_time || '') < hora; });
+        for (var i = previos.length - 1; i >= 0; i--) {
+          var p = itemPlace(previos[i], 'before');
+          if (p) { p.icon = p.icon || kindInfo(previos[i].kind).icon; p.sub = p.sub || ('Antes: ' + (previos[i].title || kindInfo(previos[i].kind).label)); add(p); break; }
+        }
+        hotelPoints(day).forEach(add);
+        add(venuePoint());
+      } else {
+        var siguientes = mismos.filter(function (it) { return !hora || (it.start_time || '') > hora; });
+        for (var j = 0; j < siguientes.length; j++) {
+          var q = itemPlace(siguientes[j], 'after');
+          if (q) { q.icon = q.icon || kindInfo(siguientes[j].kind).icon; q.sub = q.sub || ('Después: ' + (siguientes[j].title || kindInfo(siguientes[j].kind).label)); add(q); break; }
+        }
+        add(venuePoint());
+        hotelPoints(day).forEach(add);
+      }
+      return out.slice(0, 6);
+    }
+    /* UN SITIO del traslado: la elección hecha (chip), las SUGERENCIAS como tarjetas, el buscador del
+       tipo (aeropuerto, estación…) y/o una dirección escrita, y la terminal. */
+    function placeBlock(key, point, o) {
+      var s2 = structured(point);
+      return '<div class="rm-wz-block mb-3" data-pp="' + esc(key) + '">'
+        + '<div class="rm-wz-lbl"><i class="fa ' + esc(o.icon || 'fa-location-dot') + '"></i>' + esc(o.title) + '</div>'
+        + '<div class="rm-chip mb-2' + (s2 ? '' : ' d-none') + '" data-pp-chip><i class="fa ' + esc(pointIcon(point)) + ' me-1"></i><span data-pp-text>' + esc(pointText(point)) + '</span><button type="button" class="btn-close btn-sm ms-1" data-pp-clear title="Quitar"></button></div>'
+        + '<div class="promo-pick-grid promo-pick-grid--wide mb-2 d-none" data-pp-sug></div>'
+        + (o.kind ? wzSearch('pp_' + key, o.ph || 'Busca…', false) : '')
+        + (o.addr ? '<div class="' + (o.kind ? 'mt-2 ' : '') + '" data-address-autocomplete><input class="form-control" data-addr="full" data-pp-input placeholder="' + esc(o.addrPh || 'O escribe una dirección…') + '" value="' + esc((!s2 && point && point.label) ? point.label : '') + '"></div>' : '')
+        + (o.terminal ? '<div class="mt-2"><label class="form-label small mb-1"><i class="fa fa-door-open me-1 text-muted"></i>Terminal</label><input class="form-control" data-pp-terminal value="' + esc((point && point.terminal) || '') + '" placeholder="T4, T2, Satélite…" style="max-width:14rem"></div>' : '')
+        + (o.extra || '')
+        + '</div>';
+    }
+    function wirePlace(m, key, point, o, onChange) {
+      var box = m.querySelector('[data-pp="' + key + '"]'); if (!box) return;
+      var chip = box.querySelector('[data-pp-chip]'), txt = box.querySelector('[data-pp-text]'), ico = chip.querySelector('i');
+      var inp = box.querySelector('[data-pp-input]'), term = box.querySelector('[data-pp-terminal]'), sugBox = box.querySelector('[data-pp-sug]');
+      var srch = box.querySelector('[data-search="pp_' + key + '"]');
+      function paintChip() {
+        var s2 = structured(point);
+        chip.classList.toggle('d-none', !s2);
+        if (s2) { txt.textContent = pointText(point); ico.className = 'fa ' + pointIcon(point) + ' me-1'; if (inp) inp.value = ''; if (srch) srch.value = ''; }
+      }
+      function paintSug() {
+        if (!sugBox) return;
+        var sug = (typeof o.sug === 'function') ? o.sug() : (o.sug || []);
+        sugBox.classList.toggle('d-none', !sug.length);
+        sugBox.innerHTML = sug.map(function (p, i) {
+          return wzPick({ name: 'rmPP_' + key, value: String(i), icon: p.icon || pointIcon(p), label: p.label, hint: p.sub || '',
+                          checked: structured(point) && normText(point.label) === normText(p.label), attrs: ' data-pp-opt="' + i + '"' });
+        }).join('');
+        sugBox.querySelectorAll('[data-pp-opt]').forEach(function (r) {
+          r.addEventListener('change', function () {
+            if (!r.checked) return;
+            var p = sug[parseInt(r.getAttribute('data-pp-opt'), 10)]; if (!p) return;
+            set({ label: p.label, code: p.code || '', kind: p.kind || 'ADDRESS', lat: p.lat, lng: p.lng, ref_id: p.ref_id || '', address: p.address || '' });
+          });
+        });
+      }
+      function set(p, silencio) {
+        point.label = p.label || ''; point.code = p.code || ''; point.kind = p.kind || ''; point.ref_id = p.ref_id || ''; point.address = p.address || '';
+        point.lat = (p.lat === undefined || p.lat === '' ) ? null : p.lat; point.lng = (p.lng === undefined || p.lng === '') ? null : p.lng;
+        if (!silencio) paintChip();
+        if (onChange) onChange();
+      }
+      box.rmRepaint = paintSug;
+      /* Lo escrito en el buscador sin elegir nada VALE como sitio (un aeropuerto que no está en el
+         catálogo): se recoge al guardar. */
+      box.rmFinalize = function () {
+        if (!point.label && srch && srch.value.trim()) set({ label: srch.value.trim(), kind: o.kind || 'ADDRESS' }, true);
+        if (!point.label && inp && inp.value.trim()) set({ label: inp.value.trim(), kind: 'ADDRESS', address: inp.value.trim() }, true);
+        if (term) point.terminal = term.value.trim();
+      };
+      box.querySelector('[data-pp-clear]').addEventListener('click', function () { set({}); if (inp) inp.value = ''; });
+      if (srch) attachSearch(srch, box.querySelector('[data-results="pp_' + key + '"]'), function (q) { return searchPlaces(o.kind, q); }, function (r) {
+        set({ label: r.name || r.label, code: r.code || '', kind: r.kind || o.kind, lat: r.lat, lng: r.lng });
+      }, { clearOnPick: true, minChars: 2 });
+      if (inp) inp.addEventListener('input', function () {
+        var v = inp.value.trim();
+        if (!v) { if (!structured(point)) set({}, true); return; }
+        set({ label: v, kind: 'ADDRESS', address: v }, true);
+        chip.classList.add('d-none');
+      });
+      if (term) term.addEventListener('input', function () { point.terminal = term.value.trim(); });
+      paintSug();
+    }
+    /* LA RUTA en coche (kilómetros y duración) entre el origen, las paradas y el destino: la calcula
+       el servidor con OpenStreetMap. Es una ayuda: si no sale, se dice y se escribe a mano. */
+    function scheduleRoute(m, draft) {
+      clearTimeout(m.rmRouteTimer);
+      m.rmRouteTimer = setTimeout(function () { routeEstimate(m, draft); }, 500);
+    }
+    function routeEstimate(m, draft) {
+      var t = draft.transport;
+      var pts = [t.origin_place].concat(t.stops || []).concat([t.destination_place]).filter(function (p) { return p && (p.label || (p.lat && p.lng)); });
+      var hint = m.querySelector('[data-route-hint]'), dur = m.querySelector('[data-t="duration"]'), km = m.querySelector('[data-t="distance_km"]');
+      if (pts.length < 2 || !t.origin_place.label || !t.destination_place.label) { if (hint) hint.textContent = 'Con el origen y el destino puestos se calcula la ruta en coche.'; return; }
+      if (hint) hint.textContent = 'Calculando la ruta…';
+      postJson('/api/ruta-estimacion', { points: pts.map(function (p) { return { lat: p.lat, lng: p.lng, address: p.address || p.label, label: p.label }; }) }).then(function (r) {
+        if (!(r && r.ok)) { if (hint) hint.textContent = (r && r.error) || 'No se pudo calcular: escribe la duración a mano.'; return; }
+        t.distance_km = r.distance_km;
+        (r.points || []).forEach(function (c, i) { if (pts[i] && (pts[i].lat === null || pts[i].lat === undefined)) { pts[i].lat = c.lat; pts[i].lng = c.lng; } });
+        if (dur && (m.rmDurAuto !== false || !dur.value.trim())) { dur.value = r.duration_label || ''; m.rmDurAuto = true; }
+        if (km) km.value = r.distance_km;
+        if (hint) hint.textContent = '≈ ' + r.distance_km + ' km · ' + r.duration_label + ' en coche (calculado; se puede cambiar).';
+      }).catch(function () { if (hint) hint.textContent = 'No se pudo calcular: escribe la duración a mano.'; });
+    }
+    // ---- los bloques del asistente
+    function daysGrid(draft) {
+      return '<div class="promo-pick-grid promo-pick-grid--wide mb-3" data-days>'
+        + DAYS.map(function (d) {
+            return '<label class="promo-pick"><input type="radio" name="rmDay" value="' + esc(d.date) + '"' + (d.date === draft.day ? ' checked' : '') + ' data-day-opt>'
+              + '<span class="promo-pick__box"><span class="rm-cal"><span class="wd">' + esc(d.weekday) + '</span><span class="num">' + esc(d.day) + '</span><span class="mo">' + esc(d.month) + '</span></span>'
+              + '<span class="promo-pick__name">' + esc(d.label) + '</span></span></label>';
+          }).join('') + '</div>';
+    }
+    function whenBlock(draft, o) {
+      o = o || {};
+      var h = daysGrid(draft) + '<div class="row g-2 align-items-end">';
+      if (!o.onlyDay) {
+        h += '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa fa-clock me-1 text-muted"></i>' + esc(o.startLabel || 'Empieza') + '</label><input type="time" class="form-control" data-f="start_time" value="' + esc(draft.start_time || '') + '"></div>';
+        if (o.end !== false) h += '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa fa-flag-checkered me-1 text-muted"></i>' + esc(o.endLabel || 'Termina') + '</label><input type="time" class="form-control" data-f="end_time" value="' + esc(draft.end_time || '') + '"></div>';
+      }
+      h += '<div class="col-md-6"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-f="tbc"' + (draft.tbc ? ' checked' : '') + '><i class="fa fa-hourglass-half"></i>La hora está por confirmar (TBC)</label></div></div></div>';
+      return h;
+    }
+    function statusBlock(t, o) {
+      var st = t.status || 'CONFIRMADO';
+      return '<div class="rm-wz-lbl mt-3"><i class="fa fa-circle-check"></i>¿Cómo está?</div>'
+        + '<div class="promo-pick-grid promo-pick-grid--wide">'
+        + wzPick({ name: 'rmTrStatus', value: 'CONFIRMADO', icon: 'fa-circle-check', label: 'Confirmado', checked: st === 'CONFIRMADO' })
+        + wzPick({ name: 'rmTrStatus', value: 'RESERVADO', icon: 'fa-bookmark', label: 'Reservado', checked: st === 'RESERVADO', hint: 'Pedido, sin confirmar' })
+        + wzPick({ name: 'rmTrStatus', value: 'PROVISIONAL', icon: 'fa-hourglass-half', label: 'Provisional', checked: st === 'PROVISIONAL', hint: 'Se ve rayado' })
+        + '</div>'
+        + ((o && o.tracking) ? '<div class="mt-3"><label class="form-label small mb-1"><i class="fa fa-location-crosshairs me-1 text-muted"></i>Enlace de seguimiento (si lo hay)</label><input class="form-control" data-t="tracking_url" value="' + esc(t.tracking_url || '') + '" placeholder="https://…"><div class="filter-hint">Con el enlace puesto, en la hoja de ruta sale el icono para ver el seguimiento.</div></div>' : '');
+    }
+    function accessBlock(draft, titulo, ph) {
+      var on = !!(draft.access_note || hasPin(draft));
+      return '<div class="rm-wz-block mb-3"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-f="access_on"' + (on ? ' checked' : '') + '><i class="fa fa-door-open"></i>' + esc(titulo || 'Instrucciones de acceso') + '</label></div>'
+        + '<div class="mt-2' + (on ? '' : ' d-none') + '" data-access-wrap>'
+        + '<textarea class="form-control" rows="2" data-f="access_note" placeholder="' + esc(ph || 'Por dónde se entra, a quién preguntar, dónde se aparca…') + '">' + esc(draft.access_note || '') + '</textarea>'
+        + '<div class="mt-2" data-access-pin></div></div></div>';
+    }
+    function noteBlock(draft) {
+      return '<div class="mt-3"><label class="form-label small mb-1"><i class="fa fa-note-sticky me-1 text-muted"></i>Nota</label>'
+        + '<textarea class="form-control" data-f="note" rows="3" placeholder="Cualquier detalle que haya que tener en cuenta">' + esc(draft.note || '') + '</textarea></div>';
+    }
+    function durationBlock(t, o) {
+      return '<div class="row g-2 mt-2 align-items-end">'
+        + '<div class="col-md-4"><label class="form-label small mb-1"><i class="fa fa-stopwatch me-1 text-muted"></i>Duración</label><input class="form-control" data-t="duration" value="' + esc(t.duration || '') + '" placeholder="Se calcula sola"></div>'
+        + ((o && o.km) ? '<div class="col-md-3"><label class="form-label small mb-1"><i class="fa fa-road me-1 text-muted"></i>Kilómetros</label><input class="form-control" data-t="distance_km" value="' + esc(t.distance_km || '') + '"></div>' : '')
+        + '<div class="col"><div class="rm-sub" data-route-hint>' + (t.distance_km ? '≈ ' + esc(t.distance_km) + ' km' : 'Con el origen y el destino puestos se calcula la ruta en coche.') + '</div></div></div>';
+    }
+    function attachBlock(draft, titulo) {
+      return '<div class="rm-wz-block"><div class="rm-wz-lbl"><i class="fa fa-paperclip"></i>' + esc(titulo || 'Adjuntos') + '</div>'
+        + '<div data-atts></div><div data-staged class="d-flex flex-wrap gap-1"></div>'
+        + '<label class="btn btn-outline-secondary btn-sm mt-1"><i class="fa fa-paperclip"></i> Adjuntar<input type="file" hidden data-attin></label>'
+        + (draft.id ? '' : '<span class="rm-sub ms-2">Se adjunta al guardar.</span>') + '</div>';
+    }
+    /* EL TRAYECTO de un vuelo, un tren, un barco o un autobús: el origen y el destino con su buscador,
+       su terminal, su nº y su hora (la llegada puede ser al día siguiente). */
+    function legBlock(draft, cfg) {
+      var t = draft.transport;
+      var salida = '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-hashtag me-1 text-muted"></i>' + esc(cfg.num) + '</label><input class="form-control" data-t="number" value="' + esc(t.number || '') + '"></div>'
+        + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-clock me-1 text-muted"></i>Hora de salida</label><input type="time" class="form-control" data-f="start_time" value="' + esc(draft.start_time || '') + '"></div></div>';
+      var llegada = '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-hashtag me-1 text-muted"></i>' + esc(cfg.num) + ' <span class="text-muted fw-normal">(si cambia: una escala)</span></label><input class="form-control" data-t="number_arrival" value="' + esc(t.number_arrival || '') + '"></div>'
+        + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-clock me-1 text-muted"></i>Hora de llegada</label><input type="time" class="form-control" data-f="end_time" value="' + esc(draft.end_time || '') + '"></div>'
+        + '<div class="col-12"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-t="ends_next_day"' + (t.ends_next_day ? ' checked' : '') + '><i class="fa fa-moon"></i>Llega al día siguiente (+1)</label></div></div></div>';
+      return placeBlock('origin', t.origin_place, { title: 'Origen', icon: cfg.iconOut, kind: cfg.place, ph: cfg.placePh, terminal: cfg.terminal, addr: !!cfg.addr, addrPh: 'O escribe una dirección…', extra: salida })
+        + placeBlock('destination', t.destination_place, { title: 'Destino', icon: cfg.iconIn, kind: cfg.place, ph: cfg.placePh, terminal: cfg.terminal, addr: !!cfg.addr, addrPh: 'O escribe una dirección…', extra: llegada });
+    }
+    /* QUIÉN PRESTA un transfer: el promotor, nosotros u otro; su persona de contacto (se busca, y en
+       el promotor se sugieren las suyas) o, si no hay ficha, el conductor, su teléfono y la matrícula. */
+    function providerBlock(draft) {
+      var pv = draft.transport.provider, c = pv.contact || {};
+      return '<div class="promo-pick-grid promo-pick-grid--wide mb-3">'
+        + wzPick({ name: 'rmProv', value: 'PROMOTER', icon: 'fa-handshake', label: 'El promotor', checked: pv.kind === 'PROMOTER', attrs: ' data-prov-opt' })
+        + wzPick({ name: 'rmProv', value: 'US', icon: 'fa-building', label: 'Nosotros', checked: pv.kind === 'US', attrs: ' data-prov-opt' })
+        + wzPick({ name: 'rmProv', value: 'OTHER', icon: 'fa-van-shuttle', label: 'Otro', hint: 'Una empresa de transfers…', checked: pv.kind === 'OTHER', attrs: ' data-prov-opt' })
+        + '</div>'
+        + '<div class="rm-wz-block mb-3"><div class="rm-wz-lbl"><i class="fa fa-address-card"></i>Persona de contacto</div>'
+        + '<div class="rm-chip mb-2' + (c.name ? '' : ' d-none') + '" data-pc-chip><span data-pc-ava>' + avatar(c.photo || '', 'fa-user') + '</span><span data-pc-name>' + esc(c.name || '') + '</span><span class="rm-sub ms-1" data-pc-phone>' + esc(c.phone || '') + '</span><button type="button" class="btn-close btn-sm ms-1" data-pc-clear title="Quitar"></button></div>'
+        + '<div class="promo-pick-grid mb-2 d-none" data-pc-sug></div>'
+        + wzSearch('pcontact', 'Busca a la persona (terceros, la oficina, integrantes)…', false)
+        + '<div class="row g-2 mt-2">'
+        + '<div class="col-md-5"><label class="form-label small mb-1"><i class="fa fa-id-card me-1 text-muted"></i>Conductor</label><input class="form-control" data-pv="driver_name" value="' + esc(pv.driver_name || '') + '" placeholder="Si se sabe"></div>'
+        + '<div class="col-md-4"><label class="form-label small mb-1"><i class="fa fa-phone me-1 text-muted"></i>Teléfono</label><input class="form-control" data-pv="driver_phone" value="' + esc(pv.driver_phone || '') + '"></div>'
+        + '<div class="col-md-3"><label class="form-label small mb-1"><i class="fa fa-car-side me-1 text-muted"></i>Matrícula</label><input class="form-control" data-pv="plate" value="' + esc(pv.plate || '') + '" placeholder="1234 ABC"></div>'
+        + '</div><div class="filter-hint">Todo opcional: lo que se sepa.</div></div>'
+        + '<div class="rm-wz-block">' + companyBlock(draft, kindInfo(draft.kind)) + '</div>';
+    }
+    function wireProvider(m, draft) {
+      var pv = draft.transport.provider;
+      var chip = m.querySelector('[data-pc-chip]'); if (!chip) return;
+      var nm = m.querySelector('[data-pc-name]'), av = m.querySelector('[data-pc-ava]'), ph = m.querySelector('[data-pc-phone]'), sug = m.querySelector('[data-pc-sug]');
+      function setContact(c) {
+        pv.contact = c || {};
+        nm.textContent = pv.contact.name || ''; ph.textContent = pv.contact.phone || '';
+        av.innerHTML = avatar(pv.contact.photo || '', 'fa-user');
+        chip.classList.toggle('d-none', !pv.contact.name);
+      }
+      function pintaSug() {
+        if (!sug) return;
+        // Con el PROMOTOR, sus personas de contacto (las mismas del paso de contactos de los puntos).
+        var rows = pv.kind === 'PROMOTER' ? CONTACT_SUG.filter(function (c) { return /^(Promotor|De la actividad|Vinculado)/.test(c.source || ''); }) : [];
+        sug.classList.toggle('d-none', !rows.length);
+        sug.innerHTML = rows.map(function (c, i) { return wzPick({ name: 'rmPcSug', value: String(i), img: c.photo || AVATAR, icon: 'fa-user', label: c.name, hint: [c.role, c.source].filter(Boolean).join(' · '), checked: !!(pv.contact && pv.contact.name && normText(pv.contact.name) === normText(c.name)), attrs: ' data-pcs-idx="' + i + '"' }); }).join('');
+        sug.querySelectorAll('[data-pcs-idx]').forEach(function (r) { r.addEventListener('change', function () { if (!r.checked) return; var c = rows[parseInt(r.getAttribute('data-pcs-idx'), 10)]; if (c) setContact({ name: c.name, phone: c.phone || '', email: c.email || '', photo: c.photo || '', role: c.role || '', promoter_id: c.promoter_id || '' }); }); });
+      }
+      m.querySelectorAll('[data-prov-opt]').forEach(function (r) { r.addEventListener('change', function () { if (r.checked) { pv.kind = r.value; pintaSug(); } }); });
+      m.querySelector('[data-pc-clear]').addEventListener('click', function () { setContact({}); if (sug) sug.querySelectorAll('input').forEach(function (i) { i.checked = false; }); });
+      attachSearch(m.querySelector('[data-search="pcontact"]'), m.querySelector('[data-results="pcontact"]'), searchRoadmapPeople, function (r) {
+        setContact({ name: r.label, phone: r.phone || '', email: r.email || '', photo: r.logo_url || '', promoter_id: (r.kind === 'PROMOTER' || r.kind === 'MEMBER') ? r.id : '' });
+      }, { clearOnPick: true });
+      pintaSug();
+    }
+    /* LA FURGONETA: con conductor o ALQUILADA (y entonces dónde y cuándo se recoge y se devuelve la
+       reserva, con su localizador); quién conduce, las plazas, si lleva espacio de carga y la matrícula. */
+    function vanModeBlock(draft) {
+      var v = draft.transport.van;
+      return '<div class="promo-pick-grid promo-pick-grid--wide mb-3">'
+        + wzPick({ name: 'rmVanMode', value: 'DRIVER', icon: 'fa-id-card', label: 'Con conductor', hint: 'La lleva alguien', checked: !v.rental, attrs: ' data-van-mode' })
+        + wzPick({ name: 'rmVanMode', value: 'RENTAL', icon: 'fa-key', label: 'Reserva de alquiler', hint: 'Se recoge y se devuelve', checked: !!v.rental, attrs: ' data-van-mode' })
+        + '</div>'
+        + '<div class="' + (v.rental ? '' : 'd-none') + '" data-van-rental>'
+        + placeBlock('van_pickup', v.pickup_place, { title: 'Dónde se recoge la furgoneta', icon: 'fa-key', addr: true, addrPh: 'La oficina de alquiler, su dirección…' })
+        + '<div class="row g-2 mb-3"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-calendar-day me-1 text-muted"></i>Recogida (fecha y hora)</label><input type="datetime-local" class="form-control" data-van="pickup_at" value="' + esc(v.pickup_at || '') + '"></div>'
+        + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-ticket me-1 text-muted"></i>Localizador de la reserva</label><input class="form-control" data-van="locator" value="' + esc(v.locator || '') + '"></div></div>'
+        + placeBlock('van_return', v.return_place, { title: 'Dónde se devuelve', icon: 'fa-right-left', addr: true, addrPh: 'Si es otro sitio: su dirección…' })
+        + '<div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-calendar-check me-1 text-muted"></i>Devolución (fecha y hora)</label><input type="datetime-local" class="form-control" data-van="return_at" value="' + esc(v.return_at || '') + '"></div></div>'
+        + '</div>';
+    }
+    function vanBlock(draft) {
+      var v = draft.transport.van, d = v.driver || {};
+      return '<div class="rm-wz-block mb-3"><div class="rm-wz-lbl"><i class="fa fa-id-card"></i>¿Quién conduce?</div>'
+        + '<div class="rm-chip mb-2' + (d.name ? '' : ' d-none') + '" data-vd-chip><span data-vd-ava>' + avatar(d.photo_url || '', 'fa-user') + '</span><span data-vd-name>' + esc(d.name || '') + '</span><span class="rm-sub ms-1" data-vd-phone>' + esc(d.phone || '') + '</span><button type="button" class="btn-close btn-sm ms-1" data-vd-clear title="Quitar"></button></div>'
+        + wzSearch('vdriver', 'Busca en el personal, la oficina o los terceros…', false)
+        + '<div class="row g-2 mt-2"><div class="col-md-7"><input class="form-control form-control-sm" data-vd-manual placeholder="…o escribe el nombre del conductor"></div><div class="col-md-5"><input class="form-control form-control-sm" data-vd-mphone placeholder="Su teléfono"></div></div></div>'
+        + '<div class="row g-2 mb-3">'
+        + '<div class="col-md-4"><label class="form-label small mb-1"><i class="fa fa-chair me-1 text-muted"></i>Plazas</label><input type="number" min="1" max="60" class="form-control" data-van="seats" value="' + esc(v.seats || '') + '" placeholder="9"></div>'
+        + '<div class="col-md-4"><label class="form-label small mb-1"><i class="fa fa-car-side me-1 text-muted"></i>Matrícula</label><input class="form-control" data-van="plate" value="' + esc(v.plate || '') + '" placeholder="1234 ABC"></div>'
+        + '</div>'
+        + '<div class="rm-wz-lbl"><i class="fa fa-boxes-stacked"></i>¿Lleva espacio de carga?</div>'
+        + '<div class="promo-pick-grid promo-pick-grid--wide">'
+        + wzPick({ name: 'rmCargo', value: '1', icon: 'fa-boxes-stacked', label: 'Con espacio de carga', hint: 'Backline, maletas…', checked: v.cargo === true })
+        + wzPick({ name: 'rmCargo', value: '0', icon: 'fa-people-group', label: 'Solo personas', checked: v.cargo === false })
+        + '</div>';
+    }
+    function wireVan(m, draft) {
+      var v = draft.transport.van;
+      var rentalBox = m.querySelector('[data-van-rental]');
+      m.querySelectorAll('[data-van-mode]').forEach(function (r) { r.addEventListener('change', function () { if (!r.checked) return; v.rental = r.value === 'RENTAL'; if (rentalBox) rentalBox.classList.toggle('d-none', !v.rental); }); });
+      wirePlace(m, 'van_pickup', v.pickup_place, { addr: true });
+      wirePlace(m, 'van_return', v.return_place, { addr: true });
+      var chip = m.querySelector('[data-vd-chip]');
+      if (chip) {
+        var nm = m.querySelector('[data-vd-name]'), av = m.querySelector('[data-vd-ava]'), ph = m.querySelector('[data-vd-phone]');
+        function setDriver(d) { v.driver = d || {}; nm.textContent = v.driver.name || ''; ph.textContent = v.driver.phone || ''; av.innerHTML = avatar(v.driver.photo_url || '', 'fa-user'); chip.classList.toggle('d-none', !v.driver.name); }
+        attachSearch(m.querySelector('[data-search="vdriver"]'), m.querySelector('[data-results="vdriver"]'), searchRoadmapPeople, function (r) {
+          setDriver({ kind: (r.kind === 'USER' ? 'USER' : (r.kind === 'ARTIST' ? 'ARTIST' : 'PROMOTER')), id: r.id, name: r.label, photo_url: r.logo_url || '', phone: r.phone || '' });
+          m.querySelector('[data-vd-manual]').value = '';
+        }, { clearOnPick: true });
+        m.querySelector('[data-vd-clear]').addEventListener('click', function () { setDriver({}); });
+        var manual = m.querySelector('[data-vd-manual]'), mphone = m.querySelector('[data-vd-mphone]');
+        function manualDriver() { var n = manual.value.trim(); if (!n) { if (v.driver && v.driver.kind === 'MANUAL') setDriver({}); return; } v.driver = { kind: 'MANUAL', id: '', name: n, photo_url: '', phone: mphone.value.trim() }; chip.classList.add('d-none'); }
+        manual.addEventListener('input', manualDriver); mphone.addEventListener('input', manualDriver);
+        if (v.driver && v.driver.kind === 'MANUAL') { manual.value = v.driver.name || ''; mphone.value = v.driver.phone || ''; chip.classList.add('d-none'); }
+      }
+    }
+    /* LAS PARADAS INTERMEDIAS de una furgoneta (con su hora), en orden: entran en la ruta que se calcula
+       y son donde puede subir cada pasajero. */
+    function stopsBlock(t) {
+      return '<div class="rm-wz-block mb-3" data-stops><div class="rm-wz-lbl"><i class="fa fa-route"></i>Paradas intermedias</div>'
+        + '<div data-stops-list></div>'
+        + '<div class="d-flex gap-2 mt-2 align-items-start"><div class="flex-grow-1" data-address-autocomplete><input class="form-control form-control-sm" data-addr="full" data-stop-input placeholder="Dirección de la parada…"></div>'
+        + '<input type="time" class="form-control form-control-sm" style="max-width:8rem" data-stop-time title="Hora de paso">'
+        + '<button type="button" class="rm-add sm" data-stop-add title="Añadir la parada"><i class="fa fa-plus"></i></button></div></div>';
+    }
+    function renderStops(m, draft) {
+      var list = m.querySelector('[data-stops-list]'); if (!list) return;
+      var t = draft.transport;
+      list.innerHTML = (t.stops || []).length ? '' : '<div class="rm-sub">Sin paradas: del origen al destino.</div>';
+      (t.stops || []).forEach(function (st, i) {
+        var row = el('<div class="rm-stop"><span class="rm-stop__n">' + (i + 1) + '</span><div class="flex-grow-1 min-w-0"><div>' + esc(st.label) + '</div>' + (st.time ? '<div class="rm-sub">' + esc(st.time) + '</div>' : '') + '</div><button type="button" class="btn btn-link btn-sm text-danger p-0" data-stop-del>Quitar</button></div>');
+        row.querySelector('[data-stop-del]').addEventListener('click', function () { t.stops.splice(i, 1); renderStops(m, draft); renderPassengers(m, draft, { stops: true, max: true }); scheduleRoute(m, draft); });
+        list.appendChild(row);
+      });
+    }
+    function wireStops(m, draft) {
+      var box = m.querySelector('[data-stops]'); if (!box) return;
+      var t = draft.transport;
+      renderStops(m, draft);
+      box.querySelector('[data-stop-add]').addEventListener('click', function () {
+        var inp = box.querySelector('[data-stop-input]'), hora = box.querySelector('[data-stop-time]');
+        var v = (inp.value || '').trim(); if (!v) { alert('Escribe la dirección de la parada.'); return; }
+        t.stops.push({ id: Math.random().toString(36).slice(2, 10), label: v, address: v, kind: 'ADDRESS', code: '', terminal: '', lat: null, lng: null, ref_id: '', time: hora.value || '' });
+        inp.value = ''; hora.value = '';
+        renderStops(m, draft); renderPassengers(m, draft, { stops: true, max: true }); scheduleRoute(m, draft);
+      });
+    }
+    /* LOS PASAJEROS: quiénes van y, en un vuelo/tren/barco/autobús, su localizador (o el mismo para
+       todos), si está confirmado, sus MALETAS (de mano y facturadas) y su tarjeta de embarque; en una
+       furgoneta, en qué parada sube cada uno. */
+    function passengersBlock(draft, o) {
+      var t = draft.transport;
+      o = o || {};
+      return '<div class="rm-wz-block"><div class="rm-wz-lbl"><i class="fa fa-user-group"></i>Pasajeros' + (o.max ? ' <span class="rm-sub" data-pass-count></span>' : '') + '</div>'
+        + (o.table ? '<div class="filter-chips mb-2"><label class="filter-chip"><input type="checkbox" data-t="same_locator"' + (t.same_locator ? ' checked' : '') + '><i class="fa fa-ticket"></i>Mismo localizador para todos</label></div>'
+            + '<input class="form-control form-control-sm mb-2' + (t.same_locator ? '' : ' d-none') + '" data-t="locator_all" value="' + esc(t.locator_all || '') + '" placeholder="Localizador común" style="max-width:16rem">' : '')
+        + '<div data-pass></div>'
+        + '<button type="button" class="rm-add sm mt-1" data-addpass><i class="fa fa-plus"></i> Añadir pasajeros</button>'
+        + (o.table ? '<div class="filter-hint">La tarjeta de embarque se puede arrastrar sobre su botón.</div>' : '') + '</div>';
+    }
+    function bagCtl(i, field, icon, title, val) {
+      return '<span class="rm-bagctl" title="' + esc(title) + '"><button type="button" data-bag="' + field + '" data-i="' + i + '" data-d="-1" aria-label="Menos">−</button><i class="fa ' + icon + (val ? '' : ' is-off') + '"></i><b>' + val + '</b><button type="button" data-bag="' + field + '" data-i="' + i + '" data-d="1" aria-label="Más">+</button></span>';
+    }
+    function renderPassengers(m, draft, o) {
+      var wrap = m.querySelector('[data-pass]'); if (!wrap) return;
+      o = o || m.rmPassOpts || {}; m.rmPassOpts = o;
+      var t = draft.transport;
+      wrap.innerHTML = '';
+      if (!t.passengers.length) wrap.innerHTML = '<div class="rm-sub mb-1">Todavía no va nadie.</div>';
+      t.passengers.forEach(function (p, i) {
+        var per = personById(p.personnel_id);
+        var name = per ? per.name : (p.name || '—');
+        var row = el('<div class="rm-pass2' + (o.table ? ' rm-pass2--table' : '') + '"></div>');
+        var h = '<div class="rm-pass2__who">' + avatar(per ? per.photo_url : '', 'fa-user') + '<div class="min-w-0"><div class="fw-semibold text-truncate">' + esc(name) + '</div>' + (per && per.role ? '<div class="rm-sub">' + esc(per.role) + '</div>' : '') + '</div></div>';
+        if (o.table) {
+          h += '<div class="rm-pass2__loc"><input class="form-control form-control-sm" data-ploc="' + i + '" value="' + esc(p.locator || '') + '" placeholder="Localizador"' + (t.same_locator ? ' disabled' : '') + '></div>'
+            + '<button type="button" class="rm-pconf' + (p.confirmed ? ' is-on' : '') + '" data-pconf="' + i + '" title="' + (p.confirmed ? 'Confirmado' : 'Sin confirmar') + '"><i class="fa fa-circle-check"></i><span>' + (p.confirmed ? 'Confirmado' : 'Confirmar') + '</span></button>'
+            + '<div class="rm-pass2__bags">' + bagCtl(i, 'bags_hand', 'fa-suitcase-rolling', 'Maletas de mano', p.bags_hand || 0) + bagCtl(i, 'bags_checked', 'fa-suitcase', 'Maletas facturadas', p.bags_checked || 0) + '</div>'
+            + '<div class="rm-pass2__ticket">' + (p.ticket_url ? '<a class="rm-att" href="' + esc(p.ticket_url) + '" target="_blank" rel="noopener"><i class="fa fa-download"></i> ' + esc(p.ticket_name || 'Tarjeta') + '</a>' : '')
+            + '<label class="btn btn-outline-secondary btn-sm" title="Tarjeta de embarque (o arrástrala aquí)"><i class="fa fa-ticket"></i> ' + (p.ticket_url ? 'Cambiar' : 'Tarjeta') + '<input type="file" hidden data-pticket="' + i + '"></label><span class="rm-sub" data-pstaged="' + i + '"></span></div>';
+        }
+        if (o.stops) {
+          h += '<div class="rm-pass2__stop"><select class="form-select form-select-sm" data-pstop="' + i + '"><option value=""' + (!p.boarding_stop ? ' selected' : '') + '>Sube en el origen</option>'
+            + (t.stops || []).map(function (st, k) { return '<option value="' + esc(st.id) + '"' + (p.boarding_stop === st.id ? ' selected' : '') + '>Sube en la parada ' + (k + 1) + ' · ' + esc(st.label) + '</option>'; }).join('') + '</select></div>';
+        }
+        h += '<button type="button" class="btn btn-link btn-sm text-danger p-0 rm-pass2__del" data-pdel="' + i + '">Quitar</button>';
+        row.innerHTML = h;
+        wrap.appendChild(row);
+      });
+      // Lo pendiente de adjuntar (un traslado nuevo): se ve para saber que va a subir.
+      (m.rmStaged || []).forEach(function (st) { if (st.scope === 'passenger') { var z = wrap.querySelector('[data-pstaged="' + st.index + '"]'); if (z) z.textContent = st.file.name + ' (al guardar)'; } });
+      var cnt = m.querySelector('[data-pass-count]');
+      if (cnt) { var plazas = parseInt((m.querySelector('[data-van="seats"]') || {}).value || t.van.seats || 0, 10) || 0; cnt.textContent = plazas ? (t.passengers.length + ' de ' + plazas + ' plazas') : (t.passengers.length ? t.passengers.length + ' pasajeros' : ''); cnt.classList.toggle('text-danger', !!plazas && t.passengers.length > plazas); }
+    }
+    function wirePassengers(m, draft, o) {
+      var t = draft.transport;
+      m.rmPassOpts = o || {};
+      renderPassengers(m, draft, o);
+      var box = m.querySelector('[data-pass]'); if (!box) return;
+      var addBtn = m.querySelector('[data-addpass]');
+      if (addBtn) addBtn.addEventListener('click', function () {
+        var plazas = (o && o.max) ? (parseInt((m.querySelector('[data-van="seats"]') || {}).value || t.van.seats || 0, 10) || 0) : 0;
+        openPassengerPicker(draft, function () { renderPassengers(m, draft, o); }, { max: plazas });
+      });
+      // Todo por DELEGACIÓN en la caja: las filas se repintan.
+      box.addEventListener('input', function (e) {
+        var loc = e.target.closest('[data-ploc]'); if (loc) { t.passengers[parseInt(loc.getAttribute('data-ploc'), 10)].locator = loc.value.trim(); return; }
+      });
+      box.addEventListener('change', function (e) {
+        var sel = e.target.closest('[data-pstop]'); if (sel) { t.passengers[parseInt(sel.getAttribute('data-pstop'), 10)].boarding_stop = sel.value; return; }
+        var f = e.target.closest('[data-pticket]');
+        if (f) {
+          var i = parseInt(f.getAttribute('data-pticket'), 10), file = f.files[0]; if (!file) return;
+          if (!draft.id) {
+            // Un traslado NUEVO: se guarda con el resto al pulsar Añadir (una por pasajero).
+            m.rmStaged = (m.rmStaged || []).filter(function (st) { return !(st.scope === 'passenger' && st.index === i); });
+            m.rmStaged.push({ scope: 'passenger', index: i, file: file });
+            renderPassengers(m, draft, o); return;
+          }
+          var fd = new FormData(); fd.append('scope', 'passenger'); fd.append('id', draft.id); fd.append('passenger_index', i); fd.append('file', file);
+          postForm(ep('/adjunto'), fd).then(function (resp) {
+            if (!(resp && resp.ok)) { alert((resp && resp.error) || 'No se pudo adjuntar.'); return; }
+            P = resp.payload; DAYS = resp.days || DAYS;
+            var it = agendaItem(draft.id); var pg = it && it.transport && it.transport.passengers && it.transport.passengers[i];
+            // ⚠️ Solo la tarjeta: lo demás del traslado está a medio editar aquí y no se pisa.
+            if (pg) { t.passengers[i].ticket_url = pg.ticket_url || ''; t.passengers[i].ticket_name = pg.ticket_name || ''; }
+            renderPassengers(m, draft, o);
+          });
+        }
+      });
+      box.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-bag]');
+        if (b) { var i2 = parseInt(b.getAttribute('data-i'), 10), f2 = b.getAttribute('data-bag'); t.passengers[i2][f2] = Math.max(0, Math.min(9, (t.passengers[i2][f2] || 0) + parseInt(b.getAttribute('data-d'), 10))); renderPassengers(m, draft, o); return; }
+        var c = e.target.closest('[data-pconf]');
+        if (c) { var i3 = parseInt(c.getAttribute('data-pconf'), 10); t.passengers[i3].confirmed = !t.passengers[i3].confirmed; renderPassengers(m, draft, o); return; }
+        var d = e.target.closest('[data-pdel]');
+        if (d) { var i4 = parseInt(d.getAttribute('data-pdel'), 10); t.passengers.splice(i4, 1); m.rmStaged = (m.rmStaged || []).filter(function (st) { return !(st.scope === 'passenger' && st.index === i4); }); renderPassengers(m, draft, o); }
+      });
+      var same = m.querySelector('[data-t="same_locator"]'), lall = m.querySelector('[data-t="locator_all"]');
+      if (same && lall) same.addEventListener('change', function () { t.same_locator = same.checked; lall.classList.toggle('d-none', !same.checked); renderPassengers(m, draft, o); });
+      var seats = m.querySelector('[data-van="seats"]');
+      if (seats) seats.addEventListener('input', function () { t.van.seats = parseInt(seats.value, 10) || 0; renderPassengers(m, draft, o); });
+    }
+    /* QUIÉN LO VE en un traslado: sus PASAJEROS siempre; y además todos, unas funciones o unas personas. */
+    function audienceBlockTr(draft) {
+      var aud = draft.audience || { mode: 'PASSENGERS', roles: [], ids: [] };
+      var mode = String(aud.mode || 'PASSENGERS').toUpperCase();
+      if (mode === 'ALL') mode = 'PASSENGERS';   // el «a todos» de antes con pasajeros era «solo los pasajeros»
+      var audIds = (aud.ids || []).map(String), roles = personnelRoles(), dsh = itemSheets(draft);
+      return '<div class="promo-pick-grid promo-pick-grid--wide mb-2">'
+        + wzPick({ name: 'rmAudMode', value: 'PASSENGERS', icon: 'fa-user-group', label: 'Solo los pasajeros', checked: mode === 'PASSENGERS', attrs: ' data-aud-mode' })
+        + wzPick({ name: 'rmAudMode', value: 'EVERYONE', icon: 'fa-globe', label: 'A todos', checked: mode === 'EVERYONE', attrs: ' data-aud-mode' })
+        + wzPick({ name: 'rmAudMode', value: 'ROLES', icon: 'fa-user-tag', label: 'Por función', hint: 'Además de los pasajeros', checked: mode === 'ROLES', attrs: ' data-aud-mode' })
+        + wzPick({ name: 'rmAudMode', value: 'PEOPLE', icon: 'fa-user-check', label: 'A quien yo diga', hint: 'Además de los pasajeros', checked: mode === 'PEOPLE', attrs: ' data-aud-mode' })
+        + '</div>'
+        + '<div class="filter-chips mb-2' + (mode === 'ROLES' ? '' : ' d-none') + '" data-aud-roles>'
+        + (roles.length ? roles.map(function (r) { return '<label class="filter-chip"><input type="checkbox" value="' + esc(r) + '"' + ((aud.roles || []).some(function (x) { return normText(x) === normText(r); }) ? ' checked' : '') + ' data-aud-role><i class="fa fa-user-tag"></i>' + esc(r) + '</label>'; }).join('') : '<span class="filter-hint">Añade antes el personal con su función.</span>')
+        + '</div>'
+        + '<div class="promo-pick-grid mb-2' + (mode === 'PEOPLE' ? '' : ' d-none') + '" data-aud-people>'
+        + ARTISTS.map(function (a) { return wzPick({ name: 'rmAudPerson', multi: true, value: 'artist:' + a.id, img: a.photo_url || AVATAR, icon: 'fa-guitar', label: a.name, hint: 'El artista', checked: audIds.indexOf('artist:' + a.id) >= 0, attrs: ' data-aud-person' }); }).join('')
+        + (P.personnel || []).map(function (p) { return wzPick({ name: 'rmAudPerson', multi: true, value: String(p.id), img: p.photo_url || AVATAR, icon: 'fa-user', label: p.name, hint: p.role || '', checked: audIds.indexOf(String(p.id)) >= 0, attrs: ' data-aud-person' }); }).join('')
+        + '</div>'
+        + '<div class="filter-hint mb-3">Quien va en el traslado lo ve siempre, también desde su acceso de externo.</div>'
+        + '<div class="rm-wz-lbl"><i class="fa fa-share-nodes"></i>¿En qué hoja de ruta se ve?</div>'
+        + '<div class="filter-chips">' + SHEETS.map(function (sN) { return '<label class="filter-chip"><input type="checkbox" data-sheet="' + sN.key + '"' + (dsh[sN.key] ? ' checked' : '') + '><i class="fa ' + sN.icon + '"></i>' + sN.label + '</label>'; }).join('') + '</div>';
+    }
+    function readAudienceTr(m) {
+      var mode = 'PASSENGERS';
+      m.querySelectorAll('[data-aud-mode]').forEach(function (r) { if (r.checked) mode = r.value; });
+      var roles = [].map.call(m.querySelectorAll('[data-aud-role]:checked'), function (c) { return c.value; });
+      var ids = [].map.call(m.querySelectorAll('[data-aud-person]:checked'), function (c) { return c.value; });
+      if (mode === 'ROLES' && !roles.length) mode = 'PASSENGERS';
+      if (mode === 'PEOPLE' && !ids.length) mode = 'PASSENGERS';
+      return { mode: mode, roles: mode === 'ROLES' ? roles : [], ids: mode === 'PEOPLE' ? ids : [] };
+    }
+    // ---- el asistente
+    function openTransportEditor(draft) {
+      var ki = kindInfo(draft.kind), cfg = trCfg(draft.kind), editing = !!draft.id;
+      draft.transport = normTransport(draft.transport, draft.kind);
+      var t = draft.transport;
+      draft.contacts = draft.contacts || [];
+      var pasos = [];
+      if (cfg.grupo === 'TRANSFER') {
+        pasos.push({ title: 'Recogida', icon: 'fa-location-dot', q: '¿Dónde se recoge?',
+                     hint: 'Se sugiere donde esté el artista según la agenda (el sitio anterior, el hotel, el recinto); si no, escribe la dirección.',
+                     html: placeBlock('origin', t.origin_place, { title: 'Punto de recogida', icon: 'fa-location-dot', sug: function () { return placeSuggestions(draft, 'before'); }, addr: true, addrPh: 'O escribe la dirección de recogida…' })
+                       + accessBlock(draft, 'Instrucciones del punto de recogida', 'Por dónde se entra, dónde espera el coche, a quién llamar…')
+                       + attachBlock(draft, 'Bono del transfer') });
+        pasos.push({ title: 'Cuándo', icon: 'fa-clock', q: '¿Qué día y a qué hora se recoge?', hint: 'Sin hora se ve «TBC». Lo provisional se ve rayado.',
+                     html: whenBlock(draft, { startLabel: 'Hora de recogida', end: false }) + statusBlock(t, {}) });
+        pasos.push({ title: 'Destino', icon: 'fa-flag-checkered', q: '¿A dónde va?', hint: 'La duración se calcula sola con la ruta en coche; se puede cambiar a mano.',
+                     html: placeBlock('destination', t.destination_place, { title: 'Destino', icon: 'fa-flag-checkered', sug: function () { return placeSuggestions(draft, 'after'); }, addr: true, addrPh: 'O escribe la dirección de destino…' }) + durationBlock(t, { km: true }) });
+        pasos.push({ title: 'Quién lo presta', icon: 'fa-handshake', q: '¿Quién presta el transfer?', hint: 'El promotor, nosotros u otro; y con quién se habla (o el conductor, su teléfono y la matrícula).', html: providerBlock(draft) });
+        pasos.push({ title: 'Pasajeros', icon: 'fa-user-group', q: '¿Quién va?', hint: 'Del personal de la hoja de ruta; se puede buscar a cualquier tercero, a alguien de la casa o al artista.', html: passengersBlock(draft, {}) + noteBlock(draft) });
+      } else if (cfg.grupo === 'LINEA') {
+        pasos.push({ title: ki.label, icon: ki.icon, q: cfg.q,
+                     hint: 'La compañía sale de la base con su logo; el ' + cfg.placeLabel + ' se busca por nombre' + (cfg.place === 'AIRPORT' ? ' o por código' : '') + '.',
+                     html: '<div class="rm-wz-block mb-3">' + companyBlock(draft, ki) + '</div>' + legBlock(draft, cfg) });
+        pasos.push({ title: 'Cuándo', icon: 'fa-clock', q: '¿Qué día?', hint: 'Las horas van con el trayecto. Lo provisional se ve rayado.', html: whenBlock(draft, { onlyDay: true }) + statusBlock(t, {}) });
+        pasos.push({ title: 'Pasajeros', icon: 'fa-user-group', q: '¿Quién va y con qué?', hint: 'El localizador, si está confirmado, sus maletas y su tarjeta de embarque.', html: passengersBlock(draft, { table: true }) + noteBlock(draft) });
+      } else if (cfg.grupo === 'RIDE') {
+        pasos.push({ title: 'Recogida', icon: ki.icon, q: '¿Con quién y dónde se recoge?', hint: 'La compañía de la base; el sitio se sugiere según la agenda o se escribe.',
+                     html: '<div class="rm-wz-block mb-3">' + companyBlock(draft, ki) + '</div>'
+                       + placeBlock('origin', t.origin_place, { title: 'Punto de recogida', icon: 'fa-location-dot', sug: function () { return placeSuggestions(draft, 'before'); }, addr: true, addrPh: 'O escribe la dirección de recogida…' })
+                       + accessBlock(draft, 'Instrucciones del punto de encuentro', 'Dónde espera el coche, a quién llamar…') });
+        pasos.push({ title: 'Cuándo', icon: 'fa-clock', q: '¿Qué día y a qué hora se recoge?', hint: 'Sin hora se ve «TBC». Con el enlace de seguimiento sale su icono en la hoja de ruta.',
+                     html: whenBlock(draft, { startLabel: 'Hora de recogida', end: false }) + statusBlock(t, { tracking: true }) });
+        pasos.push({ title: 'Destino', icon: 'fa-flag-checkered', q: '¿A dónde va?', hint: 'Se sugiere el siguiente sitio de la agenda; la duración se calcula sola.',
+                     html: placeBlock('destination', t.destination_place, { title: 'Destino', icon: 'fa-flag-checkered', sug: function () { return placeSuggestions(draft, 'after'); }, addr: true, addrPh: 'O escribe la dirección de destino…' }) + durationBlock(t, {}) });
+        pasos.push({ title: 'Pasajeros', icon: 'fa-user-group', q: '¿Quién va?', hint: 'Igual que en un transfer.', html: passengersBlock(draft, {}) + noteBlock(draft) });
+      } else {
+        pasos.push({ title: 'Furgoneta', icon: 'fa-truck', q: '¿Con conductor o alquilada?', hint: 'Si es una reserva: dónde y cuándo se recoge y se devuelve, y su localizador.', html: vanModeBlock(draft) });
+        pasos.push({ title: 'Datos', icon: 'fa-id-card', q: '¿Quién conduce y qué furgoneta es?', hint: 'Las plazas, si lleva espacio de carga y la matrícula.', html: vanBlock(draft) });
+        pasos.push({ title: 'Cuándo', icon: 'fa-clock', q: '¿Qué día y a qué hora sale?', hint: 'Sin hora se ve «TBC».', html: whenBlock(draft, { startLabel: 'Hora de salida', end: false }) + statusBlock(t, {}) });
+        pasos.push({ title: 'Trayecto', icon: 'fa-route', q: '¿De dónde a dónde?', hint: 'Los kilómetros y la duración se calculan solos por la ruta, con las paradas.',
+                     html: placeBlock('origin', t.origin_place, { title: 'Origen', icon: 'fa-location-dot', sug: function () { return placeSuggestions(draft, 'before'); }, addr: true, addrPh: 'O escribe la dirección de salida…' })
+                       + accessBlock(draft, 'Punto de encuentro', 'Dónde espera la furgoneta, a quién llamar…')
+                       + stopsBlock(t)
+                       + placeBlock('destination', t.destination_place, { title: 'Destino', icon: 'fa-flag-checkered', sug: function () { return placeSuggestions(draft, 'after'); }, addr: true, addrPh: 'O escribe la dirección de destino…' })
+                       + durationBlock(t, { km: true }) });
+        pasos.push({ title: 'Pasajeros', icon: 'fa-user-group', q: '¿Quién va y dónde sube?', hint: 'No caben más que las plazas; cada uno sube en el origen o en una parada.', html: passengersBlock(draft, { stops: true, max: true }) + noteBlock(draft) });
+      }
+      pasos.push({ title: 'Quién lo ve', icon: 'fa-users', q: '¿Quién lo ve?', hint: 'Los pasajeros siempre; y quien se añada.', html: audienceBlockTr(draft) });
+      var m = openWizardModal('rmItemModal', (editing ? 'Editar' : 'Añadir') + ' · ' + ki.label, ki.icon, pasos,
+                              function (modal) { saveTransport(draft, modal); }, editing ? 'Guardar' : 'Añadir');
+      m.rmStaged = [];
+      wireTransportWizard(m, draft, cfg);
+    }
+    function wireTransportWizard(m, draft, cfg) {
+      var t = draft.transport;
+      // ---- acceso (las instrucciones del punto de recogida, con su chincheta)
+      var pinBox = m.querySelector('[data-access-pin]');
+      if (pinBox) { m.rmPin = { lat: draft.access_lat, lng: draft.access_lng }; m.rmPinPicker = pinPicker(pinBox, m.rmPin, (VENUE && VENUE.lat && VENUE.lng) ? [VENUE.lat, VENUE.lng] : null); }
+      var accOn = m.querySelector('[data-f="access_on"]'), accWrap = m.querySelector('[data-access-wrap]');
+      if (accOn && accWrap) accOn.addEventListener('change', function () { accWrap.classList.toggle('d-none', !accOn.checked); if (accOn.checked && m.rmPinPicker) setTimeout(m.rmPinPicker.refresh, 60); });
+      ['[data-sw-next]', '[data-sw-prev]', '[data-sw-steps]'].forEach(function (sel) { var n = m.querySelector(sel); if (n) n.addEventListener('click', function () { if (m.rmPinPicker) setTimeout(m.rmPinPicker.refresh, 120); }); });
+      // ---- quién lo ve
+      var rolesBox = m.querySelector('[data-aud-roles]'), peopleBox = m.querySelector('[data-aud-people]');
+      m.querySelectorAll('[data-aud-mode]').forEach(function (r) { r.addEventListener('change', function () { if (rolesBox) rolesBox.classList.toggle('d-none', !(r.checked && r.value === 'ROLES')); if (peopleBox) peopleBox.classList.toggle('d-none', !(r.checked && r.value === 'PEOPLE')); }); });
+      // ---- la compañía
+      wireCompany(m, draft);
+      // ---- los sitios (y la ruta cuando cambian)
+      var recalc = function () { scheduleRoute(m, draft); };
+      wirePlace(m, 'origin', t.origin_place, { kind: cfg.place || '', addr: cfg.grupo !== 'LINEA' || !!cfg.addr, sug: (cfg.grupo === 'LINEA') ? [] : function () { return placeSuggestions(draft, 'before'); } }, recalc);
+      wirePlace(m, 'destination', t.destination_place, { kind: cfg.place || '', addr: cfg.grupo !== 'LINEA' || !!cfg.addr, sug: (cfg.grupo === 'LINEA') ? [] : function () { return placeSuggestions(draft, 'after'); } }, recalc);
+      // Las sugerencias dependen del DÍA y de la HORA: al cambiarlos se rehacen.
+      var repinta = function () { draft.day = (m.querySelector('input[name="rmDay"]:checked') || {}).value || draft.day; var st = m.querySelector('[data-f="start_time"]'); if (st) draft.start_time = st.value; ['origin', 'destination'].forEach(function (k) { var b = m.querySelector('[data-pp="' + k + '"]'); if (b && b.rmRepaint) b.rmRepaint(); }); };
+      m.querySelectorAll('[data-day-opt]').forEach(function (r) { r.addEventListener('change', repinta); });
+      var stEl = m.querySelector('[data-f="start_time"]'); if (stEl) stEl.addEventListener('change', repinta);
+      var dur = m.querySelector('[data-t="duration"]'); if (dur) { m.rmDurAuto = !dur.value.trim(); dur.addEventListener('input', function () { m.rmDurAuto = !dur.value.trim(); }); }
+      var kmEl = m.querySelector('[data-t="distance_km"]'); if (kmEl) kmEl.addEventListener('input', function () { t.distance_km = parseFloat(String(kmEl.value).replace(',', '.')) || null; });
+      // ---- quién lo presta · la furgoneta · las paradas · los pasajeros
+      wireProvider(m, draft);
+      if (cfg.grupo === 'VAN') { wireVan(m, draft); wireStops(m, draft); }
+      wirePassengers(m, draft, cfg.grupo === 'LINEA' ? { table: true } : (cfg.grupo === 'VAN' ? { stops: true, max: true } : {}));
+      // ---- los adjuntos (el bono): ahora, o al guardar si el traslado es nuevo
+      renderItemAtts(m, draft);
+      var attin = m.querySelector('[data-attin]');
+      if (attin) attin.addEventListener('change', function (e) {
+        var f = e.target.files[0]; if (!f) return;
+        if (!draft.id) {
+          m.rmStaged.push({ scope: 'item', file: f });
+          var z = m.querySelector('[data-staged]'); if (z) z.innerHTML = m.rmStaged.filter(function (x) { return x.scope === 'item'; }).map(function (x) { return '<span class="rm-att"><i class="fa fa-paperclip"></i> ' + esc(x.file.name) + ' <span class="rm-sub">(al guardar)</span></span>'; }).join('');
+          attin.value = ''; return;
+        }
+        var fd = new FormData(); fd.append('scope', 'item'); fd.append('id', draft.id); fd.append('file', f);
+        postForm(ep('/adjunto'), fd).then(function (resp) {
+          if (resp && resp.ok) { var it = null; (resp.payload.agenda || []).forEach(function (x) { if (x.id === draft.id) it = x; }); if (it) { draft.attachments = it.attachments || []; renderItemAtts(m, draft); } P = resp.payload; DAYS = resp.days || DAYS; }
+        });
+      });
+    }
+    function saveTransport(draft, m) {
+      var t = draft.transport;
+      var marcado = function (name) { var n = m.querySelector('input[name="' + name + '"]:checked'); return n ? n.value : ''; };
+      var val = function (sel) { var n = m.querySelector(sel); return n ? n.value : null; };
+      draft.day = marcado('rmDay') || draft.day;
+      draft.start_time = val('[data-f="start_time"]') || '';
+      draft.end_time = val('[data-f="end_time"]') || '';
+      var tbcEl = m.querySelector('[data-f="tbc"]'); draft.tbc = !!(tbcEl && tbcEl.checked);
+      t.status = marcado('rmTrStatus') || t.status || 'CONFIRMADO';
+      draft.confirmed = t.status !== 'PROVISIONAL';
+      draft.sheets = {}; m.querySelectorAll('[data-sheet]').forEach(function (cb) { draft.sheets[cb.getAttribute('data-sheet')] = cb.checked; });
+      draft.note = (val('[data-f="note"]') || '').trim();
+      draft.audience = readAudienceTr(m);
+      draft.sings = false; draft.songs = [];
+      var accOn = m.querySelector('[data-f="access_on"]');
+      draft.access_note = (accOn && accOn.checked) ? (val('[data-f="access_note"]') || '').trim() : '';
+      var pinOn = !!(accOn && accOn.checked && m.rmPin);
+      draft.access_lat = pinOn ? m.rmPin.lat : null; draft.access_lng = pinOn ? m.rmPin.lng : null;
+      // Los sitios: lo escrito sin elegir también vale.
+      ['origin', 'destination', 'van_pickup', 'van_return'].forEach(function (k) { var b = m.querySelector('[data-pp="' + k + '"]'); if (b && b.rmFinalize) b.rmFinalize(); });
+      t.origin = pointText(t.origin_place); t.destination = pointText(t.destination_place);
+      ['number', 'number_arrival', 'duration', 'tracking_url', 'locator_all'].forEach(function (f) { var v = val('[data-t="' + f + '"]'); if (v !== null) t[f] = v.trim(); });
+      var kmv = val('[data-t="distance_km"]'); if (kmv !== null) t.distance_km = parseFloat(String(kmv).replace(',', '.')) || null;
+      var nd = m.querySelector('[data-t="ends_next_day"]'); t.ends_next_day = !!(nd && nd.checked);
+      var sl = m.querySelector('[data-t="same_locator"]'); t.same_locator = !!(sl && sl.checked);
+      // Quién lo presta
+      var pv = t.provider; pv.kind = marcado('rmProv') || pv.kind || '';
+      ['driver_name', 'driver_phone', 'plate'].forEach(function (f) { var v = val('[data-pv="' + f + '"]'); if (v !== null) pv[f] = v.trim(); });
+      // La furgoneta
+      var v2 = t.van; var vm = marcado('rmVanMode'); if (vm) v2.rental = vm === 'RENTAL';
+      ['pickup_at', 'return_at', 'locator', 'plate'].forEach(function (f) { var x = val('[data-van="' + f + '"]'); if (x !== null) v2[f] = x.trim(); });
+      var seats = val('[data-van="seats"]'); if (seats !== null) v2.seats = parseInt(seats, 10) || 0;
+      var cg = marcado('rmCargo'); v2.cargo = cg === '1' ? true : (cg === '0' ? false : v2.cargo);
+      if (v2.seats && t.passengers.length > v2.seats) { alert('Van ' + t.passengers.length + ' personas y la furgoneta tiene ' + v2.seats + ' plazas: quita a alguien o cambia las plazas.'); return; }
+      // La persona de contacto del que lo presta es la persona de contacto del punto.
+      draft.contacts = (pv.contact && pv.contact.name) ? [pv.contact] : [];
+      draft.contact = draft.contacts[0] || {};
+      var i = bs('rmItemModal'); if (i) i.hide();
+      var staged = (m.rmStaged || []).slice();
+      postJson(ep('/item'), draft).then(function (resp) {
+        if (!(resp && resp.ok)) { alert((resp && resp.error) || 'No se pudo guardar el traslado.'); return; }
+        if (!staged.length || !resp.item_id) { apply(resp); return; }
+        // Lo adjuntado en un traslado NUEVO sube ahora, con su id, uno tras otro.
+        var cadena = Promise.resolve(resp);
+        staged.forEach(function (st) {
+          cadena = cadena.then(function (prev) {
+            var fd = new FormData(); fd.append('scope', st.scope); fd.append('id', resp.item_id); fd.append('file', st.file);
+            if (st.scope === 'passenger') fd.append('passenger_index', st.index);
+            return postForm(ep('/adjunto'), fd).then(function (r2) { return (r2 && r2.ok) ? r2 : prev; });
+          });
+        });
+        cadena.then(function (last) { apply(last || resp); });
+      });
+    }
+    // ---- cómo se pinta un traslado (fila y detalle)
+    function transStatusTag(t) {
+      if (t && t.status === 'RESERVADO') return '<span class="rm-tag warn"><i class="fa fa-bookmark"></i> Reservado</span>';
+      return '';
+    }
+    function transLineHtml(t) {
+      var route = [t.origin, t.destination].filter(Boolean).map(esc).join(' → ');
+      var np = (t.passengers || []).length;
+      var h = companyLogo(t) ? '<img src="' + esc(companyLogo(t)) + '" alt="">' : '';
+      if (t.company) h += '<span>' + esc(t.company) + '</span>';
+      if (t.number) h += '<span>' + esc(t.number) + (t.number_arrival ? ' / ' + esc(t.number_arrival) : '') + '</span>';
+      if (route) h += '<span>' + route + '</span>';
+      if (t.duration || t.distance_km) h += '<span>· ' + [t.duration, (t.distance_km ? t.distance_km + ' km' : '')].filter(Boolean).map(esc).join(' · ') + '</span>';
+      if (np) h += '<span>· <i class="fa fa-user-group"></i> ' + np + '</span>';
+      if (t.tracking_url) h += '<a class="rm-maplink" href="' + esc(t.tracking_url) + '" target="_blank" rel="noopener" title="Ver el seguimiento" data-ext><i class="fa fa-location-crosshairs"></i></a>';
+      return h ? '<div class="rm-transport-line">' + h + '</div>' : '';
+    }
+    /* LAS MALETAS de un pasajero: el icono de mano y el de facturada, TACHADOS si no lleva (como la
+       taza del desayuno), y doble o triple si lleva más de una. */
+    function bagIcons(p) {
+      function uno(icon, n, title) {
+        if (!n) return '<span class="rm-bag rm-bag--off" title="Sin ' + title + '"><i class="fa ' + icon + '"></i></span>';
+        var h = ''; for (var i = 0; i < Math.min(n, 3); i++) h += '<i class="fa ' + icon + '"></i>';
+        return '<span class="rm-bag rm-bag--on" title="' + n + ' ' + title + '">' + h + (n > 3 ? '<b>×' + n + '</b>' : '') + '</span>';
+      }
+      return '<span class="rm-bags">' + uno('fa-suitcase-rolling', p.bags_hand || 0, 'de mano') + uno('fa-suitcase', p.bags_checked || 0, 'facturada' + ((p.bags_checked || 0) === 1 ? '' : 's')) + '</span>';
+    }
+    function transDetailHtml(it) {
+      var t = normTransport(JSON.parse(JSON.stringify(it.transport || {})), it.kind);
+      var cfg = trCfg(it.kind);
+      var h = transLineHtml(t);
+      if (t.status === 'RESERVADO') h += '<div class="mb-1">' + transStatusTag(t) + '</div>';
+      if (t.ends_next_day) h += '<div class="rm-sub"><i class="fa fa-moon"></i> Llega al día siguiente</div>';
+      var pv = t.provider || {};
+      if (pv.kind || (pv.contact && pv.contact.name) || pv.driver_name || pv.plate) {
+        var quien = { PROMOTER: 'El promotor', US: 'Nosotros', OTHER: 'Otro' }[pv.kind] || '';
+        h += '<div class="mt-2"><div class="rm-sub"><i class="fa fa-handshake"></i> Lo presta' + (quien ? ': ' + quien : '') + '</div>';
+        if (pv.contact && pv.contact.name) h += contactRow(pv.contact, pv.contact.role || '');
+        var cond = [pv.driver_name ? 'Conductor: ' + esc(pv.driver_name) : '', pv.driver_phone ? '<a href="tel:' + esc(pv.driver_phone) + '" data-ext>' + esc(pv.driver_phone) + '</a>' : '', pv.plate ? 'Matrícula ' + esc(pv.plate) : ''].filter(Boolean).join(' · ');
+        if (cond) h += '<div class="rm-sub"><i class="fa fa-id-card"></i> ' + cond + '</div>';
+        h += '</div>';
+      }
+      if (cfg.grupo === 'VAN') {
+        var v = t.van || {};
+        var partes = [];
+        if (v.rental) partes.push('Alquilada' + (v.locator ? ' · loc. ' + esc(v.locator) : ''));
+        if (v.driver && v.driver.name) partes.push('Conduce ' + esc(v.driver.name) + (v.driver.phone ? ' (<a href="tel:' + esc(v.driver.phone) + '" data-ext>' + esc(v.driver.phone) + '</a>)' : ''));
+        if (v.seats) partes.push(v.seats + ' plazas');
+        if (v.cargo === true) partes.push('<i class="fa fa-boxes-stacked"></i> con espacio de carga'); else if (v.cargo === false) partes.push('solo personas');
+        if (v.plate) partes.push('Matrícula ' + esc(v.plate));
+        if (partes.length) h += '<div class="rm-sub mt-1"><i class="fa fa-truck"></i> ' + partes.join(' · ') + '</div>';
+        if (v.rental && (pointText(v.pickup_place) || pointText(v.return_place))) h += '<div class="rm-sub"><i class="fa fa-key"></i> Recogida: ' + esc(pointText(v.pickup_place) || '—') + (v.pickup_at ? ' (' + esc(v.pickup_at.replace('T', ' ')) + ')' : '') + ' · Devolución: ' + esc(pointText(v.return_place) || 'en el mismo sitio') + (v.return_at ? ' (' + esc(v.return_at.replace('T', ' ')) + ')' : '') + '</div>';
+        if ((t.stops || []).length) h += '<div class="rm-sub"><i class="fa fa-route"></i> Paradas: ' + t.stops.map(function (st, k) { return (k + 1) + '. ' + esc(st.label) + (st.time ? ' (' + esc(st.time) + ')' : ''); }).join(' · ') + '</div>';
+      }
+      if ((t.passengers || []).length) {
+        h += '<div class="mt-2 rm-sub"><i class="fa fa-user-group"></i> ' + (t.passengers.length === 1 ? 'Pasajero' : 'Pasajeros') + '</div>';
+        t.passengers.forEach(function (p) {
+          var per = personById(p.personnel_id);
+          var loc = t.same_locator ? t.locator_all : p.locator;
+          var stop = (cfg.grupo === 'VAN' && p.boarding_stop) ? (t.stops || []).filter(function (st) { return st.id === p.boarding_stop; })[0] : null;
+          h += '<div class="rm-pline">' + avatar(per ? per.photo_url : '', 'fa-user') + '<div class="min-w-0 flex-grow-1"><div class="text-truncate">' + esc(per ? per.name : (p.name || '—'))
+            + (cfg.grupo === 'LINEA' ? (p.confirmed ? ' <i class="fa fa-circle-check text-success" title="Confirmado"></i>' : ' <i class="fa-regular fa-circle text-muted" title="Sin confirmar"></i>') : '') + '</div>'
+            + (loc ? '<div class="rm-sub"><i class="fa fa-ticket"></i> ' + esc(loc) + '</div>' : '')
+            + (stop ? '<div class="rm-sub"><i class="fa fa-route"></i> Sube en ' + esc(stop.label) + '</div>' : '') + '</div>'
+            + (cfg.grupo === 'LINEA' ? bagIcons(p) : '')
+            + (p.ticket_url ? '<a class="rm-att" href="' + esc(p.ticket_url) + '" target="_blank" rel="noopener" data-ext><i class="fa fa-download"></i> ' + esc(p.ticket_name || 'Tarjeta') + '</a>' : '') + '</div>';
+        });
+      }
+      return h;
     }
 
     // ------------------------------------------------- la compañía de un traslado
@@ -1391,6 +2155,8 @@
       var editing = !!draft.id;
       var esIv = draft.kind === 'ENTREVISTA';
       var esTr = !!ki.transport;
+      // ⚠️ UN TRASLADO tiene su propio asistente (transfer · vuelo/tren/barco/autobús · VTC/taxi · furgoneta).
+      if (esTr) { openTransportEditor(draft); return; }
       var esMG = draft.kind === 'MG', esComida = draft.kind === 'COMIDA';
       var noSing = ruleHas('no_sing', draft.kind);
       var atVenue = ruleHas('at_venue', draft.kind);
@@ -2116,53 +2882,29 @@
       });
       if (!arr.length) wrap.innerHTML = '<div class="rm-sub">Todavía no hay canciones.</div>';
     }
-    function wireTransport(m, draft) {
-      wireCompany(m, draft);
-      var same = m.querySelector('[data-t="same_locator"]'); var lall = m.querySelector('[data-t="locator_all"]');
-      if (same && lall) same.addEventListener('change', function () { lall.classList.toggle('d-none', !same.checked); });
-      renderPassengers(m, draft);
-      m.querySelector('[data-addpass]').addEventListener('click', function () { openPassengerPicker(draft, function () { renderPassengers(m, draft); }); });
-    }
-    function renderPassengers(m, draft) {
-      var wrap = m.querySelector('[data-pass]'); if (!wrap) return; wrap.innerHTML = '';
-      var editing = !!draft.id;
-      draft.transport.passengers.forEach(function (p, i) {
-        var per = personById(p.personnel_id);
-        var name = per ? per.name : (p.name || '—');
-        var row = el('<div class="rm-pass"><div><div class="fw-semibold">' + esc(name) + '</div><input class="form-control form-control-sm mt-1" data-loc="' + i + '" value="' + esc(p.locator || '') + '" placeholder="Localizador"></div><div class="text-end"></div></div>');
-        var right = row.querySelector('.text-end');
-        if (editing) {
-          if (p.ticket_url) right.innerHTML = '<a class="rm-att" href="' + esc(p.ticket_url) + '" target="_blank"><i class="fa fa-download"></i> Billete</a>';
-          var lbl = el('<label class="btn btn-outline-secondary btn-sm mt-1 d-block"><i class="fa fa-ticket"></i> Billete<input type="file" hidden></label>');
-          lbl.querySelector('input').addEventListener('change', function (e) { var f = e.target.files[0]; if (!f) return; var fd = new FormData(); fd.append('scope', 'passenger'); fd.append('id', draft.id); fd.append('passenger_index', i); fd.append('file', f); postForm(ep('/adjunto'), fd).then(function (resp) { if (resp && resp.ok) { P = resp.payload; DAYS = resp.days || DAYS; var it = agendaItem(draft.id); if (it) { draft.transport = it.transport; renderPassengers(m, draft); } } }); });
-          right.appendChild(lbl);
-        }
-        row.querySelector('[data-loc]').addEventListener('input', function (e) { draft.transport.passengers[i].locator = e.target.value; });
-        var del = el('<button type="button" class="btn btn-link btn-sm text-danger p-0 ms-2">Quitar</button>');
-        del.addEventListener('click', function () { draft.transport.passengers.splice(i, 1); renderPassengers(m, draft); });
-        right.appendChild(del);
-        wrap.appendChild(row);
-      });
-      if (!draft.id && draft.transport.passengers.length) wrap.appendChild(el('<div class="text-muted small">Guarda el traslado para adjuntar billetes.</div>'));
-    }
+    function wireTransport(m, draft) { wireTransportWizard(m, draft, trCfg(draft.kind)); }
     // ⚠️⚠️ En un mismo traslado va casi siempre medio equipo, así que se marcan VARIAS personas y
     // se añaden DE GOLPE (de una en una era un trabajo tonto). Quien ya va sale como «ya va» y no
     // se puede elegir dos veces; un tercero nuevo o alguien a mano se AÑADEN A LA SELECCIÓN sin
     // cerrar el pop-up, para poder juntarlos con los demás en el mismo viaje.
-    function openPassengerPicker(draft, done) {
+    function openPassengerPicker(draft, done, opts) {
+      opts = opts || {};
       var yaVan = {};
       (draft.transport.passengers || []).forEach(function (p) { if (p.personnel_id) yaVan[String(p.personnel_id)] = true; });
       var sel = {};
+      // Las PLAZAS de una furgoneta son un tope: no se sube más gente de la que cabe.
+      var hueco = (opts.max && opts.max > 0) ? Math.max(0, opts.max - (draft.transport.passengers || []).length) : null;
 
       var h = '<div class="d-flex align-items-center gap-2 mb-1">'
-        + '<div class="text-muted small flex-grow-1">Personal de la hoja de ruta</div>'
+        + '<div class="text-muted small flex-grow-1">Personal de la hoja de ruta' + (hueco !== null ? ' · ' + (hueco === 1 ? 'queda 1 plaza' : 'quedan ' + hueco + ' plazas') : '') + '</div>'
         + '<div class="filter-chips m-0" data-passbulk></div></div>'
         + '<div data-passlist></div>'
-        + (CAN_CREATE ? '<hr><div class="text-muted small mb-1">Añadir tercero nuevo</div><input class="form-control" placeholder="Buscar tercero…" data-newsearch><div class="list-group position-absolute d-none" style="z-index:5" data-newresults></div>' : '<hr>')
-        + '<div class="mt-2"><input class="form-control form-control-sm mb-1" data-mname placeholder="…o nombre manual"><input class="form-control form-control-sm mb-1" data-mrole placeholder="Función"><button type="button" class="btn btn-outline-primary btn-sm" data-maddmanual>Añadir manual</button></div>';
+        + '<hr><div class="text-muted small mb-1">Otra persona: busca en toda la base (la oficina, los integrantes, los terceros, el artista)</div>'
+        + '<div class="rm-wz-search"><input class="form-control" placeholder="Escribe su nombre…" data-newsearch><div class="list-group position-absolute d-none" data-newresults></div></div>'
+        + '<div class="mt-2 d-flex gap-2 flex-wrap"><input class="form-control form-control-sm" style="max-width:14rem" data-mname placeholder="…o un nombre a mano"><input class="form-control form-control-sm" style="max-width:10rem" data-mrole placeholder="Función"><button type="button" class="btn btn-outline-primary btn-sm" data-maddmanual>Añadir</button></div>';
 
       var bAdd = btn('Añadir', 'btn-primary', function () { addSeleccionados(); });
-      var m2 = openModal('rmPassModal', 'modal-md', 'Añadir pasajeros', h, [bAdd]);
+      var m2 = openModal('rmPassModal', 'modal-md', 'Añadir pasajeros', h, [bAdd], 'fa-user-group');
 
       function libres() { return P.personnel.filter(function (p) { return !yaVan[String(p.id)]; }); }
       function marcados() { return libres().filter(function (p) { return sel[String(p.id)]; }); }
@@ -2176,19 +2918,24 @@
           var id = String(p.id), ya = !!yaVan[id], on = !!sel[id];
           var row = el('<div class="rm-result' + (ya ? ' is-done' : (on ? ' is-on' : '')) + '">'
             + '<span class="rm-check">' + (ya ? '<i class="fa fa-circle-check"></i>' : (on ? '<i class="fa fa-square-check"></i>' : '<i class="fa-regular fa-square"></i>')) + '</span>'
-            + avatar(p.photo_url)
-            + '<div class="flex-grow-1"><div>' + esc(p.name) + '</div>' + (p.role ? '<div class="rm-sub">' + esc(p.role) + '</div>' : '') + '</div>'
+            + avatar(p.photo_url, p.kind === 'ARTIST' ? 'fa-guitar' : 'fa-user')
+            + '<div class="flex-grow-1"><div>' + esc(p.name) + '</div>' + (p.role ? '<div class="rm-sub">' + esc(p.role) + '</div>' : (p.kind === 'ARTIST' ? '<div class="rm-sub">El artista</div>' : '')) + '</div>'
             + (ya ? '<span class="rm-sub">ya va</span>' : '') + '</div>');
-          if (!ya) row.addEventListener('click', function () { sel[id] = !sel[id]; pinta(); });
+          if (!ya) row.addEventListener('click', function () {
+            if (!sel[id] && hueco !== null && marcados().length >= hueco) { rmToast('No caben más: la furgoneta tiene ' + opts.max + ' plazas.'); return; }
+            sel[id] = !sel[id]; pinta();
+          });
           wrap.appendChild(row);
         });
         // «Todos» / «Ninguno» solo cuando hacen algo (y no con una sola persona que elegir).
         var bulk = m2.querySelector('[data-passbulk]');
         bulk.innerHTML = '';
         var lib = libres(), n = marcados().length;
-        if (lib.length > 1) {
+        if (lib.length > 1 && (hueco === null || hueco >= lib.length)) {
           if (n < lib.length) bulk.appendChild(chip('Todos', function () { lib.forEach(function (p) { sel[String(p.id)] = true; }); pinta(); }));
           if (n > 0) bulk.appendChild(chip('Ninguno', function () { sel = {}; pinta(); }));
+        } else if (lib.length > 1 && n > 0) {
+          bulk.appendChild(chip('Ninguno', function () { sel = {}; pinta(); }));
         }
         bAdd.textContent = n ? ('Añadir (' + n + ')') : 'Añadir';
       }
@@ -2196,7 +2943,7 @@
       function addSeleccionados() {
         var elegidos = marcados();
         if (!elegidos.length) { alert('Marca a las personas que van en este traslado.'); return; }
-        elegidos.forEach(function (p) { draft.transport.passengers.push({ personnel_id: String(p.id), locator: '', ticket_url: '', ticket_name: '' }); });
+        elegidos.forEach(function (p) { draft.transport.passengers.push({ personnel_id: String(p.id), locator: '', ticket_url: '', ticket_name: '', confirmed: false, bags_hand: 0, bags_checked: 0, boarding_stop: '' }); });
         var i = bs('rmPassModal'); if (i) i.hide();
         done();
       }
@@ -2204,11 +2951,14 @@
       function marcaNueva(pid) {
         if (!pid) return;
         if (yaVan[String(pid)]) { alert('Esa persona ya va en este traslado.'); return; }
+        if (hueco !== null && marcados().length >= hueco) { rmToast('No caben más: la furgoneta tiene ' + opts.max + ' plazas.'); return; }
         sel[String(pid)] = true; pinta();
       }
-      if (CAN_CREATE) attachSearch(m2.querySelector('[data-newsearch]'), m2.querySelector('[data-newresults]'), searchPromoters, function (r) {
-        savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label, phone: r.phone || '', email: r.email || '', photo_url: r.logo_url || '' }).then(marcaNueva);
-      }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label || q }).then(marcaNueva); }); } });
+      // Quien no esté en el personal se BUSCA en toda la base (el mismo buscador que el personal) y
+      // entra en él; el artista también (`kind` ARTIST).
+      attachSearch(m2.querySelector('[data-newsearch]'), m2.querySelector('[data-newresults]'), searchRoadmapPeople, function (r) {
+        savePerson({ kind: r.kind || 'PROMOTER', ref_id: r.id, name: r.label, phone: r.phone || '', email: r.email || '', photo_url: r.logo_url || '' }).then(marcaNueva);
+      }, CAN_CREATE ? { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label || q }).then(marcaNueva); }); }, clearOnPick: true } : { clearOnPick: true });
       m2.querySelector('[data-maddmanual]').addEventListener('click', function () {
         var nm = m2.querySelector('[data-mname]').value.trim(); if (!nm) return;
         savePerson({ kind: 'MANUAL', name: nm, role: m2.querySelector('[data-mrole]').value.trim() }).then(function (pid) {
@@ -2347,11 +3097,7 @@
         else if (mdD.zoomTbc) h += '<div class="rm-sub mb-2"><i class="fa fa-video"></i> El enlace de la videollamada está por confirmar.</div>';
         if (it.interview && (it.interview.songs || []).length) h += '<div class="rm-sub">Repertorio: ' + it.interview.songs.map(function (s) { return esc(s.title); }).join(', ') + '</div>';
       }
-      if (ki.transport && it.transport) {
-        var t = it.transport;
-        h += '<div class="rm-transport-line">' + (companyLogo(t) ? '<img src="' + esc(companyLogo(t)) + '" alt="">' : '') + [t.company, t.number, [t.origin, t.destination].filter(Boolean).join(' → '), t.duration].filter(Boolean).map(esc).join(' · ') + (t.ends_next_day ? ' <span class="rm-tag plus1">+1</span>' : '') + '</div>';
-        (t.passengers || []).forEach(function (p) { var per = personById(p.personnel_id); h += '<div class="rm-sub"><i class="fa fa-user"></i> ' + esc(per ? per.name : '—') + (p.locator || t.locator_all ? ' · Loc: ' + esc(t.same_locator ? t.locator_all : p.locator) : '') + (p.ticket_url ? ' · <a href="' + esc(p.ticket_url) + '" target="_blank">Billete</a>' : '') + '</div>'; });
-      }
+      if (ki.transport && it.transport) h += transDetailHtml(it);
       // LAS PERSONAS DE CONTACTO (pueden ser varias), cada una con su cara, su teléfono y su correo.
       var ccs = itemContacts(it);
       if (ccs.length) {

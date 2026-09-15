@@ -82152,11 +82152,16 @@ ROADMAP_INTERVIEW_MODALITIES = ("PRESENCIAL", "PHONER", "ZOOM")
 # A QUIÉN SE LLAMA en un phoner: al ARTISTA (la etiqueta rápida), a alguien de la casa, a un tercero
 # o a un nombre escrito a mano. Se pinta con su cara, la flecha y su nombre.
 ROADMAP_CALL_KINDS = ("ARTIST", "USER", "PROMOTER", "MANUAL")
-ROADMAP_PERSONNEL_KINDS = {"USER", "PROMOTER", "MEMBER", "MANUAL"}
+# ⚠️ ARTIST (sep 2026): el propio ARTISTA puede ir en un traslado, así que puede estar en el personal
+# (`ref_id` = su id). No tiene ficha de tercero: su nombre y su foto van en la fila.
+ROADMAP_PERSONNEL_KINDS = {"USER", "PROMOTER", "MEMBER", "MANUAL", "ARTIST"}
 # A QUIÉN AFECTA un punto de los HORARIOS: a TODOS, a unas FUNCIONES (los técnicos, los músicos…) o
 # a unas PERSONAS concretas del personal. Es la etiqueta que sale en su fila y lo que decide qué ve
 # cada externo al entrar en su portal (`_roadmap_payload_for_person`).
-ROADMAP_AUDIENCE_MODES = ("ALL", "ROLES", "PEOPLE")
+# ⚠️ En un TRASLADO (sep 2026): `PASSENGERS` = solo sus pasajeros (lo normal) y `EVERYONE` = todos;
+# «por función» y «a quien yo diga» SUMAN a los pasajeros. El `ALL` de antes con pasajeros era «solo
+# los pasajeros» y sigue leyéndose así (`_roadmap_item_affects`).
+ROADMAP_AUDIENCE_MODES = ("ALL", "ROLES", "PEOPLE", "PASSENGERS", "EVERYONE")
 # ⚠️⚠️ CADA TIPO DE PUNTO PREGUNTA SOLO LO SUYO (sep 2026, lo pidió Dani). Punto único: el servidor
 # las aplica al GUARDAR y el asistente las lee del contexto (`kind_rules` → `RULES` en roadmap.js)
 # para no preguntar lo que no toca, así no se pueden desparejar.
@@ -82175,6 +82180,14 @@ ROADMAP_PLACE_MODES = ("VENUE", "OTHER")
 ROADMAP_NO_CONTACT_KINDS = {"ACTUACION"}
 #  · Una CITACIÓN es a UNA hora: no tiene fin.
 ROADMAP_NO_END_KINDS = {"CITACION"}
+# TRASLADOS (sep 2026, lo pidió Dani): su ESTADO propio (reservado no es confirmado), de qué TIPO es
+# cada sitio de la ruta (un aeropuerto con su IATA y su terminal, una estación, un puerto, una
+# estación de autobuses, el hotel, el recinto, otro punto de la agenda o una dirección), QUIÉN presta
+# un transfer (el promotor · nosotros · otro) y el tope de maletas por persona.
+ROADMAP_TRANSPORT_STATUSES = ("CONFIRMADO", "RESERVADO", "PROVISIONAL")
+ROADMAP_POINT_KINDS = ("ADDRESS", "AIRPORT", "STATION", "PORT", "BUS", "HOTEL", "VENUE", "ITEM")
+ROADMAP_PROVIDER_KINDS = ("PROMOTER", "US", "OTHER")
+ROADMAP_MAX_BAGS = 9
 
 
 def _roadmap_kind_rules() -> dict:
@@ -83311,8 +83324,9 @@ def _roadmap_artist_audience_key(artist_id) -> str:
 
 
 def _roadmap_item_audience(value) -> dict:
-    """A quién afecta un punto: `{"mode": ALL|ROLES|PEOPLE, "roles": [...], "ids": [...]}`.
-    Sin nada guardado (los puntos de antes), a TODOS; un modo sin nadie dentro también es «todos»."""
+    """A quién afecta un punto: `{"mode": ALL|ROLES|PEOPLE|PASSENGERS|EVERYONE, "roles": [...], "ids": [...]}`.
+    Sin nada guardado (los puntos de antes), a TODOS; un modo sin nadie dentro también es «todos».
+    `PASSENGERS` y `EVERYONE` son de los TRASLADOS (ver `_roadmap_item_affects`)."""
     if not isinstance(value, dict):
         return {"mode": "ALL", "roles": [], "ids": []}
     mode = (str(value.get("mode") or "ALL")).strip().upper()
@@ -83429,9 +83443,13 @@ def _roadmap_ext_person_info(payload: dict, ext_ids, artist_ids=None) -> dict:
     `artist_ids` son los ARTISTAS de los que es integrante: un punto marcado «solo para el artista»
     también le afecta a él."""
     ids = {str(x) for x in (ext_ids or []) if x}
+    artistas = {str(x) for x in (artist_ids or []) if x}
+    # Sus fichas (tercero o integrante) y, si el ARTISTA va como pasajero (`kind` ARTIST), esa fila
+    # también es suya cuando es integrante de ese artista.
     filas = [p for p in ((payload or {}).get("personnel") or [])
-             if isinstance(p, dict) and (p.get("kind") or "").upper() in ("PROMOTER", "MEMBER")
-             and str(p.get("ref_id") or "") in ids]
+             if isinstance(p, dict) and (
+                 ((p.get("kind") or "").upper() in ("PROMOTER", "MEMBER") and str(p.get("ref_id") or "") in ids)
+                 or ((p.get("kind") or "").upper() == "ARTIST" and str(p.get("ref_id") or "") in artistas))]
     return {
         "rows": filas,
         "person_ids": [str(p.get("id") or "") for p in filas if p.get("id")],
@@ -83443,21 +83461,32 @@ def _roadmap_ext_person_info(payload: dict, ext_ids, artist_ids=None) -> dict:
 
 
 def _roadmap_item_affects(item: dict, info: dict) -> bool:
-    """¿Le afecta este punto a esa persona? Lo de TODOS sí; un TRASLADO con pasajeros concretos
-    solo a quien va en él; lo de unas FUNCIONES a quien tenga alguna; lo de unas PERSONAS a ellas."""
+    """¿Le afecta este punto a esa persona? Lo de TODOS sí; lo de unas FUNCIONES a quien tenga alguna;
+    lo de unas PERSONAS a ellas (y al ARTISTA, `artist:<id>`, a él y a sus integrantes).
+    ⚠️ UN TRASLADO ES DE SUS PASAJEROS, siempre (sep 2026, lo pidió Dani): a quien va en él le sale
+    aunque no se haya marcado nada más; y además a quien se diga: a todos (`EVERYONE`), a unas
+    funciones o a unas personas. El «a todos» de antes (`ALL`) con pasajeros era «solo los pasajeros»
+    y se sigue leyendo así, para no cambiar lo que ya ve la gente."""
     mios = set(info.get("person_ids") or [])
     aud = _roadmap_item_audience((item or {}).get("audience"))
-    if aud["mode"] == "ROLES":
-        return bool({_norm_text_key(r) for r in aud["roles"]} & set(info.get("roles") or set()))
-    if aud["mode"] == "PEOPLE":
-        # Las PERSONAS del personal y, además, EL ARTISTA (`artist:<id>`): un punto marcado para él
-        # le afecta a él y a sus integrantes.
-        return bool((set(aud["ids"]) & mios) or (set(aud["ids"]) & set(info.get("artist_keys") or set())))
+    roles_ok = bool({_norm_text_key(r) for r in aud["roles"]} & set(info.get("roles") or set()))
+    ids_ok = bool((set(aud["ids"]) & mios) or (set(aud["ids"]) & set(info.get("artist_keys") or set())))
     tr = (item or {}).get("transport") or {}
-    pasajeros = [str(p.get("personnel_id") or "") for p in (tr.get("passengers") or []) if isinstance(p, dict)]
-    pasajeros = [x for x in pasajeros if x]
+    pasajeros = {str(p.get("personnel_id") or "") for p in (tr.get("passengers") or []) if isinstance(p, dict)} - {""}
     if pasajeros:
-        return bool(set(pasajeros) & mios)
+        if pasajeros & mios:
+            return True
+        if aud["mode"] == "EVERYONE":
+            return True
+        if aud["mode"] == "ROLES":
+            return roles_ok
+        if aud["mode"] == "PEOPLE":
+            return ids_ok
+        return False
+    if aud["mode"] == "ROLES":
+        return roles_ok
+    if aud["mode"] == "PEOPLE":
+        return ids_ok
     return True
 
 
@@ -83649,35 +83678,150 @@ def _roadmap_item_from_json(data: dict) -> dict:
             item["interview"]["songs"] = list(item["songs"])
         item["interview"]["sings"] = item["sings"]
     if kind in ROADMAP_TRANSPORT_KINDS:
-        tr = data.get("transport") or {}
-        passengers = []
-        for p in (tr.get("passengers") or []):
-            if not isinstance(p, dict):
-                continue
-            passengers.append({
-                "personnel_id": (p.get("personnel_id") or "").strip(),
-                "locator": (p.get("locator") or "").strip(),
-                "ticket_url": (p.get("ticket_url") or "").strip(),
-                "ticket_name": (p.get("ticket_name") or "").strip(),
-            })
-        item["transport"] = {
-            "mode": kind,
-            # LA COMPAÑÍA de la base (`company_id`): de ella sale el logo que se ve en los horarios;
-            # el nombre y el logo se guardan también con el punto por si la compañía desaparece.
-            "company_id": (str(tr.get("company_id") or "").strip()
-                           if _safe_uuid(str(tr.get("company_id") or "")) else ""),
-            "company": (tr.get("company") or "").strip(),
-            "logo_url": (tr.get("logo_url") or "").strip(),
-            "number": (tr.get("number") or "").strip(),
-            "origin": (tr.get("origin") or "").strip(),
-            "destination": (tr.get("destination") or "").strip(),
-            "duration": (tr.get("duration") or "").strip(),
-            "ends_next_day": bool(tr.get("ends_next_day")),
-            "same_locator": bool(tr.get("same_locator")),
-            "locator_all": (tr.get("locator_all") or "").strip(),
-            "passengers": passengers,
-        }
+        item["transport"] = _roadmap_clean_transport(kind, data.get("transport"), item["confirmed"])
+        # El ESTADO del traslado manda sobre «confirmado» (reservado o confirmado = sí; provisional = no).
+        item["confirmed"] = item["transport"]["status"] != "PROVISIONAL"
+        # Un traslado es de sus PASAJEROS por defecto (si el cliente no dice otra cosa).
+        if not isinstance(data.get("audience"), dict):
+            item["audience"] = {"mode": "PASSENGERS", "roles": [], "ids": []}
     return item
+
+
+def _roadmap_clean_point(value) -> dict:
+    """UN SITIO de un traslado (el origen, el destino, una parada, la recogida de un alquiler): la
+    etiqueta que se enseña, el CÓDIGO (el IATA de un aeropuerto), la TERMINAL, sus coordenadas (las
+    dos o ninguna: `_roadmap_coord_pair`), de qué TIPO es (`ROADMAP_POINT_KINDS`) y, si salió de una
+    sugerencia, de qué (`ref_id`: el hotel, el recinto o el punto de la agenda). Un texto suelto (el
+    `origin` de antes, o un JS viejo) vale como etiqueta."""
+    if isinstance(value, str):
+        value = {"label": value}
+    v = value if isinstance(value, dict) else {}
+    lat, lng = _roadmap_coord_pair(v.get("lat"), v.get("lng"))
+    kind = str(v.get("kind") or "").strip().upper()
+    if kind not in ROADMAP_POINT_KINDS:
+        kind = ""
+    return {"label": (v.get("label") or v.get("name") or "").strip()[:240],
+            "code": (v.get("code") or "").strip().upper()[:8],
+            "terminal": (v.get("terminal") or "").strip()[:40],
+            "lat": lat, "lng": lng, "kind": kind,
+            "ref_id": str(v.get("ref_id") or "").strip()[:80]}
+
+
+def _roadmap_point_text(p) -> str:
+    """El sitio como se lee de un vistazo: «Adolfo Suárez Madrid–Barajas (MAD) · T4»."""
+    if not isinstance(p, dict):
+        return ""
+    txt = (p.get("label") or "").strip()
+    if p.get("code"):
+        txt = (txt + " (" + p["code"] + ")") if txt else p["code"]
+    if p.get("terminal"):
+        txt = (txt + " · " + p["terminal"]) if txt else p["terminal"]
+    return txt
+
+
+def _roadmap_clean_transport(kind: str, tr, confirmed: bool) -> dict:
+    """TODO lo de un traslado (sep 2026, lo pidió Dani), limpio. Un JS viejo que mande solo lo de
+    antes (compañía, nº, origen y destino como texto, pasajeros con localizador) sigue valiendo.
+    · `status`: CONFIRMADO · RESERVADO · PROVISIONAL (el «confirmado» del punto sale de aquí).
+    · `origin_place`/`destination_place`: los sitios con su código y su terminal; `origin` y
+      `destination` son su texto (lo que leen las pantallas de antes).
+    · `passengers`: quién va, con su localizador, si está confirmado, su billete o tarjeta de
+      embarque, sus MALETAS (de mano y facturadas, hasta 9) y en qué parada sube (furgoneta).
+    · `stops`: las paradas intermedias de una furgoneta. `provider`: quién presta un transfer (el
+      promotor, nosotros u otro), con su persona de contacto o el conductor, su teléfono y la
+      matrícula. `van`: la furgoneta (con conductor o alquilada —recogida y devolución de la
+      reserva, localizador—, plazas, si lleva espacio de carga, matrícula). `tracking_url`: el
+      seguimiento de un VTC. `distance_km` y `duration`: la ruta (calculada, o a mano)."""
+    tr = tr if isinstance(tr, dict) else {}
+    estado = str(tr.get("status") or "").strip().upper()
+    if estado not in ROADMAP_TRANSPORT_STATUSES:
+        estado = "CONFIRMADO" if confirmed else "PROVISIONAL"
+    origen = _roadmap_clean_point(tr.get("origin_place") if isinstance(tr.get("origin_place"), dict) else tr.get("origin"))
+    destino = _roadmap_clean_point(tr.get("destination_place") if isinstance(tr.get("destination_place"), dict) else tr.get("destination"))
+    pasajeros = []
+    for p in (tr.get("passengers") or []):
+        if not isinstance(p, dict):
+            continue
+        pasajeros.append({
+            "personnel_id": (str(p.get("personnel_id") or "")).strip(),
+            "locator": (p.get("locator") or "").strip()[:60],
+            "ticket_url": (p.get("ticket_url") or "").strip(),
+            "ticket_name": (p.get("ticket_name") or "").strip(),
+            "confirmed": bool(p.get("confirmed")),
+            "bags_hand": max(0, min(ROADMAP_MAX_BAGS, _roadmap_int(p.get("bags_hand"), 0))),
+            "bags_checked": max(0, min(ROADMAP_MAX_BAGS, _roadmap_int(p.get("bags_checked"), 0))),
+            "boarding_stop": (str(p.get("boarding_stop") or "")).strip()[:40],
+        })
+    paradas = []
+    for st in (tr.get("stops") or [])[:20]:
+        if not isinstance(st, dict):
+            continue
+        punto = _roadmap_clean_point(st)
+        if not punto["label"]:
+            continue
+        punto["id"] = (str(st.get("id") or "").strip()[:40] or _roadmap_new_id())
+        punto["time"] = _roadmap_clean_time(st.get("time"))
+        paradas.append(punto)
+    prov = tr.get("provider") if isinstance(tr.get("provider"), dict) else {}
+    pk = str(prov.get("kind") or "").strip().upper()
+    proveedor = {
+        "kind": pk if pk in ROADMAP_PROVIDER_KINDS else "",
+        "contact": _roadmap_clean_contact(prov.get("contact")),
+        "driver_name": (prov.get("driver_name") or "").strip()[:120],
+        "driver_phone": (prov.get("driver_phone") or "").strip()[:60],
+        "plate": (prov.get("plate") or "").strip().upper()[:20],
+    }
+    van_in = tr.get("van") if isinstance(tr.get("van"), dict) else {}
+    cargo = van_in.get("cargo")
+    if isinstance(cargo, str):
+        cargo = {"1": True, "true": True, "0": False, "false": False}.get(cargo.strip().lower())
+    elif not isinstance(cargo, bool):
+        cargo = None
+    furgoneta = {
+        "rental": bool(van_in.get("rental")),
+        "pickup_place": _roadmap_clean_point(van_in.get("pickup_place")),
+        "pickup_at": (str(van_in.get("pickup_at") or "")).strip()[:40],
+        "return_place": _roadmap_clean_point(van_in.get("return_place")),
+        "return_at": (str(van_in.get("return_at") or "")).strip()[:40],
+        "locator": (van_in.get("locator") or "").strip()[:60],
+        # El conductor: alguien de la casa, un tercero o un nombre a mano (el mismo cleaner que «a
+        # quién llaman» de un phoner: kind · id · name · photo_url · phone).
+        "driver": _roadmap_call_to(van_in.get("driver")),
+        "seats": max(0, min(60, _roadmap_int(van_in.get("seats"), 0))),
+        "cargo": cargo,
+        "plate": (van_in.get("plate") or "").strip().upper()[:20],
+    }
+    try:
+        km = float(str(tr.get("distance_km") or "").replace(",", "."))
+        km = round(km, 1) if km > 0 else None
+    except Exception:
+        km = None
+    return {
+        "mode": kind,
+        # LA COMPAÑÍA de la base (`company_id`): de ella sale el logo que se ve en los horarios;
+        # el nombre y el logo se guardan también con el punto por si la compañía desaparece.
+        "company_id": (str(tr.get("company_id") or "").strip()
+                       if _safe_uuid(str(tr.get("company_id") or "")) else ""),
+        "company": (tr.get("company") or "").strip(),
+        "logo_url": (tr.get("logo_url") or "").strip(),
+        "number": (tr.get("number") or "").strip()[:40],
+        "number_arrival": (tr.get("number_arrival") or "").strip()[:40],
+        "status": estado,
+        "tracking_url": (tr.get("tracking_url") or "").strip()[:600],
+        "origin": _roadmap_point_text(origen),
+        "destination": _roadmap_point_text(destino),
+        "origin_place": origen,
+        "destination_place": destino,
+        "duration": (tr.get("duration") or "").strip()[:40],
+        "distance_km": km,
+        "ends_next_day": bool(tr.get("ends_next_day")),
+        "same_locator": bool(tr.get("same_locator")),
+        "locator_all": (tr.get("locator_all") or "").strip()[:60],
+        "passengers": pasajeros,
+        "stops": paradas,
+        "provider": proveedor,
+        "van": furgoneta,
+    }
 
 
 def _roadmap_hotel_from_json(data: dict) -> dict:
@@ -84076,9 +84220,9 @@ ROADMAP_ATTACHMENT_EXTS = {
 }
 
 
-def _roadmap_ok(session_db, row, payload):
+def _roadmap_ok(session_db, row, payload, **extra):
     _roadmap_save(session_db, row, payload)
-    return jsonify({"ok": True, "payload": payload, "days": _roadmap_days(row, payload)})
+    return jsonify({"ok": True, "payload": payload, "days": _roadmap_days(row, payload), **extra})
 
 
 def _roadmap_find(collection, target_id):
@@ -84128,7 +84272,9 @@ def roadmap_item_save(entity_type, entity_id):
             agenda[idx] = item
         else:
             agenda.append(item)
-        return _roadmap_ok(session_db, row, payload)
+        # ⚠️ Con el ID del punto: el asistente adjunta el bono o las tarjetas de embarque de un
+        # traslado NUEVO justo después de crearlo (antes había que guardar y volver a abrir).
+        return _roadmap_ok(session_db, row, payload, item_id=item["id"])
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -85816,6 +85962,8 @@ def _roadmap_person_ficha_url(person: dict, entity) -> str:
     """El enlace a la ficha de esa persona (para ir a completar lo que falte con calma)."""
     kind = (person.get("kind") or "MANUAL").upper()
     ref = str(person.get("ref_id") or "")
+    if kind == "ARTIST" and ref:
+        return _safe_url_for("artist_detail_view", artist_id=ref)
     if not ref or entity is None:
         return ""
     try:
@@ -89314,6 +89462,66 @@ def roadmap_person_fill(entity_type, entity_id):
         session_db.close()
 
 
+@app.get("/api/lugares-transporte", endpoint="api_transport_places")
+@admin_required
+def api_transport_places():
+    """LOS SITIOS de un traslado, según el tipo (`kind`): AIRPORT (el catálogo de aeropuertos con su
+    código IATA, `static/data/aeropuertos.json`), STATION · PORT · BUS (OpenStreetMap vía Photon,
+    filtrando por la etiqueta del tipo). Cada fila: `label`, `code`, `sub`, `lat`, `lng`, `kind`.
+    Es una AYUDA: si el proveedor no responde, devuelve vacío y se escribe a mano."""
+    q = (request.args.get("q") or "").strip()
+    kind = (request.args.get("kind") or "").strip().upper()
+    if len(q) < 2:
+        return jsonify([])
+    try:
+        import transport_places
+        if kind == "AIRPORT":
+            filas = transport_places.search_airports(q, limit=8)
+        else:
+            filas = transport_places.search_osm_places(q, kind, limit=8)
+    except Exception:
+        app.logger.exception("[hoja de ruta] no se pudieron buscar los sitios del traslado")
+        filas = []
+    return jsonify(filas)
+
+
+@app.post("/api/ruta-estimacion", endpoint="api_route_estimate")
+@admin_required
+def api_route_estimate():
+    """KILÓMETROS Y DURACIÓN en coche entre los puntos de un traslado (`points`: cada uno con `lat`/`lng`,
+    o con `address` para geocodificarlo), con el router público de OpenStreetMap. Devuelve también las
+    coordenadas usadas, para que el punto se guarde con ellas. Si algo no se encuentra o el servicio
+    no responde, lo DICE (y la duración se escribe a mano): es una ayuda, no un requisito."""
+    datos = request.get_json(silent=True) or {}
+    puntos = datos.get("points") if isinstance(datos.get("points"), list) else []
+    coords, usados = [], []
+    try:
+        import transport_places
+        import geo_utils
+        for p in puntos[:12]:
+            p = p if isinstance(p, dict) else {}
+            lat, lng = _roadmap_coord_pair(p.get("lat"), p.get("lng"))
+            texto = (p.get("address") or p.get("label") or "").strip()
+            if lat is None and texto:
+                hit = geo_utils.geocode_address(texto, timeout=5)
+                if hit:
+                    lat, lng = _roadmap_coord_pair(hit.get("lat"), hit.get("lng"))
+            if lat is None:
+                return jsonify({"ok": False, "error": "No se encuentra «%s» en el mapa: escribe la duración a mano." % (texto or "ese punto")})
+            coords.append((lat, lng))
+            usados.append({"lat": lat, "lng": lng})
+        if len(coords) < 2:
+            return jsonify({"ok": False, "error": "Hacen falta el origen y el destino."})
+        est = transport_places.route_estimate(coords)
+    except Exception:
+        app.logger.exception("[hoja de ruta] no se pudo estimar la ruta")
+        est = None
+    if not est:
+        return jsonify({"ok": False, "error": "El servicio de rutas no responde ahora mismo: escribe la duración a mano."})
+    return jsonify({"ok": True, "distance_km": est["distance_km"], "duration_min": est["duration_min"],
+                    "duration_label": transport_places.duration_label(est["duration_min"]), "points": usados})
+
+
 @app.get("/api/hoja-ruta/personas", endpoint="api_roadmap_person_search")
 @admin_required
 def api_roadmap_person_search():
@@ -89370,6 +89578,13 @@ def api_roadmap_person_search():
                           getattr(pr, "logo_url", "") or "", "Integrante de " + (artista.name or ""), tel, correo)
                     continue
             añade("MEMBER", miembro.id, nombre, "", "Integrante de " + (artista.name or ""))
+        # 4) los ARTISTAS (el propio artista puede ir en un traslado). ⚠️ El espejo de un EVENTO
+        #    (`Artist.event_id`) no se enseña nunca.
+        q_art = session_db.query(Artist).filter(_sa_contains_text(Artist.name, q))
+        if hasattr(Artist, "event_id"):
+            q_art = q_art.filter(Artist.event_id.is_(None))
+        for art in q_art.order_by(Artist.name.asc()).limit(6).all():
+            añade("ARTIST", art.id, (art.name or "").strip(), getattr(art, "photo_url", "") or "", "Artista")
         # 3) terceros
         for pr in (session_db.query(Promoter)
                    .filter(_promoter_search_clause(session_db, q))
@@ -96922,6 +97137,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_personnel_cols", "roadmap_person_fill",
     # Una persona de contacto nueva desde el asistente de un punto (se crea como tercero).
     "roadmap_contact_person_create",
+    # La ruta de un traslado (kilómetros y duración): lo pide el asistente al montarlo.
+    "api_route_estimate",
     # MANDARLE UN MENSAJE (SMS o correo) al personal de la hoja de ruta: lo hace quien monta la
     # producción, que no tiene por qué poder editar la sección de la actividad.
     "roadmap_message_data", "roadmap_message_preview", "roadmap_message_send",
@@ -96987,6 +97204,8 @@ SUPPORT_READ_ENDPOINTS = {
     "api_sync_promoter_search",
     "api_search_promoters", "api_search_authors", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_transport_companies",
+    # Los sitios de un traslado: aeropuertos (con su IATA), estaciones, puertos, estaciones de autobuses.
+    "api_transport_places",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
     "api_demo_sender_search",
@@ -166823,6 +167042,9 @@ EXT_ROADMAP_EDITOR_ENDPOINTS = {
     "roadmap_message_data", "roadmap_message_preview", "roadmap_message_send", "roadmap_message_cancel",
     "roadmap_personnel_pdf", "roadmap_personnel_xlsx", "roadmap_rooming_pdf", "roadmap_rooming_xlsx",
     "roadmap_setlist_pdf",
+    # Lo que necesita el asistente de un TRASLADO (un externo que puede actualizar la hoja de ruta
+    # monta también la logística): las compañías, los sitios y la ruta.
+    "api_search_transport_companies", "api_transport_places", "api_route_estimate",
 }
 # Y lo que puede hacer CUALQUIER externo con acceso a la actividad (leer, no tocar).
 EXT_ROADMAP_VIEWER_ENDPOINTS = {"roadmap_setlist_pdf"}

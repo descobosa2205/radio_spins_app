@@ -36,6 +36,7 @@
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 - TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
+- TRASLADOS · CADA UNO PREGUNTA LO SUYO: transfer · vuelo/tren/barco/autobús · VTC/taxi · furgoneta
 
 ---
 
@@ -919,3 +920,71 @@
   asistente no lo necesitan).
   · **La tabla la crea `create_all` al arrancar** (`_create_all_once`): no hace falta `ensure_*`.
   · Prueba de regresión: `check_hoja_ruta.py`, apartado 11; `tools/check_access_coverage.py` en verde.
+
+- ⚠️⚠️ **TRASLADOS · CADA UNO PREGUNTA LO SUYO: transfer · vuelo/tren/barco/autobús · VTC/taxi ·
+  furgoneta** (sep 2026, lo pidió Dani, lote 3). Un traslado era «compañía, nº, origen, destino,
+  duración y pasajeros con localizador» para todos. Ahora **`openTransportEditor`** (roadmap.js) va
+  por cuatro caminos (`TR_CFG` → `grupo`):
+  · **TRANSFER**: dónde se recoge —**se sugiere donde esté el artista según la agenda**
+  (`placeSuggestions(draft, 'before')`: el destino del traslado anterior o el sitio del punto
+  anterior de ese día, el hotel del día, el recinto) o una dirección—, las instrucciones del punto de
+  recogida (son el `access_note`/la chincheta del punto) y el **bono**; la hora de recogida; el
+  destino (sugerido con `'after'`: el siguiente sitio de la agenda, el recinto, el hotel) con **la
+  duración y los km calculados por la ruta**; **quién lo presta** (`provider`: el promotor ·
+  nosotros · otro, su persona de contacto —con el promotor se sugieren las suyas— o el conductor, su
+  teléfono y la matrícula; la persona de contacto pasa a ser el `contacts` del punto) y la compañía
+  de transfers si es una de la base; los pasajeros; quién lo ve.
+  · **VUELO · TREN · BARCO · AUTOBÚS** («LINEA»): la compañía de la base; el origen y el destino con
+  su **buscador** (`/api/lugares-transporte`: los **aeropuertos por nombre o código IATA** del
+  catálogo `static/data/aeropuertos.json` —lo genera `tools/build_aeropuertos.py` de OurAirports—,
+  las **estaciones, puertos y estaciones de autobuses por OpenStreetMap** filtrando por su etiqueta
+  OSM, en `transport_places.py`), la **terminal** (aeropuertos), el nº (y el de llegada si hay
+  escala), las horas y el «llega al día siguiente»; el día y el estado; **los pasajeros en TABLA**:
+  localizador (o «el mismo para todos»), **confirmado**, **maletas de mano y facturadas** (0-9) y la
+  **tarjeta de embarque** (se arrastra sobre su botón: `file_drop.js`); quién lo ve.
+  · **CABIFY / TAXI** («RIDE»): la compañía, la recogida sugerida y el punto de encuentro; la hora,
+  el estado y el **enlace de seguimiento** (`tracking_url`: en la fila sale el icono
+  `fa-location-crosshairs`); el destino sugerido; los pasajeros; quién lo ve.
+  · **FURGONETA** («VAN»): con conductor o **alquilada** (`van.rental`: dónde y cuándo se recoge y
+  se devuelve, su localizador); el conductor (alguien de la casa, un tercero o a mano: el mismo
+  cleaner que el phoner, `_roadmap_call_to`), las **plazas**, si lleva **espacio de carga** y la
+  matrícula; cuándo; el trayecto con **paradas intermedias** (`stops`, con su hora; entran en la
+  ruta) y **los km y la duración calculados**; los pasajeros (**no más que plazas**, y **en qué
+  parada sube** cada uno, `boarding_stop`); quién lo ve.
+  · **LO QUE SE GUARDA ES UN SOLO `transport`** para todos (`_roadmap_clean_transport`): `status`
+  (CONFIRMADO · RESERVADO · PROVISIONAL, y **el estado manda sobre `confirmed`**: solo lo
+  provisional se ve rayado), `origin_place`/`destination_place` (`_roadmap_clean_point`: etiqueta,
+  código, terminal, coordenadas, tipo, `ref_id` de la sugerencia) con **`origin`/`destination` como
+  su TEXTO** («Madrid–Barajas (MAD) · T4», `_roadmap_point_text`: lo que leen las pantallas de antes
+  y la hoja compartida), `passengers` (localizador, confirmado, maletas, tarjeta, parada),
+  `stops`, `provider`, `van`, `tracking_url`, `distance_km`. Un JS viejo que mande el origen como
+  texto sigue valiendo (entra como sitio `ADDRESS`).
+  · ⚠️⚠️ **UN TRASLADO LO VEN SUS PASAJEROS, siempre** (`audience.mode` **PASSENGERS**, el defecto;
+  **EVERYONE** = todos; ROLES y PEOPLE **suman** a los pasajeros): `_roadmap_item_affects`. El
+  `ALL` de antes con pasajeros era «solo los pasajeros» y se sigue leyendo así.
+  · **EL ARTISTA puede ir en un traslado**: `kind` **ARTIST** en el personal (`ref_id` = su id; el
+  buscador `api_roadmap_person_search` lo devuelve, menos el espejo de un evento), y en el portal
+  **un integrante del artista tiene esa fila como suya** (`_roadmap_ext_person_info`).
+  · **LA RUTA** (`/api/ruta-estimacion`, POST con los puntos; lo que no tiene coordenadas se
+  geocodifica por su texto con `geo_utils.geocode_address`) la calcula **OSRM público**
+  (`transport_places.route_estimate`): km y minutos en coche, «1 h 20 min» (`duration_label`). Es
+  una AYUDA: si no responde **lo dice** y la duración se escribe a mano (`m.rmDurAuto`: lo escrito a
+  mano no se pisa). Se recalcula al cambiar un sitio o una parada.
+  · **LOS ADJUNTOS DE UN TRASLADO NUEVO se suben AL GUARDAR**: `roadmap_item_save` devuelve
+  **`item_id`** (`_roadmap_ok(..., **extra)`) y el asistente sube lo que tenía en espera
+  (`m.rmStaged`: el bono y las tarjetas de embarque, con su `passenger_index`) uno tras otro. Antes
+  había que guardar y volver a abrir.
+  · **EN LA FILA** (`transLineHtml`): logo, compañía, nº (y el de llegada), «origen → destino», la
+  duración y los km, cuántos van, el icono de seguimiento y la etiqueta **Reservado** (ámbar,
+  `.rm-tag.warn`). **EN EL DETALLE** (`transDetailHtml`): quién lo presta, la furgoneta y sus
+  paradas, y cada pasajero con su localizador, confirmado, **las maletas con icono** (`bagIcons`:
+  tachado si no lleva, como la taza del desayuno; doble o triple si lleva más; ×n a partir de
+  cuatro) y su tarjeta.
+  ⚠️ Photon **no habla español** (`lang=es` da error): se pide en `en` y se traducen los países
+  habituales (`PAISES_EN`); España va delante (el sesgo `lat/lon` de Photon es solo un sesgo).
+  ⚠️ Las tres APIs van en las listas de APOYO **y en `EXT_ROADMAP_EDITOR_ENDPOINTS`**: un externo
+  que puede actualizar la hoja de ruta monta también la logística.
+  · Prueba de regresión: `check_hoja_ruta.py`, apartado 12 (sin salir a la red: los sitios y la
+  ruta se responden desde la prueba). Probado además en el navegador con la app real: el vuelo
+  (compañía, trayecto con terminal, tabla de pasajeros con maletas y tarjeta), el transfer
+  (sugerencias de recogida y destino, la ruta calculada, quién lo presta) y la fila y el detalle.

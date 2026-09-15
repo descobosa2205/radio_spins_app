@@ -1680,3 +1680,26 @@
   CONSOLIDARLA se ponen de contacto (`_activity_contacts_from_sheet`, mapa
   `CONTRACT_SHEET_CONTACT_FIELDS`) y el flash lo DICE.
   ⚠️ **Solo en las funciones que estén VACÍAS**: lo que alguien haya puesto a mano no se pisa nunca.
+
+- ⚠️⚠️ **EL PROMOTOR ES EL PRIMER MÓDULO DE LA FICHA** (sep 2026, lo pidió Dani). Antes aquí solo
+  había una tira con su nombre y sus datos —CIF, dirección fiscal, representante— estaban
+  desperdigados en «Más información». Ahora es UN módulo con todo lo suyo: quién es, sus datos, su
+  REPRESENTANTE y sus CONTACTOS **en fila, uno al lado del otro** (que es como se miran el día de la
+  actividad). Punto único **`_concert_promoter_module`**, el MISMO del PDF.
+  ⚠️ En las tarjetas de contacto: `flex:0 0 auto` en la foto y `min-width:0` en el texto — sin eso,
+  en un flex la foto se encoge hasta salir ovalada y el nombre se parte letra a letra.
+
+- ⚠️⚠️ **FUERA «MÁS INFORMACIÓN DE LA ACTIVIDAD»** (sep 2026). Era un volcado de TODO lo que no se
+  pintaba en la cabecera, así que repetía lo que ya sale en su propio módulo más abajo (el promotor,
+  los cachés, el equipamiento, el formato…) y obligaba a leer lo mismo dos veces. Se ha quitado de la
+  ficha **y del PDF**, donde ocupaba el mismo sitio. `contracting_general_rows` sigue existiendo: lo
+  usan la cabecera y el resto del PDF.
+
+- **EL PDF DE LA FICHA, MÁS SIMPLE Y CON LOS CONTACTOS** (sep 2026): la tira de la cabecera dice
+  QUIÉN promueve, y debajo van **«Datos del promotor»** (sociedad, CIF, dirección fiscal, contacto y
+  representante — solo si hay algo) y **«Contactos»** por función con su correo y su teléfono, que no
+  estaban en el PDF y son lo que hace falta el día de la actividad.
+  ⚠️ **Bug real que salía en el PDF: «None% · Neto»** en las comisiones. Se recomponía la etiqueta a
+  mano mirando `commission_type` (que no siempre está) en vez de usar el punto único
+  `_concert_commission_rows`. Ahora sale el importe bien **y si es un gasto o si reduce el caché**,
+  que es lo que cambia la cuenta.

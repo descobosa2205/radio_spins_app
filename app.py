@@ -67178,6 +67178,8 @@ def concert_detail_view(cid):
             promotion_source_id=str(c.id),
             promotion_source_snapshot=promotion_source_snapshot,
             contracting_general_rows=contracting_general_rows,
+            # EL PROMOTOR, todo junto: es el PRIMER módulo de la ficha (y el del PDF).
+            promoter_module=_concert_promoter_module(session, c),
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
             roadmap_ctx=roadmap_ctx,
@@ -79650,16 +79652,34 @@ def concert_contract_sheet_pdf(cid):
             sec('Descripción de la actividad')
             story.append(Paragraph(str(cpay.get('description')), body_txt))
 
-        # Más información de la actividad (mismos campos y MISMO FILTRO que la ficha: si se toca uno,
-        # se toca el otro, o pantalla y PDF dejan de decir lo mismo).
-        summary_labels = {'Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura',
-                          'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste',
-                          'Anuncio'}
-        info_pairs = [(r['label'], r['value']) for r in _concert_contracting_general_rows(session, concert)
-                      if r.get('label') not in summary_labels and r.get('kind', 'text') == 'text']
-        if info_pairs:
-            sec('Más información de la actividad')
-            pairs_table(info_pairs)
+        # ⚠️⚠️ EL PROMOTOR, PRIMERO Y CON TODO LO SUYO (sep 2026, lo pidió Dani). Antes aquí iba
+        # «Más información de la actividad»: un volcado de TODO lo que no estaba en la cabecera, o
+        # sea **la misma información dos veces** (el promotor y sus datos, el formato, el
+        # equipamiento… ya salen en su propia sección más abajo). Ahora sale el módulo del promotor
+        # —el MISMO punto único que el primer módulo de la ficha— y nada repetido.
+        pmod = _concert_promoter_module(session, concert)
+        # ⚠️ QUIÉN es ya lo dice la tira de la cabecera: aquí van SUS DATOS (CIF, dirección fiscal,
+        # contacto y representante), que es lo que no estaba en ninguna parte. Si no hay datos, la
+        # sección no se pinta: repetir el nombre no aporta nada.
+        prom_pairs = list(pmod.get('rows') or [])
+        if pmod.get('note'):
+            prom_pairs.insert(0, ('Sociedad', pmod['note']))
+        for rep in (pmod.get('reps') or []):
+            prom_pairs.append(('Representante', ' · '.join(
+                [x for x in [rep.get('name'), rep.get('tax_id'), rep.get('contact')] if x])))
+        if prom_pairs:
+            sec('Datos del promotor')
+            pairs_table(prom_pairs)
+
+        # LOS CONTACTOS, que es lo que hace falta el día de la actividad y no estaba en el PDF.
+        cont_pairs = []
+        for bloque in (pmod.get('contacts') or []):
+            for per in bloque.get('people') or []:
+                detalle = ' · '.join([x for x in [per.get('name'), per.get('email'), per.get('phone')] if x])
+                cont_pairs.append((bloque['label'], detalle))
+        if cont_pairs:
+            sec('Contactos')
+            pairs_table(cont_pairs)
 
         # Colaboradores
         colab_pairs = []
@@ -79674,13 +79694,16 @@ def concert_contract_sheet_pdf(cid):
             pairs_table(colab_pairs)
 
         # Comisionistas
+        # ⚠️ Punto único `_concert_commission_rows`: recomponerlo a mano aquí sacaba **«None% · Neto»**
+        # cuando la comisión era un importe fijo (miraba `commission_type`, que no siempre está).
+        # Y ahora se DICE si es un gasto sobre el caché o si lo reduce, que es lo que cambia la cuenta.
         com_pairs = []
-        for z in (getattr(concert, 'zone_agents', None) or []):
-            name = (z.promoter.nick if z.promoter else 'Comisionista') + (f" · {z.concept}" if z.concept else '')
-            val = f"{z.commission_pct}% · {'Bruto' if z.commission_base == 'GROSS' else 'Neto'}" if z.commission_type == 'PERCENT' else format_eur(z.commission_amount)
-            com_pairs.append((name, val))
+        for z in _concert_commission_rows(session, concert):
+            name = z['name'] + (f" · {z['concept']}" if z['concept'] else '')
+            val = (z['amount_label'] if z['is_fixed'] else f"{z['pct_label']} · {z['base_label']}")
+            com_pairs.append((name, f"{val} · {z['apply_label']}" if z.get('apply_label') else val))
         if com_pairs:
-            sec('Comisionistas')
+            sec('Comisiones')
             pairs_table(com_pairs)
 
         # Cachés + lo que cubre el promotor
@@ -117555,6 +117578,55 @@ def _concert_promoter_display(concert) -> dict | None:
     soc = getattr(concert, "promoter_company", None)
     return {"kind": "PROMOTER", "name": (pr.nick or ""), "logo": (getattr(pr, "logo_url", None) or ""), "url": url,
             "company": None, "note": (getattr(soc, "legal_name", None) or "") if soc is not None else ""}
+
+
+def _concert_promoter_module(session_db, concert) -> dict:
+    """EL PROMOTOR DE UNA ACTIVIDAD, TODO JUNTO. Punto único (sep 2026, lo pidió Dani).
+
+    Quién promueve, sus datos completos, su REPRESENTANTE y sus CONTACTOS por función. Es el PRIMER
+    módulo de la ficha y el primer bloque del PDF, y sale del mismo sitio para que no puedan decir
+    cosas distintas ni repetirse entre ellos."""
+    salida = {"show": False, "kind": "", "name": "", "logo": "", "url": "", "note": "",
+              "company": None, "rows": [], "reps": [], "contacts": []}
+    if concert is None:
+        return salida
+    quien = _concert_promoter_display(concert)
+    if not quien:
+        return salida
+    salida.update({"show": True, "kind": quien["kind"], "name": quien["name"],
+                   "logo": quien.get("logo") or "", "url": quien.get("url") or "",
+                   "note": quien.get("note") or "", "company": quien.get("company")})
+    promoter = _concert_promoter(session_db, concert)
+    if promoter is not None:
+        # Los datos, SIN el prefijo «Promotor · » (aquí el módulo ya dice de quién son) y sin la
+        # fila del representante, que va aparte con su nombre y su contacto.
+        for etiqueta, valor in _promoter_info_rows(session_db, promoter, prefijo="Promotor"):
+            corta = etiqueta.split(" · ", 1)[-1]
+            if corta == "Representante":
+                continue
+            salida["rows"].append((corta, valor))
+        try:
+            for rep in _promoter_representatives(session_db, getattr(promoter, "id", None)):
+                salida["reps"].append({
+                    "name": (" ".join(y for y in ((rep.first_name or "").strip(),
+                                                  (rep.last_name or "").strip()) if y).strip()
+                             or (rep.nick or "").strip()),
+                    "tax_id": (rep.tax_id or "").strip(),
+                    "contact": _promoter_contact_line(rep),
+                    "photo": (getattr(rep, "logo_url", None) or "").strip(),
+                    "url": (url_for("promoter_detail_view", pid=rep.id) if getattr(rep, "id", None) else ""),
+                })
+        except Exception:
+            app.logger.exception("[promotor] no se pudo leer el representante")
+    # Y SUS CONTACTOS, por función y EN FILA: es lo que hace falta el día de la actividad.
+    try:
+        for fila in _activity_contacts_context(session_db, concert, promoter=promoter):
+            if fila.get("people"):
+                salida["contacts"].append({"label": fila["label"], "icon": fila["icon"],
+                                           "people": fila["people"]})
+    except Exception:
+        app.logger.exception("[promotor] no se pudieron leer los contactos")
+    return salida
 
 
 def _concert_contracting_general_rows(session_db, concert):

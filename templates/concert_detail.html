@@ -1070,23 +1070,89 @@
     {# Las TARJETAS de resumen que había aquí se han retirado: repetían lo que ya dice la cabecera
        (estado, tipo, fecha, recinto, aforo, empresa que factura, anuncio y salida a la venta). Lo
        que no está arriba —el promotor y su sociedad— va abajo, en la tabla compacta. #}
-    {# QUIÉN PROMUEVE (punto único `concert_promoter_display`): en un concierto A EMPRESA es la
-       empresa del grupo que factura, con su logo; en los demás, el tercero con su foto. #}
-    {% set _qp = concert_promoter_display(concert) %}
-    {% if _qp %}
-      <div class="cfila mb-3">
-        {% if _qp.kind == 'COMPANY' %}
-          {{ company_logo(_qp.company, size=44, cls='cfila__ph') }}
-        {% else %}
-          <img class="cfila__ph" src="{{ _qp.logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
-        {% endif %}
-        <div class="min-w-0">
-          <div class="cfila__lab">Promotor</div>
-          <a class="fw-semibold text-reset text-decoration-none" href="{{ _qp.url or '#' }}">{{ _qp.name }}</a>
-          {% if _qp.kind == 'COMPANY' %}<span class="badge text-bg-light border ms-2"><i class="fa fa-building me-1"></i>Empresa del grupo · a empresa</span>
-          {% elif _qp.note %}<span class="small text-muted ms-2"><i class="fa fa-landmark me-1"></i>{{ _qp.note }}</span>{% endif %}
-        </div>
+    {# ══════════ EL PROMOTOR · EL PRIMER MÓDULO DE LA FICHA ══════════
+       ⚠️⚠️ (sep 2026, lo pidió Dani) Antes aquí solo había una tira con su nombre, y sus datos
+       —CIF, dirección fiscal, representante— estaban desperdigados en «Más información». Ahora es
+       UN módulo con TODO lo suyo: quién es, sus datos, su representante y sus contactos EN FILA,
+       uno al lado del otro. Punto único `_concert_promoter_module`, el mismo del PDF, así que no
+       pueden decir cosas distintas ni repetirse. #}
+    {% if promoter_module and promoter_module.show %}
+    <div class="ficha-section">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title"><i class="fa fa-user-tie"></i>Promotor</h6>
       </div>
+      <div class="ficha-section__body">
+        <div class="cfila mb-3">
+          {% if promoter_module.kind == 'COMPANY' %}
+            {{ company_logo(promoter_module.company, size=44, cls='cfila__ph') }}
+          {% else %}
+            <img class="cfila__ph" src="{{ promoter_module.logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+          {% endif %}
+          <div class="min-w-0">
+            <a class="fw-semibold fs-5 text-reset text-decoration-none"
+               href="{{ promoter_module.url or '#' }}">{{ promoter_module.name }}</a>
+            {% if promoter_module.kind == 'COMPANY' %}
+              <span class="badge text-bg-light border ms-2"><i class="fa fa-building me-1"></i>Empresa del grupo · a empresa</span>
+            {% elif promoter_module.note %}
+              <div class="small text-muted"><i class="fa fa-landmark me-1"></i>{{ promoter_module.note }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if promoter_module.rows %}
+          <ul class="psum-list mb-0">
+            {% for etiqueta, valor in promoter_module.rows %}
+              <li><span class="psum-list__k">{{ etiqueta }}</span><span class="psum-list__v">{{ valor }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        {% if promoter_module.reps %}
+          <div class="small text-muted fw-semibold mt-3 mb-2"><i class="fa fa-user-pen me-1"></i>Representante</div>
+          <div class="d-flex flex-wrap gap-3">
+            {% for rep in promoter_module.reps %}
+              <div class="d-flex align-items-center gap-2" style="min-width:0;">
+                <img src="{{ rep.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                     style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+                <div style="min-width:0">
+                  <a class="fw-semibold text-reset text-decoration-none text-truncate d-block"
+                     href="{{ rep.url or '#' }}">{{ rep.name }}</a>
+                  <div class="small text-muted text-truncate">
+                    {% if rep.tax_id %}{{ rep.tax_id }}{% if rep.contact %} · {% endif %}{% endif %}{{ rep.contact }}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {# SUS CONTACTOS, EN FILA: uno al lado del otro, que es como se miran el día de la actividad.
+           ⚠️ `flex:0 0 auto` en la foto y `min-width:0` en el texto: sin eso, en un flex la foto se
+           encoge hasta ponerse ovalada y el nombre se parte letra a letra (regla de la casa). #}
+        {% if promoter_module.contacts %}
+          <div class="small text-muted fw-semibold mt-3 mb-2"><i class="fa fa-address-book me-1"></i>Contactos</div>
+          <div class="d-flex flex-wrap gap-3">
+            {% for bloque in promoter_module.contacts %}
+              {% for p in bloque.people %}
+                <div class="d-flex align-items-center gap-2 border rounded-3 px-2 py-1" style="min-width:0;">
+                  <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                       style="width:30px;height:30px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+                  <div style="min-width:0">
+                    <div class="small text-muted"><i class="fa {{ bloque.icon }} me-1"></i>{{ bloque.label }}</div>
+                    <div class="fw-semibold text-truncate">{{ p.name }}</div>
+                    <div class="small text-muted text-truncate">
+                      {% if p.email %}<a class="text-reset" href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}
+                      {% if p.email and p.phone %} · {% endif %}
+                      {% if p.phone %}<a class="text-reset" href="tel:{{ p.phone }}">{{ p.phone }}</a>{% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
     {% endif %}
 
     {# ---------- Descripción de la actividad, primero ---------- #}
@@ -1097,25 +1163,11 @@
     </div>
     {% endif %}
 
-    {# ---------- Resto de la información cumplimentada (sin lo ya mostrado en la cabecera) ----------
-       COMPACTA, en dos columnas de etiqueta+valor pegados (el mismo patrón `psum-list` de la ficha del
-       tercero): así se ve todo de un vistazo en vez de una rejilla de dos líneas por dato.
-       ⚠️ Esta lista de etiquetas que NO se repiten está también en el PDF de la ficha
-       (`concert_contract_sheet_pdf`): si se toca una, se toca la otra. #}
-    {% set summary_labels = ['Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura', 'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste', 'Anuncio'] %}
-    {% set resto_rows = contracting_general_rows|rejectattr('label', 'in', summary_labels)|list %}
-    {% if resto_rows %}
-    <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-list"></i>Más información de la actividad</h6></div>
-      <div class="ficha-section__body">
-        <dl class="psum-list psum-list--2col mb-0">
-          {% for row in resto_rows %}
-            <div><dt class="psum-k">{{ row.label }}</dt><dd class="psum-v">{{ row.value }}</dd></div>
-          {% endfor %}
-        </dl>
-      </div>
-    </div>
-    {% endif %}
+    {# ⚠️⚠️ EL MÓDULO «MÁS INFORMACIÓN DE LA ACTIVIDAD» SE HA RETIRADO (sep 2026, lo pidió Dani):
+       era un volcado de TODO lo que no se pintaba arriba, así que repetía lo que ya sale en su
+       propio módulo más abajo (el promotor y sus datos, los cachés, el equipamiento, el formato…) y
+       obligaba a leer lo mismo dos veces. Cada dato se ve UNA vez, en el módulo al que pertenece.
+       ⚠️ `contracting_general_rows` sigue existiendo: lo usan la cabecera y el PDF. #}
 
     {% if payment_terms or (cache_payment and cache_payment.applies) %}
     {# El id es el destino de las tareas de FACTURAR y COBRAR del módulo de Contratación. #}

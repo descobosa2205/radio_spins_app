@@ -407,3 +407,17 @@
   con `ROADMAP_MENU` y `<item>:<persona>`). No se repite si ya tiene uno sin leer. A los de fuera se
   les pide por SMS o correo desde la pestaña Comidas (`roadmap_meal_request_send`, con vista previa),
   un mensaje por persona con su enlace. Detalle en `produccion-hoja-ruta.md`.
+
+- ⚠️⚠️ **LA CABECERA DE LOS CORREOS DE UNA ACTIVIDAD, CON EL ESTILO DE LA CASA** (sep 2026, lo pidió
+  Dani). El logo arriba a la derecha y, debajo, una **banda en el rojo corporativo** (`#E33D48`) con
+  el TIPO de actividad encima del título; la galleta con un **filete rojo** a la izquierda y cada
+  dato con **su icono**; y el rótulo de cada módulo en el **azul corporativo** (`#007CA2`).
+  ⚠️⚠️ **LOS ICONOS DE UN CORREO SON EMOJIS, NO FONT AWESOME**: en un cliente de correo una fuente de
+  iconos NO carga y el `<i class="fa …">` sale **vacío**, que es peor que no poner nada. Punto único
+  **`_notice_emoji`** (mapa `NOTICE_EMOJI`), que traduce el icono de la casa al emoji — y como la
+  vista previa y la página pública usan el MISMO motor, los tres sitios se ven igual.
+  ⚠️ Los colores van **en duro** (`BRAND_RED` / `BRAND_BLUE`) y no por `settings.BRAND_PRIMARY`: ése
+  se puede cambiar por variable de entorno y trae otro por defecto, y un correo que sale con un color
+  que no es el de la marca no se puede recoger.
+  ⚠️ Los emojis viajan bien: `EmailMessage` elige utf-8 solo en cuanto el contenido no es ASCII (lo
+  mismo que ya pasaba con los acentos).

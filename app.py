@@ -121073,6 +121073,30 @@ def _activity_notice_ask_urls(token: str) -> dict:
     return {"ask_confirm_url": f"{base}{sep}r=si", "ask_reject_url": f"{base}{sep}r=no"}
 
 
+# ⚠️⚠️ LOS ICONOS DE UN CORREO SON EMOJIS, NO FONT AWESOME (sep 2026). En un cliente de correo una
+# fuente de iconos NO carga: `<i class="fa …">` sale VACÍO, que es peor que no poner nada. El emoji
+# se ve en todos (y también en la vista previa de la app y en la página pública, así que los tres
+# sitios quedan iguales). Punto único: el icono de la casa se traduce aquí.
+# Los colores de la casa, EN DURO para lo que sale por correo: `settings.BRAND_PRIMARY` se puede
+# cambiar por variable de entorno (y trae otro por defecto), y un correo que sale con un color que no
+# es el de la marca no se puede recoger. Son los mismos que usan el PDF y `styles.css`.
+BRAND_RED, BRAND_BLUE = "#E33D48", "#007CA2"
+
+NOTICE_EMOJI = {
+    "fa-calendar-day": "📅", "fa-calendar-week": "📆", "fa-location-dot": "📍", "fa-star": "⭐",
+    "fa-gift": "🎁", "fa-people-group": "👥", "fa-clock": "🕐", "fa-door-open": "🚪",
+    "fa-ticket": "🎟️", "fa-bullhorn": "📣", "fa-money-bill-wave": "💶", "fa-user-tag": "🏷️",
+    "fa-receipt": "🧾", "fa-hand-holding-heart": "🤝", "fa-guitar": "🎸", "fa-sliders": "🎛️",
+    "fa-image": "🖼️", "fa-note-sticky": "📝", "fa-user-tie": "👤", "fa-screwdriver-wrench": "🔧",
+    "fa-people-carry-box": "📦", "fa-file-signature": "✍️", "fa-user-group": "👥",
+}
+
+
+def _notice_emoji(icono: str) -> str:
+    """El emoji de un icono de la casa (vacío si no tiene): para los correos y la página pública."""
+    return NOTICE_EMOJI.get((icono or "").strip(), "")
+
+
 def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
     """EL motor del aviso: el mismo HTML para el correo, la página pública y la vista previa.
 
@@ -121100,10 +121124,13 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
             return ""
         oculto_ahora = ' data-notice-hidden="1"' if clave in ocultos else ""
         estilo_extra = "opacity:.35;" if (preview and clave in ocultos) else ""
-        icono_html = ('<i class="fa %s" style="margin-right:6px;color:#8b95a1;"></i>' % esc(icono)) if icono else ""
+        # ⚠️ EMOJI, no Font Awesome: en un cliente de correo la fuente de iconos NO carga y el
+        # icono sale VACÍO. En la vista previa se ve igual, así que los dos sitios coinciden.
+        _emo = _notice_emoji(icono)
+        icono_html = ('<span style="margin-right:6px;">%s</span>' % _emo) if _emo else ""
         cabecera = (
             '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
-            '<tr><td style="font-size:14px;font-weight:800;color:#212529;">'
+            f'<tr><td style="font-size:14px;font-weight:800;color:{BRAND_BLUE};">'
             # El módulo de la descripción no repite su nombre: el título centrado ya lo dice. Pero
             # conserva su ojo, que es lo que permite dejarlo fuera del aviso.
             + ((icono_html + esc(etiqueta)) if mostrar_etiqueta else "")
@@ -121134,13 +121161,27 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
             )
         return out + "</table>"
 
-    # ---- cabecera: logo a la derecha y el título centrado ----
+    # ---- CABECERA con el estilo de la casa: el logo arriba a la derecha y una BANDA en el rojo
+    # corporativo con el tipo de actividad encima del título (sep 2026, lo pidió Dani: «adáptala al
+    # último estilo, con sus iconos y en colores corporativos»).
+    # ⚠️ Todo con estilos EN LÍNEA y sobre `<table>`: es lo único que respetan los clientes de correo
+    # (un `background` en un `<div>` se lo come Outlook).
     partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
-    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+    partes.append('<div style="text-align:right;margin-bottom:8px;">'
                   + (f'<img src="{esc(logo)}" alt="{esc(ctx.get("company_name") or "")}" '
                      'style="max-height:54px;max-width:190px;">' if logo else "")
                   + '</div>')
-    partes.append(f'<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">{esc(ctx.get("title") or "")}</h2>')
+    _eyebrow = (ctx.get("eyebrow") or "").strip()
+    partes.append(
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        f'style="border-collapse:separate;background:{BRAND_RED};border-radius:14px;">'
+        '<tr><td style="padding:15px 18px;text-align:center;">'
+        + (f'<div style="font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;'
+           f'color:#ffffff;opacity:.82;margin-bottom:2px;">{esc(_eyebrow)}</div>' if _eyebrow else "")
+        + f'<div style="font-size:21px;font-weight:800;color:#ffffff;line-height:1.25;">'
+          f'{esc(ctx.get("title") or "")}</div>'
+        '</td></tr></table>'
+        '<div style="height:14px;line-height:14px;">&nbsp;</div>')
 
     # ---- la NOTA, justo debajo del primer título ----
     if (note or "").strip():
@@ -121151,7 +121192,8 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
     # ---- la CABECERA DE LA ACTIVIDAD (la galleta, igual que en la ficha) ----
     datos = "".join(
         '<tr>'
-        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">{esc(r["label"])}:</td>'
+        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">'
+        f'{_notice_emoji(r.get("icon") or "")} {esc(r["label"])}:</td>'
         f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )
@@ -124294,7 +124336,8 @@ def _sale_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = F
     # ---- LA GALLETA: la cabecera de la actividad, igual que en la app ----
     datos = "".join(
         '<tr>'
-        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">{esc(r["label"])}:</td>'
+        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">'
+        f'{_notice_emoji(r.get("icon") or "")} {esc(r["label"])}:</td>'
         f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )

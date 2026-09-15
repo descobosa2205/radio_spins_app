@@ -128,11 +128,22 @@ calendarios «Calendario · <artista>», funciona.
    nombre `calendario` y valor **`pegy6d9.radio-spins-caldav.fly.dev`** (el host único que Fly da
    para el CNAME, con `fly certs setup`; para un subdominio Fly recomienda CNAME y no hace falta
    IPv4 dedicada).
-   ⚠️⚠️ **Tiene que ser en Wix**: el dominio delega su DNS en `ns14/ns15.wixdns.net`. El dominio
-   está comprado en otro sitio (dinahosting, por los registros de correo `serviciodecorreo.es`) y su
-   panel también ofrece «Añadir entrada DNS», pero lo que se cree ahí **no tiene ningún efecto**
-   (pasó: el registro se creó allí y los servidores de Wix nunca lo vieron). Comprobación:
-   `dig +short @ns14.wixdns.net CNAME calendario.33producciones.es`.
+   ⚠️⚠️ **Tiene que ser en Wix, NO en Arsys**. El dominio está **registrado en Arsys** (y su correo
+   también: `mx.serviciodecorreo.es` es el correo de Arsys), pero el registro `.es` **delega su DNS en
+   `ns14/ns15.wixdns.net`** (comprobar: `dig NS 33producciones.es @a.nic.es`). El panel de Arsys
+   ofrece igualmente «Zona DNS» y deja crear el registro, pero sus servidores
+   (`dns1-4.servidoresdns.net`) **ni siquiera sirven esta zona** (responden `REFUSED`): lo que se
+   cree ahí **no lo ve nadie**. Pasó el 15-sep-2026: el CNAME se creó en Arsys, se veía perfecto en
+   su panel, y los servidores de Wix nunca lo tuvieron. Comprobación de que está donde toca:
+   `dig +short @ns14.wixdns.net CNAME calendario.33producciones.es` → tiene que devolver
+   `pegy6d9.radio-spins-caldav.fly.dev.`.
+   Camino en Wix: https://www.wix.com/account/domains → `33producciones.es` → ⋯ → **Administrar
+   registros DNS** → bloque **CNAME (Alias)** → **+ Añadir registro** → nombre `calendario` (Wix
+   completa el resto del dominio), valor `pegy6d9.radio-spins-caldav.fly.dev`, TTL el que venga →
+   **Guardar**. En esa misma lista tiene que estar ya la fila de `app` → `radio-spins-app.onrender.com`:
+   si no aparece, no es la pantalla buena.
+   ⚠️ NO cambiar los servidores DNS del dominio en Arsys para «traérselo»: la web de Wix y todos sus
+   registros (correo incluido) dependen de que la zona siga en Wix.
 2. Certificado:
    ```bash
    fly certs add calendario.33producciones.es --app radio-spins-caldav

@@ -250,3 +250,37 @@
   marketing: la campaña SÍ se creaba y lo que fallaba era la ficha a la que redirige, así que parecía
   que «no dejaba crearla».
 
+
+- ⚠️⚠️ **LA BASE DE TERCEROS ES ÚNICA: LAS FUNCIONES SON ETIQUETAS, NO BASES DE DATOS DISTINTAS**
+  (sep 2026, lo pidió Dani). Un **medio** que hace de promotor no es otra ficha: es el mismo medio
+  haciendo de promotor (para eso está el espejo `_ensure_promoter_for_media`). Lo mismo con un
+  **artista**, con una **sala** o con alguien de la **oficina** que va en una hoja de ruta o pide
+  entradas. Cuando la misma persona o empresa se da de alta dos veces, su historia se parte: la
+  mitad de sus actividades, facturas y documentos cuelgan de una ficha y la otra mitad de la otra
+  —y, de propina, un id que se quedó apuntado en una petición **tumbaba el alta de la actividad**
+  cuando la ficha desaparecía en una fusión (ver `docs/app/actividades.md`)—.
+  · **«FICHAS REPETIDAS», arriba de Terceros** (`_promoter_duplicate_groups`): los grupos de fichas
+  que son la misma, **diciendo por qué** lo son, con las dos (o más) y el botón **«Fusionarlas»**,
+  que abre el modal de fusión de siempre **ya en la comparación** (`data-merge-with`, nuevo en
+  `merge_entities.js`) — hacer buscar a mano lo que la propia pantalla acaba de decir es trabajo
+  tonto. La fusión es la de siempre: re-apunta TODO lo que colgaba del que se descarta.
+  · **El criterio**: mismo **DNI/CIF** (también el de sus sociedades), mismo **correo** (también los
+  de su pestaña de contacto), mismo **teléfono** (normalizado, así «+34 600…» y «600…» son el mismo)
+  o el mismo **nombre completo**.
+  ⚠️⚠️ **DOS DNI DISTINTOS NUNCA SE AGRUPAN**, aunque se llamen igual: fusionar a dos personas
+  distintas es mucho peor que dejar un duplicado, y no se puede deshacer.
+  · **«FICHAS QUE SON ALGUIEN DE LA OFICINA»** (`_promoter_office_duplicates`): terceros que
+  coinciden con personal de la casa (por DNI o por nombre), con enlace a las dos fichas. ⚠️ **Estas
+  NO se fusionan**: un usuario de la casa y una ficha de tercero son dos cosas distintas (una entra
+  en la app, la otra factura), así que se DICEN y la decisión es de dirección. Los usuarios
+  **externos** (`is_external`, el espejo de un tercero que lleva una producción) se quedan fuera: ahí
+  las dos fichas son lo normal.
+  · **Y NO SE CREAN NUEVOS**: el alta rápida (`api_create_promoter`, el camino por el que se crea un
+  tercero desde cualquier pantalla) avisa ahora cuando ese **DNI, correo o teléfono** ya están en la
+  base (`_promoter_existing_matches`) y ofrece la ficha que hay. Antes solo miraba **nombres
+  parecidos**, que es justo por donde se colaban: «Cadena 100» y «Cadena100 Radio» se creaban las
+  dos. Se sigue pudiendo crear si de verdad es otro (`force_new`), como con los nombres parecidos.
+  ⚠️ Todo va **en bloque** (una consulta por tabla): con cientos de terceros, una consulta por ficha
+  dejaría la pantalla de Terceros inservible.
+  ⚠️ Prueba de regresión: **`tools/check_duplicados.py`** (11 comprobaciones con la app real, fusión
+  incluida).

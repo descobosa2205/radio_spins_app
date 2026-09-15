@@ -1,0 +1,30 @@
+{# UNA PERSONA de una función de la actividad: foto, nombre, cómo se le escribe y su «x».
+   ⚠️ Es el MISMO trozo en la ficha, en el asistente y en solo-ver, para que una persona se vea
+   igual en los tres sitios (y el JS del asistente pinta exactamente esta estructura al añadir a
+   alguien: si se toca aquí, se toca también `filaPersona()` en `concert_contacts.js`).
+   ⚠️ `flex:0 0 auto` en la foto y `min-width:0` en el texto: sin eso, en un flex la foto se encoge
+   hasta salir ovalada y el nombre se parte letra a letra.
+   Parámetros: `p` (la persona) · `r` (la función) · `ac_readonly`. #}
+<div class="d-flex align-items-center gap-2" data-ac-person data-ac-key="{{ p.key }}">
+  <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
+       style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+  <div style="min-width:0">
+    <div class="fw-semibold text-truncate">{{ p.name }}
+      {% if p.note %}<span class="badge text-bg-light border fw-normal ms-1">{{ p.note }}</span>{% endif %}
+    </div>
+    <div class="small text-muted text-truncate">
+      {% if p.email %}<a class="text-reset" href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}
+      {% if p.email and p.phone %} · {% endif %}
+      {% if p.phone %}<a class="text-reset" href="tel:{{ p.phone }}">{{ p.phone }}</a>{% endif %}
+    </div>
+  </div>
+  {% if not ac_readonly %}
+    <button type="button" class="btn btn-sm btn-link text-muted ms-auto p-0 px-1"
+            data-ac-del="{{ p.key }}" title="Quitar a {{ p.name }} de {{ r.label }}">
+      <i class="fa fa-xmark"></i></button>
+    {# EN EL ASISTENTE: lo elegido viaja aquí (todavía no hay actividad donde guardarlo). #}
+    {% if not ac_live %}
+      <input type="hidden" name="ac_pick_{{ r.role }}[]" value="{{ p.pick|tojson|forceescape }}">
+    {% endif %}
+  {% endif %}
+</div>

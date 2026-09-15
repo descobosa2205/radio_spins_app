@@ -1866,3 +1866,39 @@
   log y no se enseña en crudo.
   ⚠️ Probado con la app real reproduciendo el fallo (el contacto de la petición borrado después de
   aprobarla): antes **no se creaba nada**, ahora se crea y se avisa de lo que faltó.
+
+- ⚠️⚠️ **LOS CONTACTOS DE SIEMPRE DE UN PROMOTOR SALEN YA PUESTOS, Y «OTRAS PERSONAS» DEJA DE SER UNA
+  CAJA APARTE EN EL ASISTENTE** (sep 2026, lo pidió Dani). Dos cosas:
+  · **El asistente tenía DOS cajas de contactos**: las funciones por un lado y «Otras personas de
+  contacto» por otro, con el selector viejo (`ConcertContact` + el `cc-picker`) y su propia forma de
+  añadir gente. En la ficha ya se había unificado en agosto; el asistente se quedó a medias. Ahora el
+  asistente usa **EL MISMO MÓDULO que la ficha** (`_activity_contacts.html`), con las **cinco**
+  funciones —OTROS incluida—, el mismo «+», la misma «x» y la misma barra de búsqueda.
+  · **Lo que ya se configuró para ese promotor (o para el MEDIO que hace de promotor) sale YA
+  PUESTO**, no propuesto con un botón que había que pulsar función por función: la gente que lleva a
+  un promotor es casi siempre la misma, así que lo que hace falta es poder **quitar** a quien no vaya.
+  Se dice de dónde sale con la etiqueta **«Los de siempre»**.
+  · **Una función admite VARIAS personas también EN EL PROMOTOR**
+  (`_promoter_default_contact_list` / `_set_list` / `_add`): con una se guarda como **dict**, igual
+  que siempre, y solo con varias como lista — así todo lo guardado se sigue leyendo.
+  ⚠️⚠️ **NO SE COPIA NADA AL PINTAR**: lo heredado se lee EN VIVO del promotor y solo se escribe en la
+  actividad cuando alguien toca esa función (`_activity_contacts_materialize`). Así corregir un
+  correo en la ficha del tercero sigue valiendo para todas sus actividades, y abrir una ficha no
+  escribe en la base de datos.
+  ⚠️⚠️ **EL CENTINELA `ticketing_payload['contacts_own']`** es lo que hace que la «x» funcione: sin
+  él, quitar al último heredado dejaba la lista vacía… y la función volvía a heredar, así que la
+  persona reaparecía y el botón parecía roto.
+  ⚠️ **«Otras personas de contacto» NO se hereda ni se propaga** (`_activity_contact_role_inherits`):
+  es el cajón de ESA actividad (el técnico de ese día, el del ayuntamiento), no una función que el
+  promotor tenga siempre cubierta por la misma persona.
+  ⚠️ En el alta, lo elegido viaja en ocultos **`ac_pick_<ROL>[]`** (todavía no hay actividad donde
+  guardar al vuelo) con su **centinela `ac_picks_present`**, y `_activity_contacts_apply_picks` lo
+  escribe y lo deja como lo de por defecto del promotor — el alcance en un alta es siempre «para
+  todas», que es lo que hace que la siguiente actividad ya salga con esa gente.
+  ⚠️ Los contactos que traía una **PETICIÓN** se vuelcan ya en su función
+  (`_peticion_contact_people`, mapa `PETICION_CONTACT_ROLE_MAP`: comunicación → «Otras personas»), y
+  **pisan** lo heredado: lo que se pidió para ESA actividad manda sobre «los de siempre».
+  ⚠️ `static/js/activity_contacts.js` se ha **retirado**: era el JS del modo formulario viejo y ya no
+  lo usaba nadie. Su única API viva (`app33ActivityContacts.set`, que usa el comisionista marcado
+  como producción local) es ahora `app33ActivityPicks.add`.
+  ⚠️ Prueba de regresión: **`tools/check_contactos.py`** (20 comprobaciones con la app real).

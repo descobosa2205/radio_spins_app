@@ -37,6 +37,105 @@
   </div>
 </div>
 
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   FICHAS REPETIDAS · LA BASE ES ÚNICA (sep 2026, lo pidió Dani)
+   Un medio, un artista, una sala o alguien de la oficina que hace de promotor NO es otra ficha: es
+   el mismo, haciendo de promotor. Cuando alguien se da de alta dos veces, su historia se parte en
+   dos —la mitad de sus actividades y facturas en cada una—, así que aquí se ve y se une con el
+   motor de fusión de siempre, que re-apunta TODO lo que colgaba de la que se descarta.
+   ⚠️ Solo aparece si hay algo que unir: una caja vacía diciendo «no hay duplicados» es ruido. #}
+{% if duplicate_groups %}
+<div class="card mb-3 border-warning">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <i class="fa fa-clone text-warning"></i>
+      <strong>Fichas repetidas</strong>
+      <span class="badge text-bg-warning text-dark">{{ duplicate_groups|length }}</span>
+      <button class="btn btn-sm btn-link ms-auto p-0" type="button" data-bs-toggle="collapse"
+              data-bs-target="#promoterDuplicates">Ver / ocultar</button>
+    </div>
+    <div class="text-muted small mb-2">La misma persona o empresa está dada de alta más de una vez.
+      Al fusionarlas, todo lo que cuelga de la que se descarta (actividades, facturas, documentos,
+      vinculaciones) pasa a la que se conserva: no se pierde nada.</div>
+    <div class="collapse show" id="promoterDuplicates">
+      {% for g in duplicate_groups %}
+        <div class="border rounded-3 p-2 mb-2 bg-white">
+          <div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Tienen {{ g.why }}.</div>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            {% for p in g.people %}
+              <a class="d-flex align-items-center gap-2 text-decoration-none text-reset border rounded-pill ps-1 pe-3 py-1"
+                 href="{{ url_for('promoter_detail_view', pid=p.id) }}" title="Abrir su ficha">
+                <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
+                     style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+                <span style="min-width:0">
+                  <span class="d-block small fw-semibold text-truncate">{{ p.name }}</span>
+                  <span class="d-block text-muted" style="font-size:.75rem">
+                    {{ p.tax_id or p.email or p.phone or 'sin más datos' }}</span>
+                </span>
+              </a>
+            {% endfor %}
+            {% if CAN_EDIT_SONGS_PROMOTERS and g.people|length > 1 %}
+              {# Abre el modal de fusión de siempre YA en la comparación de estas dos (el modal es el
+                 mismo que el del menú ⋮ de cada fila: un solo sitio para fusionar). #}
+              <button type="button" class="btn btn-sm btn-warning ms-auto"
+                      data-merge-open data-merge-label="Tercero"
+                      data-merge-id="{{ g.people[0].id }}" data-merge-with="{{ g.people[1].id }}"
+                      data-merge-name="{{ g.people[0].name|e }}" data-merge-photo="{{ g.people[0].photo or '' }}"
+                      data-merge-search="{{ url_for('merge_search_promoter') }}"
+                      data-merge-compare="{{ url_for('merge_compare_promoter') }}"
+                      data-merge-execute="{{ url_for('merge_execute_promoter') }}">
+                <i class="fa fa-code-merge me-1"></i>Fusionarlas</button>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# LOS QUE SON ALGUIEN DE LA OFICINA. No se fusionan (un usuario de la casa y una ficha de tercero
+   son dos cosas: una entra en la app, la otra factura), así que se DICEN con las dos fichas. #}
+{% if office_duplicates %}
+<div class="card mb-3 border-info">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <i class="fa fa-user-shield text-info"></i>
+      <strong>Fichas que son alguien de la oficina</strong>
+      <span class="badge text-bg-info text-dark">{{ office_duplicates|length }}</span>
+      <button class="btn btn-sm btn-link ms-auto p-0" type="button" data-bs-toggle="collapse"
+              data-bs-target="#officeDuplicates">Ver / ocultar</button>
+    </div>
+    <div class="text-muted small mb-2">Estas fichas de tercero coinciden con personal de la casa: se
+      crean solas cuando alguien de la oficina va en una hoja de ruta, pide entradas o firma un
+      gasto. Míralas y decide si la ficha de tercero hace falta (por ejemplo, para facturar) o si
+      sobra.</div>
+    <div class="collapse show" id="officeDuplicates">
+      {% for d in office_duplicates %}
+        <div class="border rounded-3 p-2 mb-2 bg-white d-flex flex-wrap gap-2 align-items-center">
+          <a class="d-flex align-items-center gap-2 text-decoration-none text-reset"
+             href="{{ url_for('promoter_detail_view', pid=d.promoter.id) }}">
+            <img src="{{ d.promoter.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
+                 style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+            <span class="small fw-semibold">{{ d.promoter.name }}</span>
+            <span class="badge text-bg-light border fw-normal">Tercero</span>
+          </a>
+          <i class="fa fa-arrows-left-right text-muted"></i>
+          <a class="d-flex align-items-center gap-2 text-decoration-none text-reset"
+             href="{{ url_for('personnel_detail_view', user_id=d.user.id) }}">
+            <img src="{{ d.user.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
+                 style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+            <span class="small fw-semibold">{{ d.user.name }}</span>
+            <span class="badge text-bg-light border fw-normal">Oficina</span>
+          </a>
+          <span class="small text-muted ms-auto">Tienen {{ d.why }}.</span>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if CAN_EDIT_SONGS_PROMOTERS %}
 <div class="modal fade" id="newPromoterModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">

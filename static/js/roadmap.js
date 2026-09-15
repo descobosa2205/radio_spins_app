@@ -1319,7 +1319,7 @@
     function trCfg(kind) { return TR_CFG[kind] || { grupo: 'LINEA', place: '', placeLabel: 'sitio', placePh: 'Escribe el sitio…', num: 'Nº', terminal: false, iconOut: 'fa-location-dot', iconIn: 'fa-flag-checkered', q: '¿De dónde a dónde?', addr: true }; }
     function emptyPoint() { return { label: '', code: '', terminal: '', lat: null, lng: null, kind: '', ref_id: '', address: '' }; }
     function newTransport(kind) {
-      return { mode: kind, company_id: '', company: '', logo_url: '', number: '', number_arrival: '', status: 'CONFIRMADO', tracking_url: '',
+      return { mode: kind, company_id: '', company: '', logo_url: '', number: '', status: 'CONFIRMADO', tracking_url: '',
                origin: '', destination: '', origin_place: emptyPoint(), destination_place: emptyPoint(), duration: '', distance_km: null,
                ends_next_day: false, same_locator: false, locator_all: '', passengers: [], stops: [],
                provider: { kind: '', contact: {}, driver_name: '', driver_phone: '', plate: '' },
@@ -1426,9 +1426,14 @@
       return '<div class="rm-wz-block mb-3" data-pp="' + esc(key) + '">'
         + '<div class="rm-wz-lbl"><i class="fa ' + esc(o.icon || 'fa-location-dot') + '"></i>' + esc(o.title) + '</div>'
         + '<div class="rm-chip mb-2' + (s2 ? '' : ' d-none') + '" data-pp-chip><i class="fa ' + esc(pointIcon(point)) + ' me-1"></i><span data-pp-text>' + esc(pointText(point)) + '</span><button type="button" class="btn-close btn-sm ms-1" data-pp-clear title="Quitar"></button></div>'
-        + '<div class="promo-pick-grid promo-pick-grid--wide mb-2 d-none" data-pp-sug></div>'
+        + '<div class="promo-pick-grid promo-pick-grid--wide mb-2' + (s2 ? ' d-none' : '') + '" data-pp-sug></div>'
+        /* ⚠️⚠️ CON UN SITIO YA ELEGIDO, LA BARRA DE BUSCAR SE VA (sep 2026, lo pidió Dani): un
+           traslado tiene UN origen y UN destino, así que dejar el buscador abierto invitaba a elegir
+           otro encima. Se quita con la «x» del elegido y vuelve a salir. */
+        + '<div' + (s2 ? ' class="d-none"' : '') + ' data-pp-pick>'
         + (o.kind ? wzSearch('pp_' + key, o.ph || 'Busca…', false) : '')
         + (o.addr ? '<div class="' + (o.kind ? 'mt-2 ' : '') + '" data-address-autocomplete><input class="form-control" data-addr="full" data-pp-input placeholder="' + esc(o.addrPh || 'O escribe una dirección…') + '" value="' + esc((!s2 && point && point.label) ? point.label : '') + '"></div>' : '')
+        + '</div>'
         + (o.terminal ? '<div class="mt-2"><label class="form-label small mb-1"><i class="fa fa-door-open me-1 text-muted"></i>Terminal</label><input class="form-control" data-pp-terminal value="' + esc((point && point.terminal) || '') + '" placeholder="T4, T2, Satélite…" style="max-width:14rem"></div>' : '')
         + (o.extra || '')
         + '</div>';
@@ -1438,15 +1443,19 @@
       var chip = box.querySelector('[data-pp-chip]'), txt = box.querySelector('[data-pp-text]'), ico = chip.querySelector('i');
       var inp = box.querySelector('[data-pp-input]'), term = box.querySelector('[data-pp-terminal]'), sugBox = box.querySelector('[data-pp-sug]');
       var srch = box.querySelector('[data-search="pp_' + key + '"]');
+      var pickBox = box.querySelector('[data-pp-pick]');
       function paintChip() {
         var s2 = structured(point);
         chip.classList.toggle('d-none', !s2);
+        // Elegido = fuera el buscador y las sugerencias; se vuelven a ver al quitarlo con la «x».
+        if (pickBox) pickBox.classList.toggle('d-none', !!s2);
         if (s2) { txt.textContent = pointText(point); ico.className = 'fa ' + pointIcon(point) + ' me-1'; if (inp) inp.value = ''; if (srch) srch.value = ''; }
+        paintSug();
       }
       function paintSug() {
         if (!sugBox) return;
         var sug = (typeof o.sug === 'function') ? o.sug() : (o.sug || []);
-        sugBox.classList.toggle('d-none', !sug.length);
+        sugBox.classList.toggle('d-none', !sug.length || structured(point));
         sugBox.innerHTML = sug.map(function (p, i) {
           return wzPick({ name: 'rmPP_' + key, value: String(i), icon: p.icon || pointIcon(p), label: p.label, hint: p.sub || '',
                           checked: structured(point) && normText(point.label) === normText(p.label), attrs: ' data-pp-opt="' + i + '"' });
@@ -1565,7 +1574,10 @@
       var t = draft.transport;
       var salida = '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-hashtag me-1 text-muted"></i>' + esc(cfg.num) + '</label><input class="form-control" data-t="number" value="' + esc(t.number || '') + '"></div>'
         + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-clock me-1 text-muted"></i>Hora de salida</label><input type="time" class="form-control" data-f="start_time" value="' + esc(draft.start_time || '') + '"></div></div>';
-      var llegada = '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-hashtag me-1 text-muted"></i>' + esc(cfg.num) + ' <span class="text-muted fw-normal">(si cambia: una escala)</span></label><input class="form-control" data-t="number_arrival" value="' + esc(t.number_arrival || '') + '"></div>'
+      /* ⚠️⚠️ EL NÚMERO DE VUELO (O DE TREN) ES UNO (sep 2026, lo pidió Dani): se pedía otra vez en el
+         destino «por si hay escala», y no es así — un vuelo con escala son DOS vuelos, cada uno con
+         su punto. Preguntarlo dos veces solo confundía. */
+      var llegada = '<div class="row g-2 mt-1">'
         + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-clock me-1 text-muted"></i>Hora de llegada</label><input type="time" class="form-control" data-f="end_time" value="' + esc(draft.end_time || '') + '"></div>'
         + '<div class="col-12"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-t="ends_next_day"' + (t.ends_next_day ? ' checked' : '') + '><i class="fa fa-moon"></i>Llega al día siguiente (+1)</label></div></div></div>';
       return placeBlock('origin', t.origin_place, { title: 'Origen', icon: cfg.iconOut, kind: cfg.place, ph: cfg.placePh, terminal: cfg.terminal, addr: !!cfg.addr, addrPh: 'O escribe una dirección…', extra: salida })
@@ -1945,7 +1957,7 @@
       // Los sitios: lo escrito sin elegir también vale.
       ['origin', 'destination', 'van_pickup', 'van_return'].forEach(function (k) { var b = m.querySelector('[data-pp="' + k + '"]'); if (b && b.rmFinalize) b.rmFinalize(); });
       t.origin = pointText(t.origin_place); t.destination = pointText(t.destination_place);
-      ['number', 'number_arrival', 'duration', 'tracking_url', 'locator_all'].forEach(function (f) { var v = val('[data-t="' + f + '"]'); if (v !== null) t[f] = v.trim(); });
+      ['number', 'duration', 'tracking_url', 'locator_all'].forEach(function (f) { var v = val('[data-t="' + f + '"]'); if (v !== null) t[f] = v.trim(); });
       var kmv = val('[data-t="distance_km"]'); if (kmv !== null) t.distance_km = parseFloat(String(kmv).replace(',', '.')) || null;
       var nd = m.querySelector('[data-t="ends_next_day"]'); t.ends_next_day = !!(nd && nd.checked);
       var sl = m.querySelector('[data-t="same_locator"]'); t.same_locator = !!(sl && sl.checked);
@@ -1986,9 +1998,12 @@
     function transLineHtml(t) {
       var route = [t.origin, t.destination].filter(Boolean).map(esc).join(' → ');
       var np = (t.passengers || []).length;
-      var h = companyLogo(t) ? '<img src="' + esc(companyLogo(t)) + '" alt="">' : '';
-      if (t.company) h += '<span>' + esc(t.company) + '</span>';
-      if (t.number) h += '<span>' + esc(t.number) + (t.number_arrival ? ' / ' + esc(t.number_arrival) : '') + '</span>';
+      /* ⚠️ CON LOGO NO SE REPITE EL NOMBRE (sep 2026, lo pidió Dani): se ve el logo y, al lado, el
+         número de vuelo o de tren. El nombre solo cuando NO hay logo (si no, no se sabría quién es). */
+      var logo = companyLogo(t);
+      var h = logo ? '<img src="' + esc(logo) + '" alt="' + esc(t.company || '') + '" title="' + esc(t.company || '') + '">' : '';
+      if (t.company && !logo) h += '<span>' + esc(t.company) + '</span>';
+      if (t.number) h += '<span>' + esc(t.number) + '</span>';
       if (route) h += '<span>' + route + '</span>';
       if (t.duration || t.distance_km) h += '<span>· ' + [t.duration, (t.distance_km ? t.distance_km + ' km' : '')].filter(Boolean).map(esc).join(' · ') + '</span>';
       if (np) h += '<span>· <i class="fa fa-user-group"></i> ' + np + '</span>';
@@ -2085,8 +2100,12 @@
       var c = t.company_id ? COMPANIES.filter(function (x) { return String(x.id) === String(t.company_id); })[0] : null;
       return (c && c.logo_url) || t.logo_url || '';
     }
-    function searchCompanies(q) {
-      return getJson('/api/search/transport-companies?q=' + encodeURIComponent(q)).then(function (list) {
+    /* ⚠️⚠️ SOLO LAS COMPAÑÍAS DE ESE TIPO (bug real, sep 2026: «al añadir un vuelo me salen también
+       las de trenes»). Las TARJETAS ya filtraban por tipo, pero el BUSCADOR llamaba a la API **sin
+       `kind`** —que sí sabe filtrar—, así que al escribir salían todas. */
+    function searchCompanies(q, kind) {
+      return getJson('/api/search/transport-companies?kind=' + encodeURIComponent(kind || '')
+                     + '&q=' + encodeURIComponent(q)).then(function (list) {
         return (list || []).map(function (c) {
           return { id: c.id, label: c.name, logo_url: c.logo_url || '', icon: 'fa-building', kinds: c.kinds || [],
                    sub: (c.kinds || []).map(function (k) { return kindInfo(k).label; }).join(' · ') };
@@ -2125,7 +2144,8 @@
         ncp.classList.remove('d-none');
         var n = ncp.querySelector('[data-ncp="name"]'); if (nombre) n.value = nombre; n.focus();
       }
-      attachSearch(m.querySelector('[data-search="company"]'), m.querySelector('[data-results="company"]'), searchCompanies, function (r) {
+      attachSearch(m.querySelector('[data-search="company"]'), m.querySelector('[data-results="company"]'),
+                   function (q) { return searchCompanies(q, draft.kind); }, function (r) {
         // Una compañía que no estaba entre las de este tipo entra en la lista de la pantalla.
         if (!deLaBase(r.id)) COMPANIES.push({ id: r.id, name: r.label, logo_url: r.logo_url, kinds: r.kinds || [] });
         setCompany(r);

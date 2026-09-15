@@ -1,43 +1,81 @@
 {# ══════════════════════════════════════════════════════════════════════════════════════════════
-   CONTACTOS DE UNA ACTIVIDAD, POR FUNCIÓN — ticketing · producción · producción local · contratación
+   CONTACTOS DE UNA ACTIVIDAD, POR FUNCIÓN — ticketing · producción · producción local ·
+   contratación · otras personas
 
-   Un solo sitio: lo usan el ASISTENTE de alta, la ficha de la actividad **y la ficha cuando solo se
-   está mirando**, así que se pone y se ve igual en los tres y una mejora vale para todos.
+   UN SOLO SITIO y UN SOLO ASPECTO: lo usan el ASISTENTE de alta, la ficha de la actividad y la
+   ficha cuando solo se está mirando. Las tarjetas son las MISMAS en los tres, con las mismas
+   personas, el mismo «+» y la misma «x»; lo único que cambia es CUÁNDO se guarda.
 
-   Por cada función: el botón «El mismo contacto que el promotor», la barra de búsqueda de terceros
-   con su foto (y el «+» para crear uno nuevo) y, si el promotor ya tiene a alguien puesto para esa
-   función, sale PROPUESTO — solo hay que confirmarlo o cambiarlo.
+   ⚠️⚠️ LO QUE YA ESTÁ CONFIGURADO PARA ESE PROMOTOR (o para el MEDIO que hace de promotor) SALE YA
+   PUESTO, no propuesto (sep 2026, lo pidió Dani): la gente que lleva a un promotor es casi siempre
+   la misma, así que lo que hace falta es poder QUITAR a quien no vaya, no confirmar lo de siempre
+   una y otra vez. Se dice de dónde sale con la etiqueta «Los de siempre».
 
-   ⚠️ Al cambiarlo se pregunta el ALCANCE: para todas las actividades de ese promotor de aquí en
-   adelante, o solo para esta.
+   Modos (excluyentes):
+     ac_live      · LA FICHA: cada «+» y cada «x» se guardan EN EL ACTO (POST a la sección
+                    `contactos` por el motor `data-inline`, que repinta la zona con lo que devuelve
+                    el SERVIDOR: aquí no decide nada el JS).
+     ac_readonly  · SOLO VER (la ficha sin permiso de editar): las mismas tarjetas, sin botones.
+     (ninguno)    · EL ASISTENTE de alta: todavía no hay actividad que guardar, así que lo elegido
+                    viaja en ocultos `ac_pick_<ROL>[]` y se guarda al crearla.
 
    Parámetros:
      ac_rows        · lo que devuelve `_activity_contacts_context`
-     ac_promoter    · el promotor (para el botón «el mismo que el promotor»)
-     ac_ask_scope   · preguntar el alcance (en la FICHA sí; en el alta no hace falta)
-     ac_readonly    · SOLO VER (la ficha sin editar): las MISMAS cuatro tarjetas, sin botones ni
-                      campos. ⚠️ Es el mismo parcial A PROPÓSITO: así lo que se ve y lo que se edita
-                      no se pueden desparejar (antes la ficha lo pintaba por su cuenta, con otro
-                      aspecto, en otro orden y escondiendo las funciones sin asignar).
+     ac_concert_id  · el id de la actividad (solo en `ac_live`)
    ══════════════════════════════════════════════════════════════════════════════════════════════ #}
 {% set ac_live = ac_live if ac_live is defined else false %}
-{% if ac_live %}
-{# ══════════════════════════════════════════════════════════════════════════════════════════════
-   MODO «SE GUARDA AL SELECCIONAR» (la ficha de una actividad, sep 2026 — lo pidió Dani).
-   No hay botón de editar: en cada función se añade o se quita gente y queda guardado en el acto.
-   · Una función puede tener VARIAS personas (el «+» añade, no sustituye).
-   · Se busca en TODA la base o se crea el tercero al vuelo con el «+» de siempre.
-   ⚠️ Todo va por DELEGACIÓN en `document` (`concert_contacts.js`): esta zona se reemplaza por AJAX
-      al guardar, así que un listener pegado a un nodo de aquí moriría en el primer repintado.
-   ⚠️ El estado lo pinta el SERVIDOR: aquí no se decide nada por JS.
-   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
-<div class="row g-3" data-ac-live data-ac-url="{{ url_for('concert_section_update', cid=ac_concert_id, section='contactos') }}">
+{% set ac_readonly = ac_readonly if ac_readonly is defined else false %}
+
+{% if ac_readonly %}
+{# ═══════════════ SOLO VER ═══════════════
+   ⚠️ Las funciones salen TODAS, también las vacías: un hueco sin asignar es justo lo que hay que
+   rellenar, y esconderlo lo deja sin hacer para siempre. #}
+<div class="row g-3">
   {% for r in ac_rows %}
     <div class="{{ 'col-12' if r.role == 'OTROS' else 'col-12 col-lg-6' }}">
       <div class="border rounded-3 p-3 h-100 bg-white" data-ac-role="{{ r.role }}">
         <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
           <i class="fa {{ r.icon }} text-danger"></i>
           <strong>{{ r.label }}</strong>
+          {% if r.inherited %}
+            <span class="badge bg-light text-dark border fw-normal"
+                  title="Ya estaba configurado para {{ r.promoter_chip.name or 'este promotor' }}">
+              <i class="fa fa-user-check me-1"></i>Los de siempre</span>
+          {% endif %}
+        </div>
+        <div class="small text-muted mb-2">{{ r.help }}</div>
+        {% if r.people %}
+          <div class="d-flex flex-column gap-2">
+            {% for p in r.people %}
+              {% include '_activity_contact_person.html' %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted small"><i class="fa fa-circle-minus me-1"></i>Sin asignar</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% else %}
+{# ═══════════════ SE PONE Y SE QUITA (la ficha en vivo · el asistente) ═══════════════
+   ⚠️ Todo el JS va por DELEGACIÓN en `document` (`concert_contacts.js`): en la ficha esta zona se
+      reemplaza por AJAX en cada guardado, así que un listener pegado a un nodo de aquí moriría en el
+      primer repintado (trampa de la casa). #}
+<div class="row g-3" {% if ac_live %}data-ac-live data-ac-url="{{ url_for('concert_section_update', cid=ac_concert_id, section='contactos') }}"{% else %}data-ac-pick{% endif %}>
+  {% for r in ac_rows %}
+    <div class="{{ 'col-12' if r.role == 'OTROS' else 'col-12 col-lg-6' }}">
+      <div class="border rounded-3 p-3 h-100 bg-white" data-ac-role="{{ r.role }}">
+        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+          <i class="fa {{ r.icon }} text-danger"></i>
+          <strong>{{ r.label }}</strong>
+          {# ⚠️ Lo que viene de lo ya configurado para ese promotor (o para el medio que hace de
+             promotor) se DICE: está puesto, no hay que confirmarlo, y con la «x» se quita. #}
+          <span class="badge bg-light text-dark border fw-normal {% if not r.inherited %}d-none{% endif %}"
+                data-ac-inherited-badge
+                title="Ya estaba configurado para {{ r.promoter_chip.name or 'este promotor' }}">
+            <i class="fa fa-user-check me-1"></i>Los de siempre</span>
           <span class="ms-auto">
             <button type="button" class="btn btn-sm btn-outline-secondary" data-ac-add
                     title="Añadir a alguien a {{ r.label }}"><i class="fa fa-plus"></i></button>
@@ -45,35 +83,18 @@
         </div>
         <div class="small text-muted mb-2">{{ r.help }}</div>
 
-        {# LOS QUE HAY. Cada uno con su «x»: quitarlo también se guarda en el acto. #}
-        {% if r.people %}
-          <div class="d-flex flex-column gap-2 mb-2">
-            {% for p in r.people %}
-              <div class="d-flex align-items-center gap-2">
-                <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
-                     style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto">
-                <div style="min-width:0">
-                  <div class="fw-semibold text-truncate">{{ p.name }}
-                    {% if p.note %}<span class="badge text-bg-light border fw-normal ms-1">{{ p.note }}</span>{% endif %}
-                  </div>
-                  <div class="small text-muted text-truncate">
-                    {% if p.email %}<a class="text-reset" href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}
-                    {% if p.email and p.phone %} · {% endif %}
-                    {% if p.phone %}<a class="text-reset" href="tel:{{ p.phone }}">{{ p.phone }}</a>{% endif %}
-                  </div>
-                </div>
-                <button type="button" class="btn btn-sm btn-link text-muted ms-auto p-0 px-1"
-                        data-ac-del="{{ p.key }}" title="Quitar a {{ p.name }} de {{ r.label }}">
-                  <i class="fa fa-xmark"></i></button>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
+        {# LOS QUE HAY, cada uno con su «x». En el asistente el JS añade y quita filas aquí mismo;
+           en la ficha las pinta el servidor en cada repintado. #}
+        <div class="d-flex flex-column gap-2 mb-2 {% if not r.people %}d-none{% endif %}" data-ac-people>
+          {% for p in r.people %}
+            {% include '_activity_contact_person.html' %}
+          {% endfor %}
+        </div>
 
-        {# NADIE TODAVÍA. Si hay alguien PROPUESTO (el de por defecto del promotor, o el propio
-           promotor en Contratación), se pone de un solo clic: eso es lo que ahorra el trabajo. #}
-        {% if not r.people %}
-          {% if r.suggested and r.suggested.name %}
+        {# NADIE TODAVÍA. En la ficha, si hay alguien PROPUESTO (el contacto del promotor en
+           Contratación), se pone de un solo clic. #}
+        <div class="{% if r.people %}d-none{% endif %}" data-ac-empty>
+          {% if ac_live and r.suggested and r.suggested.name %}
             <button type="button" class="btn btn-sm btn-outline-danger" data-ac-use-suggested
                     data-ac-sug-kind="{{ 'PROMOTER' if r.role == 'CONTRATACION' and not r.own else (r.raw.get('kind') if r.raw else 'PROMOTER') }}"
                     data-ac-sug-id="{{ r.raw.get('promoter_id', '') if r.raw else '' }}">
@@ -84,9 +105,9 @@
             <div class="text-muted small"><i class="fa fa-circle-minus me-1"></i>Sin asignar ·
               pulsa <i class="fa fa-plus"></i> para añadir a alguien</div>
           {% endif %}
-        {% endif %}
+        </div>
 
-        {# EL BUSCADOR, que se abre con el «+». #}
+        {# EL BUSCADOR, que se abre con el «+»: busca en TODA la base, con su foto. #}
         <div class="mt-2 d-none" data-ac-picker>
           <div class="input-group input-group-sm">
             <input type="search" class="form-control" data-ac-q autocomplete="off"
@@ -99,7 +120,11 @@
              <select>: le añade la opción y dispara `change`), y de ahí se añade a la función. #}
           <select class="d-none" id="acNew{{ r.role }}" data-ac-new><option value=""></option></select>
           {% if r.promoter_chip and r.promoter_chip.name %}
-            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-ac-pick-promoter>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-ac-pick-promoter
+                    data-ac-promoter-name="{{ r.promoter_chip.name }}"
+                    data-ac-promoter-photo="{{ r.promoter_chip.photo }}"
+                    data-ac-promoter-email="{{ r.promoter_chip.email }}"
+                    data-ac-promoter-phone="{{ r.promoter_chip.phone }}">
               <i class="fa fa-user-tie me-1"></i>El contacto de {{ r.promoter_chip.name }}</button>
           {% endif %}
           <div class="mt-1" data-ac-results></div>
@@ -108,121 +133,8 @@
     </div>
   {% endfor %}
 </div>
-{# ⚠️ El FORMULARIO que lleva la acción NO va aquí, sino en la pantalla que usa este modo
-   (`concert_detail.html`): apunta a `#concert-general-zone`, que solo existe en la ficha de una
-   actividad, y este parcial se incluye también en el ASISTENTE —que se pinta en una docena de
-   pantallas donde esa zona no existe— (lo caza `tools/check_botones.py`). #}
-{% else %}
-{% set ac_ask_scope = ac_ask_scope if ac_ask_scope is defined else true %}
-{% set ac_readonly = ac_readonly if ac_readonly is defined else false %}
-{% if not ac_readonly %}<input type="hidden" name="contacts_present" value="1">{% endif %}
-<div class="row g-3" {% if not ac_readonly %}data-activity-contacts{% endif %}>
-  {% for r in ac_rows %}
-    {% set k = r.raw.get('kind') if r.raw else '' %}
-    <div class="col-12 col-lg-6">
-      <div class="border rounded-3 p-3 h-100 bg-white" data-ac-role="{{ r.role }}">
-        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
-          <i class="fa {{ r.icon }} text-danger"></i>
-          <strong>{{ r.label }}</strong>
-          {% if r.suggested and not r.own and not ac_readonly %}
-            <span class="badge bg-light text-dark border">Propuesto</span>
-          {% endif %}
-          {% if ac_readonly and r.resolved and r.resolved.source == 'PROMOTER_DEFAULT' %}
-            <span class="badge bg-light text-dark border">El del promotor</span>
-          {% endif %}
-        </div>
-        <div class="small text-muted mb-2">{{ r.help }}</div>
-
-        {# Lo elegido, a la vista: foto o logo + nombre + cómo se le escribe. #}
-        <div class="d-flex align-items-center gap-2 mb-2 {% if not r.resolved %}d-none{% endif %}"
-             data-ac-picked>
-          <img src="{{ r.resolved.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" data-ac-photo
-               style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto" alt="">
-          <div style="min-width:0">
-            <div class="fw-semibold text-truncate" data-ac-name>{{ r.resolved.name }}</div>
-            <div class="small text-muted text-truncate" data-ac-contact>
-              {%- if ac_readonly -%}
-                {% if r.resolved.email %}<a class="text-reset" href="mailto:{{ r.resolved.email }}">{{ r.resolved.email }}</a>{% endif %}
-                {%- if r.resolved.email and r.resolved.phone %} · {% endif -%}
-                {% if r.resolved.phone %}<a class="text-reset" href="tel:{{ r.resolved.phone }}">{{ r.resolved.phone }}</a>{% endif %}
-              {%- else -%}
-                {{ r.resolved.email }}{% if r.resolved.email and r.resolved.phone %} · {% endif %}{{ r.resolved.phone }}
-              {%- endif -%}
-            </div>
-          </div>
-        </div>
-
-        {# ⚠️ Viendo la ficha, las CUATRO salen siempre: un hueco vacío es justo lo que hay que
-           rellenar, y esconderlo lo deja sin hacer para siempre. #}
-        {% if ac_readonly %}
-          {% if not r.resolved %}
-            <div class="text-muted small"><i class="fa fa-circle-minus me-1"></i>Sin asignar</div>
-          {% endif %}
-        {% else %}
-
-        <div class="d-flex flex-wrap gap-2 mb-2">
-          {% if ac_promoter %}
-            <button type="button" class="btn btn-sm {{ 'btn-danger' if k == 'PROMOTER' else 'btn-outline-secondary' }}"
-                    data-ac-same>
-              <i class="fa fa-user-tie me-1"></i>El mismo contacto que el promotor</button>
-          {% endif %}
-          <button type="button" class="btn btn-sm {{ 'btn-danger' if k in ('THIRD','EMAIL') else 'btn-outline-secondary' }}"
-                  data-ac-other><i class="fa fa-magnifying-glass me-1"></i>Otra persona</button>
-        </div>
-
-        {# El buscador: en TODA la base, con foto o logo, y el «+» para crearla al vuelo. #}
-        <div class="{% if k not in ('THIRD','EMAIL') %}d-none{% endif %}" data-ac-search>
-          <div class="input-group input-group-sm">
-            <input type="text" class="form-control" placeholder="Escribe un nombre…"
-                   data-ac-input value="{{ r.resolved.name if k in ('THIRD','EMAIL') else '' }}"
-                   autocomplete="off">
-            <select class="d-none" data-ac-select><option value=""></option></select>
-            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
-                    data-ac-plus title="Crear la persona"><i class="fa fa-plus"></i></button>
-          </div>
-          {# Si la persona elegida no tiene correo ni teléfono en su ficha, se piden aquí. #}
-          <div class="row g-2 mt-1 {% if not (k == 'EMAIL' or (k == 'THIRD' and not (r.resolved.email or r.resolved.phone))) %}d-none{% endif %}"
-               data-ac-datos>
-            <div class="col-12 col-sm-6">
-              <input type="email" class="form-control form-control-sm" placeholder="Correo"
-                     name="{{ r.prefix }}email" value="{{ r.raw.get('email', '') if r.raw else '' }}">
-            </div>
-            <div class="col-12 col-sm-6">
-              <input type="text" class="form-control form-control-sm" placeholder="Teléfono"
-                     name="{{ r.prefix }}phone" value="{{ r.raw.get('phone', '') if r.raw else '' }}">
-            </div>
-          </div>
-        </div>
-
-        {# El ALCANCE: solo se pregunta cuando lo elegido NO es lo que ya tiene el promotor. #}
-        {% if ac_ask_scope %}
-          <div class="mt-2 d-none" data-ac-scope>
-            <div class="small text-muted mb-1">Este contacto ya era otro. ¿Para qué lo cambias?</div>
-            <div class="d-flex flex-wrap gap-3">
-              <label class="form-check small mb-0">
-                <input class="form-check-input" type="radio" name="{{ r.prefix }}scope"
-                       value="ALL" checked>
-                <span class="form-check-label">Para todas las actividades de este promotor,
-                  de ahora en adelante</span>
-              </label>
-              <label class="form-check small mb-0">
-                <input class="form-check-input" type="radio" name="{{ r.prefix }}scope" value="ONLY">
-                <span class="form-check-label">Solo para esta actividad</span>
-              </label>
-            </div>
-          </div>
-        {% else %}
-          <input type="hidden" name="{{ r.prefix }}scope" value="ALL">
-        {% endif %}
-
-        <input type="hidden" name="{{ r.prefix }}kind" value="{{ k }}" data-ac-kind>
-        <input type="hidden" name="{{ r.prefix }}promoter_id" data-ac-id
-               value="{{ r.raw.get('promoter_id', '') if r.raw else '' }}">
-        <input type="hidden" name="{{ r.prefix }}name" data-ac-hidden-name
-               value="{{ r.raw.get('name', '') if r.raw else '' }}">
-        {% endif %}
-      </div>
-    </div>
-  {% endfor %}
-</div>
+{# ⚠️ El FORMULARIO que lleva la acción (modo ficha) NO va aquí, sino en `concert_detail.html`:
+   apunta a `#concert-general-zone`, que solo existe en la ficha, y este parcial se incluye también
+   en el ASISTENTE —que se pinta en una docena de pantallas donde esa zona no existe— (lo caza
+   `tools/check_botones.py`). #}
 {% endif %}

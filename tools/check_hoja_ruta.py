@@ -855,6 +855,20 @@ def main():
     r = casa.post(base + "/item", json={"kind": "VUELO", "day": DIA, "start_time": "08:00", "transport": {"company_id": "no-es-uuid", "company": "X"}})
     vu2 = [x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("kind") == "VUELO" and (x.get("transport") or {}).get("company") == "X"]
     check("un `company_id` que no es un UUID se descarta sin reventar", vu2 and vu2[0]["transport"]["company_id"] == "")
+    # ⚠️⚠️ EL NÚMERO DE VUELO (O DE TREN) ES UNO: `number_arrival` ya no existe (se pedía otra vez en
+    # el destino «por si hay escala», y una escala son DOS vuelos, cada uno con su punto).
+    r = casa.post(base + "/item", json={"kind": "VUELO", "day": DIA, "start_time": "10:00",
+                                        "transport": {"company": "Aerolínea Ruta", "number": "IB999",
+                                                      "number_arrival": "IB998", "origin": "MAD", "destination": "SVQ"}})
+    vu3 = ([x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", [])
+            if (x.get("transport") or {}).get("number") == "IB999"] or [{}])[0]
+    check("el número del traslado es UNO: no se guarda un segundo número",
+          "number_arrival" not in (vu3.get("transport") or {}), str(vu3.get("transport"))[:180])
+    # Y la búsqueda de compañías SIN tipo las trae todas: el filtro lo tiene que pedir quien busca
+    # (el asistente manda ahora el `kind` del punto, que era justo el bug: en un vuelo salían trenes).
+    todas = casa.get("/api/search/transport-companies?q=ruta").get_json() or []
+    check("sin `kind` la API las trae todas (el asistente SIEMPRE lo manda)",
+          {"Aerolínea Ruta", "Tren Ruta"} <= {x["name"] for x in todas}, str(todas)[:160])
 
     s = A.db()
     try:

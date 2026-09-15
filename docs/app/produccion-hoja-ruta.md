@@ -1064,3 +1064,21 @@
   ⚠️ Cubierto por `tools/check_hoja_ruta.py` (en el recinto no se guarda reserva, en un restaurante
   sí, «no hace falta» se guarda y pasar al recinto la limpia) y probado en el navegador con la app
   real.
+
+- ⚠️⚠️ **TRANSPORTES · TRES COSAS QUE NO CUADRABAN** (sep 2026, lo pidió Dani):
+  · **LAS COMPAÑÍAS QUE SE OFRECEN SON LAS DE ESE TIPO** (bug real: «al añadir un vuelo me salen
+  también las de trenes»). Las **tarjetas** ya filtraban por tipo, pero el **BUSCADOR** llamaba a
+  `/api/search/transport-companies` **sin `kind`** —que sí sabe filtrar—, así que al escribir salían
+  todas. Ahora `searchCompanies(q, kind)` manda el tipo del punto que se está creando.
+  · **EL NÚMERO DE VUELO (O DE TREN) ES UNO**: se pedía otra vez en el destino «por si cambia: una
+  escala», y un vuelo con escala son **DOS vuelos**, cada uno con su punto. `number_arrival` se ha
+  retirado del asistente, de la fila y del guardado (`_roadmap_clean_transport`).
+  · **CON LOGO NO SE REPITE EL NOMBRE**: en los horarios se ve el **logo** de la compañía y, al lado,
+  el **número**. El nombre solo cuando NO hay logo (si no, no se sabría quién es); el nombre queda en
+  el `alt`/`title` de la imagen, para el ratón y para un lector de pantalla.
+  · **Y CON UN ORIGEN (O UN DESTINO) YA ELEGIDO, LA BARRA DE BUSCAR SE VA**: un traslado tiene UN
+  origen y UN destino, así que dejar el buscador abierto invitaba a elegir otro encima. Se quita con
+  la **«x»** del elegido y la barra vuelve a salir (`data-pp-pick`, que envuelve el buscador, la
+  dirección a mano y las sugerencias).
+  ⚠️ Cubierto por `tools/check_hoja_ruta.py` y probado en el navegador con la app real (en un vuelo,
+  buscar «Renfe» no ofrece ninguna compañía de tren).

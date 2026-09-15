@@ -51,6 +51,12 @@
     $q('[data-merge-noresults]').classList.add('d-none');
     stepShow('search');
     if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    /* ⚠️ Cuando YA se sabe con quién es el duplicado (el bloque de «Fichas repetidas» de Terceros:
+       la app lo ha detectado), se entra directamente en la comparación — hacer buscar a mano lo que
+       la propia pantalla acaba de decir sería trabajo tonto. El paso de búsqueda sigue ahí: con
+       «Atrás» se cambia de pareja. */
+    var otro = btn.getAttribute('data-merge-with') || '';
+    if (otro) { loadCompare(otro); return; }
     setTimeout(function () { try { $q('[data-merge-search-input]').focus(); } catch (err) {} }, 260);
   });
 

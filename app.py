@@ -45690,23 +45690,42 @@ def api_promoter_default_contacts():
     (`SUPPORT_READ_ENDPOINTS`): la usa cualquiera con sesión."""
     pid = _safe_uuid(request.args.get("promoter_id"))
     if not pid:
-        return jsonify({"ok": True, "rows": {}})
+        return jsonify({"ok": True, "rows": {}, "people": {}})
     session_db = db()
     try:
         promoter = session_db.get(Promoter, pid)
         if promoter is None:
-            return jsonify({"ok": True, "rows": {}})
+            return jsonify({"ok": True, "rows": {}, "people": {}})
         correo, tel = _promoter_email_phone(promoter)
-        filas = {}
+        filas, gente = {}, {}
         for rol, _l, _i, _h in ACTIVITY_CONTACT_ROLES:
-            crudo = _promoter_default_contact(promoter, rol)
-            if not crudo:
+            # ⚠️⚠️ TODAS las personas de esa función, no solo la primera: una función admite varias
+            # (en producción local, quien monta y quien está en taquilla). El asistente las pinta ya
+            # puestas, con su «x» para quitar a quien no vaya.
+            crudas = _promoter_default_contact_list(promoter, rol)
+            if not crudas:
                 continue
-            r = _ticketing_contact_resolve(session_db, crudo, promoter)
-            filas[rol] = {"kind": crudo.get("kind") or "", "promoter_id": crudo.get("promoter_id") or "",
-                          "name": r.get("name") or "", "email": r.get("email") or "",
-                          "phone": r.get("phone") or "", "photo": r.get("photo") or ""}
-        return jsonify({"ok": True, "rows": filas,
+            lista = []
+            for crudo in crudas:
+                r = _ticketing_contact_resolve(session_db, crudo, promoter)
+                if not (r.get("name") or r.get("email") or r.get("phone")):
+                    continue
+                lista.append({
+                    "name": r.get("name") or "", "email": r.get("email") or "",
+                    "phone": r.get("phone") or "", "photo": r.get("photo") or "",
+                    "key": (str(crudo.get("contact_id") or "")
+                            or ("PROMOTER" if (crudo.get("kind") or "") == "PROMOTER" else "")
+                            or str(crudo.get("promoter_id") or "") or (r.get("email") or "")),
+                    # `pick`: tal cual se guarda (el asistente lo manda de vuelta en sus ocultos).
+                    "pick": crudo,
+                })
+            if not lista:
+                continue
+            gente[rol] = lista
+            # ⚠️ `rows` (UNO por función) se mantiene para lo que todavía lo lea así.
+            filas[rol] = dict(lista[0], kind=(crudas[0].get("kind") or ""),
+                              promoter_id=(crudas[0].get("promoter_id") or ""))
+        return jsonify({"ok": True, "rows": filas, "people": gente,
                         "promoter": {"id": str(promoter.id),
                                      "name": _promoter_display_name(promoter),
                                      "email": correo, "phone": tel,
@@ -50809,6 +50828,10 @@ def promoters_view():
             "promoters.html",
             promoters=promoters,
             promoter_tag_tabs=promoter_tag_tabs,
+            # LOS DUPLICADOS, arriba del listado: la misma ficha dos veces se ve y se fusiona aquí.
+            duplicate_groups=_promoter_duplicate_groups(session, promoters),
+            # Y los que son, en realidad, alguien de la OFICINA (esos no se fusionan: se dicen).
+            office_duplicates=_promoter_office_duplicates(session, promoters),
             import_fields=[{"key": k, "label": l} for k, l, _kind, _al in promoter_import.FIELDS],
             import_target_ignore=promoter_import.TARGET_IGNORE,
             import_target_alt=promoter_import.TARGET_ALT,
@@ -50893,6 +50916,262 @@ def _promoter_apply_extra_form(session_db, p, form) -> None:
                                            tax_id=txt("company_tax_id") or None))
         except Exception:
             app.logger.exception("[terceros] no se pudo crear la sociedad del alta")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  DUPLICADOS DE TERCEROS · LA BASE ES ÚNICA EN TODA LA APP (sep 2026, lo pidió Dani)
+#
+#  ⚠️⚠️ **UN MEDIO QUE HACE DE PROMOTOR NO ES OTRA FICHA: es el mismo, haciendo de promotor.** Lo
+#  mismo con un ARTISTA, con una SALA o con alguien de la OFICINA que va en una hoja de ruta o pide
+#  entradas. Las «funciones» (promotor, socio, comisionista, autor, músico…) son ETIQUETAS de una
+#  ficha, no bases de datos distintas. Cuando alguien se da de alta dos veces —a mano en una pantalla
+#  y por el camino de siempre en otra— se parte su historia: la mitad de sus actividades, facturas y
+#  documentos cuelgan de una ficha y la otra mitad de la otra.
+#
+#  Esto es lo que ENSEÑA los que ya están duplicados, arriba de Terceros, para fusionarlos con el
+#  motor de fusión de siempre (`/promotores/fusion`, que re-apunta TODO lo que colgaba del que se
+#  descarta: no se pierde nada).
+#
+#  ⚠️ El criterio es el MISMO que ya usa la casa (`_promoter_person_keys` / `_ext_same_person`) más
+#  el correo y el teléfono, que son igual de identificativos:
+#    · mismo DNI/CIF (también el de sus sociedades) → son el mismo, sin discusión;
+#    · mismo correo o mismo teléfono → son el mismo (nadie comparte su correo);
+#    · mismo nombre completo **y ningún DNI que lo desmienta** → son el mismo.
+#  ⚠️⚠️ **DOS DNI DISTINTOS NUNCA SE AGRUPAN**, aunque se llamen igual: fusionar a dos personas
+#  distintas es mucho peor que dejar un duplicado, y deshacerlo no se puede.
+#  ⚠️ Todo va en BLOQUE (una consulta por tabla): con cientos de terceros, una consulta por ficha
+#  dejaría la pantalla de Terceros inservible.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+def _promoter_duplicate_keys(promoter, *, taxes=(), emails=(), phones=()) -> tuple:
+    """Con qué se reconoce a este tercero. Devuelve `(claves fuertes, claves de nombre)`.
+
+    Las FUERTES (DNI, correo, teléfono) agrupan siempre; la del NOMBRE solo cuando ningún DNI
+    desmiente la pareja."""
+    fuertes, nombres = set(), set()
+    for bruto in list(taxes or []) + [getattr(promoter, "tax_id", "") or ""]:
+        dni = _prl_norm_dni(str(bruto or ""))
+        if dni:
+            fuertes.add("dni:" + dni)
+    for bruto in list(emails or []) + [getattr(promoter, "contact_email", "") or ""]:
+        correo = str(bruto or "").strip().lower()
+        if correo and "@" in correo:
+            fuertes.add("mail:" + correo)
+    for bruto in list(phones or []) + [getattr(promoter, "contact_phone", "") or ""]:
+        tel = _norm_phone_key(str(bruto or ""))
+        if tel and len(tel) >= 9:
+            fuertes.add("tel:" + tel)
+    for nombre in (_person_name_key(getattr(promoter, "first_name", ""), getattr(promoter, "last_name", "")),
+                   _person_name_key(getattr(promoter, "nick", ""))):
+        if nombre and len(nombre) > 4:
+            nombres.add("nom:" + nombre)
+    return fuertes, nombres
+
+
+def _promoter_existing_matches(session_db, *, tax_id="", email="", phone="", exclude_id=None) -> list:
+    """Las fichas que YA existen con ese DNI, ese correo o ese teléfono. Punto único del alta.
+
+    ⚠️⚠️ Es lo que evita que se cree la MISMA ficha por segunda vez. El alta rápida ya avisaba de
+    nombres PARECIDOS, pero el duplicado de verdad es el que llega con el nombre escrito de otra
+    forma («Cadena 100» / «Cadena100 Radio») y el mismo correo: por el nombre no saltaba nada.
+    ⚠️ El teléfono se compara normalizado (`_norm_phone_key`), así «+34 600…» y «600…» son el mismo.
+    """
+    dni = _prl_norm_dni(str(tax_id or ""))
+    correo = str(email or "").strip().lower()
+    tel = _norm_phone_key(str(phone or ""))
+    if not (dni or ("@" in correo) or (tel and len(tel) >= 9)):
+        return []
+    fuera = _safe_uuid(exclude_id)
+    vistos, salida = set(), []
+
+    def _pon(p, motivo):
+        if p is None or (fuera and p.id == fuera) or str(p.id) in vistos:
+            return
+        vistos.add(str(p.id))
+        salida.append({"id": str(p.id), "label": (_promoter_display_name(p) or p.nick or "—"),
+                       "logo_url": (p.logo_url or ""), "why": motivo, "score": 1.0})
+
+    try:
+        if dni:
+            for p in (session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).limit(4000).all()):
+                if _prl_norm_dni(p.tax_id or "") == dni:
+                    _pon(p, "el mismo DNI/CIF")
+            for fila in (session_db.query(PromoterCompany)
+                         .filter(PromoterCompany.tax_id.isnot(None)).limit(4000).all()):
+                if _prl_norm_dni(fila.tax_id or "") == dni:
+                    _pon(session_db.get(Promoter, fila.promoter_id), "el CIF de una de sus sociedades")
+        if "@" in correo:
+            _pon(session_db.query(Promoter)
+                 .filter(func.lower(func.coalesce(Promoter.contact_email, "")) == correo).first(),
+                 "el mismo correo")
+            for fila in (session_db.query(PromoterEmail)
+                         .filter(func.lower(func.coalesce(PromoterEmail.email, "")) == correo)
+                         .limit(50).all()):
+                _pon(session_db.get(Promoter, fila.promoter_id), "el mismo correo")
+        if tel and len(tel) >= 9:
+            for p in (session_db.query(Promoter).filter(Promoter.contact_phone.isnot(None))
+                      .filter(Promoter.contact_phone.like("%" + tel[-6:])).limit(400).all()):
+                if _norm_phone_key(p.contact_phone or "") == tel:
+                    _pon(p, "el mismo teléfono")
+            for fila in (session_db.query(PromoterPhone).filter(PromoterPhone.phone.isnot(None))
+                         .filter(PromoterPhone.phone.like("%" + tel[-6:])).limit(400).all()):
+                if _norm_phone_key(fila.phone or "") == tel:
+                    _pon(session_db.get(Promoter, fila.promoter_id), "el mismo teléfono")
+    except Exception:
+        app.logger.exception("[terceros] no se pudo comprobar si ese tercero ya existe")
+    return salida
+
+
+def _promoter_duplicate_groups(session_db, promoters, *, limite: int = 40) -> list:
+    """LOS GRUPOS DE FICHAS QUE SON LA MISMA, con por qué lo son. Punto único de la pantalla."""
+    filas = [p for p in (promoters or []) if getattr(p, "id", None)]
+    if len(filas) < 2:
+        return []
+    ids = [p.id for p in filas]
+    extra_tax: dict = {}
+    extra_mail: dict = {}
+    extra_tel: dict = {}
+    try:
+        for pid, tax in (session_db.query(PromoterCompany.promoter_id, PromoterCompany.tax_id)
+                         .filter(PromoterCompany.promoter_id.in_(ids),
+                                 PromoterCompany.tax_id.isnot(None)).all()):
+            extra_tax.setdefault(str(pid), []).append(tax)
+        for pid, correo in (session_db.query(PromoterEmail.promoter_id, PromoterEmail.email)
+                            .filter(PromoterEmail.promoter_id.in_(ids),
+                                    PromoterEmail.email.isnot(None)).all()):
+            extra_mail.setdefault(str(pid), []).append(correo)
+        for pid, tel in (session_db.query(PromoterPhone.promoter_id, PromoterPhone.phone)
+                         .filter(PromoterPhone.promoter_id.in_(ids),
+                                 PromoterPhone.phone.isnot(None)).all()):
+            extra_tel.setdefault(str(pid), []).append(tel)
+    except Exception:
+        app.logger.exception("[terceros] no se pudieron leer los datos para buscar duplicados")
+
+    claves_por_id, dni_por_id, motivo_clave = {}, {}, {}
+    for p in filas:
+        sid = str(p.id)
+        fuertes, nombres = _promoter_duplicate_keys(
+            p, taxes=extra_tax.get(sid, []), emails=extra_mail.get(sid, []),
+            phones=extra_tel.get(sid, []))
+        claves_por_id[sid] = (fuertes, nombres)
+        dni_por_id[sid] = {k for k in fuertes if k.startswith("dni:")}
+
+    # Unión por claves: cada clave junta a los que la comparten (una clave fuerte siempre; la del
+    # nombre solo si los dos lados no tienen DNI distintos).
+    grupos: dict = {}
+    padre: dict = {}
+
+    def raiz(x):
+        while padre.get(x, x) != x:
+            x = padre[x]
+        return x
+
+    def une(a, b):
+        ra, rb = raiz(a), raiz(b)
+        if ra != rb:
+            padre[rb] = ra
+
+    por_clave: dict = {}
+    for sid, (fuertes, nombres) in claves_por_id.items():
+        padre.setdefault(sid, sid)
+        for k in fuertes:
+            por_clave.setdefault(k, []).append(sid)
+        for k in nombres:
+            por_clave.setdefault(k, []).append(sid)
+    for clave, sids in por_clave.items():
+        if len(sids) < 2:
+            continue
+        for otro in sids[1:]:
+            if clave.startswith("nom:"):
+                # ⚠️ Dos DNI distintos son dos personas distintas, se llamen como se llamen.
+                a, b = dni_por_id.get(sids[0]) or set(), dni_por_id.get(otro) or set()
+                if a and b and not (a & b):
+                    continue
+            une(sids[0], otro)
+            motivo_clave.setdefault(raiz(sids[0]), set()).add(clave.split(":", 1)[0])
+
+    por_id = {str(p.id): p for p in filas}
+    for sid in claves_por_id:
+        grupos.setdefault(raiz(sid), []).append(sid)
+
+    ETIQUETAS = {"dni": "el mismo DNI/CIF", "mail": "el mismo correo",
+                 "tel": "el mismo teléfono", "nom": "el mismo nombre"}
+    salida = []
+    for r, sids in grupos.items():
+        if len(sids) < 2:
+            continue
+        gente = [por_id[s] for s in sids if s in por_id]
+        gente.sort(key=lambda p: ((p.nick or "").casefold(), str(p.id)))
+        motivos = sorted(motivo_clave.get(r, set()))
+        salida.append({
+            "key": r,
+            "people": [{"id": str(p.id), "name": (_promoter_display_name(p) or p.nick or "—"),
+                        "nick": (p.nick or ""), "photo": (p.logo_url or ""),
+                        "tax_id": (p.tax_id or ""), "email": (p.contact_email or ""),
+                        "phone": (p.contact_phone or "")} for p in gente],
+            "why": _join_es([ETIQUETAS.get(m, m) for m in motivos]) or "los mismos datos",
+        })
+    salida.sort(key=lambda g: (-len(g["people"]), (g["people"][0]["name"] or "").casefold()))
+    return salida[:limite]
+
+
+def _promoter_office_duplicates(session_db, promoters, *, limite: int = 40) -> list:
+    """TERCEROS que son, en realidad, alguien de LA OFICINA (personal de la casa).
+
+    ⚠️⚠️ Pasa sola: alguien de la casa va en el personal de una hoja de ruta, pide unas entradas o
+    firma un gasto, y por ese camino se le crea una ficha de tercero — con lo que la misma persona
+    queda en dos sitios y su historia se parte.
+    ⚠️ **NO se fusionan aquí**: un usuario de la casa y una ficha de tercero son dos cosas distintas
+    (una entra en la app, la otra factura), así que lo que se hace es **DECIRLO** con el enlace a las
+    dos fichas. Juntarlas de verdad es una decisión de dirección, no algo que deba pasar solo.
+    ⚠️ Los usuarios EXTERNOS (`is_external`, el espejo de un tercero que lleva una producción) se
+    quedan fuera a propósito: ahí las dos fichas son lo normal y no hay nada que unir."""
+    filas = [p for p in (promoters or []) if getattr(p, "id", None)]
+    if not filas:
+        return []
+    try:
+        personal = (session_db.query(UserProfile)
+                    .filter(or_(UserProfile.is_external.is_(False), UserProfile.is_external.is_(None)))
+                    .all())
+    except Exception:
+        app.logger.exception("[terceros] no se pudo leer el personal para buscar duplicados")
+        return []
+    por_dni, por_nombre = {}, {}
+    for u in personal:
+        dni = _prl_norm_dni(getattr(u, "dni", "") or "")
+        if dni:
+            por_dni.setdefault(dni, u)
+        nombre = _person_name_key(getattr(u, "first_name", ""), getattr(u, "last_name", ""))
+        if nombre and len(nombre) > 4:
+            por_nombre.setdefault(nombre, u)
+    salida = []
+    for p in filas:
+        dni = _prl_norm_dni(getattr(p, "tax_id", "") or "")
+        quien, motivo = None, ""
+        if dni and dni in por_dni:
+            quien, motivo = por_dni[dni], "el mismo DNI"
+        else:
+            for nombre in (_person_name_key(p.first_name, p.last_name), _person_name_key(p.nick)):
+                if nombre and nombre in por_nombre:
+                    # ⚠️ Con DNI en las dos fichas y distintos, son dos personas: no se junta nada.
+                    otro = _prl_norm_dni(getattr(por_nombre[nombre], "dni", "") or "")
+                    if dni and otro and dni != otro:
+                        continue
+                    quien, motivo = por_nombre[nombre], "el mismo nombre"
+                    break
+        if quien is None:
+            continue
+        salida.append({
+            "promoter": {"id": str(p.id), "name": (_promoter_display_name(p) or p.nick or "—"),
+                         "photo": (p.logo_url or "")},
+            "user": {"id": str(quien.user_id), "name": (quien.nick or
+                     _person_name_key(quien.first_name, quien.last_name) or "—"),
+                     "photo": (quien.photo_url or "")},
+            "why": motivo,
+        })
+        if len(salida) >= limite:
+            break
+    return salida
 
 
 def _promoter_search_blobs(session_db, promoters) -> dict:
@@ -55636,6 +55915,41 @@ def _fee_text_amount(texto) -> str:
     return format(dec.normalize(), "f") if dec > 0 else ""
 
 
+# Las funciones del selector VIEJO de personas (`ConcertContact`), que es con el que se piden los
+# contactos en una PETICIÓN, y a qué función del módulo de la actividad corresponde cada una.
+# ⚠️ «Comunicación» no es una función de la actividad: esa gente va a «Otras personas de contacto»,
+# que es la quinta tarjeta del módulo.
+PETICION_CONTACT_ROLE_MAP = {"PRODUCCION": "PRODUCCION", "TICKETING": "TICKETING",
+                             "COMUNICACION": "OTROS"}
+
+
+def _peticion_contact_people(session_db, r, pay: dict) -> dict:
+    """Las personas de contacto de la PETICIÓN, repartidas por FUNCIÓN de la actividad.
+
+    Con esto, al configurar la petición el módulo de contactos sale **ya con esa gente puesta** en
+    su sitio, en vez de en una caja aparte que había que mirar dos veces."""
+    crudos = pay.get("contacts") if isinstance(pay.get("contacts"), dict) else {}
+    if not crudos:
+        return {}
+    promoter = session_db.get(Promoter, r.promoter_id) if getattr(r, "promoter_id", None) else None
+    salida: dict = {}
+    for cid, roles in crudos.items():
+        fila = _ticketing_contact_clean({"kind": "CONTACT", "contact_id": str(cid)})
+        if not fila:
+            continue
+        datos = _ticketing_contact_resolve(session_db, fila, promoter)
+        if not (datos.get("name") or datos.get("email") or datos.get("phone")):
+            continue          # la ficha ya no existe: no se arrastra un contacto fantasma
+        persona = {"name": datos.get("name") or "", "email": datos.get("email") or "",
+                   "phone": datos.get("phone") or "", "photo": datos.get("photo") or "",
+                   "key": str(cid), "pick": dict(fila, name=datos.get("name") or "")}
+        destinos = {PETICION_CONTACT_ROLE_MAP.get(str(x).strip().upper(), "OTROS")
+                    for x in (roles or [])} or {"OTROS"}
+        for destino in destinos:
+            salida.setdefault(destino, []).append(persona)
+    return salida
+
+
 def _peticion_wizard_prefill(session_db, r) -> dict:
     """Lo que la petición ya sabe, en el formato que entiende el ASISTENTE de actividad.
 
@@ -55694,6 +56008,9 @@ def _peticion_wizard_prefill(session_db, r) -> dict:
         "performance": (pay.get("performance") or {}),
         # Las personas de contacto que se pusieron al pedirlo.
         "contacts": (pay.get("contacts") or {}),
+        # …y las mismas ya repartidas por FUNCIÓN del módulo de contactos de la actividad, que es
+        # donde se ponen ahora (antes iban a una caja aparte que ya no existe).
+        "contact_people": _peticion_contact_people(session_db, r, pay),
         # La empresa del grupo que dijo contratación al aprobarla: así el paso de la empresa ya
         # viene contestado y no se pregunta otra vez.
         "company_id": str(pay.get("group_company_id") or ""),
@@ -70633,6 +70950,10 @@ def concert_section_update_handler(cid, section):
                 _rol = _activity_contact_role_ok(request.form.get("cc_role"))
                 if not _rol:
                     raise ValueError("No sé de qué función es ese contacto.")
+                # ⚠️⚠️ Si esa función venía HEREDADA del promotor, lo primero es pasarla a ser de la
+                # actividad: si no, quitar a un heredado no quitaría nada (en el payload no está) y
+                # volvería a salir en el repintado, como si la «x» estuviera rota.
+                _activity_contacts_materialize(c, _rol, _concert_promoter(session, c))
                 if _accion == "remove":
                     _clave = (request.form.get("cc_key") or "").strip()
                     # ⚠️ Una persona que venía del sistema ANTERIOR (`ConcertContact`) se quita
@@ -70980,6 +71301,16 @@ def api_create_promoter():
         exact = session.query(Promoter).filter(func.lower(Promoter.nick) == nick.lower()).first()
         if exact and not force_new:
             similar = [{"id": str(exact.id), "label": (exact.nick or '').strip(), "score": 1.0, "logo_url": (exact.logo_url or '').strip()}]
+        # ⚠️⚠️ Y LOS QUE SON EL MISMO SIN DISCUSIÓN: mismo DNI/CIF, mismo correo o mismo teléfono.
+        # Por el NOMBRE no saltaba nada cuando la misma empresa se escribe de otra forma, que es
+        # justo como se cuelan los duplicados. LA BASE ES ÚNICA: se reutiliza la ficha que ya hay.
+        mismos = _promoter_existing_matches(
+            session, tax_id=request.form.get("tax_id"), email=contact_email,
+            phone=request.form.get("contact_phone"))
+        if mismos and not force_new:
+            porque = _join_es(sorted({m["why"] for m in mismos}))
+            return jsonify({"error": "Ya está en la base de datos con %s." % porque,
+                            "similar": mismos}), 409
         if similar and not force_new:
             return jsonify({"error": "Ya existe un tercero similar.", "similar": similar}), 409
 
@@ -78957,8 +79288,12 @@ def concert_wizard_create():
         # alta el alcance es SIEMPRE «para todas»: es la primera vez que se dicen, así que quedan
         # como los de por defecto del promotor y las siguientes actividades ya salen con ellos.
         try:
-            _avisos_contactos = _activity_contacts_apply_form(
-                session, concert, request.form, promoter=session.get(Promoter, promoter_id) if promoter_id else None,
+            _pro_alta = session.get(Promoter, promoter_id) if promoter_id else None
+            _avisos_contactos = _activity_contacts_apply_picks(
+                session, concert, request.form, promoter=_pro_alta)
+            # Compatibilidad: un asistente viejo abierto en otra pestaña manda el formato de antes.
+            _avisos_contactos += _activity_contacts_apply_form(
+                session, concert, request.form, promoter=_pro_alta,
                 default_scope=CONTACT_SCOPE_ALL)
         except Exception:
             app.logger.exception("[contactos] no se pudieron guardar los contactos del alta")
@@ -84680,8 +85015,10 @@ def _roadmap_clean_transport(kind: str, tr, confirmed: bool) -> dict:
                        if _safe_uuid(str(tr.get("company_id") or "")) else ""),
         "company": (tr.get("company") or "").strip(),
         "logo_url": (tr.get("logo_url") or "").strip(),
+        # ⚠️⚠️ EL NÚMERO ES UNO (sep 2026, lo pidió Dani): un vuelo o un tren tienen UN número, no
+        # uno de salida y otro de llegada. Se pedía dos veces («por si hay escala»), y un vuelo con
+        # escala son DOS vuelos, cada uno con su punto. `number_arrival` ya no se guarda.
         "number": (tr.get("number") or "").strip()[:40],
-        "number_arrival": (tr.get("number_arrival") or "").strip()[:40],
         "status": estado,
         "tracking_url": (tr.get("tracking_url") or "").strip()[:600],
         "origin": _roadmap_point_text(origen),
@@ -125504,31 +125841,52 @@ def _activity_contact_set_list(concert, rol: str, filas) -> None:
         pass
 
 
-def _promoter_default_contact(promoter, rol: str) -> dict:
-    """El contacto POR DEFECTO de ese tercero para esa función."""
+def _promoter_default_contact_list(promoter, rol: str) -> list:
+    """TODOS los contactos POR DEFECTO de ese tercero para esa función.
+
+    ⚠️⚠️ **UNA FUNCIÓN DE UN PROMOTOR ADMITE VARIAS PERSONAS** (sep 2026, lo pidió Dani): en
+    producción local hay quien lleva el montaje y quien está en taquilla, y en contratación el
+    promotor y su gestoría. Se guarda con la MISMA forma que en la actividad —un **dict** con una
+    sola y una **lista** con varias—, así que todo lo que hay guardado (dicts) se sigue leyendo.
+    ⚠️ Un tercero es también el espejo de un MEDIO (`_ensure_promoter_for_media`), así que esto vale
+    igual para «el medio que hace de promotor»: no hay dos sistemas."""
     rol = _activity_contact_role_ok(rol)
     if not rol or promoter is None:
-        return {}
+        return []
     if rol == "TICKETING":
-        return _ticketing_contact_clean(getattr(promoter, "ticketing_contact", None))
+        return _activity_contacts_clean_many(getattr(promoter, "ticketing_contact", None))
     todos = getattr(promoter, "default_contacts", None)
     if not isinstance(todos, dict):
-        return {}
-    return _ticketing_contact_clean(todos.get(rol))
+        return []
+    return _activity_contacts_clean_many(todos.get(rol))
 
 
-def _promoter_default_contact_set(promoter, rol: str, fila: dict) -> None:
+def _promoter_default_contact(promoter, rol: str) -> dict:
+    """EL PRIMERO de los contactos por defecto de ese tercero para esa función.
+
+    ⚠️ Se mantiene porque es lo que leen el formulario de siempre y los avisos; para verlos todos,
+    `_promoter_default_contact_list`."""
+    filas = _promoter_default_contact_list(promoter, rol)
+    return filas[0] if filas else {}
+
+
+def _promoter_default_contact_set_list(promoter, rol: str, filas) -> None:
+    """Deja EXACTAMENTE esas personas como las de por defecto del tercero para esa función.
+
+    ⚠️ Con UNA se guarda como **dict**, igual que siempre (compatible con todo lo guardado); solo
+    con varias se guarda una lista."""
     rol = _activity_contact_role_ok(rol)
     if not rol or promoter is None:
         return
-    fila = _ticketing_contact_clean(fila)
+    filas = _activity_contacts_clean_many(list(filas or []))
+    valor = (filas[0] if len(filas) == 1 else (filas or None))
     if rol == "TICKETING":
-        promoter.ticketing_contact = fila or {}
+        promoter.ticketing_contact = valor or {}
         campo = "ticketing_contact"
     else:
         todos = dict(getattr(promoter, "default_contacts", None) or {})
-        if fila:
-            todos[rol] = fila
+        if valor:
+            todos[rol] = valor
         else:
             todos.pop(rol, None)
         promoter.default_contacts = todos
@@ -125538,6 +125896,24 @@ def _promoter_default_contact_set(promoter, rol: str, fila: dict) -> None:
         flag_modified(promoter, campo)
     except Exception:
         pass
+
+
+def _promoter_default_contact_set(promoter, rol: str, fila: dict) -> None:
+    """Deja SOLO a esa persona de por defecto en esa función (o a nadie, con {})."""
+    fila = _ticketing_contact_clean(fila)
+    _promoter_default_contact_set_list(promoter, rol, [fila] if fila else [])
+
+
+def _promoter_default_contact_add(promoter, rol: str, fila: dict) -> bool:
+    """AÑADE a alguien a los de por defecto del tercero sin quitar a los que ya estaban."""
+    fila = _ticketing_contact_clean(fila)
+    if promoter is None or not fila:
+        return False
+    filas = _promoter_default_contact_list(promoter, rol)
+    if any(_activity_contact_same(fila, y) for y in filas):
+        return False
+    _promoter_default_contact_set_list(promoter, rol, filas + [fila])
+    return True
 
 
 def _activity_contact(session_db, concert, rol: str) -> dict:
@@ -125624,6 +126000,54 @@ def _promoter_default_contact_propagate(session_db, promoter, rol: str, fila: di
     return n
 
 
+def _activity_contacts_apply_picks(session_db, concert, form, *, promoter=None) -> list:
+    """Guarda en la actividad lo elegido EN EL ASISTENTE (`ac_pick_<ROL>[]`). Devuelve los avisos.
+
+    ⚠️⚠️ En un alta no hay actividad donde guardar al vuelo, así que el módulo de contactos —el
+    MISMO de la ficha— manda lo elegido en ocultos: por cada función, una fila por persona con lo
+    que la identifica. Aquí se escriben tal cual (`_activity_contact_set_list`).
+    ⚠️ **En un alta el alcance es SIEMPRE «para todas»**: es la primera vez que se dicen, así que
+    quedan también como los de por defecto del promotor (o del MEDIO que hace de promotor) y sus
+    siguientes actividades ya salen con esta gente puesta — que es justo lo que pidió Dani.
+    ⚠️ Con CENTINELA (`ac_picks_present`): sin él no se distingue «no hay nadie» de «este formulario
+    no preguntaba por los contactos», y un guardado parcial los borraría."""
+    avisos = []
+    if concert is None or not (form.get("ac_picks_present") or "").strip():
+        return avisos
+    if promoter is None:
+        promoter = _concert_promoter(session_db, concert)
+    for rol, etiqueta, _icono, _ayuda in _activity_contact_roles_for(concert):
+        crudas = form.getlist("ac_pick_%s[]" % rol) if hasattr(form, "getlist") else []
+        filas = []
+        for texto in crudas:
+            try:
+                fila = _ticketing_contact_clean(json.loads(texto) if texto else None)
+            except Exception:
+                fila = {}
+            if fila and not any(_activity_contact_same(fila, y) for y in filas):
+                filas.append(fila)
+        _activity_contact_set_list(concert, rol, filas)
+        # Se ha contestado a esta función (aunque sea para dejarla vacía): deja de heredar.
+        _activity_contacts_mark_decided(concert, rol)
+        # ⚠️ «Otras personas» es de ESTA actividad: no pasa a ser del promotor ni se propaga.
+        if promoter is None or not filas or not _activity_contact_role_inherits(rol):
+            continue
+        antes = _promoter_default_contact_list(promoter, rol)
+        nuevos = [f for f in filas if not any(_activity_contact_same(f, y) for y in antes)]
+        if not nuevos:
+            continue
+        _promoter_default_contact_set_list(promoter, rol, antes + nuevos)
+        for f in nuevos:
+            _activity_contact_link(session_db, promoter, f, rol)
+            n = _promoter_default_contact_propagate(
+                session_db, promoter, rol, f, exclude_concert_id=getattr(concert, "id", None))
+            if n:
+                avisos.append("%s: se ha puesto también en %d actividad%s de %s a la%s que le "
+                              "faltaba." % (etiqueta, n, "es" if n != 1 else "",
+                                            _promoter_display_name(promoter), "s" if n != 1 else ""))
+    return avisos
+
+
 def _activity_contacts_apply_form(session_db, concert, form, *, promoter=None,
                                   default_scope: str = CONTACT_SCOPE_ALL) -> list:
     """Guarda las CUATRO funciones desde un formulario. Devuelve los avisos que hay que contar.
@@ -125667,6 +126091,87 @@ def _activity_contacts_apply_form(session_db, concert, form, *, promoter=None,
             # Ya era el de por defecto: basta con asegurar la vinculación.
             _activity_contact_link(session_db, promoter, fila, rol)
     return avisos
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  LO QUE YA SE CONFIGURÓ PARA ESE PROMOTOR (O MEDIO) SALE **YA PUESTO**, NO PROPUESTO
+#  (sep 2026, lo pidió Dani: «tienen que aparecer ya seleccionados en cada sección los que ya se
+#  hayan configurado en otra ocasión para ese promotor o medio, pudiendo quitarse con una x»).
+#
+#  Antes salía un botón «Poner a X» que había que pulsar función por función, en cada actividad. La
+#  gente que lleva a un promotor es casi siempre la misma, así que lo normal es que ya esté bien: lo
+#  que hace falta es poder QUITAR a quien no vaya, no confirmar cada vez lo de siempre.
+#
+#  ⚠️⚠️ **NO SE COPIA NADA AL PINTAR**: lo heredado se enseña en vivo (leyendo el promotor) y solo se
+#  escribe en la actividad cuando alguien TOCA esa función (`_activity_contacts_materialize`). Así
+#  corregir un correo en la ficha del tercero sigue valiendo para todas sus actividades, y pintar una
+#  ficha no escribe en la base de datos.
+#  ⚠️ El CENTINELA es `ticketing_payload['contacts_own']`: las funciones ya decididas AQUÍ. Sin él,
+#  quitar al último heredado dejaría la lista vacía… y volvería a heredar, así que la «x» no haría
+#  nada visible y parecería que el botón está roto.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+def _activity_contacts_decided(concert) -> set:
+    """Las funciones que YA se han decidido en esta actividad (aunque sea para dejarlas vacías)."""
+    pay = getattr(concert, "ticketing_payload", None) or {}
+    if not isinstance(pay, dict):
+        return set()
+    return {str(x).strip().upper() for x in (pay.get("contacts_own") or []) if str(x or "").strip()}
+
+
+def _activity_contacts_mark_decided(concert, rol: str) -> None:
+    """Esta función ya la manda la ACTIVIDAD: deja de heredar del promotor."""
+    rol = _activity_contact_role_ok(rol)
+    if not rol or concert is None:
+        return
+    ya = _activity_contacts_decided(concert)
+    if rol in ya:
+        return
+    pay = dict(getattr(concert, "ticketing_payload", None) or {})
+    pay["contacts_own"] = sorted(ya | {rol})
+    concert.ticketing_payload = pay
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(concert, "ticketing_payload")
+    except Exception:
+        pass
+
+
+def _activity_contact_role_inherits(rol: str) -> bool:
+    """¿Esta función se hereda del promotor (y se guarda como suya)?
+
+    ⚠️⚠️ **«OTRAS PERSONAS DE CONTACTO» NO**: es el cajón de ESTA actividad —el técnico de ese día,
+    el del ayuntamiento—, no una función que ese promotor tenga siempre cubierta por la misma
+    persona. Heredarla arrastraría a todas sus actividades gente que solo pintaba en una."""
+    return _activity_contact_role_ok(rol) not in ("", "OTROS")
+
+
+def _activity_contacts_effective(concert, rol: str, promoter=None) -> tuple:
+    """QUIÉNES salen en esa función y SI son heredados. Punto único de lo que se ve.
+
+    Devuelve `(filas, heredado)`: lo que tenga la ACTIVIDAD, o —si esa función no se ha tocado
+    todavía— lo que ya esté configurado para ese PROMOTOR (que puede ser el espejo de un MEDIO)."""
+    rol = _activity_contact_role_ok(rol)
+    if not rol:
+        return [], False
+    propios = _activity_contact_list(concert, rol) if concert is not None else []
+    if propios or rol in _activity_contacts_decided(concert) or not _activity_contact_role_inherits(rol):
+        return propios, False
+    return _promoter_default_contact_list(promoter, rol), True
+
+
+def _activity_contacts_materialize(concert, rol: str, promoter=None) -> None:
+    """Pasa lo HEREDADO a ser de la actividad, para poder tocarlo (quitar a uno, añadir a otro).
+
+    ⚠️ Se llama ANTES de cualquier add/remove: si no, quitar a un heredado no quitaría nada (en el
+    payload no está) y volvería a salir en el siguiente repintado."""
+    rol = _activity_contact_role_ok(rol)
+    if not rol or concert is None:
+        return
+    filas, heredado = _activity_contacts_effective(concert, rol, promoter)
+    if heredado and filas:
+        _activity_contact_set_list(concert, rol, filas)
+    _activity_contacts_mark_decided(concert, rol)
 
 
 def _activity_contact_set(concert, rol: str, fila: dict) -> None:
@@ -125887,26 +126392,37 @@ def _activity_contacts_context(session_db, concert, *, promoter=None) -> list:
     chip = _activity_contacts_promoter_chip(session_db, concert) if concert is not None else {}
     filas = []
     for rol, etiqueta, icono, ayuda in _activity_contact_roles_for(concert):
+        # ⚠️⚠️ LO QUE YA ESTÁ CONFIGURADO PARA ESE PROMOTOR (o para el MEDIO que hace de promotor)
+        # sale YA PUESTO, no propuesto: lo normal es que la gente sea la misma, así que lo que hace
+        # falta es poder quitar a quien no vaya. Solo se escribe en la actividad al tocar la función.
+        mostrados, heredado = _activity_contacts_effective(concert, rol, promoter)
         propios = _activity_contact_list(concert, rol) if concert is not None else []
         propio = propios[0] if propios else {}
-        defecto = _promoter_default_contact(promoter, rol)
+        # ⚠️ En una función que no hereda («Otras personas») tampoco se propone nada: sería ofrecer
+        # lo que esa función no coge de todas formas.
+        defecto = (_promoter_default_contact(promoter, rol)
+                   if _activity_contact_role_inherits(rol) else {})
         resuelto = _activity_contact(session_db, concert, rol) if concert is not None else \
             _ticketing_contact_resolve(session_db, defecto, promoter)
         sug = _ticketing_contact_resolve(session_db, defecto, promoter) if defecto else {}
         # ⚠️⚠️ CONTRATACIÓN ES, DE SERIE, EL CONTACTO DEL PROMOTOR (sep 2026, lo pidió Dani): con
         # quien se cierran el contrato y la facturación es él mientras no se diga otra cosa. Se
         # PROPONE (no se guarda solo): en cuanto se añade a alguien a mano, manda lo añadido.
-        if rol == "CONTRATACION" and not propios and not defecto and promoter is not None:
+        if rol == "CONTRATACION" and not mostrados and not defecto and promoter is not None:
             sug = _ticketing_contact_resolve(session_db, {"kind": "PROMOTER"}, promoter)
             if not resuelto:
                 resuelto = dict(sug, source="PROMOTER") if sug else {}
         # TODOS los que hay, ya resueltos (nombre, foto, correo y teléfono en vivo de su ficha).
         gente = []
-        for f in propios:
+        for f in mostrados:
             r = _ticketing_contact_resolve(session_db, f, promoter)
             if not (r.get("name") or r.get("email") or r.get("phone")):
                 continue
-            gente.append(dict(r, kind=(f.get("kind") or ""),
+            gente.append(dict(r, kind=(f.get("kind") or ""), inherited=heredado,
+                              # `pick`: lo que identifica a esta persona, tal cual se guarda. Es lo
+                              # que viaja en los ocultos del ASISTENTE (allí no hay actividad
+                              # todavía) y lo que se escribe al crearla, sin recomponer nada.
+                              pick=_ticketing_contact_clean(f),
                               key=(str(f.get("contact_id") or "")
                                    or ("PROMOTER" if (f.get("kind") or "") == "PROMOTER" else "")
                                    or str(f.get("promoter_id") or "")
@@ -125927,6 +126443,8 @@ def _activity_contacts_context(session_db, concert, *, promoter=None) -> list:
                         "phone": _cc.get("phone") or "", "photo": _cc.get("photo") or "",
                         "kind": "CONTACT", "key": _clave,
                         "note": " · ".join([r["label"] for r in (_cc.get("roles") or [])]),
+                        "pick": {"kind": "CONTACT", "contact_id": str(_cc.get("id") or ""),
+                                 "name": _cc.get("name") or ""},
                     })
             except Exception:
                 app.logger.exception("[contactos] no se pudieron leer las otras personas")
@@ -125934,6 +126452,7 @@ def _activity_contacts_context(session_db, concert, *, promoter=None) -> list:
             "role": rol, "label": etiqueta, "icon": icono, "help": ayuda,
             "raw": propio or defecto,          # con qué se pinta el formulario de siempre
             "own": bool(propios),
+            "inherited": bool(heredado and gente),   # sale de lo ya configurado para el promotor
             "people": gente,                   # TODOS los de esta función (pueden ser varios)
             "resolved": resuelto,
             "suggested": sug,                  # lo que se propone, para confirmarlo de un clic

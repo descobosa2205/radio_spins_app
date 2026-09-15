@@ -411,20 +411,84 @@
 })();
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════
-   CONTACTOS POR FUNCIÓN QUE SE GUARDAN AL SELECCIONAR (`data-ac-live`, sep 2026 — lo pidió Dani).
+   CONTACTOS POR FUNCIÓN — el mismo módulo en la FICHA y en el ASISTENTE (sep 2026, lo pidió Dani).
 
-   El módulo de la ficha ya NO tiene botón de editar: en cada función se añade o se quita gente con
-   su «+» y su «x», y cada acción se guarda en el acto (POST a la sección `contactos` con
-   `cc_action`, por el motor `data-inline` de siempre, que repinta la zona general).
+   En cada función se añade o se quita gente con su «+» y su «x». Lo único que cambia es cuándo se
+   guarda:
+     · LA FICHA (`data-ac-live`): en el acto (POST a la sección `contactos` con `cc_action`, por el
+       motor `data-inline` de siempre, que repinta la zona general). El estado lo pinta el SERVIDOR.
+     · EL ASISTENTE (`data-ac-pick`): todavía no hay actividad, así que la fila se pinta aquí y lo
+       elegido viaja en ocultos `ac_pick_<ROL>[]` que se guardan al crearla.
 
    ⚠️⚠️ TODO POR DELEGACIÓN EN `document`: la zona se reemplaza por AJAX en cada guardado, así que
    un listener pegado a un nodo de dentro moriría en el primer repintado (trampa de la casa).
-   ⚠️ El estado lo pinta el SERVIDOR: aquí no se decide nada, solo se manda la acción.
    ══════════════════════════════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
 
   function tarjeta(el) { return el && el.closest ? el.closest('[data-ac-role]') : null; }
+  function esPick(el) { var t = tarjeta(el); return !!(t && t.closest('[data-ac-pick]')); }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  /* LA FILA DE UNA PERSONA en el asistente.
+     ⚠️ Es la misma estructura que pinta el servidor en `_activity_contact_person.html`: si se toca
+     una, se toca la otra, o la misma persona se vería distinta según por dónde se haya puesto. */
+  function filaPersona(rolKey, p) {
+    var avatar = (document.body && document.body.getAttribute('data-default-avatar-url')) || '';
+    var meta = [];
+    if (p.email) meta.push(esc(p.email));
+    if (p.phone) meta.push(esc(p.phone));
+    var div = document.createElement('div');
+    div.className = 'd-flex align-items-center gap-2';
+    div.setAttribute('data-ac-person', '');
+    div.setAttribute('data-ac-key', p.key || '');
+    div.innerHTML =
+      '<img src="' + esc(p.photo || avatar) + '" data-avatar="1" alt="" ' +
+      'style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto">' +
+      '<div style="min-width:0"><div class="fw-semibold text-truncate">' + esc(p.name) + '</div>' +
+      '<div class="small text-muted text-truncate">' + meta.join(' · ') + '</div></div>' +
+      '<button type="button" class="btn btn-sm btn-link text-muted ms-auto p-0 px-1" ' +
+      'data-ac-del="' + esc(p.key || '') + '" title="Quitar a ' + esc(p.name) + '">' +
+      '<i class="fa fa-xmark"></i></button>';
+    var oculto = document.createElement('input');
+    oculto.type = 'hidden';
+    oculto.name = 'ac_pick_' + rolKey + '[]';
+    oculto.value = JSON.stringify(p.pick || {});
+    div.appendChild(oculto);
+    return div;
+  }
+
+  /* Deja la tarjeta como toca: con gente o con el «sin asignar». */
+  function repinta(t) {
+    var zona = t.querySelector('[data-ac-people]');
+    if (!zona) return;
+    var hay = zona.querySelectorAll('[data-ac-person]').length > 0;
+    zona.classList.toggle('d-none', !hay);
+    var vacio = t.querySelector('[data-ac-empty]');
+    if (vacio) vacio.classList.toggle('d-none', hay);
+  }
+
+  /* AÑADIR a alguien en el asistente (sin guardar: se guarda al crear la actividad). */
+  function anadePick(t, p) {
+    var zona = t.querySelector('[data-ac-people]');
+    if (!zona || !p || !(p.name || p.email)) return;
+    var clave = p.key || '';
+    // ⚠️ La misma persona no se apunta dos veces: pulsar el «+» dos veces no puede duplicarla.
+    if (clave) {
+      var ya = zona.querySelector('[data-ac-key="' + clave.replace(/"/g, '\\"') + '"]');
+      if (ya) return;
+    }
+    zona.appendChild(filaPersona(t.getAttribute('data-ac-role') || '', p));
+    // Al poner a alguien a mano, esta función deja de ser «la de siempre» del promotor.
+    var badge = t.querySelector('[data-ac-inherited-badge]');
+    if (badge) badge.classList.add('d-none');
+    repinta(t);
+  }
 
   /* Manda una acción y deja que el motor `data-inline` repinte. ⚠️ `requestSubmit` y no `submit()`:
      `form.submit()` NO dispara el evento y el motor no se enteraría (se recargaría la página). */
@@ -463,13 +527,36 @@
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest && ev.target.closest('[data-ac-del]');
     if (!b) return;
+    var t = tarjeta(b);
+    if (esPick(b)) {
+      // En el asistente se quita aquí mismo (con su oculto, que es lo que viajaba).
+      var fila = b.closest('[data-ac-person]');
+      if (fila && fila.parentNode) fila.parentNode.removeChild(fila);
+      var badge = t && t.querySelector('[data-ac-inherited-badge]');
+      if (badge) badge.classList.add('d-none');
+      if (t) repinta(t);
+      return;
+    }
     mandar({ cc_action: 'remove', cc_role: rol(b), cc_key: b.getAttribute('data-ac-del') || '' });
   });
 
   /* ---- El contacto del promotor, y el que se propone ---- */
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest && ev.target.closest('[data-ac-pick-promoter]');
-    if (b) { mandar({ cc_action: 'add', cc_role: rol(b), cc_kind: 'PROMOTER' }); return; }
+    if (b) {
+      if (esPick(b)) {
+        anadePick(tarjeta(b), {
+          key: 'PROMOTER', name: b.getAttribute('data-ac-promoter-name') || 'El promotor',
+          email: b.getAttribute('data-ac-promoter-email') || '',
+          phone: b.getAttribute('data-ac-promoter-phone') || '',
+          photo: b.getAttribute('data-ac-promoter-photo') || '',
+          pick: { kind: 'PROMOTER' }
+        });
+        return;
+      }
+      mandar({ cc_action: 'add', cc_role: rol(b), cc_kind: 'PROMOTER' });
+      return;
+    }
     var s = ev.target.closest && ev.target.closest('[data-ac-use-suggested]');
     if (!s) return;
     var id = s.getAttribute('data-ac-sug-id') || '';
@@ -509,7 +596,8 @@
               'data-id="' + (p.self_promoter_id || (p.id ? '' : (p.promoter_id || '')) || '') + '" ' +
               'data-name="' + String(p.name || '').replace(/"/g, '&quot;') + '" ' +
               'data-email="' + String(p.email || '').replace(/"/g, '&quot;') + '" ' +
-              'data-phone="' + String(p.phone || '').replace(/"/g, '&quot;') + '">' +
+              'data-phone="' + String(p.phone || '').replace(/"/g, '&quot;') + '" ' +
+              'data-photo="' + String(foto || '').replace(/"/g, '&quot;') + '">' +
               (foto ? '<img src="' + foto + '" alt="" style="width:26px;height:26px;' +
                       'border-radius:50%;object-fit:cover;flex:0 0 auto">'
                     : '<i class="fa fa-user text-muted"></i>') +
@@ -529,12 +617,28 @@
     if (!b) return;
     /* ⚠️ Una PERSONA de una ficha (`data-contact`) no es su empresa (`data-id`): si se manda el id
        del tercero, el contacto que queda guardado es la EMPRESA y no quien se ha elegido. */
+    var cid = b.getAttribute('data-contact') || '';
+    var pid = b.getAttribute('data-id') || '';
+    var nombre = b.getAttribute('data-name') || '';
+    var correo = b.getAttribute('data-email') || '';
+    var tel = b.getAttribute('data-phone') || '';
+    if (esPick(b)) {
+      anadePick(tarjeta(b), {
+        key: cid || pid || correo, name: nombre, email: correo, phone: tel,
+        photo: b.getAttribute('data-photo') || '',
+        pick: (cid ? { kind: 'CONTACT', contact_id: cid, promoter_id: pid, name: nombre }
+                   : (pid ? { kind: 'THIRD', promoter_id: pid, name: nombre }
+                          : { kind: 'EMAIL', name: nombre, email: correo, phone: tel }))
+      });
+      var caja = tarjeta(b).querySelector('[data-ac-picker]');
+      if (caja) { caja.classList.add('d-none'); var q = caja.querySelector('[data-ac-q]'); if (q) q.value = ''; }
+      var res = tarjeta(b).querySelector('[data-ac-results]');
+      if (res) res.innerHTML = '';
+      return;
+    }
     mandar({ cc_action: 'add', cc_role: rol(b),
-             cc_contact_id: b.getAttribute('data-contact') || '',
-             cc_promoter_id: b.getAttribute('data-id') || '',
-             cc_name: b.getAttribute('data-name') || '',
-             cc_email: b.getAttribute('data-email') || '',
-             cc_phone: b.getAttribute('data-phone') || '' });
+             cc_contact_id: cid, cc_promoter_id: pid,
+             cc_name: nombre, cc_email: correo, cc_phone: tel });
   });
 
   /* ---- Un tercero recién CREADO con el «+»: el alta rápida lo deja en este <select> ---- */
@@ -542,8 +646,60 @@
     var sel = ev.target.closest && ev.target.closest('[data-ac-new]');
     if (!sel || !sel.value) return;
     var id = sel.value;
-    var nombre = (sel.options[sel.selectedIndex] || {}).textContent || '';
+    var nombre = ((sel.options[sel.selectedIndex] || {}).textContent || '').trim();
     sel.value = '';
-    mandar({ cc_action: 'add', cc_role: rol(sel), cc_promoter_id: id, cc_name: nombre.trim() });
+    if (esPick(sel)) {
+      anadePick(tarjeta(sel), { key: id, name: nombre, email: '', phone: '', photo: '',
+                                pick: { kind: 'THIRD', promoter_id: id, name: nombre } });
+      return;
+    }
+    mandar({ cc_action: 'add', cc_role: rol(sel), cc_promoter_id: id, cc_name: nombre });
   });
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════
+     LO QUE YA ESTÁ CONFIGURADO PARA ESE PROMOTOR (O MEDIO), YA PUESTO EN EL ASISTENTE.
+     Lo llama el asistente al elegir promotor (`api_promoter_default_contacts`, que devuelve las
+     personas de cada función). ⚠️ Solo se rellenan las funciones VACÍAS: lo que alguien haya
+     puesto a mano en este mismo alta no se pisa nunca.
+     ══════════════════════════════════════════════════════════════════════════════════════════ */
+  window.app33ActivityPicks = {
+    /* Poner a alguien en una función desde fuera, sin tocar al resto. La usa el asistente cuando un
+       COMISIONISTA se marca como «es la producción local». */
+    add: function (rolKey, datos) {
+      var t = document.querySelector('[data-ac-pick] [data-ac-role="' + rolKey + '"]');
+      if (!t || !datos || !(datos.name || datos.email)) return;
+      anadePick(t, {
+        key: datos.id || datos.email || datos.name, name: datos.name || '',
+        email: datos.email || '', phone: datos.phone || '', photo: datos.photo || '',
+        pick: (datos.id ? { kind: 'THIRD', promoter_id: datos.id, name: datos.name || '' }
+                        : { kind: 'EMAIL', name: datos.name || '', email: datos.email || '',
+                            phone: datos.phone || '' })
+      });
+    },
+    /* `opts.pisar` = lo que viene manda aunque ya hubiera gente puesta a mano: lo usa el volcado de
+       una PETICIÓN (lo que se pidió para ESA actividad gana a «los de siempre» del promotor). */
+    preset: function (porRol, opts) {
+      opts = opts || {};
+      document.querySelectorAll('[data-ac-pick] [data-ac-role]').forEach(function (t) {
+        var k = t.getAttribute('data-ac-role') || '';
+        var zona = t.querySelector('[data-ac-people]');
+        if (!zona) return;
+        var lista = (porRol || {})[k] || [];
+        if (opts.pisar && !lista.length) return;      // sin nada que poner, no se borra lo que hay
+        var puestas = zona.querySelectorAll('[data-ac-person]');
+        var heredadas = zona.querySelectorAll('[data-ac-person][data-ac-inherited]');
+        // Si hay algo puesto A MANO (o sea, algo que no sea lo heredado de antes), no se toca.
+        if (!opts.pisar && puestas.length && puestas.length !== heredadas.length) return;
+        zona.innerHTML = '';
+        lista.forEach(function (p) {
+          var fila = filaPersona(k, p);
+          if (!opts.pisar) fila.setAttribute('data-ac-inherited', '1');
+          zona.appendChild(fila);
+        });
+        var badge = t.querySelector('[data-ac-inherited-badge]');
+        if (badge) badge.classList.toggle('d-none', !!opts.pisar || !zona.querySelectorAll('[data-ac-person]').length);
+        repinta(t);
+      });
+    },
+  };
 })();

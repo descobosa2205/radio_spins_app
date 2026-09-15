@@ -414,3 +414,21 @@
   duplica, al asignar producción le llega con el estado ya actualizado, quien viaja lo recibe y abre
   su ficha, y el estado va cambiando de fase en fase.
 
+
+- ⚠️⚠️ **«MIS PETICIONES» SE CALCULABA PERO NO SE PINTABA EN NINGUNA PANTALLA** (sep 2026, lo pidió
+  Dani). `_home_my_peticiones` existía y alimentaba las TAREAS de Inicio, pero no había módulo de
+  **seguimiento**: no se podía ver cómo iban las tuyas sin buscarlas en la bandeja de Contratación
+  —que además no todo el mundo puede abrir—. Ahora hay **`_home_my_peticiones.html`** en Inicio, con
+  su número, el estado de cada una y, si hay un rechazo pendiente de comunicar, sus dos botones en la
+  propia fila.
+  ⚠️⚠️ **Y A DIRECCIÓN SE LE VACIABA**: el contexto ponía `[] if _dir else _mypet` porque a dirección
+  se le enseña el cuadro de mando en vez de las tareas de cada uno — pero las peticiones que ha hecho
+  ÉL son suyas, así que era justo quien no las veía nunca.
+
+- ⚠️⚠️ **EL BLOQUE «PETICIONES» EN LA PANTALLA DE ACTIVIDADES** (sep 2026, lo pidió Dani): si has
+  pedido alguna y **sigue esperando**, sale arriba del listado con **el número** y todas las que
+  están pendientes de convertirse en actividad o de que se rechacen. Es donde se miran las
+  actividades, así que es donde se echan en falta las que todavía no lo son.
+  · Punto único **`_my_open_peticiones`**: la MISMA consulta que «Mis peticiones» de Inicio, filtrada
+  por `BOOKING_OPEN_STATUSES` (NUEVA · EN_TRAMITE). Así las dos pantallas no pueden decir cosas
+  distintas.

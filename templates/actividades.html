@@ -12,6 +12,46 @@
   {% endif %}
 </div>
 
+{# ══════════ MIS PETICIONES · las que he pedido y siguen esperando (sep 2026, lo pidió Dani) ══════
+   Con el NÚMERO y todas las que están pendientes de convertirse en actividad o de que se rechacen.
+   Aquí es donde se miran las actividades, así que es donde se echan en falta las que aún no lo son
+   —y a la bandeja de Contratación no entra todo el mundo. Se pliega para no estorbar. #}
+{% if my_peticiones %}
+<div class="card mb-3">
+  <button class="card-header d-flex align-items-center gap-2 w-100 border-0 bg-transparent text-start"
+          type="button" data-bs-toggle="collapse" data-bs-target="#misPeticionesBox">
+    <i class="fa fa-inbox text-danger"></i>
+    <span class="fw-semibold">Peticiones</span>
+    <span class="badge rounded-pill text-bg-danger">{{ my_peticiones|length }}</span>
+    <span class="small text-muted">tuyas, pendientes de convertirse en actividad o de que se rechacen</span>
+    <i class="fa fa-chevron-down ms-auto text-muted"></i>
+  </button>
+  <div class="collapse show" id="misPeticionesBox">
+    <div class="list-group list-group-flush">
+      {% for p in my_peticiones %}
+        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap"
+           href="{{ p.detail_url }}">
+          {% if p.artist_photo %}
+            <img src="{{ p.artist_photo }}" alt="" data-avatar="1"
+                 style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+          {% else %}
+            <span class="text-muted" style="flex:0 0 auto;"><i class="fa {{ p.icon }}"></i></span>
+          {% endif %}
+          <span style="min-width:0;flex:1 1 220px;">
+            <span class="fw-semibold d-block text-truncate">{{ p.subject }}</span>
+            <span class="small text-muted d-block text-truncate">
+              {% if p.artist %}{{ p.artist }} · {% endif %}{{ p.date_label }}
+              {% if p.place %} · {{ p.place }}{% endif %}
+            </span>
+          </span>
+          <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# FILTROS POR TIPO DE ACTIVIDAD, en etiquetas con su icono (acumulables). Se filtra por lo que ES
    cada actividad: un evento promocional es un evento promocional. #}
 <div class="d-flex flex-wrap gap-2 mb-2">

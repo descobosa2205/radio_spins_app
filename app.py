@@ -55838,6 +55838,23 @@ def _home_activity_phase_tasks(limit: int = 12) -> list[dict]:
         s.close()
 
 
+def _my_open_peticiones(limit: int = 30) -> list[dict]:
+    """MIS PETICIONES QUE SIGUEN ABIERTAS: las que he pedido y todavía no son una actividad ni se
+    han rechazado (`BOOKING_OPEN_STATUSES`). Punto único con «Mis peticiones» de Inicio: la misma
+    consulta y las mismas filas, solo que aquí se queda lo que sigue esperando una respuesta.
+
+    ⚠️ Es lo que se enseña en la pantalla de ACTIVIDADES (sep 2026, lo pidió Dani: «si tienes
+    peticiones generadas por ti, debe aparecer el bloque de Peticiones indicando el número y todas
+    las que estén pendientes de convertirse en actividad o se rechacen»), para no tener que ir a
+    buscarlas a la bandeja de Contratación —que además no todo el mundo puede abrir."""
+    try:
+        return [f for f in _home_my_peticiones(limit=limit)
+                if (f.get("status") or "").upper() in BOOKING_OPEN_STATUSES]
+    except Exception:
+        app.logger.exception("[actividades] no se pudieron cargar mis peticiones abiertas")
+        return []
+
+
 def _home_my_peticiones(limit: int = 12) -> list[dict]:
     """MIS PETICIONES: las que ha hecho esta persona, para ver cómo van sin buscarlas.
 
@@ -62739,7 +62756,10 @@ def activities_view():
         ctx = dict(items=items, when_f=when_f, artist_f=artist_f, event_f=event_f,
                    type_chips=type_chips, subject_groups=subject_groups, drill_subject=drill_subject,
                    year_chips=year_chips, f_years=sorted(f_years),
-                   counts=counts, CAN_EDIT_CONCERTS=can_edit_concerts())
+                   counts=counts, CAN_EDIT_CONCERTS=can_edit_concerts(),
+                   # MIS PETICIONES que siguen esperando: se ven aquí, que es donde se miran las
+                   # actividades, sin tener que entrar en la bandeja de Contratación.
+                   my_peticiones=_my_open_peticiones())
         if can_edit_concerts():
             ctx = _with_concert_wizard(s, ctx)
         else:
@@ -97543,7 +97563,11 @@ def inject_personnel_globals():
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if _dept and "_home_pending_peticiones" in globals() else [],
         # MIS PETICIONES: las que ha hecho esta persona, para ver cómo van. Es de cada uno, así que
         # no depende de ningún permiso de sección.
-        "HOME_MY_PETICIONES": ([] if _dir else _mypet),
+        # ⚠️⚠️ **TAMBIÉN A DIRECCIÓN** (sep 2026, lo pidió Dani: «el módulo de mis peticiones para
+        # hacer seguimiento tiene que verse en la pantalla de inicio»). Se vaciaba con `_dir` porque
+        # a dirección se le enseña el cuadro de mando en vez de las tareas de cada uno — pero las
+        # peticiones que ha hecho ÉL son suyas, y era justo quien no las veía nunca.
+        "HOME_MY_PETICIONES": _mypet,
         # LO QUE FALTA EN LAS ACTIVIDADES que salieron de una petición aceptada (por fases y cada
         # una de quien le toca). Es de la PERSONA: no depende de ningún permiso de sección.
         "HOME_ACTIVITY_PHASES": ([] if _dir else _phases),

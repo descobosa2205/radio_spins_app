@@ -1,0 +1,57 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   MIS PETICIONES · el SEGUIMIENTO de las que ha hecho esta persona (sep 2026, lo pidió Dani).
+
+   ⚠️ `_home_my_peticiones` ya existía y alimentaba las tareas de Inicio, pero NO se pintaba en
+   ninguna pantalla: no había forma de ver cómo iban las tuyas sin buscarlas. Y a DIRECCIÓN se le
+   vaciaba la lista, así que era justo quien no las veía nunca.
+   ⚠️ No es una lista de tareas: es seguimiento (se mira, no se hace). Lo que SÍ hay que hacer
+   —comunicar un rechazo— sale marcado y va primero, que es como lo ordena el servidor.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% if HOME_MY_PETICIONES %}
+<div class="card dash-card mb-3">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="fa fa-inbox text-danger"></i>
+    <span class="fw-semibold">Mis peticiones</span>
+    <span class="badge rounded-pill text-bg-light border ms-1">{{ HOME_MY_PETICIONES|length }}</span>
+    <span class="ms-auto small text-muted">Cómo van las que has pedido</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for p in HOME_MY_PETICIONES %}
+      <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+        {% if p.artist_photo %}
+          <img src="{{ p.artist_photo }}" alt="" data-avatar="1"
+               style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+        {% else %}
+          <span class="text-muted" style="flex:0 0 auto;"><i class="fa {{ p.icon }} fa-lg"></i></span>
+        {% endif %}
+        <div style="min-width:0;flex:1 1 220px;">
+          <a class="fw-semibold text-reset text-decoration-none d-block text-truncate"
+             href="{{ p.detail_url }}">{{ p.subject }}</a>
+          <div class="small text-muted text-truncate">
+            {% if p.artist %}{{ p.artist }} · {% endif %}{{ p.date_label }}
+            {% if p.place %} · {{ p.place }}{% endif %}
+            {% if p.kind_label %} · {{ p.kind_label }}{% endif %}
+          </div>
+          {% if p.rejection_pending and p.reason %}
+            <div class="small text-danger text-truncate"><i class="fa fa-circle-info me-1"></i>{{ p.reason }}</div>
+          {% endif %}
+        </div>
+        <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
+        {% if p.activity_url %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ p.activity_url }}">
+            <i class="fa fa-calendar-day me-1"></i>Ver la actividad</a>
+        {% endif %}
+        {% if p.rejection_pending %}
+          {# La tarea se resuelve EN LA PROPIA FILA: comunicar el rechazo o decir que ya se ha dicho. #}
+          <form method="post" action="{{ p.send_url }}" class="d-inline">
+            <button class="btn btn-sm btn-dark"><i class="fa fa-paper-plane me-1"></i>Comunicarlo</button>
+          </form>
+          <form method="post" action="{{ p.done_url }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-secondary">Ya se lo he dicho</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

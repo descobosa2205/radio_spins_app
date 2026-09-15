@@ -1322,24 +1322,48 @@
     </div>
     {% endif %}
 
-    {# ---------- Contactos: una tarjeta por persona con TODAS sus etiquetas de función ---------- #}
+    {# ---------- CONTACTOS · SIN BOTÓN DE EDITAR: se añade y se quita, y queda guardado ----------
+       ⚠️⚠️ (sep 2026, lo pidió Dani) Antes había que entrar en modo edición, cambiar y darle a
+       guardar, y cada función admitía UNA sola persona. Ahora cada función tiene su «+» —buscar en
+       toda la base o crear el tercero al vuelo— y su «x», admite VARIAS personas y **se guarda en
+       cuanto se selecciona**. En una actividad GRATUITA la función de Ticketing no se pinta: no se
+       venden entradas, así que no hay a quién pedirle las ventas (`_activity_contact_roles_for`). #}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-address-book"></i>Contactos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
-      <div class="ficha-section__body" data-section-view>
-        {# ⚠️⚠️ LAS CUATRO FUNCIONES, con el MISMO módulo que el asistente y que la edición
-           (`_activity_contacts.html` en modo `ac_readonly`): antes la ficha las pintaba por su
-           cuenta —una tira fina abajo, sin ayuda y escondiendo las que no tenían a nadie—, así que
-           lo que se veía y lo que se editaba no se parecían en nada. Un solo sitio. #}
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-address-book"></i>Contactos</h6></div>
+      <div class="ficha-section__body">
         {% if activity_contacts %}
           {% set ac_rows = activity_contacts %}
-          {% set ac_promoter = None %}
-          {% set ac_readonly = True %}
+          {% set ac_live = CAN_EDIT_CONCERTS %}
+          {% set ac_readonly = not CAN_EDIT_CONCERTS %}
+          {% set ac_concert_id = concert.id %}
           {% include '_activity_contacts.html' %}
+          {% if CAN_EDIT_CONCERTS %}
+            {# El formulario que LLEVA cada acción del módulo (añadir / quitar). Va por el motor
+               `data-inline` de siempre, así que repinta la zona general con lo que devuelve el
+               servidor: el estado lo pinta el SERVIDOR, no el JS. #}
+            <form class="d-none" method="post" data-ac-live-form data-inline
+                  data-inline-target="#concert-general-zone"
+                  action="{{ url_for('concert_section_update', cid=concert.id, section='contactos') }}">
+              <input type="hidden" name="cc_action"><input type="hidden" name="cc_role">
+              <input type="hidden" name="cc_key"><input type="hidden" name="cc_kind">
+              <input type="hidden" name="cc_contact_id">
+              <input type="hidden" name="cc_promoter_id"><input type="hidden" name="cc_name">
+              <input type="hidden" name="cc_email"><input type="hidden" name="cc_phone">
+            </form>
+          {% endif %}
         {% endif %}
 
-        {# Y debajo, las OTRAS personas de contacto de la actividad (funciones libres). #}
+        {% include '_concert_ticketing_owner.html' %}
+      </div>
+    </div>
+
+    {# ---------- OTRAS personas de contacto (funciones libres: producción · ticketing ·
+         comunicación). ⚠️ Es OTRO sistema, el del `cc-picker`, y conserva su botón de editar: lo
+         que Dani pidió sin lápiz es el módulo de las funciones de arriba. ---------- #}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-group"></i>Otras personas de contacto</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
         {% if concert_contacts %}
-          <div class="small text-muted mt-3 mb-2"><i class="fa fa-user-group me-1"></i>Otras personas de contacto</div>
           <div class="cc-list">
             {% for p in concert_contacts %}
               <div class="cc-card">
@@ -1361,30 +1385,13 @@
               </div>
             {% endfor %}
           </div>
-        {% elif not activity_contacts %}
-          <div class="ficha-empty">Sin contactos. Pulsa <i class="fa fa-pen"></i> para asignar quién lleva producción, ticketing y comunicación.</div>
+        {% else %}
+          <div class="ficha-empty">Nadie más. Pulsa <i class="fa fa-pen"></i> para añadir a quien
+            lleve producción, ticketing o comunicación.</div>
         {% endif %}
-        {% include '_concert_ticketing_owner.html' %}
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='contactos') }}" data-inline data-inline-target="#concert-general-zone">
-        {# LAS CUATRO FUNCIONES: ticketing · producción · producción local · contratación. Es el
-           MISMO bloque que el asistente, así que se pone igual en los dos. #}
-        {% if activity_contacts %}
-          {% set ac_rows = activity_contacts %}
-          {% set ac_promoter = concert.promoter %}
-          {% set ac_ask_scope = True %}
-          {% include '_activity_contacts.html' %}
-          {% if concert.promoter %}
-            <span class="d-none" data-ac-promoter-name="{{ activity_contacts_promoter.name }}"
-                  data-ac-promoter-photo="{{ activity_contacts_promoter.photo }}"
-                  data-ac-promoter-email="{{ activity_contacts_promoter.email }}"
-                  data-ac-promoter-phone="{{ activity_contacts_promoter.phone }}"></span>
-          {% endif %}
-          <hr class="my-3">
-          <div class="small text-muted mb-2"><i class="fa fa-user-group me-1"></i>Otras personas de
-            contacto de esta actividad</div>
-        {% endif %}
         {% with cc_id='fichaContacts', cc_concert_id=concert.id, cc_promoter_input='#concertDatosPromoter', cc_promoter_id=(concert.promoter_id|string if concert.promoter_id else ''), cc_selected=concert_contacts_roles %}
           {% include '_concert_contacts_picker.html' %}
         {% endwith %}

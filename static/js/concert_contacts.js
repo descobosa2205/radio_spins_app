@@ -409,3 +409,141 @@
   document.addEventListener('inline:updated', init);
   document.addEventListener('ficha:shown', init);
 })();
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   CONTACTOS POR FUNCIÓN QUE SE GUARDAN AL SELECCIONAR (`data-ac-live`, sep 2026 — lo pidió Dani).
+
+   El módulo de la ficha ya NO tiene botón de editar: en cada función se añade o se quita gente con
+   su «+» y su «x», y cada acción se guarda en el acto (POST a la sección `contactos` con
+   `cc_action`, por el motor `data-inline` de siempre, que repinta la zona general).
+
+   ⚠️⚠️ TODO POR DELEGACIÓN EN `document`: la zona se reemplaza por AJAX en cada guardado, así que
+   un listener pegado a un nodo de dentro moriría en el primer repintado (trampa de la casa).
+   ⚠️ El estado lo pinta el SERVIDOR: aquí no se decide nada, solo se manda la acción.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  function tarjeta(el) { return el && el.closest ? el.closest('[data-ac-role]') : null; }
+
+  /* Manda una acción y deja que el motor `data-inline` repinte. ⚠️ `requestSubmit` y no `submit()`:
+     `form.submit()` NO dispara el evento y el motor no se enteraría (se recargaría la página). */
+  function mandar(datos) {
+    var form = document.querySelector('[data-ac-live-form]');
+    if (!form) return;
+    ['cc_action', 'cc_role', 'cc_key', 'cc_kind', 'cc_contact_id', 'cc_promoter_id',
+     'cc_name', 'cc_email', 'cc_phone']
+      .forEach(function (n) {
+        var el = form.querySelector('[name="' + n + '"]');
+        if (el) el.value = (datos[n] == null ? '' : String(datos[n]));
+      });
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  }
+
+  function rol(el) {
+    var t = tarjeta(el);
+    return t ? (t.getAttribute('data-ac-role') || '') : '';
+  }
+
+  /* ---- Abrir el buscador de una función ---- */
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-ac-add]');
+    if (!b) return;
+    var t = tarjeta(b), caja = t && t.querySelector('[data-ac-picker]');
+    if (!caja) return;
+    caja.classList.toggle('d-none');
+    if (!caja.classList.contains('d-none')) {
+      var q = caja.querySelector('[data-ac-q]');
+      if (q) { q.value = ''; q.focus(); }
+    }
+  });
+
+  /* ---- Quitar a alguien ---- */
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-ac-del]');
+    if (!b) return;
+    mandar({ cc_action: 'remove', cc_role: rol(b), cc_key: b.getAttribute('data-ac-del') || '' });
+  });
+
+  /* ---- El contacto del promotor, y el que se propone ---- */
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-ac-pick-promoter]');
+    if (b) { mandar({ cc_action: 'add', cc_role: rol(b), cc_kind: 'PROMOTER' }); return; }
+    var s = ev.target.closest && ev.target.closest('[data-ac-use-suggested]');
+    if (!s) return;
+    var id = s.getAttribute('data-ac-sug-id') || '';
+    mandar({ cc_action: 'add', cc_role: rol(s),
+             cc_kind: (id ? '' : (s.getAttribute('data-ac-sug-kind') || 'PROMOTER')),
+             cc_promoter_id: id });
+  });
+
+  /* ---- Buscar en toda la base ---- */
+  var espera = null;
+  document.addEventListener('input', function (ev) {
+    var q = ev.target.closest && ev.target.closest('[data-ac-q]');
+    if (!q) return;
+    var t = tarjeta(q), caja = t && t.querySelector('[data-ac-results]');
+    if (!caja) return;
+    var texto = (q.value || '').trim();
+    clearTimeout(espera);
+    if (texto.length < 2) { caja.innerHTML = ''; return; }
+    espera = setTimeout(function () {
+      fetch('/api/contactos/buscar?q=' + encodeURIComponent(texto), { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || !d.ok) { caja.innerHTML = ''; return; }
+          var filas = (d.results || []).concat(d.promoters || []);
+          if (!filas.length) {
+            caja.innerHTML = '<div class="small text-muted py-1">Nadie con ese nombre. ' +
+              'Puedes crear su ficha con el <i class="fa fa-plus"></i>.</div>';
+            return;
+          }
+          caja.innerHTML = filas.slice(0, 12).map(function (p) {
+            var foto = p.photo || '';
+            var sub = [p.title || '', p.email || '', p.promoter_name || '']
+                        .filter(Boolean).join(' · ');
+            return '<button type="button" class="btn btn-sm btn-light w-100 text-start d-flex ' +
+              'align-items-center gap-2 mb-1" data-ac-hit ' +
+              'data-contact="' + (p.self_promoter_id ? '' : (p.id || '')) + '" ' +
+              'data-id="' + (p.self_promoter_id || (p.id ? '' : (p.promoter_id || '')) || '') + '" ' +
+              'data-name="' + String(p.name || '').replace(/"/g, '&quot;') + '" ' +
+              'data-email="' + String(p.email || '').replace(/"/g, '&quot;') + '" ' +
+              'data-phone="' + String(p.phone || '').replace(/"/g, '&quot;') + '">' +
+              (foto ? '<img src="' + foto + '" alt="" style="width:26px;height:26px;' +
+                      'border-radius:50%;object-fit:cover;flex:0 0 auto">'
+                    : '<i class="fa fa-user text-muted"></i>') +
+              '<span style="min-width:0"><span class="d-block text-truncate">' +
+              String(p.name || '') + '</span>' +
+              (sub ? '<span class="d-block small text-muted text-truncate">' + sub + '</span>' : '') +
+              '</span></button>';
+          }).join('');
+        })
+        .catch(function () { caja.innerHTML = ''; });
+    }, 250);
+  });
+
+  /* ---- Elegir uno de los resultados ---- */
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-ac-hit]');
+    if (!b) return;
+    /* ⚠️ Una PERSONA de una ficha (`data-contact`) no es su empresa (`data-id`): si se manda el id
+       del tercero, el contacto que queda guardado es la EMPRESA y no quien se ha elegido. */
+    mandar({ cc_action: 'add', cc_role: rol(b),
+             cc_contact_id: b.getAttribute('data-contact') || '',
+             cc_promoter_id: b.getAttribute('data-id') || '',
+             cc_name: b.getAttribute('data-name') || '',
+             cc_email: b.getAttribute('data-email') || '',
+             cc_phone: b.getAttribute('data-phone') || '' });
+  });
+
+  /* ---- Un tercero recién CREADO con el «+»: el alta rápida lo deja en este <select> ---- */
+  document.addEventListener('change', function (ev) {
+    var sel = ev.target.closest && ev.target.closest('[data-ac-new]');
+    if (!sel || !sel.value) return;
+    var id = sel.value;
+    var nombre = (sel.options[sel.selectedIndex] || {}).textContent || '';
+    sel.value = '';
+    mandar({ cc_action: 'add', cc_role: rol(sel), cc_promoter_id: id, cc_name: nombre.trim() });
+  });
+})();

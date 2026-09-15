@@ -70430,15 +70430,46 @@ def concert_section_update_handler(cid, section):
             session.commit()
             flash("Notas actualizadas.", "success")
         elif section == "contactos":
-            _replace_concert_contacts(session, c.id, _parse_concert_contacts_form(request.form))
-            # LAS CUATRO FUNCIONES (ticketing · producción · producción local · contratación), con
-            # su alcance: solo esta actividad o el de por defecto del promotor de aquí en adelante.
-            _avisos = _activity_contacts_apply_form(session, c, request.form,
-                                                    default_scope=CONTACT_SCOPE_ONLY)
-            session.commit()
-            flash("Contactos actualizados.", "success")
-            for _aviso in _avisos:
-                flash(_aviso, "info")
+            # ⚠️⚠️ EL MÓDULO DE CONTACTOS NO TIENE BOTÓN DE EDITAR (sep 2026, lo pidió Dani): en cada
+            # función se añade o se quita a alguien y **queda guardado en cuanto se selecciona**. Eso
+            # llega aquí como una ACCIÓN suelta (`cc_action`), no como el formulario entero, así que
+            # pasa por el mismo endpoint —y por el mismo permiso— y repinta la misma zona.
+            _accion = (request.form.get("cc_action") or "").strip().lower()
+            if _accion in ("add", "remove"):
+                _rol = _activity_contact_role_ok(request.form.get("cc_role"))
+                if not _rol:
+                    raise ValueError("No sé de qué función es ese contacto.")
+                if _accion == "remove":
+                    if _activity_contact_remove(c, _rol, request.form.get("cc_key")):
+                        session.commit()
+                        flash("Contacto quitado de %s." % ACTIVITY_CONTACT_LABELS.get(_rol, "la función"), "success")
+                else:
+                    _fila = _activity_contact_from_pick(session, c, request.form)
+                    if not _fila:
+                        raise ValueError("No he podido identificar a esa persona.")
+                    if _activity_contact_add(c, _rol, _fila):
+                        # Si es un tercero, queda VINCULADO al promotor diciendo para qué es (la
+                        # vinculación de siempre de la casa: se ve en las dos fichas).
+                        try:
+                            _pro = _concert_promoter(session, c)
+                            if _pro is not None and _fila.get("kind") == "THIRD":
+                                _activity_contact_link(session, _pro, _fila, _rol)
+                        except Exception:
+                            app.logger.exception("[contactos] no se pudo vincular al promotor")
+                        session.commit()
+                        flash("Contacto añadido a %s." % ACTIVITY_CONTACT_LABELS.get(_rol, "la función"), "success")
+                    else:
+                        flash("Esa persona ya estaba en %s." % ACTIVITY_CONTACT_LABELS.get(_rol, "esa función"), "info")
+            else:
+                _replace_concert_contacts(session, c.id, _parse_concert_contacts_form(request.form))
+                # LAS FUNCIONES (ticketing · producción · producción local · contratación), con su
+                # alcance: solo esta actividad o el de por defecto del promotor de aquí en adelante.
+                _avisos = _activity_contacts_apply_form(session, c, request.form,
+                                                        default_scope=CONTACT_SCOPE_ONLY)
+                session.commit()
+                flash("Contactos actualizados.", "success")
+                for _aviso in _avisos:
+                    flash(_aviso, "info")
         else:
             raise ValueError("Sección no reconocida.")
     except Exception as e:
@@ -79272,6 +79303,9 @@ def concert_contract_sheet_review(cid):
             updates = list(auto_updates) + [
                 {'field': c['field'], 'label': c['label'], 'value': c['incoming']} for c in conflicts]
             aplicados = _apply_contract_sheet_merge(concert, updates, {})
+            # Y los RESPONSABLES que ha dicho el promotor pasan a ser contactos de la actividad
+            # (solo las funciones que estén vacías: lo puesto a mano no se pisa).
+            _contactos = _activity_contacts_from_sheet(session, concert, elegidos)
             try:
                 session.flush()
                 session.expire(concert, ['venue'])
@@ -79295,6 +79329,8 @@ def concert_contract_sheet_review(cid):
             }]
             session.commit()
             aviso = "Ficha revisada."
+            if _contactos:
+                aviso += " Y se ha puesto de contacto a quien dijo el promotor en: %s." % ", ".join(_contactos)
             if cambiados:
                 aviso += " Se ha quedado lo del promotor en: " + ", ".join(cambiados[:8])
                 if len(cambiados) > 8:
@@ -124416,6 +124452,14 @@ TICKETING_CONTACT_KINDS = (
      "Sin ficha: el nombre y el correo al que se le escribe."),
 )
 TICKETING_CONTACT_LABELS = {k: l for k, l, _i, _h in TICKETING_CONTACT_KINDS}
+# ⚠️⚠️ UNA PERSONA DE UNA FICHA NO ES SU EMPRESA (sep 2026). Al buscar en el «+» de una función
+# salen las dos cosas: TERCEROS (`THIRD`) y las PERSONAS de contacto que cuelgan de una ficha
+# (`PromoterContact`). Guardar a la persona como `THIRD` con el id de su empresa ponía de contacto
+# a la EMPRESA —se elegía «Paco Producción» y quedaba «Promotora Demo»—, así que las personas
+# tienen su propio tipo y su correo y su teléfono también se leen EN VIVO de su ficha.
+# ⚠️ Fuera de `TICKETING_CONTACT_KINDS` a propósito: ese catálogo son los TRES botones del pop-up
+# de «a quién se le piden las ventas», y no se toca.
+TICKETING_CONTACT_LABELS["CONTACT"] = "Una persona de una ficha"
 
 
 def _ticketing_contact_clean(raw) -> dict:
@@ -124434,7 +124478,12 @@ def _ticketing_contact_clean(raw) -> dict:
         "set_at": str(raw.get("set_at") or ""),
         "set_by": str(raw.get("set_by") or ""),
     }
-    if kind != "THIRD":
+    if kind == "CONTACT":
+        # La persona (`PromoterContact`) y, de referencia, la ficha de la que cuelga.
+        fila["contact_id"] = str(raw.get("contact_id") or "").strip()
+        if not fila["contact_id"]:
+            return {}
+    elif kind != "THIRD":
         fila["promoter_id"] = ""
     if kind == "PROMOTER":
         # No se congela nada: el nombre y el correo se leen EN VIVO de la ficha del promotor.
@@ -124478,6 +124527,18 @@ def _ticketing_contact_resolve(session_db, fila, promoter) -> dict:
                 "name": _promoter_display_name(promoter), "email": correo, "phone": tel,
                 "promoter_id": str(getattr(promoter, "id", "") or ""),
                 "photo": (getattr(promoter, "logo_url", None) or "").strip(),
+                "set_by": fila.get("set_by") or "", "set_at": fila.get("set_at") or ""}
+    if kind == "CONTACT":
+        cid = _safe_uuid(fila.get("contact_id"))
+        persona = session_db.get(PromoterContact, cid) if cid else None
+        if persona is None:
+            return {}
+        ficha = getattr(persona, "promoter", None)
+        datos = _promoter_contact_payload(persona, ficha)
+        return {"kind": kind, "label": TICKETING_CONTACT_LABELS[kind],
+                "name": datos["name"], "email": datos["email"], "phone": datos["phone"],
+                "promoter_id": datos["promoter_id"], "contact_id": str(persona.id),
+                "photo": datos["photo"], "title": datos["title"],
                 "set_by": fila.get("set_by") or "", "set_at": fila.get("set_at") or ""}
     if kind == "THIRD":
         pid = _safe_uuid(fila.get("promoter_id"))
@@ -124813,36 +124874,86 @@ def _activity_contact_role_ok(rol: str) -> str:
     return rol if rol in ACTIVITY_CONTACT_LABELS else ""
 
 
-def _activity_contact_raw(concert, rol: str) -> dict:
-    """Lo GUARDADO en la actividad para esa función (sin resolver ni caer al promotor)."""
+def _activity_contact_same(a, b) -> bool:
+    """¿Estos dos contactos son la MISMA persona? (para no apuntarla dos veces en una función)."""
+    a, b = (a or {}), (b or {})
+    ka, kb = (a.get("kind") or ""), (b.get("kind") or "")
+    if ka != kb:
+        return False
+    if ka == "CONTACT":
+        return str(a.get("contact_id") or "") == str(b.get("contact_id") or "")
+    if ka == "THIRD":
+        return str(a.get("promoter_id") or "") == str(b.get("promoter_id") or "")
+    if ka == "PROMOTER":
+        return True                      # «el del promotor» solo puede estar una vez
+    return ((a.get("email") or "").strip().lower() == (b.get("email") or "").strip().lower()
+            and (a.get("name") or "").strip().lower() == (b.get("name") or "").strip().lower())
+
+
+def _activity_contacts_clean_many(crudo) -> list:
+    """Normaliza lo guardado para una función, venga como UNO (dict) o como VARIOS (lista).
+
+    ⚠️ Compatible hacia atrás a propósito: todo lo que hay guardado es un dict, y se sigue leyendo
+    igual. Lo nuevo se escribe como lista solo cuando hay más de uno."""
+    if isinstance(crudo, dict):
+        uno = _ticketing_contact_clean(crudo)
+        return [uno] if uno else []
+    if not isinstance(crudo, list):
+        return []
+    salida = []
+    for x in crudo:
+        fila = _ticketing_contact_clean(x)
+        if fila and not any(_activity_contact_same(fila, y) for y in salida):
+            salida.append(fila)
+    return salida
+
+
+def _activity_contact_list(concert, rol: str) -> list:
+    """TODOS los contactos que tiene la ACTIVIDAD para esa función (sin caer al promotor).
+
+    ⚠️⚠️ Una función puede tener VARIAS personas (sep 2026, lo pidió Dani): en producción local hay
+    quien lleva el montaje y quien está en taquilla, y en contratación el promotor y su gestoría."""
     rol = _activity_contact_role_ok(rol)
     pay = getattr(concert, "ticketing_payload", None) or {}
     if not rol or not isinstance(pay, dict):
-        return {}
+        return []
     if rol == "TICKETING":
-        return _ticketing_contact_clean(pay.get("ticketing_contact"))
+        return _activity_contacts_clean_many(pay.get("ticketing_contact"))
     otros = pay.get("contacts")
     if not isinstance(otros, dict):
-        return {}
-    return _ticketing_contact_clean(otros.get(rol))
+        return []
+    return _activity_contacts_clean_many(otros.get(rol))
 
 
-def _activity_contact_set(concert, rol: str, fila: dict) -> None:
-    """Escribe (o borra, con {}) el contacto de esa función EN LA ACTIVIDAD."""
+def _activity_contact_raw(concert, rol: str) -> dict:
+    """EL PRIMERO de los que la actividad tiene para esa función (sin resolver ni caer al promotor).
+
+    ⚠️ Se mantiene porque es lo que usan el formulario de siempre y los avisos: cuando hay varios, el
+    primero es el principal. Para verlos todos, `_activity_contact_list`."""
+    filas = _activity_contact_list(concert, rol)
+    return filas[0] if filas else {}
+
+
+def _activity_contact_set_list(concert, rol: str, filas) -> None:
+    """Escribe TODOS los contactos de esa función EN LA ACTIVIDAD (lista vacía = ninguno).
+
+    ⚠️ Con UNO se guarda como **dict**, igual que siempre: así lo que ya está guardado y lo que lee
+    cualquier sitio antiguo siguen valiendo. Solo con varios se guarda una lista."""
     rol = _activity_contact_role_ok(rol)
     if not rol or concert is None:
         return
     pay = dict(getattr(concert, "ticketing_payload", None) or {})
-    fila = _ticketing_contact_clean(fila)
+    filas = _activity_contacts_clean_many(list(filas or []))
+    valor = (filas[0] if len(filas) == 1 else (filas or None))
     if rol == "TICKETING":
-        if fila:
-            pay["ticketing_contact"] = fila
+        if valor:
+            pay["ticketing_contact"] = valor
         else:
             pay.pop("ticketing_contact", None)
     else:
         otros = dict(pay.get("contacts") or {})
-        if fila:
-            otros[rol] = fila
+        if valor:
+            otros[rol] = valor
         else:
             otros.pop(rol, None)
         if otros:
@@ -124995,7 +125106,7 @@ def _activity_contacts_apply_form(session_db, concert, form, *, promoter=None,
         return avisos
     if promoter is None:
         promoter = _concert_promoter(session_db, concert)
-    for rol, etiqueta, _icono, _ayuda in ACTIVITY_CONTACT_ROLES:
+    for rol, etiqueta, _icono, _ayuda in _activity_contact_roles_for(concert):
         pref = "c_" + rol + "_"
         if not any(k.startswith(pref) for k in form.keys()):
             continue                       # esa función no venía en el formulario
@@ -125022,6 +125133,46 @@ def _activity_contacts_apply_form(session_db, concert, form, *, promoter=None,
             # Ya era el de por defecto: basta con asegurar la vinculación.
             _activity_contact_link(session_db, promoter, fila, rol)
     return avisos
+
+
+def _activity_contact_set(concert, rol: str, fila: dict) -> None:
+    """Deja SOLO a esta persona en esa función (o a nadie, con {}). El camino de siempre."""
+    fila = _ticketing_contact_clean(fila)
+    _activity_contact_set_list(concert, rol, [fila] if fila else [])
+
+
+def _activity_contact_add(concert, rol: str, fila: dict) -> bool:
+    """AÑADE a alguien a esa función sin quitar a los que ya estaban. Devuelve si ha cambiado algo.
+
+    ⚠️ No se apunta dos veces a la misma persona (`_activity_contact_same`): pulsar el «+» dos veces
+    no puede dejar la misma ficha repetida en la lista."""
+    fila = _ticketing_contact_clean(fila)
+    if concert is None or not fila:
+        return False
+    filas = _activity_contact_list(concert, rol)
+    if any(_activity_contact_same(fila, y) for y in filas):
+        return False
+    _activity_contact_set_list(concert, rol, filas + [fila])
+    return True
+
+
+def _activity_contact_remove(concert, rol: str, clave: str) -> bool:
+    """QUITA a alguien de esa función. `clave` es su `promoter_id`, su correo o «PROMOTER»."""
+    if concert is None:
+        return False
+    clave = (clave or "").strip()
+    filas = _activity_contact_list(concert, rol)
+    def _es(f):
+        if clave.upper() == "PROMOTER":
+            return (f.get("kind") or "") == "PROMOTER"
+        return (str(f.get("contact_id") or "") == clave
+                or str(f.get("promoter_id") or "") == clave
+                or (f.get("email") or "").strip().lower() == clave.lower())
+    quedan = [f for f in filas if not _es(f)]
+    if len(quedan) == len(filas):
+        return False
+    _activity_contact_set_list(concert, rol, quedan)
+    return True
 
 
 def _local_production_contact_for(session_db, promoter):
@@ -125101,23 +125252,139 @@ def _activity_contacts_promoter_chip(session_db, concert) -> dict:
             "email": correo or "", "phone": tel or ""}
 
 
+# ⚠️⚠️ LO QUE EL PROMOTOR RELLENA EN SU FICHA ES UN CONTACTO DE LA ACTIVIDAD (sep 2026, lo pidió
+# Dani: «en el resto de campos, al crearlos o al mandar la ficha, la gente lo tiene que poder
+# rellenar»). En la ficha de contratación se piden los responsables de ticketing, de producción
+# técnica, de producción local y el representante de la empresa; eso se quedaba SOLO en la ficha y
+# había que volver a apuntarlo a mano en los contactos de la actividad.
+#   nombre · correo · teléfono, por función.
+CONTRACT_SHEET_CONTACT_FIELDS = {
+    "TICKETING": ("ticketing_responsible", "ticketing_email", "ticketing_phone"),
+    "PRODUCCION": ("technical_responsible", "technical_email", "technical_phone"),
+    "PRODUCCION_LOCAL": ("local_representative", "local_email", "local_phone"),
+    "CONTRATACION": ("company_representative", "company_representative_email",
+                     "company_representative_phone"),
+}
+
+
+def _activity_contacts_from_sheet(session_db, concert, datos: dict) -> list:
+    """Rellena con la ficha de contratación las funciones QUE ESTÉN VACÍAS. Devuelve qué se ha puesto.
+
+    ⚠️ **Solo lo que está vacío**: lo que alguien haya puesto a mano no se pisa nunca (la ficha del
+    promotor es una propuesta, no manda sobre una decisión de la casa).
+    ⚠️ Y solo las funciones que aplican: en una actividad gratuita, ticketing no se pone."""
+    puestos = []
+    if concert is None or not isinstance(datos, dict):
+        return puestos
+    validas = {r[0] for r in _activity_contact_roles_for(concert)}
+    ahora, quien = _now_madrid().isoformat(), ((_current_user_state() or {}).get("nick") or "")
+    for rol, (f_nombre, f_correo, f_tel) in CONTRACT_SHEET_CONTACT_FIELDS.items():
+        if rol not in validas or _activity_contact_list(concert, rol):
+            continue
+        nombre = (datos.get(f_nombre) or "").strip()
+        correo = (datos.get(f_correo) or "").strip()
+        telefono = (datos.get(f_tel) or "").strip()
+        if not nombre and not correo:
+            continue
+        fila = _ticketing_contact_clean({"kind": "EMAIL", "name": nombre, "email": correo,
+                                         "phone": telefono, "set_at": ahora, "set_by": quien})
+        if fila and _activity_contact_add(concert, rol, fila):
+            puestos.append(ACTIVITY_CONTACT_LABELS.get(rol, rol))
+    return puestos
+
+
+def _activity_contact_from_pick(session_db, concert, form) -> dict:
+    """La fila de contacto de lo que se acaba de ELEGIR en el «+» de una función.
+
+    Tres formas, las mismas de siempre (`TICKETING_CONTACT_KINDS`):
+      · `cc_kind=PROMOTER` → el contacto que consta en la ficha del promotor de la actividad;
+      · `cc_promoter_id`   → la ficha de un TERCERO (su correo y su teléfono se leen EN VIVO de
+        ella, así que corregirlos allí vale para todas sus actividades);
+      · `cc_name`/`cc_email`/`cc_phone` → alguien suelto, sin ficha.
+    ⚠️ Un tercero elegido se guarda SIEMPRE como `THIRD` apuntando a su id: guardar su correo
+    copiado dejaría dos verdades que se desparejan en cuanto alguien cambie el de su ficha."""
+    kind = (form.get("cc_kind") or "").strip().upper()
+    ahora = _now_madrid().isoformat()
+    quien = ((_current_user_state() or {}).get("nick") or "")
+    if kind == "PROMOTER":
+        return _ticketing_contact_clean({"kind": "PROMOTER", "set_at": ahora, "set_by": quien})
+    cid = (form.get("cc_contact_id") or "").strip()
+    if cid:
+        persona = session_db.get(PromoterContact, _safe_uuid(cid))
+        if persona is None:
+            return {}
+        return _ticketing_contact_clean({
+            "kind": "CONTACT", "contact_id": str(persona.id),
+            "promoter_id": (str(persona.promoter_id) if persona.promoter_id else ""),
+            "name": _promoter_contact_name(persona), "set_at": ahora, "set_by": quien})
+    pid = (form.get("cc_promoter_id") or "").strip()
+    if pid:
+        p = session_db.get(Promoter, _safe_uuid(pid))
+        if p is None:
+            return {}
+        return _ticketing_contact_clean({
+            "kind": "THIRD", "promoter_id": str(p.id),
+            "name": (_promoter_display_name(p) or (p.nick or "")),
+            "set_at": ahora, "set_by": quien})
+    nombre = (form.get("cc_name") or "").strip()
+    correo = (form.get("cc_email") or "").strip()
+    if not nombre and not correo:
+        return {}
+    return _ticketing_contact_clean({
+        "kind": "EMAIL", "name": nombre, "email": correo,
+        "phone": (form.get("cc_phone") or "").strip(), "set_at": ahora, "set_by": quien})
+
+
+def _activity_contact_roles_for(concert) -> tuple:
+    """LAS FUNCIONES QUE TIENEN SENTIDO EN ESTA ACTIVIDAD. Punto único.
+
+    ⚠️⚠️ **EN UNA ACTIVIDAD GRATUITA NO HAY CONTACTO DE TICKETING** (sep 2026, lo pidió Dani): si no
+    se venden entradas no hay a quién pedirle las ventas, así que esa función no se pinta, no se
+    pregunta y no reclama nada. Lo mismo que ya se hace con la salida a la venta."""
+    if concert is not None and _concert_is_free(concert):
+        return tuple(r for r in ACTIVITY_CONTACT_ROLES if r[0] != "TICKETING")
+    return ACTIVITY_CONTACT_ROLES
+
+
 def _activity_contacts_context(session_db, concert, *, promoter=None) -> list:
-    """Lo que necesita el formulario de contactos: por función, lo que hay y de dónde sale."""
+    """Lo que necesita el módulo de contactos: por función, QUIÉNES hay y de dónde salen."""
     if promoter is None and concert is not None:
         promoter = _concert_promoter(session_db, concert)
+    chip = _activity_contacts_promoter_chip(session_db, concert) if concert is not None else {}
     filas = []
-    for rol, etiqueta, icono, ayuda in ACTIVITY_CONTACT_ROLES:
-        propio = _activity_contact_raw(concert, rol) if concert is not None else {}
+    for rol, etiqueta, icono, ayuda in _activity_contact_roles_for(concert):
+        propios = _activity_contact_list(concert, rol) if concert is not None else []
+        propio = propios[0] if propios else {}
         defecto = _promoter_default_contact(promoter, rol)
         resuelto = _activity_contact(session_db, concert, rol) if concert is not None else \
             _ticketing_contact_resolve(session_db, defecto, promoter)
         sug = _ticketing_contact_resolve(session_db, defecto, promoter) if defecto else {}
+        # ⚠️⚠️ CONTRATACIÓN ES, DE SERIE, EL CONTACTO DEL PROMOTOR (sep 2026, lo pidió Dani): con
+        # quien se cierran el contrato y la facturación es él mientras no se diga otra cosa. Se
+        # PROPONE (no se guarda solo): en cuanto se añade a alguien a mano, manda lo añadido.
+        if rol == "CONTRATACION" and not propios and not defecto and promoter is not None:
+            sug = _ticketing_contact_resolve(session_db, {"kind": "PROMOTER"}, promoter)
+            if not resuelto:
+                resuelto = dict(sug, source="PROMOTER") if sug else {}
+        # TODOS los que hay, ya resueltos (nombre, foto, correo y teléfono en vivo de su ficha).
+        gente = []
+        for f in propios:
+            r = _ticketing_contact_resolve(session_db, f, promoter)
+            if not (r.get("name") or r.get("email") or r.get("phone")):
+                continue
+            gente.append(dict(r, kind=(f.get("kind") or ""),
+                              key=(str(f.get("contact_id") or "")
+                                   or ("PROMOTER" if (f.get("kind") or "") == "PROMOTER" else "")
+                                   or str(f.get("promoter_id") or "")
+                                   or (f.get("email") or ""))))
         filas.append({
             "role": rol, "label": etiqueta, "icon": icono, "help": ayuda,
-            "raw": propio or defecto,          # con qué se pinta el formulario
-            "own": bool(propio),
+            "raw": propio or defecto,          # con qué se pinta el formulario de siempre
+            "own": bool(propios),
+            "people": gente,                   # TODOS los de esta función (pueden ser varios)
             "resolved": resuelto,
-            "suggested": sug,                  # el de por defecto del promotor, para confirmarlo
+            "suggested": sug,                  # lo que se propone, para confirmarlo de un clic
+            "promoter_chip": chip,
             "prefix": "c_" + rol + "_",
         })
     return filas

@@ -1637,3 +1637,46 @@
   botón (delegado en `document`) y en cada `shown`, con una **bandera por apertura** que se limpia al
   cerrar el modal — la bandera es lo que impide que un modal de encima (el alta rápida de un
   promotor) dispare el volcado al cerrarse y **pise el promotor recién creado**.
+
+- ⚠️⚠️ **LOS CONTACTOS SE GUARDAN AL SELECCIONAR, Y UNA FUNCIÓN ADMITE VARIAS PERSONAS** (sep 2026,
+  lo pidió Dani). El módulo de la ficha **ya no tiene botón de editar**: cada función tiene su **«+»**
+  —buscar en TODA la base (`api_contact_search`, con foto) o crear el tercero al vuelo con el «+» de
+  siempre— y su **«x»**, y **cada acción se guarda en el acto**.
+  · **Punto único**: `_activity_contact_list` / `_activity_contact_set_list` / `_add` / `_remove`.
+  Con UNA persona se guarda como **dict**, igual que siempre (compatible con todo lo que ya hay
+  guardado); solo con varias se guarda una **lista**. `_activity_contact_raw` devuelve el primero,
+  así que el formulario de siempre y los avisos siguen valiendo sin tocar nada.
+  · **No hay endpoint nuevo**: la acción va por `concert_section_update` con `section=contactos` y
+  `cc_action=add|remove`, o sea por el **mismo permiso** de siempre, y repinta
+  `#concert-general-zone` con el motor `data-inline`. Así no hay que tocar el catálogo de permisos.
+  ⚠️ El JS va **delegado en `document`** (`concert_contacts.js`): la zona se reemplaza por AJAX en
+  cada guardado y un listener pegado a un nodo de dentro moriría en el primer repintado.
+  ⚠️ El `<form>` con la acción vive en **`concert_detail.html`**, NO en el parcial: apunta a
+  `#concert-general-zone`, que solo existe en la ficha, y el parcial se incluye también en el
+  ASISTENTE, que se pinta en una docena de pantallas donde esa zona no existe (lo cazó
+  `tools/check_botones.py`: 12 avisos nuevos de golpe).
+
+- ⚠️⚠️ **EN UNA ACTIVIDAD GRATUITA NO HAY CONTACTO DE TICKETING** (sep 2026). Si no se venden
+  entradas no hay a quién pedirle las ventas: esa función no se pinta, no se pregunta y no se
+  guarda. Punto único **`_activity_contact_roles_for(concert)`**, que usan el módulo y el guardado.
+
+- ⚠️⚠️ **CONTRATACIÓN ES, DE SERIE, EL CONTACTO DEL PROMOTOR** (sep 2026). Con quien se cierran el
+  contrato y la facturación es él mientras no se diga otra cosa, así que la función sale **propuesta**
+  con un botón de un clic («Poner a X · Es el contacto del promotor»). Se PROPONE, no se guarda sola:
+  en cuanto se añade a alguien a mano, manda lo añadido.
+
+- ⚠️⚠️ **UNA PERSONA DE UNA FICHA NO ES SU EMPRESA** (bug real de esta épica, sep 2026). Al buscar
+  salen las dos cosas: TERCEROS y las PERSONAS de contacto que cuelgan de una ficha
+  (`PromoterContact`). Guardar a la persona como `THIRD` con el id de su empresa ponía de contacto a
+  la EMPRESA — se elegía «Paco Producción» y quedaba «Promotora Demo». Por eso hay un tipo
+  **`CONTACT`** con su `contact_id`, que se resuelve EN VIVO desde su ficha como los demás.
+  ⚠️ **Fuera de `TICKETING_CONTACT_KINDS` a propósito**: ese catálogo son los TRES botones del pop-up
+  de «a quién se le piden las ventas» y añadir uno cambiaría esa pantalla; la etiqueta va suelta en
+  `TICKETING_CONTACT_LABELS`.
+
+- ⚠️ **LO QUE EL PROMOTOR RELLENA EN SU FICHA ES UN CONTACTO DE LA ACTIVIDAD** (sep 2026). Los
+  responsables de ticketing, de producción técnica, de producción local y el representante de la
+  empresa se quedaban SOLO en la ficha de contratación y había que volver a apuntarlos a mano. Al
+  CONSOLIDARLA se ponen de contacto (`_activity_contacts_from_sheet`, mapa
+  `CONTRACT_SHEET_CONTACT_FIELDS`) y el flash lo DICE.
+  ⚠️ **Solo en las funciones que estén VACÍAS**: lo que alguien haya puesto a mano no se pisa nunca.

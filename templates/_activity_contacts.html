@@ -20,6 +20,97 @@
                       no se pueden desparejar (antes la ficha lo pintaba por su cuenta, con otro
                       aspecto, en otro orden y escondiendo las funciones sin asignar).
    ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% set ac_live = ac_live if ac_live is defined else false %}
+{% if ac_live %}
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   MODO «SE GUARDA AL SELECCIONAR» (la ficha de una actividad, sep 2026 — lo pidió Dani).
+   No hay botón de editar: en cada función se añade o se quita gente y queda guardado en el acto.
+   · Una función puede tener VARIAS personas (el «+» añade, no sustituye).
+   · Se busca en TODA la base o se crea el tercero al vuelo con el «+» de siempre.
+   ⚠️ Todo va por DELEGACIÓN en `document` (`concert_contacts.js`): esta zona se reemplaza por AJAX
+      al guardar, así que un listener pegado a un nodo de aquí moriría en el primer repintado.
+   ⚠️ El estado lo pinta el SERVIDOR: aquí no se decide nada por JS.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+<div class="row g-3" data-ac-live data-ac-url="{{ url_for('concert_section_update', cid=ac_concert_id, section='contactos') }}">
+  {% for r in ac_rows %}
+    <div class="col-12 col-lg-6">
+      <div class="border rounded-3 p-3 h-100 bg-white" data-ac-role="{{ r.role }}">
+        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+          <i class="fa {{ r.icon }} text-danger"></i>
+          <strong>{{ r.label }}</strong>
+          <span class="ms-auto">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-ac-add
+                    title="Añadir a alguien a {{ r.label }}"><i class="fa fa-plus"></i></button>
+          </span>
+        </div>
+        <div class="small text-muted mb-2">{{ r.help }}</div>
+
+        {# LOS QUE HAY. Cada uno con su «x»: quitarlo también se guarda en el acto. #}
+        {% if r.people %}
+          <div class="d-flex flex-column gap-2 mb-2">
+            {% for p in r.people %}
+              <div class="d-flex align-items-center gap-2">
+                <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
+                     style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto">
+                <div style="min-width:0">
+                  <div class="fw-semibold text-truncate">{{ p.name }}</div>
+                  <div class="small text-muted text-truncate">
+                    {% if p.email %}<a class="text-reset" href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}
+                    {% if p.email and p.phone %} · {% endif %}
+                    {% if p.phone %}<a class="text-reset" href="tel:{{ p.phone }}">{{ p.phone }}</a>{% endif %}
+                  </div>
+                </div>
+                <button type="button" class="btn btn-sm btn-link text-muted ms-auto p-0 px-1"
+                        data-ac-del="{{ p.key }}" title="Quitar a {{ p.name }} de {{ r.label }}">
+                  <i class="fa fa-xmark"></i></button>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {# NADIE TODAVÍA. Si hay alguien PROPUESTO (el de por defecto del promotor, o el propio
+           promotor en Contratación), se pone de un solo clic: eso es lo que ahorra el trabajo. #}
+        {% if not r.people %}
+          {% if r.suggested and r.suggested.name %}
+            <button type="button" class="btn btn-sm btn-outline-danger" data-ac-use-suggested
+                    data-ac-sug-kind="{{ 'PROMOTER' if r.role == 'CONTRATACION' and not r.own else (r.raw.get('kind') if r.raw else 'PROMOTER') }}"
+                    data-ac-sug-id="{{ r.raw.get('promoter_id', '') if r.raw else '' }}">
+              <i class="fa fa-user-check me-1"></i>Poner a {{ r.suggested.name }}
+            </button>
+            <div class="form-text">Es {{ 'el contacto del promotor' if r.role == 'CONTRATACION' else 'quien suele llevarlo con este promotor' }}.</div>
+          {% else %}
+            <div class="text-muted small"><i class="fa fa-circle-minus me-1"></i>Sin asignar ·
+              pulsa <i class="fa fa-plus"></i> para añadir a alguien</div>
+          {% endif %}
+        {% endif %}
+
+        {# EL BUSCADOR, que se abre con el «+». #}
+        <div class="mt-2 d-none" data-ac-picker>
+          <div class="input-group input-group-sm">
+            <input type="search" class="form-control" data-ac-q autocomplete="off"
+                   placeholder="Busca a quien sea: nombre, correo, empresa…">
+            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                    data-target="acNew{{ r.role }}"
+                    data-ac-plus title="Crear la ficha de un tercero"><i class="fa fa-plus"></i></button>
+          </div>
+          {# Lo que se acaba de CREAR con el «+» aterriza aquí (el alta rápida sabe manejar un
+             <select>: le añade la opción y dispara `change`), y de ahí se añade a la función. #}
+          <select class="d-none" id="acNew{{ r.role }}" data-ac-new><option value=""></option></select>
+          {% if r.promoter_chip and r.promoter_chip.name %}
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-ac-pick-promoter>
+              <i class="fa fa-user-tie me-1"></i>El contacto de {{ r.promoter_chip.name }}</button>
+          {% endif %}
+          <div class="mt-1" data-ac-results></div>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{# ⚠️ El FORMULARIO que lleva la acción NO va aquí, sino en la pantalla que usa este modo
+   (`concert_detail.html`): apunta a `#concert-general-zone`, que solo existe en la ficha de una
+   actividad, y este parcial se incluye también en el ASISTENTE —que se pinta en una docena de
+   pantallas donde esa zona no existe— (lo caza `tools/check_botones.py`). #}
+{% else %}
 {% set ac_ask_scope = ac_ask_scope if ac_ask_scope is defined else true %}
 {% set ac_readonly = ac_readonly if ac_readonly is defined else false %}
 {% if not ac_readonly %}<input type="hidden" name="contacts_present" value="1">{% endif %}
@@ -132,3 +223,4 @@
     </div>
   {% endfor %}
 </div>
+{% endif %}

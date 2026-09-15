@@ -33,7 +33,7 @@
    ══════════════════════════════════════════════════════════════════════════════════════════════ #}
 <div class="row g-3" data-ac-live data-ac-url="{{ url_for('concert_section_update', cid=ac_concert_id, section='contactos') }}">
   {% for r in ac_rows %}
-    <div class="col-12 col-lg-6">
+    <div class="{{ 'col-12' if r.role == 'OTROS' else 'col-12 col-lg-6' }}">
       <div class="border rounded-3 p-3 h-100 bg-white" data-ac-role="{{ r.role }}">
         <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
           <i class="fa {{ r.icon }} text-danger"></i>
@@ -53,7 +53,9 @@
                 <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
                      style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto">
                 <div style="min-width:0">
-                  <div class="fw-semibold text-truncate">{{ p.name }}</div>
+                  <div class="fw-semibold text-truncate">{{ p.name }}
+                    {% if p.note %}<span class="badge text-bg-light border fw-normal ms-1">{{ p.note }}</span>{% endif %}
+                  </div>
                   <div class="small text-muted text-truncate">
                     {% if p.email %}<a class="text-reset" href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}
                     {% if p.email and p.phone %} · {% endif %}

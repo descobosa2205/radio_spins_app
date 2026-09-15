@@ -1155,19 +1155,187 @@
     </div>
     {% endif %}
 
-    {# ---------- Descripción de la actividad, primero ---------- #}
-    {% if cpay_g.get('description') %}
-    <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Descripción de la actividad</h6></div>
-      <div class="ficha-section__body">{{ cpay_g.get('description') }}</div>
-    </div>
-    {% endif %}
-
     {# ⚠️⚠️ EL MÓDULO «MÁS INFORMACIÓN DE LA ACTIVIDAD» SE HA RETIRADO (sep 2026, lo pidió Dani):
        era un volcado de TODO lo que no se pintaba arriba, así que repetía lo que ya sale en su
        propio módulo más abajo (el promotor y sus datos, los cachés, el equipamiento, el formato…) y
        obligaba a leer lo mismo dos veces. Cada dato se ve UNA vez, en el módulo al que pertenece.
        ⚠️ `contracting_general_rows` sigue existiendo: lo usan la cabecera y el PDF. #}
+
+    </div><!-- /data-datos-view -->
+
+    {# ══════════ EL ORDEN DE LA FICHA (sep 2026, lo pidió Dani): el PROMOTOR arriba y,
+       debajo, el dinero en el orden en que se piensa — el CACHÉ, lo que se descuenta de él
+       (comisiones y otros gastos) y cómo se cobra (el plan de pago). Después, el resto. #}
+
+    {# CACHÉS: un evento puede tener artistas con caché o solo socios. Si no hay ninguno configurado
+       (ni en la simulación ni en el alta) NO se enseña el módulo: queda solo un botón discreto para
+       añadir uno si más adelante hace falta. #}
+    {% set _hay_caches = concert.caches or promoter_costs_rows %}
+    <div id="concert-caches-view">
+      {% if _hay_caches %}
+        <div class="ficha-section">
+          <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-coins"></i>Cachés</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view" title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+          <div class="ficha-section__body">
+            <div class="ficha-fields">
+            {% for ch in concert.caches %}<div><div class="ficha-field__label">{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div><div class="ficha-field__value">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div></div>{% endfor %}
+            </div>
+            {% if promoter_costs_rows %}
+              <div class="fw-semibold small text-muted mt-3 mb-1"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</div>
+              <div class="ficha-fields">
+                {% for pc in promoter_costs_rows %}
+                  <div>
+                    <div class="ficha-field__label">{{ pc.label }}</div>
+                    <div class="ficha-field__value">
+                      {{ 'Lo gestionamos y facturamos nosotros' if pc.managed_by == 'US' else 'Lo gestiona el promotor' }}
+                      {% if pc.max_amount %} · Máx. {{ pc.max_amount|eur }}{% endif %}
+                      {% if pc.note %}<div class="small text-muted">{{ pc.note }}</div>{% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      {% elif CAN_EDIT_CONCERTS %}
+        <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view">
+          <i class="fa fa-coins me-1"></i>Añadir caché
+        </button>
+      {% endif %}
+    </div>
+    {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section ficha-section__body d-none" id="concert-caches-form" data-section-form data-view="#concert-caches-view" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='caches') }}" data-inline data-inline-target="#concert-general-zone">
+        <div data-rows="cache">{% for ch in concert.caches %}{% set cfg = ch.config or {} %}<script type="application/json" data-row-type="cache">{{ {'cache_kind': (ch.kind or 'FIXED'), 'cache_concept': (ch.concept or ''), 'cache_amount': (ch.amount|string if ch.amount is not none else ''), 'cache_pct': (ch.pct|string if ch.pct is not none else ''), 'cache_pct_base': (ch.pct_base or 'GROSS'), 'cache_var_mode': (cfg.get('mode') or 'FIXED'), 'cache_var_option': (cfg.get('option') or ''), 'cache_from_ticket': (cfg.get('from_ticket')|string if cfg.get('from_ticket') is not none else ''), 'cache_min_tickets': (cfg.get('min_tickets')|string if cfg.get('min_tickets') is not none else ''), 'cache_min_revenue': (cfg.get('min_revenue')|string if cfg.get('min_revenue') is not none else ''), 'cache_ticket_type': (cfg.get('ticket_type') or '')}|tojson }}</script>{% endfor %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="cache"><i class="fa fa-plus me-1"></i>Añadir caché</button>
+
+        {# --- FORMA DE PAGO DEL CACHÉ ---
+           ⚠️ NO es un campo de `ConcertCache`: es `Concert.payment_terms_json`, el plan de pagos con
+           el que después se factura y se cobra. Solo se podía configurar en el asistente, así que en
+           la ficha no había forma de ponerlo ni de corregirlo.
+           ⚠️ Cada fila lleva su `payment_idx[]`: al guardar se CONSERVAN la factura subida y la marca
+           de cobrado de ese pago (`_merge_payment_terms_rows`). Un pago que ya tiene factura o cobro
+           se enseña bloqueado y no se puede borrar desde aquí (para eso están sus tres puntitos). #}
+        <div class="border rounded p-3 mb-3" id="forma-pago-cache">
+          <div class="fw-semibold mb-2"><i class="fa fa-money-bill-transfer me-1 text-danger"></i>Forma de pago del caché</div>
+          <div class="form-text mb-2">Reparte el caché en pagos: concepto, importe y fecha límite de cada uno.</div>
+          <input type="hidden" name="payment_terms_present" value="1">
+          <div data-rows="payment">
+            {% for row in payment_terms %}
+              <script type="application/json" data-row-type="payment">{{ {
+                'payment_idx': (row.idx|string),
+                'payment_concept': (row.concept or ''),
+                'payment_amount': (row.amount|string if row.amount is not none else ''),
+                'payment_due_date': (row.due_date_iso or ''),
+                'payment_cache_ref': (row.cache_ref or ''),
+                'payment_locked': ('1' if (row.invoice_url or row.collected_at) else '')
+              }|tojson }}</script>
+            {% endfor %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary" data-add-row="payment"><i class="fa fa-plus me-1"></i>Añadir pago</button>
+        </div>
+
+        {# --- El promotor cubre otros gastos --- #}
+        {% set pc_payload = concert.promoter_costs_payload or {} %}
+        {% set pc_keys = promoter_costs_rows|map(attribute='key')|list %}
+        <input type="hidden" name="promoter_costs_present" value="1">
+        <div class="border rounded p-3 mb-3">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" name="promoter_costs_enabled" id="concertPcEnabled" value="1" data-pc-toggle {% if pc_payload.get('enabled') %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="concertPcEnabled"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</label>
+          </div>
+          <div class="{% if not pc_payload.get('enabled') %}d-none{% endif %}" data-pc-panel>
+            {% for key, label, icon in PROMOTER_COST_ITEMS %}
+              {% set item = (promoter_costs_rows|selectattr('key', 'equalto', key)|list|first) %}
+              <div class="border rounded p-2 mb-2">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="promoter_cost_item[]" value="{{ key }}" id="pcItem{{ key }}" data-pc-item="{{ key }}" {% if key in pc_keys %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="pcItem{{ key }}"><i class="fa {{ icon }} me-1 text-danger"></i>{{ label }}</label>
+                </div>
+                <div class="row g-2 align-items-end mt-1 {% if key not in pc_keys %}d-none{% endif %}" data-pc-detail="{{ key }}">
+                  <div class="col-lg-5">
+                    <label class="form-label small">¿Qué cubre? (nota)</label>
+                    <input class="form-control" name="promoter_cost_note_{{ key }}" value="{{ item.note if item else '' }}">
+                  </div>
+                  <div class="col-lg-4">
+                    <label class="form-label small d-block">¿Quién lo gestiona?</label>
+                    <div class="d-flex gap-2 flex-wrap">
+                      <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="US" {% if item and item.managed_by == 'US' %}checked{% endif %}><i class="fa fa-file-invoice me-1"></i>Nosotros y facturamos</label>
+                      <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="PROMOTER" {% if not item or item.managed_by != 'US' %}checked{% endif %}><i class="fa fa-handshake me-1"></i>El promotor</label>
+                    </div>
+                  </div>
+                  <div class="col-lg-3">
+                    <label class="form-label small">Importe máx. (€)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="promoter_cost_max_{{ key }}" value="{{ item.max_amount if item and item.max_amount is not none else '' }}" placeholder="Sin límite">
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
+    {# ⚠️ AQUÍ NO VA NINGÚN </div>: «#concert-caches-view» se cierra arriba (antes del
+       formulario) y el formulario se cierra solo. El </div> que había de cuando los cachés
+       eran un único módulo CERRABA «#concert-general-zone» ANTES DE TIEMPO, así que todo lo
+       que viene debajo quedaba FUERA de la zona y no se refrescaba al guardar por AJAX. #}
+
+    {# ⚠️ LAS COMISIONES SE VEN SIEMPRE (antes solo si el concierto NO era «vendido», así que en la
+       mayoría no se podían ni añadir). Cada una dice cómo se aplica: si es un GASTO sobre el caché
+       —y entonces va a la bolsa, categoría «Comisiones»— o si REDUCE el caché, que entonces se ve
+       ya descontado y no se le comunica al artista como concepto aparte. #}
+    <div class="ficha-section" id="comisiones">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisiones y otros gastos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if commission_rows %}
+          {% for z in commission_rows %}
+          <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap py-2{% if not loop.last %} border-bottom{% endif %}">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+              {% if z.logo_url %}<img src="{{ z.logo_url }}" alt="" data-avatar="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">{% endif %}
+              <div class="min-w-0">
+                <span class="fw-semibold">{{ z.name }}</span>
+                {% if z.concept %}<span class="text-muted"> · {{ z.concept }}</span>{% endif %}
+                <div class="small d-flex flex-wrap gap-1">
+                  {# QUÉ ES (comisión u otro gasto) y, si es un gasto, DE QUÉ tipo: es lo que decide
+                     con qué categoría entra en la bolsa y dónde sale en la liquidación. #}
+                  <span class="badge text-bg-light border"><i class="fa {{ z.entry_icon }} me-1"></i>{{ z.entry_label }}</span>
+                  {% if z.category_label %}<span class="badge text-bg-light border"><i class="fa {{ z.category_icon }} me-1"></i>{{ z.category_label }}</span>{% endif %}
+                  <span class="badge text-bg-light border"><i class="fa {{ z.apply_icon }} me-1"></i>{{ z.apply_label }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-semibold text-nowrap">{% if z.is_fixed %}{{ z.amount_label }}{% else %}{{ z.pct_label }} · {{ z.base_label }}{% endif %}</span>
+              {% if z.invoice_url %}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ z.invoice_url }}" target="_blank" rel="noopener"
+                   title="{{ z.invoice_name or 'Factura' }}"><i class="fa fa-file-invoice"></i></a>
+              {% elif CAN_EDIT_CONCERTS %}
+                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                        data-bs-target="#commissionInvoiceModal" data-commission-id="{{ z.id }}"
+                        data-commission-name="{{ z.name }}"><i class="fa fa-upload me-1"></i>Subir factura</button>
+                <form method="post" action="{{ url_for('concert_commission_request_invoice', cid=concert.id, agent_id=z.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-secondary" {% if z.invoice_requested %}disabled{% endif %}
+                          title="Pedirle la factura a quien corresponda">
+                    <i class="fa fa-paper-plane me-1"></i>{{ 'Solicitada' if z.invoice_requested else 'Solicitar factura' }}</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}<div class="ficha-empty">Sin comisiones. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
+      </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='comisionistas') }}" data-inline data-inline-target="#concert-general-zone">
+        {# El catálogo de TIPOS DE GASTO para las filas que monta `concert_form.js`: el MISMO de la
+           bolsa, así un gasto apuntado aquí y uno apuntado allí se clasifican igual.
+           ⚠️ `|tojson` A SECAS dentro de un <script> (con `forceescape` se rompe el JS). #}
+        <script>window.APP33_EXPENSE_CATEGORIES = {{ SIM_EXPENSE_CATEGORIES|map('list')|list|tojson }};</script>
+        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or ''), 'zone_apply_mode': (z.apply_mode or 'EXPENSE'), 'zone_local': ('1' if z.is_local_production else '0'), 'zone_entry_kind': (z.entry_kind or 'COMMISSION'), 'zone_category': (z.expense_category or '')}|tojson }}</script>{% endfor %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="zone"><i class="fa fa-plus me-1"></i>Añadir comisión</button>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
+    </div>
 
     {% if payment_terms or (cache_payment and cache_payment.applies) %}
     {# El id es el destino de las tareas de FACTURAR y COBRAR del módulo de Contratación. #}
@@ -1265,7 +1433,14 @@
     </div>
     {% endif %}
 
-    </div><!-- /data-datos-view -->
+    {# ---------- Descripción de la actividad, primero ---------- #}
+    {% if cpay_g.get('description') %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Descripción de la actividad</h6></div>
+      <div class="ficha-section__body">{{ cpay_g.get('description') }}</div>
+    </div>
+    {% endif %}
+
 
     {# ---------- Secciones consolidadas (vista + edición inline por sección) ---------- #}
     {% set cpay = concert.contracting_payload or {} %}
@@ -1409,48 +1584,11 @@
       </div>
     </div>
 
-    {# ---------- OTRAS personas de contacto (funciones libres: producción · ticketing ·
-         comunicación). ⚠️ Es OTRO sistema, el del `cc-picker`, y conserva su botón de editar: lo
-         que Dani pidió sin lápiz es el módulo de las funciones de arriba. ---------- #}
-    <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-group"></i>Otras personas de contacto</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
-      <div class="ficha-section__body" data-section-view>
-        {% if concert_contacts %}
-          <div class="cc-list">
-            {% for p in concert_contacts %}
-              <div class="cc-card">
-                <div class="cc-card__avatar"><i class="fa fa-user"></i></div>
-                <div style="min-width:0;">
-                  <div class="cc-card__name">{{ p.name }}</div>
-                  {% if p.email or p.phone %}
-                    <div class="cc-card__meta">
-                      {% if p.email %}<a href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}
-                      {% if p.email and p.phone %} · {% endif %}
-                      {% if p.phone %}<a href="tel:{{ p.phone }}">{{ p.phone }}</a>{% endif %}
-                    </div>
-                  {% endif %}
-                  {% if p.promoter_name %}<div class="cc-card__meta">{{ p.promoter_name }}</div>{% endif %}
-                  <div class="cc-tags">
-                    {% for r in p.roles %}<span class="cc-tag"><i class="fa {{ r.icon }}"></i>{{ r.label }}</span>{% endfor %}
-                  </div>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="ficha-empty">Nadie más. Pulsa <i class="fa fa-pen"></i> para añadir a quien
-            lleve producción, ticketing o comunicación.</div>
-        {% endif %}
-      </div>
-      {% if CAN_EDIT_CONCERTS %}
-      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='contactos') }}" data-inline data-inline-target="#concert-general-zone">
-        {% with cc_id='fichaContacts', cc_concert_id=concert.id, cc_promoter_input='#concertDatosPromoter', cc_promoter_id=(concert.promoter_id|string if concert.promoter_id else ''), cc_selected=concert_contacts_roles %}
-          {% include '_concert_contacts_picker.html' %}
-        {% endwith %}
-        <div class="d-flex justify-content-end gap-2 mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
-      </form>
-      {% endif %}
-    </div>
+    {# ⚠️⚠️ «OTRAS PERSONAS DE CONTACTO» YA NO ES UN MÓDULO APARTE (sep 2026, lo pidió Dani): es la
+       QUINTA categoría del módulo de Contactos de arriba, con el mismo «+», la misma «x» y el mismo
+       guardado al seleccionar. Había DOS cajas de contactos en la misma pantalla, cada una con su
+       forma de añadir gente y una con botón de editar y la otra no. Lo que ya estaba apuntado por el
+       sistema anterior (`ConcertContact`) se sigue viendo, dentro de esa tarjeta. #}
 
     {# ⚠️ COLABORADORES: en un concierto «vendido» no hay socios ni participaciones. #}
     {% if concert.sale_type != 'VENDIDO' %}
@@ -1476,118 +1614,6 @@
     </div>
 
     {% endif %}{# /colaboradores: solo si no es un concierto «vendido» #}
-    {# CACHÉS: un evento puede tener artistas con caché o solo socios. Si no hay ninguno configurado
-       (ni en la simulación ni en el alta) NO se enseña el módulo: queda solo un botón discreto para
-       añadir uno si más adelante hace falta. #}
-    {% set _hay_caches = concert.caches or promoter_costs_rows %}
-    <div id="concert-caches-view">
-      {% if _hay_caches %}
-        <div class="ficha-section">
-          <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-coins"></i>Cachés</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view" title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
-          <div class="ficha-section__body">
-            <div class="ficha-fields">
-            {% for ch in concert.caches %}<div><div class="ficha-field__label">{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div><div class="ficha-field__value">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div></div>{% endfor %}
-            </div>
-            {% if promoter_costs_rows %}
-              <div class="fw-semibold small text-muted mt-3 mb-1"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</div>
-              <div class="ficha-fields">
-                {% for pc in promoter_costs_rows %}
-                  <div>
-                    <div class="ficha-field__label">{{ pc.label }}</div>
-                    <div class="ficha-field__value">
-                      {{ 'Lo gestionamos y facturamos nosotros' if pc.managed_by == 'US' else 'Lo gestiona el promotor' }}
-                      {% if pc.max_amount %} · Máx. {{ pc.max_amount|eur }}{% endif %}
-                      {% if pc.note %}<div class="small text-muted">{{ pc.note }}</div>{% endif %}
-                    </div>
-                  </div>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-        </div>
-      {% elif CAN_EDIT_CONCERTS %}
-        <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view">
-          <i class="fa fa-coins me-1"></i>Añadir caché
-        </button>
-      {% endif %}
-    </div>
-    {% if CAN_EDIT_CONCERTS %}
-      <form class="ficha-section ficha-section__body d-none" id="concert-caches-form" data-section-form data-view="#concert-caches-view" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='caches') }}" data-inline data-inline-target="#concert-general-zone">
-        <div data-rows="cache">{% for ch in concert.caches %}{% set cfg = ch.config or {} %}<script type="application/json" data-row-type="cache">{{ {'cache_kind': (ch.kind or 'FIXED'), 'cache_concept': (ch.concept or ''), 'cache_amount': (ch.amount|string if ch.amount is not none else ''), 'cache_pct': (ch.pct|string if ch.pct is not none else ''), 'cache_pct_base': (ch.pct_base or 'GROSS'), 'cache_var_mode': (cfg.get('mode') or 'FIXED'), 'cache_var_option': (cfg.get('option') or ''), 'cache_from_ticket': (cfg.get('from_ticket')|string if cfg.get('from_ticket') is not none else ''), 'cache_min_tickets': (cfg.get('min_tickets')|string if cfg.get('min_tickets') is not none else ''), 'cache_min_revenue': (cfg.get('min_revenue')|string if cfg.get('min_revenue') is not none else ''), 'cache_ticket_type': (cfg.get('ticket_type') or '')}|tojson }}</script>{% endfor %}</div>
-        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="cache"><i class="fa fa-plus me-1"></i>Añadir caché</button>
-
-        {# --- FORMA DE PAGO DEL CACHÉ ---
-           ⚠️ NO es un campo de `ConcertCache`: es `Concert.payment_terms_json`, el plan de pagos con
-           el que después se factura y se cobra. Solo se podía configurar en el asistente, así que en
-           la ficha no había forma de ponerlo ni de corregirlo.
-           ⚠️ Cada fila lleva su `payment_idx[]`: al guardar se CONSERVAN la factura subida y la marca
-           de cobrado de ese pago (`_merge_payment_terms_rows`). Un pago que ya tiene factura o cobro
-           se enseña bloqueado y no se puede borrar desde aquí (para eso están sus tres puntitos). #}
-        <div class="border rounded p-3 mb-3" id="forma-pago-cache">
-          <div class="fw-semibold mb-2"><i class="fa fa-money-bill-transfer me-1 text-danger"></i>Forma de pago del caché</div>
-          <div class="form-text mb-2">Reparte el caché en pagos: concepto, importe y fecha límite de cada uno.</div>
-          <input type="hidden" name="payment_terms_present" value="1">
-          <div data-rows="payment">
-            {% for row in payment_terms %}
-              <script type="application/json" data-row-type="payment">{{ {
-                'payment_idx': (row.idx|string),
-                'payment_concept': (row.concept or ''),
-                'payment_amount': (row.amount|string if row.amount is not none else ''),
-                'payment_due_date': (row.due_date_iso or ''),
-                'payment_cache_ref': (row.cache_ref or ''),
-                'payment_locked': ('1' if (row.invoice_url or row.collected_at) else '')
-              }|tojson }}</script>
-            {% endfor %}
-          </div>
-          <button type="button" class="btn btn-sm btn-outline-primary" data-add-row="payment"><i class="fa fa-plus me-1"></i>Añadir pago</button>
-        </div>
-
-        {# --- El promotor cubre otros gastos --- #}
-        {% set pc_payload = concert.promoter_costs_payload or {} %}
-        {% set pc_keys = promoter_costs_rows|map(attribute='key')|list %}
-        <input type="hidden" name="promoter_costs_present" value="1">
-        <div class="border rounded p-3 mb-3">
-          <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" name="promoter_costs_enabled" id="concertPcEnabled" value="1" data-pc-toggle {% if pc_payload.get('enabled') %}checked{% endif %}>
-            <label class="form-check-label fw-semibold" for="concertPcEnabled"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</label>
-          </div>
-          <div class="{% if not pc_payload.get('enabled') %}d-none{% endif %}" data-pc-panel>
-            {% for key, label, icon in PROMOTER_COST_ITEMS %}
-              {% set item = (promoter_costs_rows|selectattr('key', 'equalto', key)|list|first) %}
-              <div class="border rounded p-2 mb-2">
-                <div class="form-check">
-                  <input class="form-check-input" type="checkbox" name="promoter_cost_item[]" value="{{ key }}" id="pcItem{{ key }}" data-pc-item="{{ key }}" {% if key in pc_keys %}checked{% endif %}>
-                  <label class="form-check-label fw-semibold" for="pcItem{{ key }}"><i class="fa {{ icon }} me-1 text-danger"></i>{{ label }}</label>
-                </div>
-                <div class="row g-2 align-items-end mt-1 {% if key not in pc_keys %}d-none{% endif %}" data-pc-detail="{{ key }}">
-                  <div class="col-lg-5">
-                    <label class="form-label small">¿Qué cubre? (nota)</label>
-                    <input class="form-control" name="promoter_cost_note_{{ key }}" value="{{ item.note if item else '' }}">
-                  </div>
-                  <div class="col-lg-4">
-                    <label class="form-label small d-block">¿Quién lo gestiona?</label>
-                    <div class="d-flex gap-2 flex-wrap">
-                      <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="US" {% if item and item.managed_by == 'US' %}checked{% endif %}><i class="fa fa-file-invoice me-1"></i>Nosotros y facturamos</label>
-                      <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="PROMOTER" {% if not item or item.managed_by != 'US' %}checked{% endif %}><i class="fa fa-handshake me-1"></i>El promotor</label>
-                    </div>
-                  </div>
-                  <div class="col-lg-3">
-                    <label class="form-label small">Importe máx. (€)</label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="promoter_cost_max_{{ key }}" value="{{ item.max_amount if item and item.max_amount is not none else '' }}" placeholder="Sin límite">
-                  </div>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-        </div>
-        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
-      </form>
-      {% endif %}
-    {# ⚠️ AQUÍ NO VA NINGÚN </div>: «#concert-caches-view» se cierra arriba (antes del
-       formulario) y el formulario se cierra solo. El </div> que había de cuando los cachés
-       eran un único módulo CERRABA «#concert-general-zone» ANTES DE TIEMPO, así que todo lo
-       que viene debajo quedaba FUERA de la zona y no se refrescaba al guardar por AJAX. #}
-
     {# ---------- Entradas y venta ---------- #}
     {% set tpay = concert.ticketing_payload or {} %}
     {% set tseller = tpay.get('sale_seller') or {} %}
@@ -1739,64 +1765,6 @@
        de «no vendido», así que en un concierto VENDIDO —que es justo el que tiene caché—
        no se pintaban ni el módulo ni su formulario, y el aviso de «configura la forma de
        pago» apuntaba a un formulario que no existía en la página: no hacía nada. #}
-
-    {# ⚠️ LAS COMISIONES SE VEN SIEMPRE (antes solo si el concierto NO era «vendido», así que en la
-       mayoría no se podían ni añadir). Cada una dice cómo se aplica: si es un GASTO sobre el caché
-       —y entonces va a la bolsa, categoría «Comisiones»— o si REDUCE el caché, que entonces se ve
-       ya descontado y no se le comunica al artista como concepto aparte. #}
-    <div class="ficha-section" id="comisiones">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisiones y otros gastos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
-      <div class="ficha-section__body" data-section-view>
-        {% if commission_rows %}
-          {% for z in commission_rows %}
-          <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap py-2{% if not loop.last %} border-bottom{% endif %}">
-            <div class="d-flex align-items-center gap-2 min-w-0">
-              {% if z.logo_url %}<img src="{{ z.logo_url }}" alt="" data-avatar="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">{% endif %}
-              <div class="min-w-0">
-                <span class="fw-semibold">{{ z.name }}</span>
-                {% if z.concept %}<span class="text-muted"> · {{ z.concept }}</span>{% endif %}
-                <div class="small d-flex flex-wrap gap-1">
-                  {# QUÉ ES (comisión u otro gasto) y, si es un gasto, DE QUÉ tipo: es lo que decide
-                     con qué categoría entra en la bolsa y dónde sale en la liquidación. #}
-                  <span class="badge text-bg-light border"><i class="fa {{ z.entry_icon }} me-1"></i>{{ z.entry_label }}</span>
-                  {% if z.category_label %}<span class="badge text-bg-light border"><i class="fa {{ z.category_icon }} me-1"></i>{{ z.category_label }}</span>{% endif %}
-                  <span class="badge text-bg-light border"><i class="fa {{ z.apply_icon }} me-1"></i>{{ z.apply_label }}</span>
-                </div>
-              </div>
-            </div>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <span class="fw-semibold text-nowrap">{% if z.is_fixed %}{{ z.amount_label }}{% else %}{{ z.pct_label }} · {{ z.base_label }}{% endif %}</span>
-              {% if z.invoice_url %}
-                <a class="btn btn-sm btn-outline-secondary" href="{{ z.invoice_url }}" target="_blank" rel="noopener"
-                   title="{{ z.invoice_name or 'Factura' }}"><i class="fa fa-file-invoice"></i></a>
-              {% elif CAN_EDIT_CONCERTS %}
-                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
-                        data-bs-target="#commissionInvoiceModal" data-commission-id="{{ z.id }}"
-                        data-commission-name="{{ z.name }}"><i class="fa fa-upload me-1"></i>Subir factura</button>
-                <form method="post" action="{{ url_for('concert_commission_request_invoice', cid=concert.id, agent_id=z.id) }}" class="d-inline">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-sm btn-outline-secondary" {% if z.invoice_requested %}disabled{% endif %}
-                          title="Pedirle la factura a quien corresponda">
-                    <i class="fa fa-paper-plane me-1"></i>{{ 'Solicitada' if z.invoice_requested else 'Solicitar factura' }}</button>
-                </form>
-              {% endif %}
-            </div>
-          </div>
-          {% endfor %}
-        {% else %}<div class="ficha-empty">Sin comisiones. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
-      </div>
-      {% if CAN_EDIT_CONCERTS %}
-      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='comisionistas') }}" data-inline data-inline-target="#concert-general-zone">
-        {# El catálogo de TIPOS DE GASTO para las filas que monta `concert_form.js`: el MISMO de la
-           bolsa, así un gasto apuntado aquí y uno apuntado allí se clasifican igual.
-           ⚠️ `|tojson` A SECAS dentro de un <script> (con `forceescape` se rompe el JS). #}
-        <script>window.APP33_EXPENSE_CATEGORIES = {{ SIM_EXPENSE_CATEGORIES|map('list')|list|tojson }};</script>
-        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or ''), 'zone_apply_mode': (z.apply_mode or 'EXPENSE'), 'zone_local': ('1' if z.is_local_production else '0'), 'zone_entry_kind': (z.entry_kind or 'COMMISSION'), 'zone_category': (z.expense_category or '')}|tojson }}</script>{% endfor %}</div>
-        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="zone"><i class="fa fa-plus me-1"></i>Añadir comisión</button>
-        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
-      </form>
-      {% endif %}
-    </div>
 
     {% set eq = concert.equipment %}
     {% set eq_option = '' %}

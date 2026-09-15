@@ -1710,3 +1710,20 @@
   previa se pinta ya con ese módulo oculto, y de ahí en adelante el front manda la lista de ocultos
   como siempre. Al revés —que salieran de serie— sería mandarle al artista sin querer lo que se
   apunta en casa.
+
+- ⚠️⚠️ **«OTRAS PERSONAS DE CONTACTO» ES UNA CATEGORÍA DEL MÓDULO, NO UN MÓDULO APARTE** (sep 2026,
+  lo pidió Dani). Había **DOS cajas de contactos** en la misma pantalla —las cuatro funciones, y
+  aparte «Otras personas» con su propio botón de editar y su propio sistema (`ConcertContact` + el
+  `cc-picker`)—, cada una con su forma de añadir gente. Ahora **`OTROS` es la quinta entrada de
+  `ACTIVITY_CONTACT_ROLES`**: misma tarjeta, mismo «+», misma «x» y el mismo guardado al seleccionar,
+  a ancho completo porque es una lista y no una función de una persona.
+  ⚠️ Lo que ya estaba apuntado con el sistema anterior **se sigue viendo ahí dentro**, con la función
+  que tenía como etiqueta; su clave lleva el prefijo **`cc:`** para que quitarla borre SU fila
+  (`ConcertContact`) y no la busque en el payload, donde no está.
+
+- **EL ORDEN DE LA FICHA** (sep 2026, lo pidió Dani): el **promotor** arriba y, debajo, el dinero en
+  el orden en que se piensa — el **caché**, lo que se descuenta de él (**comisiones y otros gastos**)
+  y cómo se cobra (**el plan de pago**). Después, el resto.
+  ⚠️ Cachés, comisiones y el plan estaban repartidos entre dentro y fuera de `data-datos-view` (la
+  zona que se oculta al editar los Datos): los tres van ahora **fuera**, así que editar los datos ya
+  no esconde el dinero.

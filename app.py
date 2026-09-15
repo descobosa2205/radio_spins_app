@@ -70579,7 +70579,20 @@ def concert_section_update_handler(cid, section):
                 if not _rol:
                     raise ValueError("No sé de qué función es ese contacto.")
                 if _accion == "remove":
-                    if _activity_contact_remove(c, _rol, request.form.get("cc_key")):
+                    _clave = (request.form.get("cc_key") or "").strip()
+                    # ⚠️ Una persona que venía del sistema ANTERIOR (`ConcertContact`) se quita
+                    # borrando SU fila: en el payload no está, así que buscarla ahí no haría nada
+                    # y el botón parecería no funcionar.
+                    if _clave.startswith("cc:"):
+                        _cid = _safe_uuid(_clave[3:])
+                        _n = (session.query(ConcertContact)
+                              .filter(ConcertContact.concert_id == c.id,
+                                      ConcertContact.contact_id == _cid).delete(synchronize_session=False)
+                              if _cid else 0)
+                        session.commit()
+                        flash("Contacto quitado." if _n else "Ese contacto ya no estaba.",
+                              "success" if _n else "info")
+                    elif _activity_contact_remove(c, _rol, _clave):
                         session.commit()
                         flash("Contacto quitado de %s." % ACTIVITY_CONTACT_LABELS.get(_rol, "la función"), "success")
                 else:
@@ -125108,6 +125121,13 @@ ACTIVITY_CONTACT_ROLES = (
      "Quien está en el sitio el día de la actividad."),
     ("CONTRATACION", "Contratación", "fa-file-signature",
      "Con quien se cierran el contrato y la facturación."),
+    # ⚠️⚠️ «OTRAS PERSONAS DE CONTACTO» ES UNA CATEGORÍA MÁS, NO UN MÓDULO APARTE (sep 2026, lo pidió
+    # Dani). Estaba en su propia sección de la ficha, con su propio botón de editar y su propio
+    # sistema (`ConcertContact` + el `cc-picker`): dos cajas de contactos en la misma pantalla, cada
+    # una con su forma de añadir gente. Ahora es la QUINTA tarjeta del módulo, con el mismo «+», la
+    # misma «x» y el mismo guardado al seleccionar que las otras cuatro.
+    ("OTROS", "Otras personas de contacto", "fa-user-group",
+     "Cualquier otra persona que haga falta para esta actividad."),
 )
 ACTIVITY_CONTACT_LABELS = {k: l for k, l, _i, _h in ACTIVITY_CONTACT_ROLES}
 ACTIVITY_CONTACT_ICONS = {k: i for k, _l, i, _h in ACTIVITY_CONTACT_ROLES}
@@ -125623,6 +125643,25 @@ def _activity_contacts_context(session_db, concert, *, promoter=None) -> list:
                                    or ("PROMOTER" if (f.get("kind") or "") == "PROMOTER" else "")
                                    or str(f.get("promoter_id") or "")
                                    or (f.get("email") or ""))))
+        # ⚠️ Las «otras personas» que ya había en el sistema ANTERIOR (`ConcertContact`, el que
+        # llenaba el `cc-picker`) se enseñan en ESTA MISMA tarjeta: no se pierde nada de lo que ya
+        # estaba apuntado y se ve todo junto, que es lo que pidió Dani. Su clave lleva el prefijo
+        # `cc:` para que quitarla borre su fila y no busque en el payload.
+        if rol == "OTROS" and concert is not None:
+            _ya = {str(g.get("key") or "") for g in gente}
+            try:
+                for _cc in _concert_contact_rows(concert):
+                    _clave = "cc:" + str(_cc.get("id") or "")
+                    if _clave in _ya or str(_cc.get("id") or "") in _ya:
+                        continue
+                    gente.append({
+                        "name": _cc.get("name") or "", "email": _cc.get("email") or "",
+                        "phone": _cc.get("phone") or "", "photo": _cc.get("photo") or "",
+                        "kind": "CONTACT", "key": _clave,
+                        "note": " · ".join([r["label"] for r in (_cc.get("roles") or [])]),
+                    })
+            except Exception:
+                app.logger.exception("[contactos] no se pudieron leer las otras personas")
         filas.append({
             "role": rol, "label": etiqueta, "icon": icono, "help": ayuda,
             "raw": propio or defecto,          # con qué se pinta el formulario de siempre

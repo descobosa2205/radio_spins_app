@@ -35,6 +35,7 @@
 - HOJA DE RUTA · MANDARLE UN MENSAJE AL PERSONAL. «Mañana el bus sale a las 8:30» hay
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
+- TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
 
 ---
 
@@ -887,3 +888,34 @@
   el M&G con su espacio y dos personas, la comida con reserva, la citación sin fin, la persona nueva
   como tercero del promotor). Probado además en el navegador con la app real (los seis tipos, la hoja
   compartida sin sesión con `CSS1Compat` y un solo `<!doctype>`).
+
+- ⚠️ **TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo**
+  (sep 2026, lo pidió Dani, lote 2). La compañía de un traslado era un texto libre (y el logo, una
+  URL a mano), así que cada vez se escribía distinto y el logo casi nunca estaba. Ahora es una
+  base de datos propia: **Bases de datos → Compañías de transporte** (`TransportCompany`,
+  `/companias-transporte`, `templates/transport_companies.html`): el nombre, el **logo en PNG sin
+  fondo** (se admite cualquier imagen, pero la pantalla lo pide así y lo enseña sobre un damero
+  para que se vea que va sin fondo) y **los TIPOS de transporte que cubre** (`kinds`, claves de
+  `ROADMAP_TRANSPORT_MODES`; puede ser más de uno: una empresa de autobuses que hace transfers).
+  · **Punto único de lectura: `_transport_company_rows(session_db, kind)`** —la pantalla, las dos
+  APIs y el contexto de la hoja de ruta (`CTX.transport_companies`) salen de ahí— y de guardado
+  **`_transport_company_save`** (la pantalla y el alta desde el asistente, el mismo: sin nombre, sin
+  ningún tipo o con un nombre repetido no se guarda).
+  · **En el asistente de un traslado** (`companyBlock` en `roadmap.js`), el paso «Compañía» ofrece
+  **las de ESE tipo como tarjetas con su logo** (`companyCards`, con `promo-pick--logo`: un logo no
+  va en redondo como una cara), un buscador entre TODAS (`api_search_transport_companies`, por
+  nombre sin acentos y con `kind=` opcional) y el alta ahí mismo con nombre y logo
+  (`api_create_transport_company`, multipart; queda en la base como compañía de ese tipo). Las dos
+  APIs van en las listas de APOYO: lo hace quien monta la producción.
+  · **El traslado guarda `company_id`** (validado como UUID) además de `company` y `logo_url`; en
+  los horarios **`companyLogo(t)` pinta el logo ACTUAL de la base por `company_id`** (un logo que se
+  cambie se ve al momento en todas las hojas de ruta) y, si la compañía ya no existe, el que se
+  guardó con el punto. `.rm-transport-line img` pasa a 22 px de alto para que se vea.
+  · **Permisos**: recurso `databases.transport_companies` (TAB de Bases de datos) en el catálogo, el
+  alias de ruta, **los DOS resolutores** (`_coarse_endpoint_resource` y `_resolve_request_resource_key`,
+  por `transport_companies_view` y el prefijo `transport_company_`), la URL por defecto y el menú:
+  las cinco cosas, si no la pestaña se ve y da 403 (la trampa de siempre). ⚠️ Un recurso NUEVO nace
+  sin concesiones: **dirección lo ve; a producción hay que concedérselo en Accesos** (las APIs del
+  asistente no lo necesitan).
+  · **La tabla la crea `create_all` al arrancar** (`_create_all_once`): no hace falta `ensure_*`.
+  · Prueba de regresión: `check_hoja_ruta.py`, apartado 11; `tools/check_access_coverage.py` en verde.

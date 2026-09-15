@@ -1141,7 +1141,8 @@ button.rm-act__fact{ background:none; border:0; padding:0; font:inherit; color:i
 .rm-tag.sheet{background:#e8f1f5;color:#0b6e8f;}
 .rm-item .rm-meta{display:flex;gap:.5rem;align-items:center;color:#adb5bd;font-size:.8rem;}
 .rm-transport-line{display:flex;align-items:center;gap:.45rem;font-size:.83rem;color:#495057;margin-top:.15rem;flex-wrap:wrap;}
-.rm-transport-line img{height:16px;max-width:52px;object-fit:contain;}
+/* El LOGO de la compañía (PNG sin fondo, de Bases de datos → Compañías de transporte): que se vea. */
+.rm-transport-line img{height:22px;max-width:90px;object-fit:contain;}
 
 /* Hoteles */
 .rm-hotel{display:flex;gap:.9rem;border:1px solid rgba(0,0,0,.08);border-radius:16px;padding:.8rem;background:#fff;position:relative;}
@@ -8034,3 +8035,8 @@ body.accsc-open{ overflow:hidden; }
 .dz-file__n{ min-width:0; font-size:.8rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dz-file--img{ flex-direction:column; align-items:stretch; width:110px; max-width:110px; padding:.25rem; }
 .dz-file--img img{ width:100%; height:80px; object-fit:cover; border-radius:.35rem; }
+
+/* COMPAÑÍAS DE TRANSPORTE (Bases de datos): el logo sobre un damero suave, para ver que va sin fondo. */
+.tc-logo{ width:56px; height:40px; object-fit:contain; border-radius:8px; padding:3px; border:1px solid #eef0f3;
+  background:repeating-conic-gradient(#f1f3f5 0 25%, #fff 0 50%) 0 0 / 12px 12px; display:inline-grid; place-items:center; }
+.tc-logo--empty{ color:#adb5bd; background:#f8f9fa; }

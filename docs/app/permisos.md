@@ -407,3 +407,8 @@
   ⚠️ Y `_concert_list_visible` lee la sesión, así que **fuera de una petición** (un cron, un hilo) va
   protegido: ahí se trata como que no se ve lo que no está confirmado, que es lo prudente.
 
+- **Bases de datos → Compañías de transporte** (sep 2026): recurso `databases.transport_companies`
+  (TAB). Endpoints `transport_companies_view` + prefijo `transport_company_` en los DOS resolutores;
+  las APIs del asistente de la hoja de ruta (`api_search_transport_companies`,
+  `api_create_transport_company`) van en las listas de APOYO. Nace sin concesiones: dirección lo ve
+  y a quien lo necesite se le concede en Accesos. Detalle en `produccion-hoja-ruta.md`.

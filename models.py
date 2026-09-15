@@ -3193,6 +3193,24 @@ class Ticketer(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class TransportCompany(Base):
+    """COMPAÑÍAS DE TRANSPORTE (sep 2026, lo pidió Dani): la aerolínea, la compañía de tren, la
+    naviera, la empresa de autobuses, de VTC o de transfers, con su LOGO EN PNG SIN FONDO y los TIPOS
+    de transporte que cubre (`kinds`: claves de `ROADMAP_TRANSPORT_MODES`, en app.py). Al montar un
+    traslado en la hoja de ruta se elige de aquí —solo las de ese tipo— y su logo sale en los
+    horarios. Se gestionan en Bases de datos → Compañías de transporte."""
+
+    __tablename__ = "transport_companies"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False, unique=True)
+    logo_url = Column(Text)
+    link_url = Column(Text)
+    kinds = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ConcertSalesConfig(Base):
     """Configuración de ventas por concierto (IVA/SGAE)."""
 

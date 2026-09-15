@@ -39,6 +39,7 @@
     function ruleHas(list, kind) { return (RULES[list] || []).indexOf(kind) >= 0; }
     var MG_COUNT = CTX.meet_greet_count || '';
     var CONTACT_SUG = CTX.contact_suggestions || [];
+    var COMPANIES = CTX.transport_companies || [];   // las compañías de transporte de la base, con su logo
     var view = document.getElementById('rmView');
     // Pestaña de arranque: la primera que exista (una plantilla de personal solo tiene «personal»).
     // ⚠️ LA ACTIVIDAD va la primera, y solo cuando la hay (una plantilla no es ninguna actividad).
@@ -1092,7 +1093,7 @@
         var t = it.transport;
         var route = [t.origin, t.destination].filter(Boolean).map(esc).join(' → ');
         var np = (t.passengers || []).length;
-        transLine = '<div class="rm-transport-line">' + (t.logo_url ? '<img src="' + esc(t.logo_url) + '">' : '') + (t.company ? '<span>' + esc(t.company) + '</span>' : '') + (t.number ? '<span>' + esc(t.number) + '</span>' : '') + (route ? '<span>' + route + '</span>' : '') + (t.duration ? '<span>· ' + esc(t.duration) + '</span>' : '') + (np ? '<span>· <i class="fa fa-user-group"></i> ' + np + '</span>' : '') + '</div>';
+        transLine = '<div class="rm-transport-line">' + (companyLogo(t) ? '<img src="' + esc(companyLogo(t)) + '" alt="">' : '') + (t.company ? '<span>' + esc(t.company) + '</span>' : '') + (t.number ? '<span>' + esc(t.number) + '</span>' : '') + (route ? '<span>' + route + '</span>' : '') + (t.duration ? '<span>· ' + esc(t.duration) + '</span>' : '') + (np ? '<span>· <i class="fa fa-user-group"></i> ' + np + '</span>' : '') + '</div>';
         if (t.ends_next_day) tags += '<span class="rm-tag plus1">Fin +1</span>';
       }
       var meta = '';
@@ -1220,9 +1221,10 @@
 
     /* Una TARJETA de elegir (las de toda la app: `.promo-pick`). `img` manda sobre el icono. */
     function wzPick(o) {
-      var vis = o.img ? '<img src="' + esc(o.img) + '" alt="">'
+      // `imgCls`/`cls`: un LOGO (una compañía de transporte) no va en redondo como una cara.
+      var vis = o.img ? '<img src="' + esc(o.img) + '" alt=""' + (o.imgCls ? ' class="' + esc(o.imgCls) + '"' : '') + '>'
                       : '<i class="fa ' + esc(o.icon || 'fa-circle') + '"></i>';
-      return '<label class="promo-pick"><input type="' + (o.multi ? 'checkbox' : 'radio') + '" name="' + esc(o.name) + '"'
+      return '<label class="promo-pick' + (o.cls ? ' ' + esc(o.cls) : '') + '"><input type="' + (o.multi ? 'checkbox' : 'radio') + '" name="' + esc(o.name) + '"'
         + ' value="' + esc(o.value) + '"' + (o.checked ? ' checked' : '') + (o.attrs || '') + '>'
         + '<span class="promo-pick__box">' + vis
         + '<span class="promo-pick__name">' + esc(o.label) + '</span>'
@@ -1271,6 +1273,110 @@
       if (window.app33StepWizard) window.app33StepWizard.init(root);
       var inst = bs(id); if (inst) inst.show();
       return m;
+    }
+
+    // ------------------------------------------------- la compañía de un traslado
+    /* LA COMPAÑÍA de un traslado (sep 2026, lo pidió Dani): se elige de Bases de datos → Compañías de
+       transporte —solo las de ESE tipo, como tarjetas con su logo—, se busca cualquier otra o se crea
+       aquí mismo (nombre y, si se tiene, el logo en PNG sin fondo; queda en la base como compañía de
+       ese tipo). Su logo sale en los horarios: `companyLogo` mira la base por `company_id` (un logo
+       cambiado se ve al momento) y, si la compañía ya no está, lo que se guardó con el punto. */
+    function companyBlock(draft, ki) {
+      var t0 = draft.transport;
+      var cias = COMPANIES.filter(function (c) { return (c.kinds || []).indexOf(draft.kind) >= 0; });
+      return '<div class="rm-wz-lbl"><i class="fa fa-building"></i>La compañía</div>'
+        + '<div class="rm-chip mb-2' + ((t0.company_id || t0.company) ? '' : ' d-none') + '" data-company-chip>'
+        + '<span data-company-ava>' + avatar(companyLogo(t0), 'fa-building') + '</span><span data-company-name>' + esc(t0.company || '') + '</span>'
+        + '<button type="button" class="btn-close btn-sm ms-1" data-company-clear title="Quitar la compañía"></button></div>'
+        + '<div class="promo-pick-grid mb-2" data-company-cards>' + companyCards(cias, t0) + '</div>'
+        + (cias.length ? '' : '<div class="rm-sub mb-2" data-company-empty>Todavía no hay compañías de «' + esc(ki.label) + '» en la base: busca una o créala aquí.</div>')
+        + wzSearch('company', 'Busca otra compañía…', CAN_CREATE)
+        + (CAN_CREATE ? '<div class="rm-wz-new d-none" data-new-company>'
+            + '<div class="row g-2 align-items-end">'
+            + '<div class="col-md-6"><label class="form-label small mb-1">Nombre de la compañía</label><input class="form-control form-control-sm" data-ncp="name" placeholder="Iberia, Renfe, Alsa…"></div>'
+            + '<div class="col-md-6"><label class="form-label small mb-1">Logo (PNG sin fondo)</label><input type="file" class="form-control form-control-sm" data-ncp="logo" accept="image/png,image/*"></div>'
+            + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-ncp-save><i class="fa fa-plus me-1"></i>Crearla y usarla</button></div>'
+            + '</div><div class="filter-hint">Queda en Bases de datos → Compañías de transporte, como compañía de «' + esc(ki.label) + '».</div></div>' : '')
+        + '<div class="filter-hint">Su logo sale en los horarios de la hoja de ruta.</div>';
+    }
+    function companyCards(cias, t0) {
+      return cias.map(function (c) {
+        return wzPick({ name: 'rmCompany', value: c.id, img: c.logo_url || '', icon: 'fa-building', label: c.name,
+                        checked: String(t0.company_id || '') === String(c.id), attrs: ' data-company-opt',
+                        cls: 'promo-pick--logo', imgCls: 'promo-pick__logo' });
+      }).join('');
+    }
+    function companyLogo(t) {
+      if (!t) return '';
+      var c = t.company_id ? COMPANIES.filter(function (x) { return String(x.id) === String(t.company_id); })[0] : null;
+      return (c && c.logo_url) || t.logo_url || '';
+    }
+    function searchCompanies(q) {
+      return getJson('/api/search/transport-companies?q=' + encodeURIComponent(q)).then(function (list) {
+        return (list || []).map(function (c) {
+          return { id: c.id, label: c.name, logo_url: c.logo_url || '', icon: 'fa-building', kinds: c.kinds || [],
+                   sub: (c.kinds || []).map(function (k) { return kindInfo(k).label; }).join(' · ') };
+        });
+      });
+    }
+    function wireCompany(m, draft) {
+      var t = draft.transport;
+      var cChip = m.querySelector('[data-company-chip]'), cName = m.querySelector('[data-company-name]'), cAva = m.querySelector('[data-company-ava]');
+      if (!cChip) return;
+      function setCompany(c) {
+        t.company_id = c ? (c.id || '') : '';
+        t.company = c ? (c.label || c.name || '') : '';
+        t.logo_url = c ? (c.logo_url || '') : '';
+        if (cName) cName.textContent = t.company;
+        if (cAva) cAva.innerHTML = avatar(t.logo_url, 'fa-building');
+        cChip.classList.toggle('d-none', !(t.company_id || t.company));
+        m.querySelectorAll('[data-company-opt]').forEach(function (r) { r.checked = String(r.value) === String(t.company_id || ''); });
+      }
+      function deLaBase(id) { return COMPANIES.filter(function (x) { return String(x.id) === String(id); })[0]; }
+      function wireCards() {
+        m.querySelectorAll('[data-company-opt]').forEach(function (r) {
+          r.addEventListener('change', function () {
+            if (!r.checked) return;
+            var c = deLaBase(r.value);
+            if (c) setCompany({ id: c.id, label: c.name, logo_url: c.logo_url });
+          });
+        });
+      }
+      wireCards();
+      var cClear = m.querySelector('[data-company-clear]');
+      if (cClear) cClear.addEventListener('click', function () { setCompany(null); });
+      var ncp = m.querySelector('[data-new-company]');
+      function abreAlta(nombre) {
+        if (!ncp) return;
+        ncp.classList.remove('d-none');
+        var n = ncp.querySelector('[data-ncp="name"]'); if (nombre) n.value = nombre; n.focus();
+      }
+      attachSearch(m.querySelector('[data-search="company"]'), m.querySelector('[data-results="company"]'), searchCompanies, function (r) {
+        // Una compañía que no estaba entre las de este tipo entra en la lista de la pantalla.
+        if (!deLaBase(r.id)) COMPANIES.push({ id: r.id, name: r.label, logo_url: r.logo_url, kinds: r.kinds || [] });
+        setCompany(r);
+      }, CAN_CREATE ? { onCreate: abreAlta, clearOnPick: true } : { clearOnPick: true });
+      var ncpBtn = m.querySelector('[data-new="company"]');
+      if (ncpBtn) ncpBtn.addEventListener('click', function () {
+        if (ncp && !ncp.classList.contains('d-none')) { ncp.classList.add('d-none'); return; }
+        abreAlta((m.querySelector('[data-search="company"]').value || '').trim());
+      });
+      if (ncp) ncp.querySelector('[data-ncp-save]').addEventListener('click', function () {
+        var nombre = (ncp.querySelector('[data-ncp="name"]').value || '').trim();
+        if (!nombre) { alert('Escribe el nombre de la compañía.'); return; }
+        var fd = new FormData(); fd.append('name', nombre); fd.append('kinds', draft.kind);
+        var f = ncp.querySelector('[data-ncp="logo"]').files[0]; if (f) fd.append('logo', f);
+        postForm('/api/transport-companies/create', fd).then(function (r) {
+          if (!(r && r.ok)) { alert((r && r.error) || 'No se pudo crear la compañía.'); return; }
+          COMPANIES.push({ id: r.id, name: r.name, logo_url: r.logo_url || '', kinds: r.kinds || [] });
+          var cards = m.querySelector('[data-company-cards]');
+          if (cards) { cards.innerHTML = companyCards(COMPANIES.filter(function (c) { return (c.kinds || []).indexOf(draft.kind) >= 0; }), t); wireCards(); }
+          var vacio = m.querySelector('[data-company-empty]'); if (vacio) vacio.remove();
+          setCompany({ id: r.id, label: r.name, logo_url: r.logo_url || '' });
+          ncp.classList.add('d-none');
+          ncp.querySelector('[data-ncp="name"]').value = ''; ncp.querySelector('[data-ncp="logo"]').value = '';
+        });
+      });
     }
 
     // ------------------------------------------------- editor de un punto (el asistente)
@@ -1329,10 +1435,9 @@
           + '<div class="filter-hint">En los horarios se ve como «Medio · Programa».</div>';
       } else if (esTr) {
         var t0 = draft.transport;
-        h1 += '<div class="row g-2">'
-          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-building me-1 text-muted"></i>Compañía</label><input class="form-control" data-t="company" value="' + esc(t0.company) + '" placeholder="Iberia, Renfe…"></div>'
+        h1 += companyBlock(draft, ki)
+          + '<div class="row g-2 mt-2">'
           + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-hashtag me-1 text-muted"></i>Nº (vuelo, tren…)</label><input class="form-control" data-t="number" value="' + esc(t0.number) + '"></div>'
-          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-image me-1 text-muted"></i>Logo de la compañía (URL)</label><input class="form-control" data-t="logo_url" value="' + esc(t0.logo_url) + '"></div>'
           + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-tag me-1 text-muted"></i>Título del punto</label><input class="form-control" data-f="title" value="' + esc(draft.title) + '" placeholder="' + esc(ki.label) + '"></div>'
           + '</div>';
       } else {
@@ -1345,7 +1450,7 @@
       pasos.push({ title: esIv ? 'Medio' : (esTr ? 'Compañía' : 'Qué es'), icon: esIv ? 'fa-bullhorn' : ki.icon,
                    q: esIv ? '¿De qué medio es la entrevista?' : (esTr ? '¿Con qué compañía?' : '¿Qué es?'),
                    hint: esIv ? 'Se busca entre los medios que ya tenemos; el que no esté se crea aquí mismo con el «+».'
-                              : (esTr ? 'Los datos del billete: compañía y número.' : 'Ponle el título con el que quieres verlo en los horarios.'),
+                              : (esTr ? 'La compañía sale de la base con su logo; la que no esté se crea aquí mismo.' : 'Ponle el título con el que quieres verlo en los horarios.'),
                    html: h1 });
 
       // ---------- 2 · CUÁNDO ----------
@@ -2012,8 +2117,9 @@
       if (!arr.length) wrap.innerHTML = '<div class="rm-sub">Todavía no hay canciones.</div>';
     }
     function wireTransport(m, draft) {
+      wireCompany(m, draft);
       var same = m.querySelector('[data-t="same_locator"]'); var lall = m.querySelector('[data-t="locator_all"]');
-      same.addEventListener('change', function () { lall.classList.toggle('d-none', !same.checked); });
+      if (same && lall) same.addEventListener('change', function () { lall.classList.toggle('d-none', !same.checked); });
       renderPassengers(m, draft);
       m.querySelector('[data-addpass]').addEventListener('click', function () { openPassengerPicker(draft, function () { renderPassengers(m, draft); }); });
     }
@@ -2243,7 +2349,7 @@
       }
       if (ki.transport && it.transport) {
         var t = it.transport;
-        h += '<div class="rm-transport-line">' + (t.logo_url ? '<img src="' + esc(t.logo_url) + '">' : '') + [t.company, t.number, [t.origin, t.destination].filter(Boolean).join(' → '), t.duration].filter(Boolean).map(esc).join(' · ') + (t.ends_next_day ? ' <span class="rm-tag plus1">+1</span>' : '') + '</div>';
+        h += '<div class="rm-transport-line">' + (companyLogo(t) ? '<img src="' + esc(companyLogo(t)) + '" alt="">' : '') + [t.company, t.number, [t.origin, t.destination].filter(Boolean).join(' → '), t.duration].filter(Boolean).map(esc).join(' · ') + (t.ends_next_day ? ' <span class="rm-tag plus1">+1</span>' : '') + '</div>';
         (t.passengers || []).forEach(function (p) { var per = personById(p.personnel_id); h += '<div class="rm-sub"><i class="fa fa-user"></i> ' + esc(per ? per.name : '—') + (p.locator || t.locator_all ? ' · Loc: ' + esc(t.same_locator ? t.locator_all : p.locator) : '') + (p.ticket_url ? ' · <a href="' + esc(p.ticket_url) + '" target="_blank">Billete</a>' : '') + '</div>'; });
       }
       // LAS PERSONAS DE CONTACTO (pueden ser varias), cada una con su cara, su teléfono y su correo.

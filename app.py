@@ -271,6 +271,7 @@ from models import (
     InvitationManagerOptIn,
     # Ventas v2 (ticketeras)
     Ticketer,
+    TransportCompany,
     ConcertSalesConfig,
     ConcertTicketType,
     ConcertTicketer,
@@ -52292,6 +52293,175 @@ def api_create_ticketer():
     finally:
         session_db.close()
 
+# -------------- COMPAÑÍAS DE TRANSPORTE --------------
+# (sep 2026, lo pidió Dani) La aerolínea, la compañía de tren, la naviera, la de autobuses, de VTC o
+# de transfers, con su LOGO EN PNG SIN FONDO y los TIPOS de transporte que cubre. Es lo que se elige
+# al montar un traslado en la hoja de ruta —solo las de ese tipo— y su logo sale en los horarios.
+# Punto único de lectura: `_transport_company_rows` (la pantalla, las APIs y el contexto de la hoja de
+# ruta salen de ahí).
+
+def _transport_company_kinds(values) -> list[str]:
+    """Los tipos de transporte que cubre una compañía, limpios: solo claves del catálogo
+    (`ROADMAP_TRANSPORT_MODES`), en mayúsculas y sin repetir."""
+    if isinstance(values, str):
+        values = [values]
+    out = []
+    for v in (values or []):
+        k = str(v or "").strip().upper()
+        if k in ROADMAP_TRANSPORT_KINDS and k not in out:
+            out.append(k)
+    return out
+
+
+def _transport_company_row(c) -> dict:
+    return {"id": str(c.id), "name": (c.name or "").strip(), "label": (c.name or "").strip(),
+            "logo_url": (c.logo_url or ""), "link_url": (c.link_url or ""),
+            "kinds": _transport_company_kinds(c.kinds if isinstance(c.kinds, list) else []),
+            "notes": (c.notes or "")}
+
+
+def _transport_company_rows(session_db, kind: str = "") -> list[dict]:
+    """Las compañías (de UN tipo, o todas) tal como las leen la pantalla y el asistente de la hoja
+    de ruta. ⚠️ Best-effort: si la tabla aún no existe (un arranque a medio migrar) devuelve vacío
+    en vez de tumbar la hoja de ruta."""
+    try:
+        filas = session_db.query(TransportCompany).order_by(TransportCompany.name.asc()).all()
+    except Exception:
+        session_db.rollback()
+        return []
+    k = (kind or "").strip().upper()
+    out = [_transport_company_row(c) for c in filas]
+    return [r for r in out if (not k or k in r["kinds"])]
+
+
+def _transport_company_save(session_db, company, form, logo):
+    """Alta y edición, el MISMO guardado (la pantalla y el alta desde el asistente). Sin nombre o sin
+    ningún tipo no se guarda, y un nombre repetido tampoco (el logo se reconocería y la ficha no)."""
+    nombre = (form.get("name") or "").strip()[:200]
+    if not nombre:
+        raise ValueError("El nombre de la compañía es obligatorio.")
+    crudo = form.getlist("kinds") if hasattr(form, "getlist") else (form.get("kinds") or [])
+    kinds = _transport_company_kinds(crudo)
+    if not kinds:
+        raise ValueError("Marca al menos un tipo de transporte (vuelo, tren, autobús…).")
+    otro = session_db.query(TransportCompany).filter(func.lower(TransportCompany.name) == nombre.lower())
+    if company is not None:
+        otro = otro.filter(TransportCompany.id != company.id)
+    if otro.first() is not None:
+        raise ValueError("Ya hay una compañía con ese nombre.")
+    if company is None:
+        company = TransportCompany(name=nombre)
+        session_db.add(company)
+    company.name = nombre
+    company.kinds = kinds
+    company.link_url = ((form.get("link_url") or "").strip()[:600] or None)
+    company.notes = ((form.get("notes") or "").strip()[:600] or None)
+    if logo is not None and getattr(logo, "filename", ""):
+        # El logo va en PNG sin fondo (es lo que se ve bien sobre la hoja de ruta); se admite
+        # cualquier imagen, pero la pantalla lo pide así.
+        company.logo_url = upload_image(logo, "transport_companies")
+    company.updated_at = func.now()
+    session_db.flush()
+    return company
+
+
+@app.route("/companias-transporte", methods=["GET", "POST"], endpoint="transport_companies_view")
+@admin_required
+def transport_companies_view():
+    session_db = db()
+    if request.method == "POST":
+        try:
+            _transport_company_save(session_db, None, request.form, request.files.get("logo"))
+            session_db.commit()
+            flash("Compañía creada.", "success")
+        except Exception as e:
+            session_db.rollback()
+            flash(f"No se pudo crear la compañía: {e}", "danger")
+        finally:
+            session_db.close()
+        return redirect(url_for("transport_companies_view"))
+    try:
+        filas = _transport_company_rows(session_db)
+    finally:
+        session_db.close()
+    return render_template("transport_companies.html", companies=filas,
+                           kinds=[{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_TRANSPORT_MODES])
+
+
+@app.post("/companias-transporte/<tid>/update", endpoint="transport_company_update")
+@admin_required
+def transport_company_update(tid):
+    session_db = db()
+    try:
+        c = session_db.get(TransportCompany, _safe_uuid(tid)) if _safe_uuid(tid) else None
+        if not c:
+            flash("Compañía no encontrada.", "warning")
+            return redirect(url_for("transport_companies_view"))
+        _transport_company_save(session_db, c, request.form, request.files.get("logo"))
+        session_db.commit()
+        flash("Compañía actualizada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo guardar la compañía: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("transport_companies_view"))
+
+
+@app.post("/companias-transporte/<tid>/delete", endpoint="transport_company_delete")
+@admin_required
+def transport_company_delete(tid):
+    session_db = db()
+    try:
+        c = session_db.get(TransportCompany, _safe_uuid(tid)) if _safe_uuid(tid) else None
+        if c:
+            session_db.delete(c)
+            session_db.commit()
+            flash("Compañía eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo eliminar la compañía: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("transport_companies_view"))
+
+
+@app.get("/api/search/transport-companies", endpoint="api_search_transport_companies")
+@admin_required
+def api_search_transport_companies():
+    """Las compañías de UN tipo de transporte (`kind`) que casan con lo escrito (sin acentos ni
+    mayúsculas). Es lo que usa el asistente de un traslado; va en las listas de APOYO."""
+    q = (request.args.get("q") or "").strip()
+    kind = (request.args.get("kind") or "").strip().upper()
+    session_db = db()
+    try:
+        filas = _transport_company_rows(session_db, kind)
+        if q:
+            clave = _norm_text_key(q)
+            filas = [r for r in filas if clave in _norm_text_key(r["name"])]
+        return jsonify(filas[:30])
+    finally:
+        session_db.close()
+
+
+@app.post("/api/transport-companies/create", endpoint="api_create_transport_company")
+@admin_required
+def api_create_transport_company():
+    """Una compañía NUEVA desde el asistente de un traslado (nombre, su tipo y, si se quiere, el
+    logo): el mismo guardado que la pantalla. Devuelve la fila lista para elegirla."""
+    session_db = db()
+    try:
+        form = request.form if request.form else (request.get_json(silent=True) or {})
+        c = _transport_company_save(session_db, None, form, request.files.get("logo"))
+        session_db.commit()
+        return jsonify({"ok": True, **_transport_company_row(c)})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 400
+    finally:
+        session_db.close()
+
+
 # -------------- CONCIERTOS --------------
 
 from decimal import Decimal, InvalidOperation
@@ -82832,6 +83002,9 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "kind_rules": _roadmap_kind_rules(),
         "contact_suggestions": _roadmap_contact_suggestions(session_db, row),
         "meet_greet_count": _roadmap_meet_greet_count(row),
+        # LAS COMPAÑÍAS DE TRANSPORTE (con su logo y sus tipos): el asistente de un traslado ofrece
+        # las de ese tipo y los horarios pintan el logo actual de la base por `company_id`.
+        "transport_companies": _transport_company_rows(session_db),
     }
 
 
@@ -83489,6 +83662,10 @@ def _roadmap_item_from_json(data: dict) -> dict:
             })
         item["transport"] = {
             "mode": kind,
+            # LA COMPAÑÍA de la base (`company_id`): de ella sale el logo que se ve en los horarios;
+            # el nombre y el logo se guardan también con el punto por si la compañía desaparece.
+            "company_id": (str(tr.get("company_id") or "").strip()
+                           if _safe_uuid(str(tr.get("company_id") or "")) else ""),
             "company": (tr.get("company") or "").strip(),
             "logo_url": (tr.get("logo_url") or "").strip(),
             "number": (tr.get("number") or "").strip(),
@@ -91869,6 +92046,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "databases", "label": "Bases de datos", "section_key": "databases", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 270, "description": "Bases de datos maestras del sistema."},
     {"key": "databases.venues", "label": "Recintos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 271, "description": "Recintos (venues): alta y edición."},
     {"key": "databases.ticketers", "label": "Ticketeras", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 272, "description": "Ticketeras: alta y edición."},
+    {"key": "databases.transport_companies", "label": "Compañías de transporte", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 282, "description": "Compañías de transporte (aerolíneas, trenes, navieras, autobuses, VTC, transfers) con su logo: son las que se eligen en los traslados de la hoja de ruta."},
     {"key": "databases.publishing_companies", "label": "Editoriales", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 273, "description": "Editoriales musicales: alta y edición."},
     {"key": "databases.group_companies", "label": "Empresas del grupo", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 274, "description": "Empresas del grupo: alta y edición."},
     {"key": "databases.media", "label": "Medios", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 275, "description": "Medios de comunicación: alta, contactos y edición."},
@@ -91895,6 +92073,7 @@ AUTO_SEGMENT_PARENT = {
     "ventas": "ventas",
     "recintos": "databases.venues",
     "ticketeras": "databases.ticketers",
+    "companias-transporte": "databases.transport_companies",
     "editoriales": "databases.publishing_companies",
     "empresas": "databases.group_companies",
     "medios": "databases.media",
@@ -92427,6 +92606,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "databases.venues"
     if endpoint == "ticketers_view" or endpoint.startswith("ticketer_"):
         return "databases.ticketers"
+    if endpoint == "transport_companies_view" or endpoint.startswith("transport_company_"):
+        return "databases.transport_companies"
     if endpoint == "publishing_companies_view" or endpoint.startswith("publishing_company_"):
         return "databases.publishing_companies"
     if endpoint == "banks_view" or endpoint.startswith("bank_"):
@@ -93034,6 +93215,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/ventas", "ventas"),
         ("/recintos", "databases.venues"),
         ("/ticketeras", "databases.ticketers"),
+        ("/companias-transporte", "databases.transport_companies"),
         ("/editoriales", "databases.publishing_companies"),
         ("/empresas", "databases.group_companies"),
         ("/medios", "databases.media"),
@@ -93354,6 +93536,8 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.venues"
     if endpoint == "ticketers_view" or endpoint.startswith("ticketer_"):
         return "databases.ticketers"
+    if endpoint == "transport_companies_view" or endpoint.startswith("transport_company_"):
+        return "databases.transport_companies"
     if endpoint == "publishing_companies_view" or endpoint.startswith("publishing_company_"):
         return "databases.publishing_companies"
     if endpoint == "banks_view" or endpoint.startswith("bank_"):
@@ -93942,6 +94126,7 @@ def _resource_default_url(key: str) -> str:
         "databases": url_for("venues_view"),
         "databases.venues": url_for("venues_view"),
         "databases.ticketers": url_for("ticketers_view"),
+        "databases.transport_companies": url_for("transport_companies_view"),
         "databases.publishing_companies": url_for("publishing_companies_view"),
         "databases.group_companies": url_for("companies_view"),
         "databases.media": url_for("media_outlets_view"),
@@ -94140,6 +94325,7 @@ def _build_nav_menu() -> list[dict]:
             {"key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
             {"key": "databases.venues", "label": "Recintos", "url": _resource_default_url("databases.venues")},
             {"key": "databases.ticketers", "label": "Ticketeras", "url": _resource_default_url("databases.ticketers")},
+            {"key": "databases.transport_companies", "label": "Compañías de transporte", "url": _resource_default_url("databases.transport_companies")},
             {"key": "databases.publishing_companies", "label": "Editoriales", "url": _resource_default_url("databases.publishing_companies")},
             {"key": "databases.group_companies", "label": "Empresas del grupo", "url": _resource_default_url("databases.group_companies")},
             {"key": "databases.media", "label": "Medios", "url": _resource_default_url("databases.media")},
@@ -96704,6 +96890,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "api_bag_document_detect",
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
+    # Una compañía de transporte nueva desde el asistente de un traslado.
+    "api_create_transport_company",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
     # Guardar en el medio la dirección de una entrevista presencial (para no reescribirla).
     "api_media_location_create",
@@ -96798,6 +96986,7 @@ SUPPORT_READ_ENDPOINTS = {
     "api_media_artist_activities",
     "api_sync_promoter_search",
     "api_search_promoters", "api_search_authors", "api_search_publishing_companies", "api_search_ticketers",
+    "api_search_transport_companies",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
     "api_demo_sender_search",

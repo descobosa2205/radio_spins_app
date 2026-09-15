@@ -11,6 +11,8 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
   · el «sí» del artista deja la actividad NOTIFICADA (y la etiqueta verde se pincha)
   · cada tipo de punto pregunta solo lo suyo: personas de contacto (varias, sugeridas y creadas como
     tercero del promotor), el sitio y su espacio, la reserva de una comida, la citación sin fin
+  · las COMPAÑÍAS DE TRANSPORTE (Bases de datos): alta con sus tipos, búsqueda por tipo, su permiso, y el
+    traslado que las elige guarda `company_id`
 
     /tmp/python/bin/python3 tools/check_hoja_ruta.py
 
@@ -41,6 +43,7 @@ import app as A                                       # noqa: E402
 import geo_utils                                      # noqa: E402
 from models import (Artist, Concert, ConcertArtistNotification, MediaContact,   # noqa: E402
                     MediaLocation, MediaOutlet, Promoter, PromoterContact, RoadmapScheduledMessage,
+                    TransportCompany,
                     ThirdPartyLink, User, UserProfile, Venue)
 
 A.app.config["WTF_CSRF_ENABLED"] = False
@@ -89,6 +92,8 @@ def limpia(s):
     for pr in s.query(Promoter).filter(Promoter.nick == "Tecnico Sala Ruta").all():
         s.query(ThirdPartyLink).filter(ThirdPartyLink.source_id == pr.id).delete(synchronize_session=False)
         s.delete(pr)
+    # Las compañías de transporte del apartado 11.
+    s.query(TransportCompany).filter(TransportCompany.name.in_(["Aerolínea Ruta", "Tren Ruta"])).delete(synchronize_session=False)
     s.flush()
 
 
@@ -602,6 +607,47 @@ def main():
         check("y la próxima vez sale SUGERIDA", any(x["name"] == "Nuevo Contacto Ruta" for x in ctx.get("contact_suggestions") or []))
     finally:
         s.close()
+
+    print("\n11 · Las compañías de transporte: la base, sus tipos y el traslado que las elige")
+    A.upload_image = lambda fs, folder, **kw: "https://x/logo.png"
+    r = casa.post("/api/transport-companies/create", data={"name": "Aerolínea Ruta", "kinds": ["VUELO", "TRANSFER"]})
+    cia = r.get_json() or {}
+    check("una compañía nueva desde el asistente, con sus dos tipos", r.status_code == 200 and cia.get("ok") and set(cia.get("kinds") or []) == {"TRANSFER", "VUELO"}, str(cia)[:160])
+    r = casa.post("/api/transport-companies/create", json={"name": "Aerolínea Ruta", "kinds": ["VUELO"]})
+    check("el mismo nombre no se repite", r.status_code == 400 and "Ya hay" in ((r.get_json() or {}).get("error") or ""), str(r.get_json()))
+    r = casa.post("/api/transport-companies/create", json={"name": "Sin tipo", "kinds": []})
+    check("sin ningún tipo no se guarda", r.status_code == 400)
+    r = casa.post("/api/transport-companies/create", json={"name": "Tren Ruta", "kinds": ["TREN", "inventado"]})
+    check("un tipo que no existe se descarta", (r.get_json() or {}).get("kinds") == ["TREN"], str(r.get_json()))
+    vuelo = casa.get("/api/search/transport-companies?kind=VUELO&q=ruta").get_json() or []
+    tren = casa.get("/api/search/transport-companies?kind=TREN&q=RUTA").get_json() or []
+    check("la búsqueda filtra por TIPO (y sin acentos)", [x["name"] for x in vuelo] == ["Aerolínea Ruta"] and [x["name"] for x in tren] == ["Tren Ruta"], str(vuelo) + str(tren))
+    r = casa.post("/companias-transporte", data={"name": "Tren Ruta", "kinds": ["TREN"]}, follow_redirects=True)
+    check("la pantalla de Bases de datos se pinta (con el aviso del nombre repetido)", r.status_code == 200 and "Ya hay una compañía" in r.get_data(as_text=True))
+    check("el permiso: las rutas resuelven a databases.transport_companies (los dos resolutores)",
+          A._coarse_endpoint_resource("transport_company_update", "/companias-transporte/x/update") == "databases.transport_companies"
+          and A._coarse_endpoint_resource("transport_companies_view", "/companias-transporte") == "databases.transport_companies")
+    check("y está en el catálogo, bajo Bases de datos",
+          any(x["key"] == "databases.transport_companies" and x["parent_key"] == "databases" for x in A.CURATED_ACCESS_RESOURCES))
+    s = A.db()
+    try:
+        c = s.get(Concert, A.to_uuid(cid))
+        with A.app.test_request_context():
+            ctx = A._roadmap_context(s, "concert", c)
+        check("la hoja de ruta trae las compañías con sus tipos y su logo",
+              any(x["name"] == "Aerolínea Ruta" and x["logo_url"] == "" and "VUELO" in x["kinds"] for x in ctx.get("transport_companies") or []))
+    finally:
+        s.close()
+    r = casa.post(base + "/item", json={"kind": "VUELO", "day": DIA, "start_time": "08:00", "end_time": "09:30", "confirmed": True,
+                                        "transport": {"company_id": cia.get("id"), "company": "Aerolínea Ruta", "number": "IB123",
+                                                      "origin": "MAD", "destination": "XRY", "passengers": []}})
+    pay = (r.get_json() or {}).get("payload") or {}
+    vu = ([x for x in pay.get("agenda", []) if x.get("kind") == "VUELO"] or [{}])[0]
+    check("el vuelo guarda la compañía de la base (`company_id`) y su nombre",
+          (vu.get("transport") or {}).get("company_id") == cia.get("id") and (vu.get("transport") or {}).get("company") == "Aerolínea Ruta", str(vu.get("transport"))[:160])
+    r = casa.post(base + "/item", json={"kind": "VUELO", "day": DIA, "start_time": "08:00", "transport": {"company_id": "no-es-uuid", "company": "X"}})
+    vu2 = [x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("kind") == "VUELO" and (x.get("transport") or {}).get("company") == "X"]
+    check("un `company_id` que no es un UUID se descarta sin reventar", vu2 and vu2[0]["transport"]["company_id"] == "")
 
     s = A.db()
     try:

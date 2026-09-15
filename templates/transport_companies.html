@@ -1,0 +1,168 @@
+{% extends "layout.html" %}
+{# COMPAÑÍAS DE TRANSPORTE (sep 2026, lo pidió Dani): la aerolínea, la compañía de tren, la naviera,
+   la de autobuses, de VTC o de transfers, con su LOGO EN PNG SIN FONDO y los TIPOS de transporte que
+   cubre. Son las que se eligen al montar un traslado en la hoja de ruta (solo las de ese tipo) y su
+   logo sale en los horarios. Mismo patrón que Ticketeras: cada fila es su propio formulario. #}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="mb-0"><i class="fa fa-route me-2 text-muted"></i>Compañías de transporte</h4>
+  <div class="d-flex align-items-center gap-2">
+    {% if CAN_EDIT_CATALOGS %}
+      <span class="badge text-bg-primary">Edición</span>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newTransportCompanyModal"><i class="fa fa-plus me-1"></i>Añadir compañía</button>
+    {% else %}
+      <span class="badge text-bg-secondary">Lectura</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label">Buscar compañía</label>
+        <input type="search" class="form-control" id="tcSearchInput" placeholder="Escribe para filtrar por nombre…" autocomplete="off">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Tipo de transporte</label>
+        {# Un chip por tipo (selección única, «Todos» delante): la regla de la casa de los filtros. #}
+        <div class="filter-chips" id="tcKindFilter">
+          <label class="filter-chip"><input type="radio" name="tcKind" value="" checked><i class="fa fa-layer-group"></i>Todos</label>
+          {% for k in kinds %}
+          <label class="filter-chip"><input type="radio" name="tcKind" value="{{ k.key }}"><i class="fa {{ k.icon }}"></i>{{ k.label }}</label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if CAN_EDIT_CATALOGS %}
+<div class="modal fade" id="newTransportCompanyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-route me-2"></i>Nueva compañía de transporte</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row gy-3 gx-2">
+            <div class="col-12">
+              <label class="form-label">Nombre</label>
+              <input required name="name" class="form-control" placeholder="Iberia, Renfe, Alsa, Baleària…" />
+            </div>
+            <div class="col-12">
+              <label class="form-label">¿Qué tipo de transporte hace? <span class="text-muted small">(puede ser más de uno)</span></label>
+              <div class="filter-chips">
+                {% for k in kinds %}
+                <label class="filter-chip"><input type="checkbox" name="kinds" value="{{ k.key }}"><i class="fa {{ k.icon }}"></i>{{ k.label }}</label>
+                {% endfor %}
+              </div>
+              <div class="form-text">Al montar un traslado de ese tipo, la compañía sale para elegirla.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Logo <span class="text-muted small">(PNG sin fondo)</span></label>
+              <input type="file" name="logo" class="form-control" accept="image/png,image/*" />
+              <div class="form-text">Sin fondo se ve bien sobre la hoja de ruta; es lo que aparece en los horarios.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Enlace (opcional)</label>
+              <input name="link_url" class="form-control" placeholder="https://..." />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger"><i class="fa fa-check me-1"></i>Crear compañía</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th style="width:72px">Logo</th>
+          <th>Nombre</th>
+          <th>Tipos de transporte</th>
+          <th>Enlace</th>
+          {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:200px">Acciones</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody id="tcTableBody">
+      {% if not companies %}
+        <tr><td colspan="5" class="text-muted py-4 text-center">Todavía no hay ninguna compañía. {% if CAN_EDIT_CATALOGS %}Añade la primera con el botón de arriba.{% endif %}</td></tr>
+      {% endif %}
+      {% for c in companies %}
+        <tr class="entity-row" data-search="{{ (c.name or '')|lower }}" data-kinds="{{ c.kinds|join(',') }}">
+          {% if CAN_EDIT_CATALOGS %}
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('transport_company_update', tid=c.id) }}">
+              <td>
+                {% if c.logo_url %}<img src="{{ c.logo_url }}" alt="" class="tc-logo" />{% else %}<span class="tc-logo tc-logo--empty"><i class="fa fa-building"></i></span>{% endif %}
+              </td>
+              <td style="min-width:200px"><input class="form-control" name="name" value="{{ c.name }}"></td>
+              <td style="min-width:260px">
+                <div class="filter-chips">
+                  {% for k in kinds %}
+                  <label class="filter-chip"><input type="checkbox" name="kinds" value="{{ k.key }}"{% if k.key in c.kinds %} checked{% endif %}><i class="fa {{ k.icon }}"></i>{{ k.label }}</label>
+                  {% endfor %}
+                </div>
+              </td>
+              <td style="min-width:200px"><input class="form-control" name="link_url" value="{{ c.link_url or '' }}" placeholder="https://..."></td>
+              <td class="text-end">
+                <div class="d-flex justify-content-end gap-2 flex-wrap">
+                  <input type="file" name="logo" class="form-control form-control-sm" accept="image/png,image/*" style="max-width:220px" title="Cambiar el logo (PNG sin fondo)" />
+                  <button class="btn btn-outline-primary btn-sm">Guardar</button>
+                  <button class="btn btn-outline-danger btn-sm"
+                          formaction="{{ url_for('transport_company_delete', tid=c.id) }}"
+                          onclick="return confirm('¿Eliminar esta compañía?');">
+                    <i class="fa fa-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </form>
+          {% else %}
+            <td>{% if c.logo_url %}<img src="{{ c.logo_url }}" alt="" class="tc-logo" />{% else %}<span class="tc-logo tc-logo--empty"><i class="fa fa-building"></i></span>{% endif %}</td>
+            <td class="fw-semibold">{{ c.name }}</td>
+            <td>
+              {% for k in kinds if k.key in c.kinds %}<span class="rm-tag me-1"><i class="fa {{ k.icon }}"></i> {{ k.label }}</span>{% endfor %}
+            </td>
+            <td>{% if c.link_url %}<a href="{{ c.link_url }}" target="_blank" rel="noopener">{{ c.link_url }}</a>{% endif %}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  var input = document.getElementById('tcSearchInput');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#tcTableBody .entity-row'));
+  var normalize = function (v) { return window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase().trim(); };
+  var kind = '';
+  var apply = function () {
+    var q = normalize(input ? input.value : '');
+    rows.forEach(function (row) {
+      var hay = normalize(row.getAttribute('data-search') || '');
+      var kinds = (row.getAttribute('data-kinds') || '').split(',');
+      var ok = (!q || hay.indexOf(q) > -1) && (!kind || kinds.indexOf(kind) > -1);
+      row.style.display = ok ? '' : 'none';
+    });
+  };
+  if (input) input.addEventListener('input', apply);
+  Array.prototype.forEach.call(document.querySelectorAll('#tcKindFilter input[name="tcKind"]'), function (r) {
+    r.addEventListener('change', function () { if (r.checked) { kind = r.value; apply(); } });
+  });
+  apply();
+})();
+</script>
+{% endblock %}

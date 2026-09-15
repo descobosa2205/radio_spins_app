@@ -7553,9 +7553,35 @@ class RoadmapScheduledMessage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class RoadmapMenuToken(Base):
+    """EL ENLACE PERSONAL para elegir el menú de una comida de la hoja de ruta (sep 2026).
+
+    Una persona del personal (`personnel_id`, la fila del `roadmap_payload`) recibe por SMS o correo
+    un enlace SUYO (`/menu/<token>`) con el que elige, sin identificarse, en TODAS las comidas con
+    menú de esa actividad que le afecten (si tiene más de una, al terminar una se le ofrece la
+    siguiente). Es un token por persona y actividad, opaco y que no caduca (el mismo criterio que la
+    documentación PRL). También lo usa el aviso en la app y la tarea del portal de externos."""
+
+    __tablename__ = "roadmap_menu_tokens"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    token = Column(Text, nullable=False, unique=True)
+    entity_type = Column(Text, nullable=False)          # concert | action | promotion | project
+    entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    personnel_id = Column(Text, nullable=False)         # id de la persona en roadmap_payload.personnel
+    person_name = Column(Text, nullable=False, server_default=text("''"))
+    last_sent_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_roadmap_menu_tokens_entity", "entity_type", "entity_id"),
+    )
+
+
 def ensure_roadmap_extras_schema():
     """Lo nuevo de la hoja de ruta (idempotente, sin Alembic): las columnas del RECINTO (el acceso y
-    las coordenadas del mapa) y la tabla de mensajes programados al personal.
+    las coordenadas del mapa), la tabla de mensajes programados al personal y la de los enlaces
+    personales para elegir el menú.
 
     ⚠️ Cada columna va en SU PROPIA sentencia: metida dentro de un ALTER que ya existía podría no
     ejecutarse nunca (la trampa del `DO $$ … IF NOT EXISTS` que tumbó la app en septiembre)."""
@@ -7588,6 +7614,20 @@ def ensure_roadmap_extras_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_roadmap_sched_msgs_due ON roadmap_scheduled_messages(status, send_at);",
+        # El enlace personal para elegir el menú (sep 2026).
+        """
+        CREATE TABLE IF NOT EXISTS roadmap_menu_tokens (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            token text NOT NULL UNIQUE,
+            entity_type text NOT NULL,
+            entity_id uuid NOT NULL,
+            personnel_id text NOT NULL,
+            person_name text NOT NULL DEFAULT '',
+            last_sent_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_roadmap_menu_tokens_entity ON roadmap_menu_tokens(entity_type, entity_id);",
     ], "roadmap_extras")
 
 

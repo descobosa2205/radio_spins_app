@@ -37,6 +37,7 @@
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 - TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
 - TRASLADOS · CADA UNO PREGUNTA LO SUYO: transfer · vuelo/tren/barco/autobús · VTC/taxi · furgoneta
+- LA COMIDA CON MENÚ: secciones y platos, quién elige por su enlace, la pestaña Comidas, pedir
 
 ---
 
@@ -988,3 +989,59 @@
   ruta se responden desde la prueba). Probado además en el navegador con la app real: el vuelo
   (compañía, trayecto con terminal, tabla de pasajeros con maletas y tarjeta), el transfer
   (sugerencias de recogida y destino, la ruta calculada, quién lo presta) y la fila y el detalle.
+
+- ⚠️⚠️ **LA COMIDA CON MENÚ: secciones y platos, quién elige por su enlace, la pestaña Comidas, pedir
+  que respondan y los PDF** (sep 2026, lo pidió Dani, lote 4). Una comida de los horarios puede llevar
+  un **menú cerrado** (`meal.menu`, None si no lo hay): de qué tipo (`ROADMAP_MENU_KINDS`: Menú ·
+  Bocadillos · Otro, cada uno con sus secciones por defecto —`ROADMAP_MENU_DEFAULT_SECTIONS`:
+  Entrante · Plato principal · Postre · Café · Bebida—), su título y sus **SECCIONES**, cada una
+  **FIJA** (para todos) o **SE ELIGE** (`mode` CHOOSE con `choose_n`: al marcarla el asistente
+  pregunta en un pop-up cuántos tiene que elegir cada uno), con sus **PLATOS** (foto —`roadmap_meal_photo`,
+  `upload_image` a `roadmap_menu`—, título, descripción, **etiquetas** `ROADMAP_DISH_TAGS`: vegano ·
+  vegetariano · sin gluten · sin lactosa, y **agotado**: no se puede pedir). Se arrastran para
+  ordenarlos. Cleaner: `_roadmap_clean_menu`; el de la comida, `_roadmap_clean_meal(value, current)`.
+  · ⚠️⚠️ **LO QUE NO LLEGA SE CONSERVA**: el asistente de la comida guarda la reserva **y el menú**
+  (`m.rmMenuState`); la pestaña Comidas guarda solo el menú (`roadmap_meal_menu_save`); las
+  **RESPUESTAS** las escribe la gente por su enlace y **nunca llegan del asistente** — por eso
+  `roadmap_item_save` funde `meal` con lo que había en vez de pisarlo, y al editar el menú las
+  respuestas que apuntan a platos que ya no existen se limpian (`_roadmap_prune_responses`).
+  · **QUIÉN TIENE QUE ELEGIR** = a quién le afecta la comida (`_roadmap_item_people`, el espejo de
+  `_roadmap_item_affects` pero como filas del personal; en el JS, `itemPeople`). Punto único del
+  estado: **`_roadmap_menu_status`** (quién, con su teléfono y su correo, qué ha elegido y quién
+  falta) → la pestaña Comidas (`roadmap_meal_status`), pedir que respondan y los PDF.
+  · **EL ENLACE PERSONAL** (`RoadmapMenuToken`, `/menu/<token>`, `public_menu_view` +
+  `public_menu_save`): uno por persona y actividad, opaco, sin identificarse (como la documentación
+  PRL); la página (`templates/public_menu_choice.html`, standalone) enseña la actividad y **todas
+  sus comidas con menú, las pendientes primero**, las secciones fijas como información y las que se
+  eligen como tarjetas (radio con uno, casillas limitadas con varios; lo agotado no se marca), y
+  **al guardar una comida le ofrece la siguiente** (`next`). El servidor valida lo elegido
+  (`_roadmap_menu_apply_choice`: platos que existen y no están agotados, no más de los que toca).
+  ⚠️ `public_menu_save` va en **`_CSRF_EXEMPT_ENDPOINTS`** además de `PUBLIC_ENDPOINTS_EXTRA`: es
+  un POST JSON sin sesión (la trampa del 302 con «sesión caducada» que ya documenta el bucle de
+  exenciones). ⚠️ El enlace es el MISMO para el SMS, el correo, el aviso de la app y el portal.
+  · **CÓMO SE ENTERAN**: a la gente de la casa (`kind` USER) se le avisa en la app al guardar el
+  menú (`_roadmap_menu_notify_people`, tipo **MENU** en `NOTIFICATION_KIND_META`, sin repetir si ya
+  tiene el aviso sin leer; se da por resuelto solo al elegir, `_notify_resolve("ROADMAP_MENU",
+  "<item>:<persona>")`); a los de fuera les sale la **tarea «Elegir el menú»** en su portal
+  (`_ext_tasks`, bloque 6: las actividades cuyo personal lo incluye —JSONB `@>`— y sus comidas
+  pendientes) y se les puede **PEDIR QUE RESPONDAN** por SMS o correo (`roadmap_meal_request_send`,
+  con **vista previa** `roadmap_meal_request_preview`: a quién llega y a quién no y por qué, el
+  texto con sus trozos o el correo con su botón): UN mensaje por persona **con su enlace**, solo a
+  quien no ha respondido. El texto (`_roadmap_menu_request_text`) dice qué comida —desayuno, comida
+  o cena **por la hora** (`_roadmap_meal_word`)—, de qué día, de quién (el artista y la actividad) y
+  dónde; el SMS sale con el enlace acortado (`_shorten_links_in_text`). Nunca se dice que salió si
+  no salió, y lo pedido queda apuntado en `meal.requests`.
+  · **LA PESTAÑA COMIDAS** aparece sola cuando alguna comida tiene menú (`_roadmap_show_meals` →
+  `rm.show_meals` en la plantilla; en el JS `ensureMealsTab` la añade y la quita al vuelo, y por eso
+  las pestañas se enganchan **por delegación**) y va detrás de Logística. Cada comida: su menú por
+  secciones (los platos se marcan **agotados de un clic**), quién ha elegido qué (o «sin responder»),
+  **elegir por alguien** (`roadmap_meal_response_save`, con `choices` vacío se le quita la
+  respuesta), «Pedir que respondan», «Editar el menú» (el MISMO constructor que el asistente,
+  `mountMenuBuilder`) y los **PDF por persona y por platos** (`roadmap_meal_pdf?por=`, estilo de la
+  casa: logo arriba a la derecha, título centrado, la galleta de la actividad, los datos de la
+  comida —nombre, hora y sitio—, y la tabla). En la fila de los horarios la etiqueta
+  **«Menú · x/N»** lleva a la pestaña; en el detalle, el botón «Menú».
+  · Prueba de regresión: `check_hoja_ruta.py`, apartado 13 (el menú y su limpieza, quién elige, el
+  aviso, la página pública sin sesión, el agotado y el tope, la siguiente comida, elegir por alguien,
+  pedir por SMS, los PDF, la tarea del portal, quitar un plato limpia las respuestas). Probado además
+  en el navegador con la app real.

@@ -114,3 +114,9 @@
   ⚠️ La prueba limpia el freno por IP entre entradas (`A._EXT_RATE.clear()`): trece entradas seguidas
   desde `127.0.0.1` lo disparan, que es justo lo que tiene que hacer — el freno se comprueba aparte.
 
+- **Elegir el menú (sep 2026)**: página pública **`/menu/<token>`** (`public_menu_view` /
+  `public_menu_save`, `templates/public_menu_choice.html`), el enlace PERSONAL de cada persona del
+  personal de una hoja de ruta para elegir en sus comidas con menú (`RoadmapMenuToken`). Sin
+  identificarse; el POST es JSON sin sesión, así que va en `_CSRF_EXEMPT_ENDPOINTS`. En el portal,
+  la tarea **«Elegir el menú»** (`_ext_tasks`, `EXT_TASK_META["MENU"]`) lleva al mismo enlace y
+  desaparece sola al responder (se mira el dato, no una marca). Detalle en `produccion-hoja-ruta.md`.

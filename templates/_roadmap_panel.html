@@ -14,8 +14,10 @@
      ⚠️ El rótulo va en un <span>: en MÓVIL se esconde y quedan solo los iconos, para que las
      secciones se vean todas seguidas en una fila.
      ⚠️ El mismo orden vive en `TABS` de roadmap.js: si se toca uno, se toca el otro. #}
-  {% set _tabs = rm.tabs or ['agenda', 'logistica', 'hoteles', 'personal'] %}
-  {% set _defs = [('agenda','Horarios','fa-clock'), ('logistica','Logística','fa-route'),
+  {# COMIDAS solo cuando alguna comida tiene menú (`rm.show_meals`); roadmap.js la añade y la quita
+     también al vuelo (`ensureMealsTab`), así que aquí solo va la del arranque. #}
+  {% set _tabs = rm.tabs or (['agenda', 'logistica'] + (['comidas'] if rm.show_meals else []) + ['hoteles', 'personal']) %}
+  {% set _defs = [('agenda','Horarios','fa-clock'), ('logistica','Logística','fa-route'), ('comidas','Comidas','fa-utensils'),
                   ('hoteles','Hoteles','fa-hotel'), ('personal','Personal','fa-users')] %}
   {% if not rm.tabs %}
     {% if rm.show_repertoire %}

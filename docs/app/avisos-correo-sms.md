@@ -401,3 +401,9 @@
   33producciones.es tiene **DMARC `p=none`** y **piesrecords.com NO tiene DMARC**. El DKIM se activa
   en el panel del hosting y su selector se pone en la cuenta para poder comprobarlo.
 
+- **Aviso «Elige tu menú» (tipo `MENU`, sep 2026)**: a la gente de la casa que va en una comida con
+  menú de una hoja de ruta se le avisa al guardar el menú (`_roadmap_menu_notify_people`); el aviso
+  lleva a su enlace personal (`/menu/<token>`) y **se resuelve solo al elegir** (`_notify_resolve`
+  con `ROADMAP_MENU` y `<item>:<persona>`). No se repite si ya tiene uno sin leer. A los de fuera se
+  les pide por SMS o correo desde la pestaña Comidas (`roadmap_meal_request_send`, con vista previa),
+  un mensaje por persona con su enlace. Detalle en `produccion-hoja-ruta.md`.

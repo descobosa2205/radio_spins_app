@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# ELEGIR EL MENÚ por el enlace personal (sep 2026): la página que recibe cada persona por SMS,
+     por correo, por el aviso de la app o desde su portal. Sin identificarse: el enlace es suyo.
+     Enseña la actividad, sus comidas con menú (las pendientes primero) y, en cada una, las secciones:
+     las FIJAS como información y las que SE ELIGEN como tarjetas (foto, título, descripción y
+     etiquetas); lo agotado no se puede pedir. Al guardar una, si le queda otra, se le ofrece seguir. #}
+  <title>{{ title }}</title>
+  <meta name="robots" content="noindex">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+  <style>
+    .pm-shell{ max-width:760px; margin:0 auto; }
+    .pm-head{ display:flex; align-items:center; gap:.9rem; }
+    .pm-head img{ width:56px; height:56px; border-radius:50%; object-fit:cover; flex:0 0 auto; background:#eee; }
+    .pm-eyebrow{ font-size:.72rem; font-weight:700; letter-spacing:.04em; color:#6b7280; text-transform:uppercase; }
+    .pm-facts{ display:flex; flex-wrap:wrap; gap:.35rem .9rem; font-size:.85rem; color:#374151; }
+    .pm-facts i{ color:var(--brand-accent,#007ca2); margin-right:.25rem; }
+    .pm-meal{ border:1px solid #e5e7eb; border-radius:16px; background:#fff; padding:1rem 1.1rem; margin-top:1rem; }
+    .pm-meal__title{ display:flex; align-items:center; gap:.6rem; }
+    .pm-meal__ico{ width:40px; height:40px; border-radius:12px; background:#e67e22; color:#fff; display:grid; place-items:center; font-size:1.1rem; flex:0 0 auto; }
+    .pm-sec{ margin-top:1rem; }
+    .pm-sec__name{ font-weight:800; display:flex; align-items:center; gap:.4rem; }
+    .pm-sec__hint{ font-size:.8rem; color:#6b7280; }
+    .pm-dishes{ display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:.6rem; margin-top:.5rem; }
+    .pm-dish{ position:relative; border:2px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden; cursor:pointer; display:flex; flex-direction:column; transition:border-color .15s, box-shadow .15s; }
+    .pm-dish input{ position:absolute; opacity:0; pointer-events:none; }
+    .pm-dish img{ width:100%; height:120px; object-fit:cover; background:#f1f3f5; }
+    .pm-dish__body{ padding:.55rem .7rem .7rem; }
+    .pm-dish__title{ font-weight:700; line-height:1.2; }
+    .pm-dish__desc{ font-size:.8rem; color:#6b7280; margin-top:.15rem; }
+    .pm-dish__tags{ display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.4rem; }
+    .pm-tag{ font-size:.7rem; border-radius:999px; padding:.1rem .45rem; background:#eef4f7; color:#0b5f78; display:inline-flex; align-items:center; gap:.25rem; }
+    .pm-dish.is-on{ border-color:var(--brand-primary,#e33d48); box-shadow:0 0 0 3px rgba(227,61,72,.12); }
+    .pm-dish__check{ position:absolute; top:.5rem; right:.5rem; width:26px; height:26px; border-radius:50%; background:#fff; border:2px solid #d1d5db; display:grid; place-items:center; color:#fff; }
+    .pm-dish.is-on .pm-dish__check{ background:var(--brand-primary,#e33d48); border-color:var(--brand-primary,#e33d48); }
+    .pm-dish.is-out{ cursor:not-allowed; opacity:.6; }
+    .pm-dish__out{ position:absolute; top:.6rem; left:-.4rem; background:#111; color:#fff; font-size:.7rem; font-weight:800; padding:.15rem .7rem; transform:rotate(-8deg); border-radius:4px; letter-spacing:.04em; }
+    .pm-fixed{ font-size:.9rem; color:#374151; }
+    .pm-done{ border-color:#b7e1c1; background:#f3fbf5; }
+    .pm-footer{ display:flex; align-items:center; justify-content:flex-end; gap:.6rem; margin-top:1rem; flex-wrap:wrap; }
+    .pm-msg{ font-size:.9rem; }
+    .pm-summary li{ margin-bottom:.15rem; }
+  </style>
+</head>
+<body class="public-invitation-page">
+  <main class="container py-4 py-md-5">
+    <div class="public-invitation-shell pm-shell">
+      <div class="pm-head mb-3">
+        {% if artist_photo %}<img src="{{ artist_photo }}" alt="">{% endif %}
+        <div class="min-w-0">
+          <div class="pm-eyebrow">{{ header.eyebrow or 'Actividad' }}</div>
+          <h1 class="h4 mb-1">{{ header.title }}</h1>
+          <div class="pm-facts">
+            {% for ico, lab, val in (header.rows or []) %}<span><i class="fa {{ ico }}"></i>{{ val }}</span>{% endfor %}
+            {% if not header.rows %}{% for v in [header.date, header.venue, header.city] if v %}<span>{{ v }}</span>{% endfor %}{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-2"><div class="card-body py-3">
+        <div class="d-flex align-items-center gap-2">
+          <i class="fa fa-utensils text-danger fs-4"></i>
+          <div>
+            <div class="fw-bold">Hola{% if person.name %}, {{ person.name.split(' ')[0] }}{% endif %}: elige tu menú</div>
+            <div class="text-muted small" data-pm-intro>
+              {% set pend = meals|selectattr('answered', 'equalto', false)|list %}
+              {% if not meals %}No hay ninguna comida con menú que te toque elegir.
+              {% elif pend|length == 0 %}Ya lo tienes todo elegido. Si quieres cambiar algo, pincha en la comida.
+              {% elif pend|length == 1 %}Te queda una comida por elegir.
+              {% else %}Te quedan {{ pend|length }} comidas por elegir: al guardar una, seguimos con la siguiente.{% endif %}
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div data-pm-meals>
+      {% for m in meals %}
+        {% set menu = m.menu %}
+        <div class="pm-meal{% if m.answered %} pm-done{% endif %}" data-pm-meal="{{ m.item_id }}" data-answered="{{ '1' if m.answered else '0' }}">
+          <div class="pm-meal__title">
+            <span class="pm-meal__ico"><i class="fa fa-utensils"></i></span>
+            <div class="min-w-0">
+              <div class="fw-bold">{{ m.label }}{% if menu.title %} · {{ menu.title }}{% endif %}</div>
+              <div class="text-muted small">{{ m.word|capitalize }} · {{ m.day_label }}{% if m.time %} · {{ m.time }}{% endif %}{% if m.place %} · <i class="fa fa-location-dot"></i> {{ m.place }}{% endif %}</div>
+            </div>
+            <span class="ms-auto badge {{ 'text-bg-success' if m.answered else 'text-bg-warning' }}" data-pm-state>{{ 'Elegido' if m.answered else 'Pendiente' }}</span>
+          </div>
+          <div class="pm-body{% if m.answered %} d-none{% endif %}" data-pm-body>
+            {% set fijas = menu.sections|selectattr('mode', 'ne', 'CHOOSE')|list %}
+            {% if fijas %}
+            <div class="pm-sec">
+              <div class="pm-sec__hint"><i class="fa fa-circle-info me-1"></i>Fijo para todos</div>
+              {% for s in fijas %}
+                <div class="pm-fixed"><b>{{ s.name }}</b>{% if s.dishes %}: {{ s.dishes|map(attribute='title')|join(', ') }}{% endif %}</div>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% for s in menu.sections if s.mode == 'CHOOSE' and s.dishes %}
+            <div class="pm-sec" data-pm-sec="{{ s.id }}" data-max="{{ s.choose_n }}">
+              <div class="pm-sec__name"><i class="fa fa-hand-pointer text-danger"></i>{{ s.name }}
+                <span class="pm-sec__hint">· {% if s.choose_n == 1 %}elige uno{% else %}elige {{ s.choose_n }}{% endif %}</span></div>
+              <div class="pm-dishes">
+                {% for d in s.dishes %}
+                <label class="pm-dish{% if d.sold_out %} is-out{% endif %}{% if d.id in (m.choices.get(s.id) or []) %} is-on{% endif %}">
+                  <input type="{{ 'radio' if s.choose_n == 1 else 'checkbox' }}" name="sec_{{ m.item_id }}_{{ s.id }}" value="{{ d.id }}"
+                         {% if d.sold_out %}disabled{% endif %}{% if d.id in (m.choices.get(s.id) or []) %} checked{% endif %}>
+                  {% if d.photo_url %}<img src="{{ d.photo_url }}" alt="">{% endif %}
+                  {% if d.sold_out %}<span class="pm-dish__out">AGOTADO</span>{% endif %}
+                  <span class="pm-dish__check"><i class="fa fa-check"></i></span>
+                  <div class="pm-dish__body">
+                    <div class="pm-dish__title">{{ d.title }}</div>
+                    {% if d.desc %}<div class="pm-dish__desc">{{ d.desc }}</div>{% endif %}
+                    {% if d.tags %}<div class="pm-dish__tags">{% for t in d.tags %}{% set tg = dish_tags.get(t) %}{% if tg %}<span class="pm-tag"><i class="fa {{ tg.icon }}"></i>{{ tg.label }}</span>{% endif %}{% endfor %}</div>{% endif %}
+                  </div>
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+            <div class="pm-footer">
+              <span class="pm-msg text-danger d-none" data-pm-error></span>
+              <button type="button" class="btn btn-danger" data-pm-save><i class="fa fa-check me-1"></i>Guardar mi elección</button>
+            </div>
+          </div>
+          <div class="pm-resumen mt-2{% if not m.answered %} d-none{% endif %}" data-pm-summary>
+            <ul class="pm-summary small mb-2">
+              {% for s in menu.sections if s.mode == 'CHOOSE' %}{% set mine = m.choices.get(s.id) or [] %}
+                {% if mine %}<li><b>{{ s.name }}:</b> {% for d in s.dishes if d.id in mine %}{{ d.title }}{% if not loop.last %}, {% endif %}{% endfor %}</li>{% endif %}
+              {% endfor %}
+            </ul>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-pm-change><i class="fa fa-pen me-1"></i>Cambiar</button>
+          </div>
+        </div>
+      {% endfor %}
+      </div>
+      <div class="text-muted small mt-4">33 Producciones · Hoja de ruta</div>
+    </div>
+  </main>
+  <script>
+  (function () {
+    var SAVE = {{ save_url|tojson }};
+    var meals = Array.prototype.slice.call(document.querySelectorAll('[data-pm-meal]'));
+    function marca(label) {
+      var input = label.querySelector('input'); if (!input || input.disabled) return;
+      var sec = label.closest('[data-pm-sec]'), max = parseInt(sec.getAttribute('data-max'), 10) || 1;
+      if (input.type === 'checkbox' && !input.checked) {
+        var marcados = sec.querySelectorAll('input:checked').length;
+        if (marcados >= max) { aviso(label.closest('[data-pm-meal]'), 'Aquí se eligen ' + max + ': quita uno para marcar otro.'); return; }
+      }
+      // Los radios los cambia el navegador; aquí solo se pinta.
+      setTimeout(function () {
+        sec.querySelectorAll('.pm-dish').forEach(function (d) { d.classList.toggle('is-on', !!d.querySelector('input:checked')); });
+        aviso(label.closest('[data-pm-meal]'), '');
+      }, 0);
+    }
+    function aviso(meal, txt) { var e = meal.querySelector('[data-pm-error]'); if (!e) return; e.textContent = txt; e.classList.toggle('d-none', !txt); }
+    meals.forEach(function (meal) {
+      meal.querySelectorAll('.pm-dish').forEach(function (d) { d.addEventListener('click', function (ev) { if (ev.target.tagName !== 'INPUT') { /* deja que el label cambie el input */ } marca(d); }); });
+      var change = meal.querySelector('[data-pm-change]');
+      if (change) change.addEventListener('click', function () {
+        meal.querySelector('[data-pm-body]').classList.remove('d-none'); meal.querySelector('[data-pm-summary]').classList.add('d-none');
+      });
+      var save = meal.querySelector('[data-pm-save]');
+      if (save) save.addEventListener('click', function () {
+        var choices = {}, falta = '';
+        meal.querySelectorAll('[data-pm-sec]').forEach(function (sec) {
+          var ids = Array.prototype.map.call(sec.querySelectorAll('input:checked'), function (i) { return i.value; });
+          if (!ids.length && !falta) falta = sec.querySelector('.pm-sec__name').childNodes[1].textContent.trim();
+          choices[sec.getAttribute('data-pm-sec')] = ids;
+        });
+        if (falta) { aviso(meal, 'Te falta elegir en «' + falta + '».'); return; }
+        save.disabled = true;
+        fetch(SAVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_id: meal.getAttribute('data-pm-meal'), choices: choices }) })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            save.disabled = false;
+            if (!(d && d.ok)) { aviso(meal, (d && d.error) || 'No se pudo guardar. Vuelve a intentarlo.'); return; }
+            // Guardado: se enseña el resumen y, si queda otra comida, se lleva a ella.
+            meal.classList.add('pm-done'); meal.setAttribute('data-answered', '1');
+            var st = meal.querySelector('[data-pm-state]'); st.textContent = 'Elegido'; st.className = 'ms-auto badge text-bg-success';
+            var ul = meal.querySelector('.pm-summary'); ul.innerHTML = '';
+            meal.querySelectorAll('[data-pm-sec]').forEach(function (sec) {
+              var nombre = sec.querySelector('.pm-sec__name').childNodes[1].textContent.trim();
+              var titulos = Array.prototype.map.call(sec.querySelectorAll('input:checked'), function (i) { return i.closest('.pm-dish').querySelector('.pm-dish__title').textContent; });
+              if (titulos.length) { var li = document.createElement('li'); li.innerHTML = '<b></b> '; li.querySelector('b').textContent = nombre + ':'; li.appendChild(document.createTextNode(titulos.join(', '))); ul.appendChild(li); }
+            });
+            meal.querySelector('[data-pm-body]').classList.add('d-none'); meal.querySelector('[data-pm-summary]').classList.remove('d-none');
+            var intro = document.querySelector('[data-pm-intro]');
+            if (d.next) {
+              var sig = document.querySelector('[data-pm-meal="' + d.next + '"]');
+              if (intro) intro.textContent = '¡Guardado! Te queda' + (d.pending === 1 ? '' : 'n') + ' ' + d.pending + ' por elegir: seguimos con ' + (d.next_label || 'la siguiente') + '.';
+              if (sig) { sig.querySelector('[data-pm-body]').classList.remove('d-none'); sig.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+            } else {
+              if (intro) intro.textContent = '¡Listo! Ya está todo elegido. Gracias.';
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          })
+          .catch(function () { save.disabled = false; aviso(meal, 'No hay conexión. Vuelve a intentarlo.'); });
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

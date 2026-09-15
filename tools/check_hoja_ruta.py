@@ -13,6 +13,9 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
     tercero del promotor), el sitio y su espacio, la reserva de una comida, la citación sin fin
   · las COMPAÑÍAS DE TRANSPORTE (Bases de datos): alta con sus tipos, búsqueda por tipo, su permiso, y el
     traslado que las elige guarda `company_id`
+  · la COMIDA CON MENÚ: el menú y sus platos, quién tiene que elegir, el enlace personal y la página pública,
+    la elección (agotados, tope), la siguiente comida, el aviso en la app, la tarea del portal, pedir que
+    respondan (SMS · correo) y los PDF
   · los TRASLADOS: sitios con código y terminal, estado, pasajeros con localizador/confirmado/maletas, la
     furgoneta con paradas, a quién afecta (los pasajeros siempre), el artista como pasajero, las APIs de
     sitios y de ruta (sin salir a la red)
@@ -46,7 +49,7 @@ import app as A                                       # noqa: E402
 import geo_utils                                      # noqa: E402
 from models import (Artist, Concert, ConcertArtistNotification, MediaContact,   # noqa: E402
                     MediaLocation, MediaOutlet, Promoter, PromoterContact, RoadmapScheduledMessage,
-                    TransportCompany,
+                    TransportCompany, RoadmapMenuToken, AppNotification,
                     ThirdPartyLink, User, UserProfile, Venue)
 
 A.app.config["WTF_CSRF_ENABLED"] = False
@@ -95,6 +98,9 @@ def limpia(s):
     for pr in s.query(Promoter).filter(Promoter.nick == "Tecnico Sala Ruta").all():
         s.query(ThirdPartyLink).filter(ThirdPartyLink.source_id == pr.id).delete(synchronize_session=False)
         s.delete(pr)
+    # Los enlaces del menú del apartado 13.
+    for c in s.query(Concert).filter(Concert.festival_name.in_(["Ruta Festival Prueba", "Ruta Evento Promo"])).all():
+        s.query(RoadmapMenuToken).filter(RoadmapMenuToken.entity_id == c.id).delete(synchronize_session=False)
     # Las compañías de transporte del apartado 11.
     s.query(TransportCompany).filter(TransportCompany.name.in_(["Aerolínea Ruta", "Tren Ruta"])).delete(synchronize_session=False)
     s.flush()
@@ -585,7 +591,7 @@ def main():
     co = ([x for x in pay.get("agenda", []) if x.get("kind") == "COMIDA"] or [{}])[0]
     check("una comida en un restaurante, en la sala privada, con reserva para 14",
           (co.get("place") or {}).get("mode") == "OTHER" and co.get("location") == "Casa Pepe, Calle Mayor 3"
-          and co.get("meal") == {"reservation": True, "diners": 14}, str(co.get("meal")))
+          and (co.get("meal") or {}).get("reservation") is True and (co.get("meal") or {}).get("diners") == 14, str(co.get("meal")))
     r = casa.post(base + "/item", json={"kind": "CITACION", "day": DIA, "start_time": "17:00", "end_time": "18:00"})
     ci = ([x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("kind") == "CITACION"] or [{}])[0]
     check("una citación es a una hora: no guarda fin", ci.get("start_time") == "17:00" and ci.get("end_time") == "", str(ci.get("end_time")))
@@ -610,6 +616,123 @@ def main():
         check("y la próxima vez sale SUGERIDA", any(x["name"] == "Nuevo Contacto Ruta" for x in ctx.get("contact_suggestions") or []))
     finally:
         s.close()
+
+    print("\n13 · La comida con menú: el menú, quién elige, el enlace personal, pedir que respondan, los PDF")
+    # Alguien de la CASA en el personal (para el aviso en la app).
+    s = A.db()
+    try:
+        casa_u = s.query(User).filter(User.email == "prod.ruta@prueba.local").first()
+        uid_prod = str(casa_u.id) if casa_u else ""
+    finally:
+        s.close()
+    rp = casa.post(base + "/personal", json={"kind": "USER", "ref_id": uid_prod, "name": "Prod Ruta", "role": "Producción"}).get_json() if uid_prod else {}
+    pid_prod = rp.get("person_id") or ""
+    # Una comida SIN menú todavía (la reserva la guarda el asistente).
+    r = casa.post(base + "/item", json={"kind": "COMIDA", "day": DIA, "start_time": "14:00", "title": "Comida del equipo",
+                                        "place": {"mode": "VENUE", "space": "Comedor"}, "meal": {"reservation": "1", "diners": "12"},
+                                        "audience": {"mode": "PEOPLE", "roles": [], "ids": ["p1", "p2", pid_prod]}}).get_json() or {}
+    co = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("kind") == "COMIDA" and x.get("title") == "Comida del equipo"] or [{}])[0]
+    iid = co.get("id") or ""
+    check("la comida se crea sin menú (la pestaña Comidas no se pinta)", iid and co["meal"]["menu"] is None and not A._roadmap_show_meals(r.get("payload") or {}))
+    # EL MENÚ: dos secciones que se eligen (una con dos platos) y una fija.
+    menu = {"kind": "MENU", "title": "Menú del catering", "sections": [
+        {"id": "s_ent", "name": "Entrante", "mode": "CHOOSE", "choose_n": 1, "dishes": [
+            {"id": "d_ens", "title": "Ensalada", "desc": "Con tomate", "tags": ["VEGANO", "SIN_GLUTEN", "inventada"]},
+            {"id": "d_sopa", "title": "Sopa", "sold_out": True}]},
+        {"id": "s_pri", "name": "Plato principal", "mode": "CHOOSE", "choose_n": 2, "dishes": [
+            {"id": "d_pollo", "title": "Pollo"}, {"id": "d_pesc", "title": "Pescado"}, {"id": "d_tofu", "title": "Tofu", "tags": ["VEGANO"]}]},
+        {"id": "s_cafe", "name": "Café", "mode": "FIXED", "dishes": [{"id": "d_cafe", "title": "Café e infusiones"}]},
+        {"name": "", "dishes": []}]}
+    r = casa.post(base + "/comida/%s/menu" % iid, json={"menu": menu}).get_json() or {}
+    co = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("id") == iid] or [{}])[0]
+    mn = (co.get("meal") or {}).get("menu") or {}
+    check("el menú se guarda: 3 secciones (la sin nombre no), las etiquetas válidas, el agotado y la reserva de antes",
+          len(mn.get("sections") or []) == 3 and mn["sections"][0]["dishes"][0]["tags"] == ["VEGANO", "SIN_GLUTEN"]
+          and mn["sections"][0]["dishes"][1]["sold_out"] is True and co["meal"]["reservation"] is True and co["meal"]["diners"] == 12, str(mn)[:200])
+    check("ahora sí se pinta la pestaña Comidas", A._roadmap_show_meals(r.get("payload") or {}))
+    check("a la persona de la casa se le avisa en la app", r.get("notified") == 1, str(r.get("notified")))
+    s = A.db()
+    try:
+        av = s.query(AppNotification).filter(AppNotification.ref_type == "ROADMAP_MENU", AppNotification.ref_id == "%s:%s" % (iid, pid_prod)).first()
+        check("el aviso es del tipo MENU y lleva a su enlace personal", av is not None and av.kind == "MENU" and "/menu/" in (av.url or ""), str(getattr(av, "url", None)))
+        tokens = {tk.personnel_id: tk.token for tk in s.query(RoadmapMenuToken).filter(RoadmapMenuToken.entity_id == A.to_uuid(cid)).all()}
+    finally:
+        s.close()
+    # El asistente vuelve a guardar la comida (la reserva) SIN mandar el menú: el menú se conserva.
+    r = casa.post(base + "/item", json={"id": iid, "kind": "COMIDA", "day": DIA, "start_time": "14:30", "title": "Comida del equipo",
+                                        "meal": {"reservation": "1", "diners": "14"}}).get_json() or {}
+    co = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("id") == iid] or [{}])[0]
+    check("guardar la comida desde el asistente conserva el menú y cambia la reserva",
+          len(((co.get("meal") or {}).get("menu") or {}).get("sections") or []) == 3 and co["meal"]["diners"] == 14)
+    # QUIÉN tiene que elegir: p1, p2 y la persona de la casa; nadie ha respondido.
+    est = casa.get(base + "/comida/%s/estado" % iid).get_json() or {}
+    check("el estado dice quién tiene que elegir (3) y que nadie ha respondido",
+          est.get("total") == 3 and est.get("answered") == 0 and est.get("word") == "comida" and est.get("place") == "Sala Ruta · Comedor", str(est)[:200])
+    # PEDIR QUE RESPONDAN: la vista previa dice a quién llega (p3 no tiene teléfono; p1 y p2 sí).
+    prev = casa.post(base + "/comida/%s/pedir/vista-previa" % iid, json={"channel": "SMS"}).get_json() or {}
+    check("la vista previa del SMS: el texto dice qué comida, de qué día y de quién, y a quién le llega",
+          prev.get("ok") and "elige tu menú para la comida del" in (prev.get("text") or "") and "Los Ruta · Ruta Festival Prueba" in (prev.get("text") or "")
+          and prev.get("reachable") == 2 and any(d["why"] == "sin teléfono" for d in prev.get("recipients") or []), str(prev)[:260])
+    prevm = casa.post(base + "/comida/%s/pedir/vista-previa" % iid, json={"channel": "EMAIL"}).get_json() or {}
+    check("y la del correo trae su HTML con el botón", prevm.get("ok") and "Elegir mi menú" in (prevm.get("html") or ""))
+    ENVIADOS["sms"].clear()
+    r = casa.post(base + "/comida/%s/pedir" % iid, json={"channel": "SMS"}).get_json() or {}
+    check("se pide por SMS a los dos que tienen teléfono, cada uno con SU enlace",
+          r.get("ok") and r.get("sent") == 2 and len(ENVIADOS["sms"]) == 2 and len({to for to, _t in ENVIADOS["sms"]}) == 2
+          and all("elige tu menú" in txt for _to, txt in ENVIADOS["sms"]), str(ENVIADOS["sms"])[:200])
+    s = A.db()
+    try:
+        tokens = {tk.personnel_id: tk.token for tk in s.query(RoadmapMenuToken).filter(RoadmapMenuToken.entity_id == A.to_uuid(cid)).all()}
+    finally:
+        s.close()
+    check("hay un enlace por persona (p1, p2 y la de la casa)", set(tokens.keys()) >= {"p1", "p2", pid_prod}, str(tokens.keys()))
+    # LA PÁGINA PÚBLICA (sin sesión) y la elección.
+    anon = A.app.test_client()
+    pag = anon.get("/menu/%s" % tokens["p1"])
+    html_pag = pag.get_data(as_text=True)
+    check("la página del menú se abre sin sesión y enseña la comida y sus platos",
+          pag.status_code == 200 and "Ensalada" in html_pag and "AGOTADO" in html_pag and "Comida del equipo" in html_pag and html_pag.count("<!doctype") == 1)
+    check("un enlace inventado da 404", anon.get("/menu/nadaquever").status_code == 404)
+    r = anon.post("/menu/%s/guardar" % tokens["p1"], json={"item_id": iid, "choices": {"s_ent": ["d_sopa"], "s_pri": ["d_pollo"]}}).get_json() or {}
+    check("un plato AGOTADO no se puede elegir (falta el entrante)", r.get("ok") is False and "Entrante" in (r.get("error") or ""), str(r))
+    r = anon.post("/menu/%s/guardar" % tokens["p1"], json={"item_id": iid, "choices": {"s_ent": ["d_ens"], "s_pri": ["d_pollo", "d_pesc", "d_tofu"]}}).get_json() or {}
+    check("se guarda su elección (y no más platos de los que toca en el principal: 2)", r.get("ok") and r.get("pending") == 0 and r.get("next") is None, str(r))
+    est = casa.get(base + "/comida/%s/estado" % iid).get_json() or {}
+    p1 = ([p for p in est.get("people") or [] if p["id"] == "p1"] or [{}])[0]
+    check("el estado lo refleja: p1 ha respondido con dos principales", est.get("answered") == 1 and p1.get("answered") and len(p1.get("choices", {}).get("s_pri") or []) == 2, str(p1)[:200])
+    # La OFICINA elige por la persona de la casa; su aviso se da por resuelto.
+    r = casa.post(base + "/comida/%s/respuesta" % iid, json={"personnel_id": pid_prod, "choices": {"s_ent": ["d_ens"], "s_pri": ["d_tofu"]}}).get_json() or {}
+    s = A.db()
+    try:
+        av = s.query(AppNotification).filter(AppNotification.ref_type == "ROADMAP_MENU", AppNotification.ref_id == "%s:%s" % (iid, pid_prod)).first()
+        check("la oficina elige por alguien y su aviso desaparece solo", r.get("ok") and av is not None and av.read_at is not None)
+    finally:
+        s.close()
+    # UNA SEGUNDA COMIDA con menú para p1: al guardar la primera le ofrece la siguiente.
+    r2 = casa.post(base + "/item", json={"kind": "COMIDA", "day": DIA, "start_time": "21:30", "title": "Cena",
+                                         "audience": {"mode": "PEOPLE", "roles": [], "ids": ["p1"]},
+                                         "meal": {"menu": {"kind": "BOCADILLOS", "sections": [{"id": "s_boc", "name": "Bocadillos", "mode": "CHOOSE", "choose_n": 1,
+                                                                                               "dishes": [{"id": "d_jam", "title": "Jamón"}, {"id": "d_veg", "title": "Vegetal"}]}]}}}).get_json() or {}
+    cena = ([x for x in (r2.get("payload") or {}).get("agenda", []) if x.get("title") == "Cena"] or [{}])[0]
+    check("una cena con bocadillos para p1 (la palabra sale de la hora)", cena and A._roadmap_meal_word(cena.get("start_time")) == "cena")
+    r = anon.post("/menu/%s/guardar" % tokens["p1"], json={"item_id": iid, "choices": {"s_ent": ["d_ens"], "s_pri": ["d_pollo"]}}).get_json() or {}
+    check("al volver a guardar la comida le ofrece la CENA (la siguiente pendiente)", r.get("ok") and r.get("next") == cena.get("id") and r.get("next_label") == "Cena", str(r))
+    pag2 = anon.get("/menu/%s" % tokens["p2"]).get_data(as_text=True)
+    check("a p2 (que no va a la cena) solo le sale la comida", "Cena" not in pag2 and "Comida del equipo" in pag2)
+    # LOS PDF, por persona y por platos.
+    pdf1 = casa.get(base + "/comida/%s/pdf?por=persona" % iid)
+    pdf2 = casa.get(base + "/comida/%s/pdf?por=plato" % iid)
+    check("los dos PDF salen", pdf1.status_code == 200 and pdf1.data[:4] == b"%PDF" and pdf2.status_code == 200 and pdf2.data[:4] == b"%PDF", str(pdf1.status_code) + str(pdf2.status_code))
+    # EL PORTAL: Ana (p1) es un tercero con la cena pendiente → la tarea «Elegir el menú».
+    ext = cliente_ext(d["ana"])
+    home = ext.get("/externos/inicio").get_data(as_text=True)
+    check("en el portal le sale la tarea «Elegir el menú» de la cena", "Elegir el menú" in home and "/menu/" in home)
+    # Editar el menú quitando un plato elegido limpia esa respuesta.
+    menu2 = dict(menu); menu2["sections"] = [dict(menu["sections"][0]), dict(menu["sections"][1], dishes=[{"id": "d_pesc", "title": "Pescado"}]), menu["sections"][2]]
+    r = casa.post(base + "/comida/%s/menu" % iid, json={"menu": menu2, "notify": False}).get_json() or {}
+    co = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("id") == iid] or [{}])[0]
+    check("quitar un plato del menú limpia las respuestas que lo tenían (p1 se queda sin principal)",
+          "s_pri" not in ((co.get("meal") or {}).get("responses") or {}).get("p1", {}).get("choices", {}) and "s_ent" in co["meal"]["responses"]["p1"]["choices"])
 
     print("\n12 · Los traslados: sitios, estado, pasajeros con maletas, la furgoneta, a quién afecta")
     # Nada sale a la red: los sitios y la ruta se responden desde aquí.

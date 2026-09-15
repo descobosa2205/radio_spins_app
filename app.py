@@ -317,6 +317,7 @@ from models import (
     ensure_short_links_schema,
     VideoWebVersion,
     ensure_video_web_schema,
+    RoadmapMenuToken,
     RoadmapScheduledMessage,
     ensure_roadmap_extras_schema,
     ExternalProductionAccess,
@@ -493,7 +494,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
     "concert_artwork_public_upload",
     # La MINIATURA de un cartel recién subido, por nuestro dominio (la ve quien está subiendo).
     "concert_artwork_public_file", "public_announce_confirm",
@@ -82188,6 +82189,18 @@ ROADMAP_TRANSPORT_STATUSES = ("CONFIRMADO", "RESERVADO", "PROVISIONAL")
 ROADMAP_POINT_KINDS = ("ADDRESS", "AIRPORT", "STATION", "PORT", "BUS", "HOTEL", "VENUE", "ITEM")
 ROADMAP_PROVIDER_KINDS = ("PROMOTER", "US", "OTHER")
 ROADMAP_MAX_BAGS = 9
+# LA COMIDA CON MENÚ (sep 2026, lo pidió Dani): un menú cerrado tiene SECCIONES (las de un menú de
+# verdad —entrante, principal, postre, café, bebida—, «bocadillos», u otras que se añadan) y cada
+# sección es FIJA (no se elige) o SE ELIGE (cuántos por persona); cada plato lleva foto, título,
+# descripción y etiquetas (vegano · vegetariano · sin gluten · sin lactosa) y puede marcarse AGOTADO.
+# A quien le afecta la comida se le pide que elija (por su enlace personal, `RoadmapMenuToken`).
+ROADMAP_MENU_KINDS = (("MENU", "Menú", "fa-utensils"), ("BOCADILLOS", "Bocadillos", "fa-burger"), ("OTRO", "Otro", "fa-bowl-food"))
+ROADMAP_MENU_DEFAULT_SECTIONS = {"MENU": ["Entrante", "Plato principal", "Postre", "Café", "Bebida"],
+                                 "BOCADILLOS": ["Bocadillos"], "OTRO": ["Opciones"]}
+ROADMAP_DISH_TAGS = (("VEGANO", "Vegano", "fa-leaf"), ("VEGETARIANO", "Vegetariano", "fa-seedling"),
+                     ("SIN_GLUTEN", "Sin gluten", "fa-wheat-awn-circle-exclamation"), ("SIN_LACTOSA", "Sin lactosa", "fa-cow"))
+ROADMAP_DISH_TAG_KEYS = {k for k, _l, _i in ROADMAP_DISH_TAGS}
+ROADMAP_SECTION_MODES = ("CHOOSE", "FIXED")
 
 
 def _roadmap_kind_rules() -> dict:
@@ -83018,6 +83031,12 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         # LAS COMPAÑÍAS DE TRANSPORTE (con su logo y sus tipos): el asistente de un traslado ofrece
         # las de ese tipo y los horarios pintan el logo actual de la base por `company_id`.
         "transport_companies": _transport_company_rows(session_db),
+        # LA COMIDA CON MENÚ: los tipos de menú, las secciones por defecto de cada uno, las etiquetas
+        # de un plato y si se pinta la pestaña COMIDAS (alguna comida con menú).
+        "menu_kinds": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_MENU_KINDS],
+        "menu_default_sections": ROADMAP_MENU_DEFAULT_SECTIONS,
+        "dish_tags": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_DISH_TAGS],
+        "show_meals": _roadmap_show_meals(payload),
     }
 
 
@@ -83110,16 +83129,450 @@ def _roadmap_clean_place(value) -> dict:
     }
 
 
-def _roadmap_clean_meal(value) -> dict:
-    """LA COMIDA: si hay RESERVA (sí · no · None = no se sabe) y para cuántos COMENSALES."""
+def _roadmap_clean_menu(value):
+    """EL MENÚ CERRADO de una comida (None = no lo hay): de qué tipo es, su título y sus SECCIONES,
+    cada una fija o «se elige» (cuántos), con sus PLATOS (foto, título, descripción, etiquetas,
+    agotado). Los ids se conservan (las respuestas de la gente apuntan a ellos)."""
+    if not isinstance(value, dict):
+        return None
+    kind = str(value.get("kind") or "MENU").strip().upper()
+    if kind not in {k for k, _l, _i in ROADMAP_MENU_KINDS}:
+        kind = "MENU"
+    secciones = []
+    for s in (value.get("sections") or [])[:30]:
+        if not isinstance(s, dict):
+            continue
+        nombre = (s.get("name") or "").strip()[:80]
+        if not nombre:
+            continue
+        mode = str(s.get("mode") or "FIXED").strip().upper()
+        if mode not in ROADMAP_SECTION_MODES:
+            mode = "FIXED"
+        platos = []
+        for d in (s.get("dishes") or [])[:60]:
+            if not isinstance(d, dict):
+                continue
+            titulo = (d.get("title") or "").strip()[:160]
+            if not titulo:
+                continue
+            platos.append({
+                "id": (str(d.get("id") or "").strip()[:40] or _roadmap_new_id()),
+                "title": titulo,
+                "desc": (d.get("desc") or "").strip()[:600],
+                "photo_url": (d.get("photo_url") or "").strip()[:600],
+                "tags": [t for t in [str(x).strip().upper() for x in (d.get("tags") or [])] if t in ROADMAP_DISH_TAG_KEYS][:4],
+                "sold_out": bool(d.get("sold_out")),
+            })
+        secciones.append({"id": (str(s.get("id") or "").strip()[:40] or _roadmap_new_id()), "name": nombre,
+                          "mode": mode, "choose_n": max(1, min(9, _roadmap_int(s.get("choose_n"), 1))),
+                          "dishes": platos})
+    return {"kind": kind, "title": (value.get("title") or "").strip()[:120], "sections": secciones}
+
+
+def _roadmap_menu_choose_sections(menu) -> list[dict]:
+    """Las secciones en las que hay que ELEGIR (y tienen algo que elegir)."""
+    return [s for s in ((menu or {}).get("sections") or []) if s.get("mode") == "CHOOSE" and s.get("dishes")]
+
+
+def _roadmap_menu_needs_choice(menu) -> bool:
+    return bool(_roadmap_menu_choose_sections(menu))
+
+
+def _roadmap_prune_responses(responses, menu) -> dict:
+    """Las respuestas de la gente, sin platos ni secciones que ya no existen (se editó el menú)."""
+    if not isinstance(responses, dict) or not menu:
+        return {}
+    validos = {s["id"]: {d["id"] for d in (s.get("dishes") or [])}
+               for s in (menu.get("sections") or []) if s.get("mode") == "CHOOSE"}
+    out = {}
+    for pid, r in responses.items():
+        if not isinstance(r, dict):
+            continue
+        choices = {}
+        for sid, dids in (r.get("choices") or {}).items():
+            if sid in validos:
+                keep = [str(d) for d in (dids or []) if str(d) in validos[sid]]
+                if keep:
+                    choices[sid] = keep
+        if choices:
+            out[str(pid)] = {"choices": choices, "at": (r.get("at") or ""), "by": (r.get("by") or "PERSON")}
+    return out
+
+
+def _roadmap_clean_meal(value, current=None) -> dict:
+    """LA COMIDA: si hay RESERVA (sí · no · None = no se sabe), para cuántos COMENSALES, el MENÚ cerrado
+    (o None) y las RESPUESTAS de cada persona.
+    ⚠️ Lo que el cliente NO manda se conserva de `current`: el asistente de la hoja de ruta guarda la
+    reserva sin tocar el menú, la pestaña Comidas guarda el menú sin tocar la reserva, y las
+    respuestas las escribe la gente por su enlace (nunca llegan del asistente)."""
     v = value if isinstance(value, dict) else {}
-    res = v.get("reservation")
+    cur = current if isinstance(current, dict) else {}
+    res = v.get("reservation") if "reservation" in v else cur.get("reservation")
     if isinstance(res, str):
         res = {"1": True, "true": True, "si": True, "sí": True, "0": False, "false": False, "no": False}.get(res.strip().lower())
     elif not isinstance(res, bool):
         res = None
-    comensales = _roadmap_int(v.get("diners"), 0)
-    return {"reservation": res, "diners": (comensales if (res is True and comensales > 0) else None)}
+    comensales = _roadmap_int(v.get("diners") if "diners" in v else cur.get("diners"), 0)
+    if "menu" in v:
+        menu = _roadmap_clean_menu(v.get("menu"))
+    else:
+        menu = _roadmap_clean_menu(cur.get("menu")) if cur.get("menu") else None
+    respuestas = v.get("responses") if isinstance(v.get("responses"), dict) else (cur.get("responses") or {})
+    peticiones = cur.get("requests") if isinstance(cur.get("requests"), list) else (v.get("requests") or [])
+    return {"reservation": res, "diners": (comensales if (res is True and comensales > 0) else None),
+            "menu": menu, "responses": _roadmap_prune_responses(respuestas, menu),
+            "requests": list(peticiones)[-20:]}
+
+
+def _roadmap_item_people(payload: dict, item: dict) -> list[dict]:
+    """A QUIÉN afecta un punto, como filas del personal (los que tienen que elegir el menú de una
+    comida): todos, los de unas funciones o unas personas concretas (y el ARTISTA, si va en el
+    personal como tal)."""
+    aud = _roadmap_item_audience((item or {}).get("audience"))
+    filas = [p for p in ((payload or {}).get("personnel") or []) if isinstance(p, dict) and p.get("id")]
+    if aud["mode"] == "ROLES":
+        claves = {_norm_text_key(r) for r in aud["roles"]}
+        return [p for p in filas if _norm_text_key(p.get("role") or "") in claves]
+    if aud["mode"] == "PEOPLE":
+        ids = set(aud["ids"])
+        artistas = {x.split(":", 1)[1] for x in aud["ids"] if str(x).startswith("artist:")}
+        return [p for p in filas if str(p.get("id")) in ids
+                or ((p.get("kind") or "").upper() == "ARTIST" and str(p.get("ref_id") or "") in artistas)]
+    return filas
+
+
+def _roadmap_meal_word(start_time) -> str:
+    """Desayuno, comida o cena, por la hora (lo que se le dice a la gente al pedirle que elija)."""
+    hhmm = _roadmap_clean_time(start_time)
+    if not hhmm:
+        return "comida"
+    try:
+        h = int(hhmm[:2]) + int(hhmm[3:5]) / 60.0
+    except Exception:
+        return "comida"
+    return "desayuno" if h < 11.5 else ("comida" if h < 17.5 else "cena")
+
+
+def _roadmap_meal_label(item: dict) -> str:
+    return (item.get("title") or "").strip() or _roadmap_meal_word(item.get("start_time")).capitalize()
+
+
+def _roadmap_meal_place(item: dict, venue_name: str = "") -> str:
+    """Dónde es la comida, como se lee: el recinto (y su espacio) o el restaurante."""
+    pl = item.get("place") if isinstance(item.get("place"), dict) else {}
+    base = (item.get("location") or pl.get("venue_name") or "") if pl.get("mode") == "OTHER" else (venue_name or "")
+    return " · ".join([x for x in [base, pl.get("space") or ""] if x])
+
+
+def _roadmap_menu_meals(payload: dict) -> list[dict]:
+    """Las comidas con un menú en el que hay que ELEGIR (no canceladas), en orden."""
+    out = [it for it in ((payload or {}).get("agenda") or [])
+           if isinstance(it, dict) and (it.get("kind") or "").upper() == "COMIDA" and not it.get("cancelled")
+           and _roadmap_menu_needs_choice((it.get("meal") or {}).get("menu"))]
+    out.sort(key=lambda x: (x.get("day") or "", x.get("start_time") or "99"))
+    return out
+
+
+def _roadmap_menu_person_meals(payload: dict, personnel_id) -> list[dict]:
+    pid = str(personnel_id or "")
+    return [it for it in _roadmap_menu_meals(payload)
+            if any(str(p.get("id")) == pid for p in _roadmap_item_people(payload, it))]
+
+
+def _roadmap_menu_answered(item: dict, personnel_id) -> bool:
+    r = ((item.get("meal") or {}).get("responses") or {}).get(str(personnel_id or ""))
+    return bool(isinstance(r, dict) and r.get("choices"))
+
+
+def _roadmap_show_meals(payload: dict) -> bool:
+    """¿Se pinta la pestaña COMIDAS? Cuando alguna comida tiene menú cerrado (con o sin elección)."""
+    return any(isinstance(it, dict) and (it.get("kind") or "").upper() == "COMIDA" and not it.get("cancelled")
+               and (it.get("meal") or {}).get("menu") for it in ((payload or {}).get("agenda") or []))
+
+
+def _roadmap_menu_token(session_db, kind: str, row, person: dict):
+    """El ENLACE PERSONAL de esa persona para esa actividad: se crea la primera vez y se reutiliza.
+    ⚠️ Quien lo llama hace el commit (aquí solo se hace flush)."""
+    pid = str((person or {}).get("id") or "")
+    fila = (session_db.query(RoadmapMenuToken)
+            .filter(RoadmapMenuToken.entity_type == kind, RoadmapMenuToken.entity_id == row.id,
+                    RoadmapMenuToken.personnel_id == pid).first())
+    if fila is None:
+        fila = RoadmapMenuToken(token=_uuid.uuid4().hex, entity_type=kind, entity_id=row.id, personnel_id=pid,
+                                person_name=((person or {}).get("name") or "")[:200])
+        session_db.add(fila)
+        session_db.flush()
+    return fila
+
+
+def _roadmap_menu_url(token: str) -> str:
+    try:
+        return _external_url_for("public_menu_view", token=token)
+    except Exception:
+        return _public_base_url() + "/menu/" + token
+
+
+def _roadmap_menu_status(session_db, kind: str, row, payload: dict, item: dict) -> dict:
+    """QUIÉN tiene que elegir en esta comida y qué ha elegido cada uno (con su teléfono y su correo,
+    para pedírselo): el punto único de la pestaña Comidas, de «pedir que respondan» y de los PDF."""
+    gente = _roadmap_item_people(payload, item)
+    filas = _roadmap_person_rows(session_db, gente, with_doc=False)
+    respuestas = (item.get("meal") or {}).get("responses") or {}
+    people = []
+    for r in filas:
+        pid = str(r.get("id") or "")
+        ans = respuestas.get(pid) if isinstance(respuestas.get(pid), dict) else {}
+        people.append({"id": pid, "name": r.get("name") or "Sin nombre", "role": r.get("role") or "",
+                       "photo": r.get("photo_url") or "", "kind": r.get("kind") or "",
+                       "phone": (sms_utils.normalize_phone(r.get("phone") or "") or ""), "email": (r.get("email") or "").strip(),
+                       "answered": bool(ans.get("choices")), "choices": ans.get("choices") or {},
+                       "at": ans.get("at") or "", "by": ans.get("by") or ""})
+    venue = getattr(row, "venue", None)
+    return {"item_id": item.get("id"), "label": _roadmap_meal_label(item), "word": _roadmap_meal_word(item.get("start_time")),
+            "day": item.get("day") or "", "time": item.get("start_time") or "",
+            "place": _roadmap_meal_place(item, (getattr(venue, "name", None) or getattr(row, "manual_venue_name", None) or "") if venue is not None or hasattr(row, "manual_venue_name") else ""),
+            "people": people, "answered": sum(1 for p in people if p["answered"]), "total": len(people)}
+
+
+def _roadmap_menu_request_text(session_db, kind: str, row, item: dict, nombre: str, enlace: str) -> tuple[str, str, str]:
+    """Lo que se le dice a alguien para que elija: el SMS (con el enlace), el asunto del correo y su
+    texto. Dice qué comida es (desayuno · comida · cena, por la hora), de qué día, de qué actividad
+    y de quién, y dónde."""
+    palabra = _roadmap_meal_word(item.get("start_time"))
+    try:
+        fecha = datetime.strptime(str(item.get("day"))[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha = str(item.get("day") or "")
+    # De quién y de qué: el artista y la actividad (si la actividad no lleva ya su nombre).
+    actividad = _roadmap_message_title(session_db, kind, row)
+    try:
+        artista = _artist_label_from_rows(_artists_from_ids(session_db, _roadmap_artist_ids(row)))
+    except Exception:
+        artista = ""
+    if artista and _norm_text_key(artista) not in _norm_text_key(actividad):
+        actividad = "%s · %s" % (artista, actividad)
+    lugar = ""
+    if isinstance(row, Concert):
+        try:
+            lugar = (_concert_city(row) or "").strip()
+        except Exception:
+            lugar = ""
+    titulo = (item.get("title") or "").strip()
+    que = "la %s del %s" % (palabra, fecha) + ((" (%s)" % titulo) if titulo and _norm_text_key(titulo) != _norm_text_key(palabra) else "")
+    donde = (" en %s" % lugar) if lugar else ""
+    saludo = ("Hola %s: " % nombre) if nombre else "Hola: "
+    sms = "%spor favor, elige tu menú para %s · %s%s. %s" % (saludo, que, actividad, donde, enlace)
+    asunto = "Elige tu menú · %s del %s" % (palabra, fecha)
+    intro = "%spor favor, elige tu menú para %s · %s%s. Pincha en el botón, mira las opciones y marca lo que quieres." % (saludo, que, actividad, donde)
+    return sms, asunto, intro
+
+
+def _roadmap_menu_apply_choice(item: dict, personnel_id, choices, by: str) -> tuple[bool, str]:
+    """Guarda lo que ha elegido una persona, comprobándolo contra el menú: en cada sección que se
+    elige, platos que existen y no están agotados, y no más de los que toca. Devuelve (ok, error)."""
+    menu = (item.get("meal") or {}).get("menu") or {}
+    choices = choices if isinstance(choices, dict) else {}
+    limpio = {}
+    for s in _roadmap_menu_choose_sections(menu):
+        disponibles = {d["id"] for d in (s.get("dishes") or []) if not d.get("sold_out")}
+        if not disponibles:
+            continue    # todo agotado: no se le puede pedir nada aquí
+        elegidos = [str(x) for x in (choices.get(s["id"]) or []) if str(x) in disponibles]
+        elegidos = list(dict.fromkeys(elegidos))[: int(s.get("choose_n") or 1)]
+        if not elegidos:
+            return False, "Falta elegir en «%s»." % s["name"]
+        limpio[s["id"]] = elegidos
+    if not limpio:
+        return False, "No hay nada que elegir en este menú."
+    item.setdefault("meal", {}).setdefault("responses", {})[str(personnel_id)] = {
+        "choices": limpio, "at": _now_madrid().isoformat(), "by": (by or "PERSON")}
+    return True, ""
+
+
+def _roadmap_menu_notify_people(session_db, kind: str, row, payload: dict, item: dict) -> int:
+    """AVISA en la app a la gente de la casa que tiene que elegir y aún no lo ha hecho (a los de fuera
+    se les pide por SMS o correo, o lo ven en su portal). Devuelve cuántos."""
+    n = 0
+    if kind == "template" or not _roadmap_menu_needs_choice((item.get("meal") or {}).get("menu")):
+        return 0
+    for persona in _roadmap_item_people(payload, item):
+        if (persona.get("kind") or "").upper() != "USER" or not persona.get("ref_id"):
+            continue
+        if _roadmap_menu_answered(item, persona.get("id")):
+            continue
+        try:
+            tk = _roadmap_menu_token(session_db, kind, row, persona)
+            palabra = _roadmap_meal_word(item.get("start_time"))
+            try:
+                fecha = datetime.strptime(str(item.get("day"))[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                fecha = str(item.get("day") or "")
+            if _notify_user(session_db, persona.get("ref_id"), "MENU",
+                            "Elige tu menú · %s del %s" % (palabra, fecha),
+                            "%s · %s" % (_roadmap_meal_label(item), _roadmap_message_title(session_db, kind, row)),
+                            url=_roadmap_menu_url(tk.token), ref_type="ROADMAP_MENU",
+                            ref_id="%s:%s" % (item.get("id"), persona.get("id"))):
+                n += 1
+        except Exception:
+            app.logger.exception("[hoja de ruta] no se pudo avisar del menú")
+    return n
+
+
+def _roadmap_menu_request_send(session_db, kind: str, row, payload: dict, item: dict, *, canal: str, ids,
+                               uid=None, nick: str = "", preview: bool = False) -> dict:
+    """PEDIR QUE RESPONDAN el menú: a quien le afecta la comida y no ha elegido (o a los que se
+    elijan), UN mensaje por persona con SU enlace, por SMS o por correo. Con `preview` no manda
+    nada: devuelve a quién llegaría (y a quién no, y por qué), el texto tal como saldría y, en el
+    correo, su HTML."""
+    canal = (canal or "SMS").strip().upper()
+    estado = _roadmap_menu_status(session_db, kind, row, payload, item)
+    pedidos = {str(x) for x in (ids or [])}
+    campo = "phone" if canal == "SMS" else "email"
+    candidatos = [p for p in estado["people"] if not p["answered"] and (not pedidos or p["id"] in pedidos)]
+    destinatarios = [{"id": p["id"], "name": p["name"], "photo": p["photo"], "ok": bool(p.get(campo)),
+                      "why": ("" if p.get(campo) else ("sin teléfono" if canal == "SMS" else "sin correo"))}
+                     for p in candidatos]
+    personas = {str(p.get("id")): p for p in (payload.get("personnel") or []) if isinstance(p, dict)}
+    if preview:
+        muestra = next((p for p in candidatos if p.get(campo)), candidatos[0] if candidatos else None)
+        nombre = ((muestra or {}).get("name") or "").split(" ")[0]
+        sms, asunto, intro = _roadmap_menu_request_text(session_db, kind, row, item, nombre, _roadmap_menu_url("…"))
+        salida = {"ok": True, "channel": canal, "recipients": destinatarios, "text": sms, "subject": asunto,
+                  "pending": len(candidatos), "reachable": sum(1 for d in destinatarios if d["ok"]),
+                  "sms_ready": _sms_available()}
+        if canal == "SMS":
+            salida["sms"] = _campaign_sms_preview(session_db, sms, "", [])
+        else:
+            salida["html"] = _roadmap_message_email_html(session_db, kind, row, subject=asunto, body=intro,
+                                                        button_label="Elegir mi menú", button_url=_roadmap_menu_url("…"))
+        return salida
+    destinos = [p for p in candidatos if p.get(campo)]
+    if not destinos:
+        return {"ok": False, "sent": 0, "failed": [],
+                "error": ("Nadie de los que faltan tiene %s." % ("teléfono" if canal == "SMS" else "correo")) if candidatos
+                         else "Ya han respondido todos."}
+    if canal == "SMS" and not _sms_available():
+        return {"ok": False, "sent": 0, "failed": [], "error": "La pasarela de SMS no está configurada (Integraciones → SMS)."}
+    enviados, fallos = [], []
+    for p in destinos:
+        persona = personas.get(p["id"]) or {"id": p["id"], "name": p["name"]}
+        tk = _roadmap_menu_token(session_db, kind, row, persona)
+        enlace = _roadmap_menu_url(tk.token)
+        sms, asunto, intro = _roadmap_menu_request_text(session_db, kind, row, item, (p["name"] or "").split(" ")[0], enlace)
+        if canal == "SMS":
+            texto = _shorten_links_in_text(session_db, sms, kind="ROADMAP")
+            ok, err = _send_optional_sms(session_db, p["phone"], texto, kind="HOJA_RUTA", user_id=uid, nick=nick)
+        else:
+            html_correo = _roadmap_message_email_html(session_db, kind, row, subject=asunto, body=intro,
+                                                     button_label="Elegir mi menú", button_url=enlace)
+            ok, err = _send_optional_email([p["email"]], asunto, html_correo)
+        if ok:
+            tk.last_sent_at = _now_madrid()
+        (enviados if ok else fallos).append(p["name"] + ("" if ok else " (%s)" % (err or "")))
+    item.setdefault("meal", {}).setdefault("requests", [])
+    item["meal"]["requests"] = (item["meal"]["requests"] + [{"at": _now_madrid().isoformat(), "channel": canal,
+                                                             "sent": len(enviados), "by": (nick or "")[:80]}])[-20:]
+    if not enviados:
+        return {"ok": False, "sent": 0, "failed": fallos, "error": "No salió para nadie. " + " · ".join(fallos)}
+    return {"ok": True, "sent": len(enviados), "failed": fallos,
+            "message": "Pedido a %d persona%s." % (len(enviados), "" if len(enviados) == 1 else "s")}
+
+
+def _roadmap_meal_pdf_bytes(session_db, kind: str, row, payload: dict, item: dict, por: str) -> bytes:
+    """EL PDF del menú de una comida, por PERSONA (qué ha elegido cada uno) o por PLATOS (cuántos de
+    cada y quiénes). Estilo de la casa: el logo arriba a la derecha, el título centrado y la galleta
+    de la actividad; debajo los datos de la comida (nombre, hora y sitio)."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+    estado = _roadmap_menu_status(session_db, kind, row, payload, item)
+    header = _roadmap_export_header(kind, row)
+    menu = (item.get("meal") or {}).get("menu") or {}
+    secciones = menu.get("sections") or []
+    eligen = [s for s in secciones if s.get("mode") == "CHOOSE"]
+    fijas = [s for s in secciones if s.get("mode") != "CHOOSE"]
+    titulos = {d["id"]: d for s in secciones for d in (s.get("dishes") or [])}
+    apaisado = (por == "persona" and len(eligen) > 3)
+    buf = BytesIO()
+    pagina = landscape(A4) if apaisado else A4
+    doc = SimpleDocTemplate(buf, pagesize=pagina, leftMargin=32, rightMargin=32, topMargin=24, bottomMargin=24)
+    ancho = pagina[0] - 64
+    styles = getSampleStyleSheet()
+    st_title = ParagraphStyle('MenuTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=16, leading=19)
+    st_h = ParagraphStyle('MenuH', parent=styles['Normal'], fontSize=10.5, leading=13, fontName='Helvetica-Bold')
+    st_n = ParagraphStyle('MenuN', parent=styles['Normal'], fontSize=9, leading=11.5)
+    st_sub = ParagraphStyle('MenuSub', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#6b7280'))
+    story = []
+    logo = _fetch_image_reader(header.get('logo_url') or '')
+    lr = Table([['', (RLImage(logo, width=110, height=40, kind='proportional') if logo else '')]], colWidths=[ancho - 120, 120])
+    lr.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT'), ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0)]))
+    story.append(lr)
+    try:
+        fecha = datetime.strptime(str(item.get("day"))[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha = str(item.get("day") or "")
+    story.append(Paragraph(html.escape("Menú · %s · %s" % (estado["word"].capitalize(), fecha)), st_title))
+    story.append(Paragraph(html.escape("Por persona" if por == "persona" else "Por platos"), ParagraphStyle('MenuBy', parent=st_sub, alignment=TA_CENTER)))
+    story.append(Spacer(1, 8))
+    try:
+        story.append(_roadmap_pdf_activity_card(header))
+    except Exception:
+        story.append(Paragraph(html.escape(header.get("title") or ""), st_h))
+    story.append(Spacer(1, 8))
+    datos = [x for x in [(menu.get("title") or "").strip() or estado["label"], (item.get("start_time") or ""), estado.get("place") or ""] if x]
+    story.append(Paragraph(html.escape(" · ".join(datos)), st_h))
+    if fijas:
+        story.append(Paragraph("Fijo (no se elige): " + " · ".join(
+            html.escape(s["name"]) + (" — " + html.escape(", ".join(d["title"] for d in s.get("dishes") or [])) if s.get("dishes") else "")
+            for s in fijas), st_sub))
+    story.append(Paragraph(html.escape("%d de %d han respondido" % (estado["answered"], estado["total"])), st_sub))
+    story.append(Spacer(1, 8))
+    estilo_tabla = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(ROOMING_PDF_BLUE)),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#e5e7eb')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ])
+    if por == "persona":
+        cab = [Paragraph("Persona", st_h), Paragraph("Función", st_h)] + [Paragraph(html.escape(s["name"]), st_h) for s in eligen]
+        filas = [cab]
+        for p in sorted(estado["people"], key=lambda x: _norm_text_key(x["name"])):
+            fila = [Paragraph(html.escape(p["name"]), st_n), Paragraph(html.escape(p["role"] or ""), st_sub)]
+            if not p["answered"]:
+                fila.append(Paragraph("<i>Sin responder</i>", st_sub))
+                fila += [Paragraph("", st_n) for _ in eligen[1:]]
+            else:
+                for s in eligen:
+                    nombres = [titulos.get(d, {}).get("title", "") for d in (p["choices"].get(s["id"]) or [])]
+                    fila.append(Paragraph(html.escape(", ".join(n for n in nombres if n)) or "—", st_n))
+            filas.append(fila)
+        col_nombre = 130
+        resto = max(60, (ancho - col_nombre - 80) / max(1, len(eligen)))
+        t = Table(filas, colWidths=[col_nombre, 80] + [resto] * len(eligen), repeatRows=1)
+        t.setStyle(estilo_tabla)
+        story.append(t)
+    else:
+        for s in eligen:
+            story.append(Paragraph(html.escape(s["name"]) + " <font color='#6b7280' size='8'>· se elige%s</font>" % ("" if int(s.get("choose_n") or 1) == 1 else " %d" % int(s.get("choose_n") or 1)), st_h))
+            filas = [[Paragraph("Plato", st_h), Paragraph("Nº", st_h), Paragraph("Quién", st_h)]]
+            for d in (s.get("dishes") or []):
+                quienes = [p["name"] for p in estado["people"] if d["id"] in (p["choices"].get(s["id"]) or [])]
+                filas.append([Paragraph(html.escape(d["title"]) + (" <font color='#b91c1c' size='8'>(agotado)</font>" if d.get("sold_out") else ""), st_n),
+                              Paragraph(str(len(quienes)), st_n), Paragraph(html.escape(", ".join(sorted(quienes, key=_norm_text_key))), st_sub)])
+            t = Table(filas, colWidths=[ancho * 0.36, 34, ancho * 0.64 - 34], repeatRows=1)
+            t.setStyle(estilo_tabla)
+            story.append(t)
+            story.append(Spacer(1, 8))
+        sin = [p["name"] for p in estado["people"] if not p["answered"]]
+        if sin:
+            story.append(Paragraph("<b>Sin responder:</b> " + html.escape(", ".join(sorted(sin, key=_norm_text_key))), st_sub))
+    doc.build(story)
+    return buf.getvalue()
 
 
 def _roadmap_meet_greet_count(row) -> str:
@@ -84256,9 +84709,14 @@ def roadmap_item_save(entity_type, entity_id):
             # Lo que se edita EN OTRO SITIO (el repertorio del punto, en su pestaña) o que un
             # navegador con el JS viejo no manda, se conserva en vez de perderse.
             for clave in ("songs", "audience", "access_note", "sings", "access_lat", "access_lng",
-                          "place", "mg_count", "meal"):
+                          "place", "mg_count"):
                 if clave not in data and current.get(clave) is not None:
                     item[clave] = current.get(clave)
+            # LA COMIDA: la reserva la guarda el asistente, el MENÚ su propio bloque y las RESPUESTAS
+            # la gente por su enlace: lo que no llegue se conserva (`_roadmap_clean_meal`).
+            if item["kind"] == "COMIDA":
+                item["meal"] = _roadmap_clean_meal(data.get("meal") if isinstance(data.get("meal"), dict) else {},
+                                                   current.get("meal"))
             # Las personas de contacto: si no llegan ni en plural ni en singular, se conservan.
             if "contacts" not in data and "contact" not in data:
                 item["contacts"] = list(current.get("contacts")
@@ -84448,6 +84906,192 @@ def roadmap_contact_delete(entity_type, entity_id):
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/comida/foto', endpoint='roadmap_meal_photo')
+@admin_required
+def roadmap_meal_photo(entity_type, entity_id):
+    """LA FOTO de un plato del menú: se sube y se devuelve su URL (el plato se guarda con el menú)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        fs = request.files.get("file") or request.files.get("photo")
+        if not fs or not getattr(fs, "filename", ""):
+            return jsonify({"ok": False, "error": "Selecciona una imagen."}), 400
+        url = upload_image(fs, "roadmap_menu")
+        if not url:
+            return jsonify({"ok": False, "error": "No se pudo subir la foto."}), 400
+        return jsonify({"ok": True, "url": url})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception("[hoja de ruta] no se pudo subir la foto de un plato")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _roadmap_meal_item(payload: dict, item_id: str):
+    _idx, item = _roadmap_find(payload.get("agenda", []), (item_id or "").strip())
+    if item is None or (item.get("kind") or "").upper() != "COMIDA":
+        return None
+    return item
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/comida/<item_id>/menu', endpoint='roadmap_meal_menu_save')
+@admin_required
+def roadmap_meal_menu_save(entity_type, entity_id, item_id):
+    """GUARDA EL MENÚ de una comida (desde la pestaña Comidas o desde el asistente): las secciones y
+    sus platos. Las respuestas de la gente se conservan (sin los platos que ya no existen) y a quien
+    tiene que elegir y aún no lo ha hecho se le avisa en la app (los de la casa)."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        item = _roadmap_meal_item(payload, item_id)
+        if item is None:
+            return jsonify({"ok": False, "error": "Esa comida ya no está."}), 404
+        item["meal"] = _roadmap_clean_meal({"menu": data.get("menu")}, item.get("meal"))
+        avisados = _roadmap_menu_notify_people(session_db, kind, row, payload, item) if data.get("notify", True) else 0
+        return _roadmap_ok(session_db, row, payload, item_id=item["id"], notified=avisados)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/comida/<item_id>/estado', endpoint='roadmap_meal_status')
+@admin_required
+def roadmap_meal_status(entity_type, entity_id, item_id):
+    """QUIÉN tiene que elegir en esta comida y qué ha elegido cada uno (la pestaña Comidas)."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        item = _roadmap_meal_item(payload, item_id)
+        if item is None:
+            return jsonify({"ok": False, "error": "Esa comida ya no está."}), 404
+        return jsonify({"ok": True, **_roadmap_menu_status(session_db, kind, row, payload, item)})
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/comida/<item_id>/respuesta', endpoint='roadmap_meal_response_save')
+@admin_required
+def roadmap_meal_response_save(entity_type, entity_id, item_id):
+    """La OFICINA elige (o corrige) por alguien: `{personnel_id, choices: {sección: [platos]}}`.
+    Con `choices` vacío se borra su respuesta (vuelve a estar pendiente)."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        item = _roadmap_meal_item(payload, item_id)
+        if item is None:
+            return jsonify({"ok": False, "error": "Esa comida ya no está."}), 404
+        pid = str(data.get("personnel_id") or "").strip()
+        if not pid or not any(str(p.get("id")) == pid for p in _roadmap_item_people(payload, item)):
+            return jsonify({"ok": False, "error": "Esa persona no tiene que elegir en esta comida."}), 400
+        if not (data.get("choices") or {}):
+            (item.get("meal") or {}).get("responses", {}).pop(pid, None)
+        else:
+            ok, err = _roadmap_menu_apply_choice(item, pid, data.get("choices"), "OFFICE")
+            if not ok:
+                return jsonify({"ok": False, "error": err}), 400
+            _notify_resolve(session_db, "ROADMAP_MENU", "%s:%s" % (item.get("id"), pid))
+        return _roadmap_ok(session_db, row, payload, item_id=item["id"])
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/comida/<item_id>/pedir/vista-previa', endpoint='roadmap_meal_request_preview')
+@admin_required
+def roadmap_meal_request_preview(entity_type, entity_id, item_id):
+    """La VISTA PREVIA de «pedir que respondan»: a quién llegaría (y a quién no, y por qué) y el
+    texto tal como saldría (el SMS con sus trozos, o el correo)."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        item = _roadmap_meal_item(payload, item_id)
+        if item is None:
+            return jsonify({"ok": False, "error": "Esa comida ya no está."}), 404
+        return jsonify(_roadmap_menu_request_send(session_db, kind, row, payload, item, canal=data.get("channel"),
+                                                  ids=data.get("ids"), preview=True))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/comida/<item_id>/pedir', endpoint='roadmap_meal_request_send')
+@admin_required
+def roadmap_meal_request_send(entity_type, entity_id, item_id):
+    """PEDIR QUE RESPONDAN el menú por SMS o correo a quien no ha elegido: uno por persona, con su
+    enlace. Nunca se dice que salió si no salió."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        if kind == "template":
+            return jsonify({"ok": False, "error": "Una plantilla no tiene a quién pedírselo."}), 400
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        item = _roadmap_meal_item(payload, item_id)
+        if item is None:
+            return jsonify({"ok": False, "error": "Esa comida ya no está."}), 404
+        estado = _current_user_state() if session.get("user_id") else {}
+        resultado = _roadmap_menu_request_send(
+            session_db, kind, row, payload, item, canal=data.get("channel"), ids=data.get("ids"),
+            uid=(to_uuid(estado.get("user_id") or "") or None), nick=(estado.get("nick") or session.get("ext_name") or ""))
+        if not resultado.get("ok"):
+            session_db.commit()   # los enlaces creados se quedan, aunque no saliera nada
+            return jsonify(resultado), 400
+        _roadmap_save(session_db, row, payload)
+        return jsonify({**resultado, "payload": payload})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[hoja de ruta] no se pudo pedir el menú")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/comida/<item_id>/pdf', endpoint='roadmap_meal_pdf')
+@admin_required
+def roadmap_meal_pdf(entity_type, entity_id, item_id):
+    """EL PDF del menú: `?por=persona` (qué ha elegido cada uno) o `?por=plato` (cuántos de cada)."""
+    if not REPORTLAB_AVAILABLE:
+        return abort(503)
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        item = _roadmap_meal_item(payload, item_id)
+        if item is None or not (item.get("meal") or {}).get("menu"):
+            abort(404)
+        por = "plato" if (request.args.get("por") or "").strip().lower().startswith("plat") else "persona"
+        pdf = _roadmap_meal_pdf_bytes(session_db, kind, row, payload, item, por)
+        return _pdf_al_vuelo_response(pdf, "menu_%s_%s.pdf" % (por, _slugify_text(_roadmap_meal_label(item))))
     finally:
         session_db.close()
 
@@ -90625,6 +91269,94 @@ def roadmap_mine(entity_type, entity_id):
         session_db.close()
 
 
+def _public_menu_context(session_db, token: str):
+    """Lo que necesita la página del menú de una persona: la actividad, su fila del personal y sus
+    comidas con menú (las pendientes delante). None si el enlace no vale."""
+    fila = session_db.query(RoadmapMenuToken).filter(RoadmapMenuToken.token == (token or "").strip()).first()
+    if fila is None:
+        return None
+    kind, row = _roadmap_entity(session_db, fila.entity_type, str(fila.entity_id))
+    if not row:
+        return None
+    payload = _roadmap_load(row)
+    persona = next((p for p in (payload.get("personnel") or []) if str(p.get("id")) == fila.personnel_id), None)
+    if persona is None:
+        return None
+    venue = getattr(row, "venue", None)
+    nombre_recinto = (getattr(venue, "name", None) or getattr(row, "manual_venue_name", None) or "") if (venue is not None or hasattr(row, "manual_venue_name")) else ""
+    comidas = []
+    for it in _roadmap_menu_person_meals(payload, persona.get("id")):
+        menu = (it.get("meal") or {}).get("menu") or {}
+        mia = ((it.get("meal") or {}).get("responses") or {}).get(str(persona.get("id"))) or {}
+        try:
+            d = datetime.strptime(str(it.get("day"))[:10], "%Y-%m-%d")
+            dia = "%s %d %s" % (["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"][d.weekday()], d.day,
+                                ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][d.month])
+        except Exception:
+            dia = str(it.get("day") or "")
+        comidas.append({"item_id": it.get("id"), "label": _roadmap_meal_label(it), "word": _roadmap_meal_word(it.get("start_time")),
+                        "day_label": dia, "time": it.get("start_time") or "", "place": _roadmap_meal_place(it, nombre_recinto),
+                        "menu": menu, "answered": bool(mia.get("choices")), "choices": mia.get("choices") or {}})
+    return {"token": fila, "kind": kind, "row": row, "payload": payload, "person": persona, "meals": comidas,
+            "header": _roadmap_export_header(kind, row)}
+
+
+@app.get('/menu/<token>', endpoint='public_menu_view')
+def public_menu_view(token):
+    """ELEGIR EL MENÚ por el enlace personal (sin identificarse): las comidas con menú de la
+    actividad en las que va esa persona, las pendientes primero; al guardar una se pasa a la
+    siguiente. Es la misma página para quien llega por SMS, por correo, por el aviso de la app o
+    desde su portal."""
+    session_db = db()
+    try:
+        ctx = _public_menu_context(session_db, token)
+        if ctx is None:
+            abort(404)
+        header = ctx["header"]
+        return render_template(
+            "public_menu_choice.html",
+            token=token, person=ctx["person"], meals=ctx["meals"], header=header,
+            dish_tags={k: {"label": l, "icon": i} for k, l, i in ROADMAP_DISH_TAGS},
+            save_url=url_for("public_menu_save", token=token),
+            artist_photo=_absolute_media_url(header.get("artist_photo") or ""),
+            title="Elige tu menú · %s" % (header.get("title") or "Hoja de ruta"),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post('/menu/<token>/guardar', endpoint='public_menu_save')
+def public_menu_save(token):
+    """Guarda lo que ha elegido esa persona en UNA comida (`item_id`, `choices`) y dice si le queda
+    otra por elegir (`next`). El aviso de la app de esa comida se da por resuelto."""
+    session_db = db()
+    try:
+        ctx = _public_menu_context(session_db, token)
+        if ctx is None:
+            return jsonify({"ok": False, "error": "Este enlace ya no vale."}), 404
+        data = request.get_json(silent=True) or {}
+        payload, persona = ctx["payload"], ctx["person"]
+        item = _roadmap_meal_item(payload, str(data.get("item_id") or ""))
+        if item is None or not any(m["item_id"] == item.get("id") for m in ctx["meals"]):
+            return jsonify({"ok": False, "error": "Esa comida no es tuya o ya no está."}), 400
+        ok, err = _roadmap_menu_apply_choice(item, persona.get("id"), data.get("choices"), "PERSON")
+        if not ok:
+            return jsonify({"ok": False, "error": err}), 400
+        _notify_resolve(session_db, "ROADMAP_MENU", "%s:%s" % (item.get("id"), persona.get("id")))
+        _roadmap_save(session_db, ctx["row"], payload)
+        pendientes = [it for it in _roadmap_menu_person_meals(payload, persona.get("id"))
+                      if not _roadmap_menu_answered(it, persona.get("id"))]
+        return jsonify({"ok": True, "next": (pendientes[0].get("id") if pendientes else None),
+                        "next_label": (_roadmap_meal_label(pendientes[0]) if pendientes else ""),
+                        "pending": len(pendientes)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[menú] no se pudo guardar la elección")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.get('/hoja-ruta/ver/<token>', endpoint='public_roadmap_view')
 def public_roadmap_view(token):
     """Vista pública de solo lectura de la hoja de ruta (sin login). Permite ver toda la
@@ -92306,7 +93038,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -97139,6 +97871,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_contact_person_create",
     # La ruta de un traslado (kilómetros y duración): lo pide el asistente al montarlo.
     "api_route_estimate",
+    # LA COMIDA CON MENÚ: la foto de un plato, guardar el menú, elegir por alguien y pedir que respondan.
+    "roadmap_meal_photo", "roadmap_meal_menu_save", "roadmap_meal_response_save",
+    "roadmap_meal_request_preview", "roadmap_meal_request_send",
     # MANDARLE UN MENSAJE (SMS o correo) al personal de la hoja de ruta: lo hace quien monta la
     # producción, que no tiene por qué poder editar la sección de la actividad.
     "roadmap_message_data", "roadmap_message_preview", "roadmap_message_send",
@@ -97206,6 +97941,8 @@ SUPPORT_READ_ENDPOINTS = {
     "api_search_transport_companies",
     # Los sitios de un traslado: aeropuertos (con su IATA), estaciones, puertos, estaciones de autobuses.
     "api_transport_places",
+    # La comida con menú: quién ha elegido qué, y sus PDF.
+    "roadmap_meal_status", "roadmap_meal_pdf",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
     "api_demo_sender_search",
@@ -136531,6 +137268,8 @@ def push_test():
 # notificación del SISTEMA por Web Push: en el Mac es la notificación del propio Mac.
 NOTIFICATION_KIND_META = {
     "TAREA": ("Nueva tarea pendiente", "fa-list-check"),
+    # LA COMIDA CON MENÚ de una hoja de ruta: te toca elegir (lleva a tu enlace personal).
+    "MENU": ("Elige tu menú", "fa-utensils"),
     "PRODUCCION": ("Nueva producción asignada", "fa-user-gear"),
     # ⚠️ Distinto de PRODUCCION: ese es «te encargas de producirlo» y este «vas TÚ con el artista».
     "ACOMPANANTE": ("Vas con el artista", "fa-user-group"),
@@ -167045,6 +167784,9 @@ EXT_ROADMAP_EDITOR_ENDPOINTS = {
     # Lo que necesita el asistente de un TRASLADO (un externo que puede actualizar la hoja de ruta
     # monta también la logística): las compañías, los sitios y la ruta.
     "api_search_transport_companies", "api_transport_places", "api_route_estimate",
+    # La comida con menú (el externo que actualiza la hoja de ruta monta también las comidas).
+    "roadmap_meal_photo", "roadmap_meal_menu_save", "roadmap_meal_response_save", "roadmap_meal_status",
+    "roadmap_meal_request_preview", "roadmap_meal_request_send", "roadmap_meal_pdf",
 }
 # Y lo que puede hacer CUALQUIER externo con acceso a la actividad (leer, no tocar).
 EXT_ROADMAP_VIEWER_ENDPOINTS = {"roadmap_setlist_pdf"}
@@ -167649,6 +168391,7 @@ EXT_TASK_META = {
     "PORTADA": ("Aprobar la portada", "fa-compact-disc", "#16a34a"),
     "FOTOS": ("Revisar unas fotos", "fa-camera", "#9333ea"),
     "PLAYLIST": ("Valorar unos temas", "fa-headphones", "#0ea5e9"),
+    "MENU": ("Elegir el menú", "fa-utensils", "#e67e22"),
 }
 
 
@@ -167896,6 +168639,38 @@ def _ext_tasks(session_db, ctx) -> list[dict]:
     # Lo más próximo primero; lo que no tiene fecha, detrás (no se descarta: suele ser lo que más
     # tiempo lleva esperando).
     tareas.sort(key=lambda t: (t["date"] is None, t["date"] or date.max))
+
+    # 6 · ELEGIR EL MENÚ de una comida de una hoja de ruta en la que va (sep 2026). Se buscan las
+    #     actividades cuyo personal lo incluye (JSONB `@>`) y, de sus comidas con menú, las que le
+    #     afectan y no ha respondido. El enlace es el suyo (`RoadmapMenuToken`).
+    try:
+        hoy = today_local()
+        vistos = set()
+        for pid in ids:
+            filas_c = (session_db.query(Concert)
+                       .filter(Concert.date >= hoy - timedelta(days=1))
+                       .filter(Concert.roadmap_payload.contains({"personnel": [{"ref_id": str(pid)}]}))
+                       .order_by(Concert.date.asc()).limit(30).all())
+            for c in filas_c:
+                if c.id in vistos:
+                    continue
+                vistos.add(c.id)
+                payload_c = _roadmap_load(c)
+                for persona in [p for p in (payload_c.get("personnel") or []) if str(p.get("ref_id") or "") == str(pid)]:
+                    pendientes = [it for it in _roadmap_menu_person_meals(payload_c, persona.get("id"))
+                                  if not _roadmap_menu_answered(it, persona.get("id"))]
+                    if not pendientes:
+                        continue
+                    tk = _roadmap_menu_token(session_db, "concert", c, persona)
+                    titulo, artista = _ext_concert_label(c)
+                    texto = (_roadmap_meal_label(pendientes[0]) if len(pendientes) == 1
+                             else "%d menús por elegir" % len(pendientes))
+                    tareas.append(_ext_task("MENU", title="%s · %s" % (texto, titulo), artist=artista, date=c.date,
+                                            subtitle="Dinos qué quieres.", url=url_for("public_menu_view", token=tk.token)))
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[externos] no se pudieron leer los menús pendientes")
     return tareas
 
 

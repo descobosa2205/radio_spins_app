@@ -235,10 +235,60 @@ class ArtistCalendarLink(Base):
     )
 
 
+class ArtistCalendarAccount(Base):
+    """CUENTA DE CALENDARIO (CalDAV) DE UN ARTISTA, para que **el propio artista** (o su mánager),
+    que NO es usuario de la app, añada la cuenta en su móvil y pueda **apuntar notas y bloqueos**
+    en su agenda desde la app de Calendario.
+
+    Se crea desde la pestaña Agenda de su ficha: un usuario (un apodo sin «@», así nunca choca con el
+    correo de una persona de la casa) y una contraseña que se enseña UNA vez (aquí solo va su hash;
+    se puede regenerar). Solo abre el calendario de ESE artista: ve sus actividades confirmadas
+    (solo lectura) y escribe notas y bloqueos, nada más. Se anula con `status=CANCELLED`."""
+
+    __tablename__ = "artist_calendar_accounts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False)
+    username = Column(Text, nullable=False, unique=True)
+    password_hash = Column(Text, nullable=False)
+    label = Column(Text)                     # para quién es («El propio artista», «Su mánager»)
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))  # ACTIVE | CANCELLED
+    created_by_user_id = Column(PGUUID(as_uuid=True))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    password_rotated_at = Column(DateTime(timezone=True))
+    last_used_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
+
+    artist = relationship("Artist")
+
+    __table_args__ = (
+        Index("idx_artist_calendar_accounts_artist", "artist_id", "status"),
+    )
+
+
 def ensure_artist_calendar_schema():
     """Crea la tabla de enlaces de calendario del artista y columnas CalDAV (idempotente)."""
     _create_all_once()
     _exec_ddl_statements([
+        # CUENTA DE CALENDARIO DEL ARTISTA (CalDAV con usuario y contraseña propios).
+        """
+        CREATE TABLE IF NOT EXISTS artist_calendar_accounts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            username text NOT NULL UNIQUE,
+            password_hash text NOT NULL,
+            label text,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            created_by_user_id uuid,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            password_rotated_at timestamptz,
+            last_used_at timestamptz,
+            cancelled_at timestamptz
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_artist_calendar_accounts_artist ON artist_calendar_accounts(artist_id, status);",
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_uid text;",
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_href text;",
         # VOLCADO de un calendario de fuera (iCloud) a la agenda del artista.

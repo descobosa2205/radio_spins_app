@@ -777,6 +777,27 @@
       {{ agenda.agenda_calendar(agenda_data, 'artist') }}
     </div>
   </div>
+  {% if caldav_new_account %}
+  {# La cuenta de calendario del artista que se ACABA de crear (o de regenerar): la contraseña solo
+     se enseña ahora —viaja en un token de 15 min—, así que se pone a la vista, fuera del pop-up. #}
+  <div class="alert alert-success mt-3 caldav-new-account" role="alert">
+    <div class="d-flex align-items-start gap-3 flex-wrap">
+      <div class="flex-grow-1" style="min-width:240px;">
+        <div class="fw-semibold mb-1"><i class="fa fa-key me-1"></i>Cuenta de calendario de {{ artist.name }} · {{ caldav_new_account.label }}</div>
+        <div class="small">Apunta la contraseña o descarga el PDF con las instrucciones: <strong>solo se enseña ahora</strong> (el PDF con la contraseña se puede bajar durante 15 minutos; después sale sin ella).</div>
+        <div class="d-flex flex-wrap gap-4 mt-2">
+          <span><span class="small text-muted d-block">Servidor</span><code>{{ caldav_server }}</code></span>
+          <span><span class="small text-muted d-block">Usuario</span><code>{{ caldav_new_account.username }}</code></span>
+          <span><span class="small text-muted d-block">Contraseña</span><code>{{ caldav_new_account.password }}</code></span>
+        </div>
+      </div>
+      <div class="d-flex flex-column gap-2">
+        <a class="btn btn-sm btn-primary" href="{{ caldav_new_account.pdf_url }}"><i class="fa fa-file-pdf me-1"></i>PDF con las instrucciones y las claves</a>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-copy="Servidor: {{ caldav_server }}&#10;Usuario: {{ caldav_new_account.username }}&#10;Contraseña: {{ caldav_new_account.password }}"><i class="fa fa-copy me-1"></i>Copiar los datos</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   {% set agenda_add_artist = {'id': artist.id, 'name': artist.name} %}
   {% include '_agenda_add_modal.html' %}
   {% if CAN_EDIT_ARTISTS_STATIONS %}{% include '_artist_calendar_import_modal.html' %}{% endif %}
@@ -846,16 +867,61 @@
           {% endif %}
 
           <hr class="my-3">
+          <h6 class="small text-muted text-uppercase">Cuenta de calendario para el artista</h6>
+          <p class="text-muted small mb-2">Para que <strong>{{ artist.name }}</strong> (o su mánager) vea sus fechas en el calendario de su móvil y pueda <strong>apuntar notas y bloqueos</strong> que llegan a esta agenda. Es un usuario y una contraseña propios, distintos de los de la app, que solo abren este calendario.</p>
+          {% if CAN_EDIT_ARTISTS_STATIONS %}
+          <form method="post" action="{{ url_for('artist_calendar_account_create', artist_id=artist.id) }}" class="mb-2">
+            <div class="row g-2 align-items-end">
+              <div class="col"><label class="form-label">¿Para quién es?</label><input class="form-control" name="label" placeholder="El propio artista" value="El propio artista"></div>
+              <div class="col-auto"><button class="btn btn-primary"><i class="fa fa-key me-1"></i>Crear cuenta</button></div>
+            </div>
+          </form>
+          {% endif %}
+          {% if calendar_accounts %}
+            <div class="list-group mb-2">
+              {% for ca in calendar_accounts %}
+                <div class="list-group-item d-flex align-items-center gap-2 flex-wrap">
+                  <div class="flex-grow-1" style="min-width:200px;">
+                    <div class="fw-semibold">{{ ca.label }} <span class="text-muted fw-normal small">· usuario <code>{{ ca.username }}</code></span></div>
+                    <div class="small text-muted">Creada el {{ ca.created_label }}{% if ca.created_by %} por {{ ca.created_by }}{% endif %} · {{ ca.last_used_label }}</div>
+                  </div>
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ ca.pdf_url }}" title="Instrucciones en PDF (sin la contraseña)"><i class="fa fa-file-pdf"></i></a>
+                  {% if CAN_EDIT_ARTISTS_STATIONS %}
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li>
+                        <form method="post" action="{{ url_for('artist_calendar_account_rotate', artist_id=artist.id, account_id=ca.id) }}" onsubmit="return confirm('¿Generar una contraseña nueva? La anterior dejará de valer y habrá que cambiarla en el móvil.');">
+                          <button class="dropdown-item" type="submit"><i class="fa fa-rotate me-2"></i>Nueva contraseña</button>
+                        </form>
+                      </li>
+                      <li>
+                        <form method="post" action="{{ url_for('artist_calendar_account_cancel', artist_id=artist.id, account_id=ca.id) }}" onsubmit="return confirm('¿Anular esta cuenta? El móvil dejará de sincronizar este calendario.');">
+                          <button class="dropdown-item text-danger" type="submit"><i class="fa fa-ban me-2"></i>Anular cuenta</button>
+                        </form>
+                      </li>
+                    </ul>
+                  </div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted small mb-2">Todavía no tiene cuenta de calendario.</div>
+          {% endif %}
+
+          <hr class="my-3">
           <h6 class="small text-muted text-uppercase">¿Eres usuario de la app?</h6>
-          <p class="text-muted small mb-2">Puedes añadir tu calendario como <strong>cuenta</strong> en el iPhone con tus credenciales de la app y, además de ver tus artistas, <strong>añadir notas</strong> desde el propio móvil.</p>
+          <p class="text-muted small mb-2">Puedes añadir tu calendario como <strong>cuenta</strong> en el iPhone con tus credenciales de la app y, además de ver tus artistas, <strong>añadir notas, bloqueos y reservas</strong> desde el propio móvil.</p>
           <a class="btn btn-outline-primary btn-sm" href="{{ url_for('public_caldav_guide') }}" target="_blank" rel="noopener"><i class="fa fa-mobile-screen-button me-1"></i>Ver guía de configuración (con imágenes)</a>
+          <a class="btn btn-outline-secondary btn-sm ms-1" href="{{ url_for('public_caldav_guide_pdf') }}"><i class="fa fa-file-pdf me-1"></i>Guía en PDF para la oficina</a>
         </div>
       </div>
     </div>
   </div>
   <script>
   (function(){
-    document.querySelectorAll('#calendarShareModal [data-copy]').forEach(function(btn){
+    document.querySelectorAll('#calendarShareModal [data-copy], .caldav-new-account [data-copy]').forEach(function(btn){
       btn.addEventListener('click', function(){
         var txt = btn.getAttribute('data-copy') || '';
         if (navigator.clipboard) { navigator.clipboard.writeText(txt); }

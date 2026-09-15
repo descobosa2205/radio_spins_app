@@ -158,7 +158,7 @@ from models import (
     ArtistPerson,
     ArtistAgendaItem,
     ArtistCalendarImport,
-    ArtistCalendarLink,
+    ArtistCalendarLink, ArtistCalendarAccount,
     ArtistEmail,
     ArtistNotificationContact,
     ConcertArtistNotification,
@@ -471,7 +471,7 @@ _CALDAV_ONLY_ALLOWED_ENDPOINTS = {
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar",
     "public_caldav_resource", "public_caldav_rootdiscovery", "public_caldav_guide",
-    "caldav_health",
+    "public_caldav_guide_pdf", "caldav_health",
 }
 
 if CALDAV_ONLY:
@@ -2367,6 +2367,8 @@ def artist_detail_view(artist_id):
         agenda_data = None
         calendar_links = []
         calendar_imports = []
+        calendar_accounts = []
+        caldav_new_account = None
         caldav_server = ""
         if tab == "agenda":
             _ag_today = today_local()
@@ -2386,9 +2388,13 @@ def artist_detail_view(artist_id):
                  "created_by": l.created_by_nick or ""}
                 for l in _artist_calendar_links(session_db, artist.id, only_active=True)
             ]
-            caldav_server = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip("/").split("//")[-1]
+            caldav_server = _caldav_public_server()
             # Los VOLCADOS de calendarios de fuera (iCloud) que ya se han hecho a esta agenda.
             calendar_imports = _artist_calendar_import_rows(session_db, artist.id)
+            # La CUENTA DE CALENDARIO del artista (para que él mismo escriba desde su móvil) y, si se
+            # acaba de crear o de regenerar, sus claves —solo mientras valga el token (15 min)—.
+            calendar_accounts = _artist_calendar_account_rows(session_db, artist.id)
+            caldav_new_account = _caldav_account_from_token(session_db, request.args.get("cuenta"), artist_id=artist.id)
 
         artist_fotos_groups = _build_artist_fotos_groups(session_db, artist.id) if tab == "fotos" else None
 
@@ -2419,6 +2425,8 @@ def artist_detail_view(artist_id):
             agenda_import_default_until=((calendar_imports[0]["until_iso"] if calendar_imports
                                           else "") or today_local().isoformat()),
             caldav_server=caldav_server,
+            calendar_accounts=calendar_accounts,
+            caldav_new_account=caldav_new_account,
             artist_fotos_groups=artist_fotos_groups,
             disc_tab=disc_tab,
             people=people,
@@ -93453,7 +93461,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -93945,7 +93953,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
-    if endpoint.startswith("artist_calendar_import"):
+    if endpoint.startswith("artist_calendar_import") or endpoint.startswith("artist_calendar_account"):
         return "artists.agenda"
     # La BOLSA de gastos de un single o de un álbum: su pestaña «Gastos» de la ficha.
     if endpoint in {"song_bag_open", "album_bag_open"}:
@@ -94786,7 +94794,7 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
-    if endpoint.startswith("artist_calendar_import"):
+    if endpoint.startswith("artist_calendar_import") or endpoint.startswith("artist_calendar_account"):
         return "artists.agenda"
     # La BOLSA de gastos de un single o de un álbum: su pestaña «Gastos» de la ficha.
     if endpoint in {"song_bag_open", "album_bag_open"}:
@@ -152502,6 +152510,9 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
             # ⚠️ Sin confirmar se pinta RAYADO, **con el color de su artista** (no con otro color):
             # sigue siendo su calendario, solo que la fecha todavía no está cerrada.
             "tentative": bool(sin_confirmar),
+            # Lo que ES la actividad (CONCIERTO, ENSAYO, DISC_REUNION…): el calendario del móvil
+            # (CalDAV) lo pone delante del título con su etiqueta real.
+            "activity_type": at,
             "url": url_for("concert_detail_view", cid=c.id),
         }))
 
@@ -153652,9 +153663,187 @@ def public_caldav_guide():
     # El servidor CalDAV vive en un host SIN Cloudflare (ver DEPLOY_CALDAV.md): se indica con
     # CALDAV_PUBLIC_HOST (p. ej. "caldav.33producciones.com"). Sin esa variable se cae al dominio
     # actual, que en Render NO acepta PROPFIND (la guía seguiría mostrando el host equivocado).
-    server = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip("/").split("//")[-1]
-    caldav_host = (os.getenv("CALDAV_PUBLIC_HOST") or "").strip().rstrip("/").split("//")[-1] or server
-    return render_template("caldav_guide.html", caldav_server=caldav_host)
+    return render_template("caldav_guide.html", caldav_server=_caldav_public_server(),
+                           guide_pdf_url=url_for("public_caldav_guide_pdf"))
+
+
+def _caldav_public_server() -> str:
+    """El HOST del servidor CalDAV que se le dice a la gente (sin «https://»).
+
+    Manda **`CALDAV_PUBLIC_HOST`** (el host de Fly, p. ej. `caldav.33producciones.es`): el servidor
+    CalDAV vive en un host SIN Cloudflare (ver DEPLOY_CALDAV.md) y Render NO lo sirve. Sin esa
+    variable se cae a `EXTERNAL_BASE_URL` o al host de la petición, que en el propio host de Fly es
+    el bueno y en Render **no**."""
+    host = (os.getenv("CALDAV_PUBLIC_HOST") or "").strip().rstrip("/").split("//")[-1]
+    if host:
+        return host
+    try:
+        base = (os.getenv("EXTERNAL_BASE_URL") or request.url_root or "").strip()
+    except Exception:
+        base = (os.getenv("EXTERNAL_BASE_URL") or "").strip()
+    return base.rstrip("/").split("//")[-1]
+
+
+@app.get("/caldav/guia.pdf", endpoint="public_caldav_guide_pdf")
+def public_caldav_guide_pdf():
+    """La misma guía en PDF, para mandársela a la gente de la oficina."""
+    try:
+        data = _caldav_guide_pdf_bytes(_caldav_public_server())
+    except Exception:
+        app.logger.exception("[caldav] no se pudo generar el PDF de la guía")
+        abort(500)
+    return _pdf_al_vuelo_response(data, "Tu calendario en el movil - 33 Producciones.pdf")
+
+
+def _caldav_guide_pdf_bytes(server: str, *, artist=None, username: str = "", password: str = "",
+                            can_create_activities: bool = True) -> bytes:
+    """El PDF de la guía «Tu calendario en el móvil», con el estilo de casa (logos a la derecha,
+    título centrado, secciones).
+
+    Dos versiones del MISMO documento: la de la **oficina** (cada uno con su correo y su contraseña
+    de la app; puede crear actividades por palabra clave) y la de un **ARTISTA** (`artist=`), con el
+    usuario y —si se acaba de crear o regenerar— la contraseña de su cuenta de calendario, y sin el
+    apartado de crear actividades, que no le corresponde."""
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("ReportLab no está disponible.")
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+
+    esc = html.escape
+    es_artista = artist is not None
+    nombre_artista = (getattr(artist, "name", "") or "").strip() if es_artista else ""
+    ink = colors.HexColor("#111827")
+    grey = colors.HexColor("#4b5563")
+    accent = colors.HexColor("#007CA2")
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("CgTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=20,
+                        leading=24, alignment=TA_CENTER, textColor=ink)
+    # ⚠️ `keepWithNext`: un título de sección no se queda solo al pie de una página (pasó con «Ten en
+    # cuenta» en la versión del artista).
+    h2 = ParagraphStyle("CgH2", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=12.5,
+                        leading=16, textColor=accent, spaceBefore=9, spaceAfter=4, keepWithNext=True)
+    body = ParagraphStyle("CgBody", parent=styles["BodyText"], fontSize=10, leading=14, textColor=ink)
+    small = ParagraphStyle("CgSmall", parent=body, fontSize=8.8, leading=12, textColor=grey)
+    step = ParagraphStyle("CgStep", parent=body, leftIndent=0.85 * cm, firstLineIndent=-0.85 * cm, spaceAfter=3)
+    bullet = ParagraphStyle("CgBullet", parent=body, leftIndent=0.5 * cm, firstLineIndent=-0.35 * cm, spaceAfter=2)
+    cell = ParagraphStyle("CgCell", parent=body, fontSize=9.5, leading=13)
+
+    def tabla(filas, anchos, cabecera=False):
+        t = Table(filas, colWidths=anchos)
+        estilo = [("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
+                  ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#eef0f2")),
+                  ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                  ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                  ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6)]
+        if cabecera:
+            estilo.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")))
+        else:
+            estilo.append(("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f8f9fa")))
+        t.setStyle(TableStyle(estilo))
+        return t
+
+    titulo = (f"El calendario de {nombre_artista} en tu móvil" if es_artista else "Tu calendario en el móvil")
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.9 * cm, rightMargin=1.9 * cm,
+                            topMargin=1.3 * cm, bottomMargin=1.4 * cm, title=titulo, author="33 Producciones")
+    story = []
+    logos = [x for x in (_rl_image_flowable_from_url("/static/img/logo_33_producciones.png", 3.0, 1.0),
+                         _rl_image_flowable_from_url("/static/img/logo.png", 3.0, 1.0)) if x]
+    if logos:
+        header = Table([[Paragraph(" ", small)] + logos],
+                       colWidths=[17.2 * cm - 3.3 * cm * len(logos)] + [3.3 * cm] * len(logos))
+        header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (1, 0), (-1, 0), "RIGHT"),
+                                    ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        story.append(header)
+    story += [Spacer(1, 0.25 * cm), Paragraph(esc(titulo), h1), Spacer(1, 0.3 * cm)]
+    if es_artista:
+        intro = (f"Con esta cuenta ves en el calendario de tu móvil las fechas confirmadas de <b>{esc(nombre_artista)}</b> "
+                 "y puedes <b>apuntar notas y bloqueos</b> que la oficina ve al momento en la app. Se actualiza solo.")
+    else:
+        intro = ("Añade una cuenta de calendario en tu móvil con <b>tu correo y tu contraseña de la app</b>: verás un "
+                 "calendario por cada artista que llevas y lo que apuntes desde el móvil <b>entra en la agenda de la "
+                 "app</b> y avisa a los demás. Se actualiza solo.")
+    story.append(Paragraph(intro, body))
+
+    story.append(Paragraph("Datos de la cuenta", h2))
+    if es_artista:
+        contra = password or "la que te haya dado la oficina"
+        usuario = username or "el que te haya dado la oficina"
+    else:
+        contra, usuario = "tu contraseña de la app", "tu correo de la app"
+    story.append(tabla([[Paragraph("<b>Servidor</b>", cell), Paragraph(esc(server), cell)],
+                        [Paragraph("<b>Usuario</b>", cell), Paragraph(esc(usuario), cell)],
+                        [Paragraph("<b>Contraseña</b>", cell), Paragraph(esc(contra), cell)]],
+                       [3.6 * cm, 13.6 * cm]))
+    if es_artista and password:
+        story.append(Spacer(1, 0.1 * cm))
+        story.append(Paragraph("Guarda este PDF: la contraseña solo aparece aquí. Si la pierdes, la oficina te da una nueva.", small))
+
+    story.append(Paragraph("En iPhone o iPad", h2))
+    que_aparece = (f"el calendario «Calendario · {esc(nombre_artista)}»" if es_artista
+                   else "un calendario «Calendario · &lt;artista&gt;» por cada artista que llevas")
+    pasos = [
+        "Abre <b>Ajustes</b> → <b>Apps</b> → <b>Calendario</b> → <b>Cuentas de Calendario</b> "
+        "(en iOS 17 o anterior: Ajustes → Calendario → Cuentas).",
+        "Pulsa <b>Añadir cuenta</b> → <b>Otra</b> → <b>Añadir cuenta CalDAV</b>.",
+        "Rellena <b>Servidor</b>, <b>Usuario</b> y <b>Contraseña</b> con los datos de arriba (la descripción, la que "
+        "quieras) y pulsa <b>Siguiente</b>.",
+        f"Listo: en la app Calendario aparece {que_aparece}. Se actualiza solo.",
+    ]
+    for i, p in enumerate(pasos, 1):
+        story.append(Paragraph(f"<b>{i}.</b>&nbsp;&nbsp;{p}", step))
+
+    story.append(Paragraph("En el Mac (app Calendario)", h2))
+    for i, p in enumerate([
+        "Abre <b>Calendario</b> → menú <b>Calendario</b> → <b>Ajustes</b> → <b>Cuentas</b> → <b>+</b> → <b>Otra cuenta CalDAV…</b>",
+        "Tipo de cuenta <b>Manual</b>: el usuario, la contraseña y el servidor de arriba.",
+    ], 1):
+        story.append(Paragraph(f"<b>{i}.</b>&nbsp;&nbsp;{p}", step))
+
+    story.append(Paragraph("En Android", h2))
+    for i, p in enumerate([
+        # ⚠️ «DAVx5» sin el superíndice: Helvetica no trae ese glifo y en el PDF salía un cuadrado.
+        "Instala una app CalDAV gratuita, por ejemplo <b>DAVx5</b> (Play Store).",
+        f"Añade una cuenta con «URL de inicio de sesión y nombre de usuario»: URL base <b>https://{esc(server)}/caldav/</b>, "
+        "y el usuario y la contraseña de arriba.",
+        "Activa los calendarios «Calendario · …» y se sincronizan con tu app de calendario.",
+    ], 1):
+        story.append(Paragraph(f"<b>{i}.</b>&nbsp;&nbsp;{p}", step))
+
+    story.append(Paragraph("Qué puedes hacer desde el móvil", h2))
+    story.append(Paragraph("Crea el evento dentro del calendario del artista. <b>La primera palabra del título, seguida de "
+                           "dos puntos, dice qué es</b>:", body))
+    filas = [[Paragraph("<b>Escribes en el título</b>", cell), Paragraph("<b>Entra en la app como</b>", cell)]]
+    if can_create_activities:
+        filas.append([Paragraph("<b>Concierto: Sevilla</b> · <b>Ensayo: Local</b> · <b>Reunión: Sello</b>…<br/>"
+                                "<font color='#6b7280'>(cualquier tipo de actividad de la app)</font>", cell),
+                      Paragraph("una <b>actividad de ese tipo</b> en estado <b>reservado</b>: la ves rayada en la app y "
+                                "contratación la termina de rellenar y la confirma", cell)])
+    filas.append([Paragraph("<b>Bloqueo: Vacaciones</b>", cell), Paragraph("un <b>bloqueo</b> de esos días", cell)])
+    filas.append([Paragraph("cualquier otro texto", cell), Paragraph("una <b>nota</b> («Otro») en la agenda", cell)])
+    story.append(tabla(filas, [7.4 * cm, 9.8 * cm], cabecera=True))
+    story.append(Spacer(1, 0.15 * cm))
+    story.append(Paragraph("Las notas y los bloqueos se pueden <b>editar y borrar</b> desde el móvil, también los que se "
+                           "crearon en la web. Puedes ponerles hora o dejarlos de día completo.", body))
+
+    story.append(Paragraph("Ten en cuenta", h2))
+    avisos = [
+        "Los <b>conciertos y demás actividades</b> se ven pero son de <b>solo lectura</b>: si los mueves, el móvil "
+        "deshace el cambio.",
+        "Los <b>eventos repetidos</b> («todos los lunes») no se admiten: crea cada fecha por separado.",
+        ("Lo que apuntes o borres <b>avisa a quien lleva a este artista</b> en la oficina." if es_artista
+         else "Lo que apuntes o borres <b>avisa a los demás que llevan a ese artista</b>."),
+    ]
+    if not es_artista:
+        avisos.append("Si ya tenías la <b>suscripción</b> al calendario del artista (el enlace webcal://), <b>quítala</b> al "
+                      "añadir la cuenta: si no, verás cada evento dos veces.")
+    for a in avisos:
+        story.append(Paragraph(f"•&nbsp;&nbsp;{a}", bullet))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph("Si no conecta a la primera, prueba a escribir el servidor como "
+                           f"<b>{esc(server)}/caldav/</b>. Y si algo no cuadra, avisa a la oficina.", small))
+    doc.build(story)
+    return buf.getvalue()
 
 
 @app.post("/artistas/<artist_id>/calendario/enlaces", endpoint="artist_calendar_link_create")
@@ -153685,6 +153874,205 @@ def artist_calendar_link_create(artist_id):
     finally:
         session_db.close()
     return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
+
+
+# ─── CUENTA DE CALENDARIO DEL ARTISTA (CalDAV con usuario y contraseña propios) ─────────────────────
+# El artista (o su mánager) NO es usuario de la app, así que no puede entrar «con su correo y su
+# contraseña». Desde aquí se le crea una cuenta (`ArtistCalendarAccount`) que abre SOLO el calendario
+# de este artista: ve sus fechas confirmadas y apunta notas y bloqueos desde la app de Calendario de
+# su móvil (`_caldav_auth` la reconoce por el usuario, que nunca lleva «@»). La contraseña se enseña
+# UNA vez (se guarda su hash) y se puede regenerar; el PDF con las instrucciones Y las claves se puede
+# bajar durante 15 minutos (viajan en un token firmado), después sale sin la contraseña.
+_CALDAV_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sin 0/O/1/l/i
+_CALDAV_ACCOUNT_TOKEN_MAX_AGE = 900
+
+
+def _caldav_new_password(n: int = 12) -> str:
+    return "".join(secrets.choice(_CALDAV_PASSWORD_ALPHABET) for _ in range(n))
+
+
+def _caldav_account_username(session_db, artist) -> str:
+    """Un usuario corto y sin «@» a partir del nombre del artista («losnus»); si ya existe, «losnus2»."""
+    base = (_slugify_text(getattr(artist, "name", "") or "artista").replace("-", "") or "artista")[:24]
+    cand, n = base, 2
+    while session_db.query(ArtistCalendarAccount).filter(
+            func.lower(ArtistCalendarAccount.username) == cand.lower()).first() is not None:
+        cand = f"{base}{n}"
+        n += 1
+    return cand
+
+
+def _artist_calendar_accounts(session_db, artist_id, only_active: bool = True) -> list:
+    q = session_db.query(ArtistCalendarAccount).filter(ArtistCalendarAccount.artist_id == _safe_uuid(artist_id))
+    if only_active:
+        q = q.filter(ArtistCalendarAccount.status == "ACTIVE")
+    return q.order_by(ArtistCalendarAccount.created_at.asc()).all()
+
+
+def _artist_calendar_account_rows(session_db, artist_id) -> list[dict]:
+    rows = []
+    for a in _artist_calendar_accounts(session_db, artist_id):
+        rows.append({
+            "id": str(a.id), "username": a.username, "label": a.label or "El propio artista",
+            "created_by": a.created_by_nick or "",
+            "created_label": a.created_at.strftime("%d/%m/%Y") if a.created_at else "",
+            "last_used_label": (("última conexión el " + a.last_used_at.strftime("%d/%m/%Y a las %H:%M"))
+                                if a.last_used_at else "todavía no se ha conectado"),
+            "pdf_url": url_for("artist_calendar_account_pdf", artist_id=artist_id, account_id=a.id),
+        })
+    return rows
+
+
+def _caldav_account_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt="caldav-account-credentials")
+
+
+def _caldav_account_token(account_id, password: str) -> str:
+    return _caldav_account_serializer().dumps({"a": str(account_id), "p": password})
+
+
+def _caldav_account_from_token(session_db, token, artist_id=None) -> dict | None:
+    """La cuenta recién creada (o con contraseña nueva) que trae el token de la URL, o None si el
+    token no vale o ya ha caducado (15 min): la contraseña solo se enseña ese rato."""
+    if not token:
+        return None
+    try:
+        data = _caldav_account_serializer().loads(token, max_age=_CALDAV_ACCOUNT_TOKEN_MAX_AGE)
+    except Exception:
+        return None
+    acc = session_db.get(ArtistCalendarAccount, _safe_uuid(data.get("a")))
+    if acc is None or (acc.status or "").upper() != "ACTIVE":
+        return None
+    if artist_id is not None and str(acc.artist_id) != str(_safe_uuid(artist_id)):
+        return None
+    return {"id": str(acc.id), "username": acc.username, "password": data.get("p") or "",
+            "label": acc.label or "El propio artista",
+            "pdf_url": url_for("artist_calendar_account_pdf", artist_id=acc.artist_id, account_id=acc.id, t=token)}
+
+
+def _caldav_account_touch(session_db, acc) -> None:
+    """Apunta la última conexión de la cuenta (como mucho una escritura cada 10 minutos)."""
+    try:
+        ahora = _now_madrid()
+        if acc.last_used_at is None or (ahora - acc.last_used_at).total_seconds() > 600:
+            acc.last_used_at = ahora
+            session_db.commit()
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+
+
+def _caldav_account_guard():
+    if not (is_master() or can_edit_artists_stations()):
+        abort(403)
+
+
+@app.post("/artistas/<artist_id>/calendario/cuentas", endpoint="artist_calendar_account_create")
+@admin_required
+def artist_calendar_account_create(artist_id):
+    """Crea la cuenta de calendario del artista y enseña la contraseña UNA vez (redirige con el token)."""
+    _caldav_account_guard()
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if not artist:
+            abort(404)
+        state = _current_user_state()
+        password = _caldav_new_password()
+        acc = ArtistCalendarAccount(
+            artist_id=artist.id, username=_caldav_account_username(session_db, artist),
+            password_hash=generate_password_hash(password),
+            label=(request.form.get("label") or "").strip() or "El propio artista", status="ACTIVE",
+            created_by_user_id=_safe_uuid(session.get("user_id")),
+            created_by_nick=state.get("nick") or _email_to_nick(state.get("email") or ""),
+        )
+        session_db.add(acc)
+        session_db.commit()
+        token = _caldav_account_token(acc.id, password)
+        flash("Cuenta de calendario creada. Apunta la contraseña o descarga el PDF: solo se enseña ahora.", "success")
+        return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda", cuenta=token))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[caldav] no se pudo crear la cuenta de calendario del artista")
+        flash(f"No se pudo crear la cuenta: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
+
+
+@app.post("/artistas/<artist_id>/calendario/cuentas/<account_id>/regenerar", endpoint="artist_calendar_account_rotate")
+@admin_required
+def artist_calendar_account_rotate(artist_id, account_id):
+    """Contraseña nueva (la anterior deja de valer al momento)."""
+    _caldav_account_guard()
+    session_db = db()
+    try:
+        acc = session_db.get(ArtistCalendarAccount, _safe_uuid(account_id))
+        if not acc or str(acc.artist_id) != str(_safe_uuid(artist_id)):
+            abort(404)
+        password = _caldav_new_password()
+        acc.password_hash = generate_password_hash(password)
+        acc.password_rotated_at = _now_madrid()
+        acc.status = "ACTIVE"
+        acc.cancelled_at = None
+        session_db.commit()
+        token = _caldav_account_token(acc.id, password)
+        flash("Contraseña nueva generada: la anterior ya no vale. Solo se enseña ahora.", "success")
+        return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda", cuenta=token))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo regenerar la contraseña: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
+
+
+@app.post("/artistas/<artist_id>/calendario/cuentas/<account_id>/anular", endpoint="artist_calendar_account_cancel")
+@admin_required
+def artist_calendar_account_cancel(artist_id, account_id):
+    """Anula la cuenta: el móvil del artista deja de sincronizar."""
+    _caldav_account_guard()
+    session_db = db()
+    try:
+        acc = session_db.get(ArtistCalendarAccount, _safe_uuid(account_id))
+        if acc and str(acc.artist_id) == str(_safe_uuid(artist_id)):
+            acc.status = "CANCELLED"
+            acc.cancelled_at = _now_madrid()
+            session_db.commit()
+            flash("Cuenta de calendario anulada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo anular: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
+
+
+@app.get("/artistas/<artist_id>/calendario/cuentas/<account_id>/instrucciones.pdf", endpoint="artist_calendar_account_pdf")
+@admin_required
+def artist_calendar_account_pdf(artist_id, account_id):
+    """Las instrucciones para el artista, en PDF: con la contraseña si el token de 15 min sigue
+    valiendo (recién creada o regenerada), y sin ella después."""
+    _caldav_account_guard()
+    session_db = db()
+    try:
+        acc = session_db.get(ArtistCalendarAccount, _safe_uuid(account_id))
+        if not acc or str(acc.artist_id) != str(_safe_uuid(artist_id)):
+            abort(404)
+        artist = session_db.get(Artist, acc.artist_id)
+        fresca = _caldav_account_from_token(session_db, request.args.get("t"), artist_id=artist_id) or {}
+        password = fresca.get("password") if fresca.get("id") == str(acc.id) else ""
+        data = _caldav_guide_pdf_bytes(_caldav_public_server(), artist=artist, username=acc.username,
+                                       password=password or "", can_create_activities=False)
+    except Exception:
+        app.logger.exception("[caldav] no se pudo generar el PDF de la cuenta del artista")
+        abort(500)
+    finally:
+        session_db.close()
+    nombre = _safe_download_filename(f"Calendario en el movil - {getattr(artist, 'name', '') or 'artista'}") + ".pdf"
+    return _pdf_al_vuelo_response(data, nombre)
 
 
 @app.post("/artistas/<artist_id>/calendario/enlaces/<link_id>/anular", endpoint="artist_calendar_link_cancel")
@@ -154103,8 +154491,23 @@ def _agenda_item_caldav_ref(it):
     return (f"a-{h}", f"act-{h}@33producciones", False, "")
 
 
+# Cómo se llama cada TIPO de la agenda en el móvil, en singular y delante del nombre («Concierto ·
+# Madrid», «Cumpleaños · Pol»). Para una ACTIVIDAD se usa su tipo real (`_activity_kind_label`), que
+# es el MISMO vocabulario con el que se elige el tipo al crear desde el móvil.
+_CALDAV_KIND_LABELS = {
+    "concierto": "Concierto", "festival": "Festival", "evento": "Evento", "lanzamiento": "Lanzamiento",
+    "accion": "Acción", "promocion": "Promoción", "medios": "Medios", "cumple": "Cumpleaños",
+    "contenido": "Publicación", "vacaciones": "Vacaciones", "otro": "Nota", "bloqueo": "Bloqueo",
+}
+
+
 def _agenda_vevent_block(it, dtstamp, uid):
-    """Líneas BEGIN:VEVENT..END:VEVENT de un ítem de _agenda_build (evento de día completo)."""
+    """Líneas BEGIN:VEVENT..END:VEVENT de un ítem de _agenda_build (evento de día completo).
+
+    El título empieza por lo que ES («Concierto · Madrid», «Ensayo · Local», «Cumpleaños · Pol»).
+    ⚠️ Antes salía la CLAVE del tipo en crudo («concierto · Madrid», y «evento · X» para un ensayo o
+    una reunión): ahora va la etiqueta real de la actividad. Lo que está SIN CONFIRMAR (solo lo ven
+    contratación y dirección) lleva su estado detrás («· Reservado») y `STATUS:TENTATIVE`."""
     raw_date = it.get("date") or ""
     d = raw_date.replace("-", "")
     if len(d) != 8:
@@ -154113,11 +154516,21 @@ def _agenda_vevent_block(it, dtstamp, uid):
         dtend = (date.fromisoformat(raw_date) + timedelta(days=1)).isoformat().replace("-", "")
     except (ValueError, TypeError):
         return None
-    kind_label = (it.get("kind_label") or it.get("kind") or "Evento").strip()
+    kind = (it.get("kind") or "").strip()
+    # ⚠️ El TIPO REAL de la actividad va PRIMERO: `_agenda_build` le pone a cada ítem la etiqueta de
+    # su familia («Conciertos», «Eventos / promo»), que para un ensayo o una reunión no dice qué es.
+    if it.get("activity_type"):
+        kind_label = _activity_kind_label(it.get("activity_type"))
+    elif (it.get("kind_label") or "").strip():
+        kind_label = it["kind_label"].strip()
+    else:
+        kind_label = _CALDAV_KIND_LABELS.get(kind, (kind or "Evento").capitalize())
     title = (it.get("title") or "").strip()
     subtitle = (it.get("subtitle") or "").strip()
     name = title or subtitle
     summary = f"{kind_label} · {name}" if name else kind_label
+    if it.get("tentative") and (it.get("status_label") or "").strip():
+        summary = f"{summary} · {str(it['status_label']).strip()}"
     dp = []
     if title and subtitle:
         dp.append(subtitle)
@@ -154133,6 +154546,8 @@ def _agenda_vevent_block(it, dtstamp, uid):
         block.append(f"LOCATION:{_ics_escape(subtitle)}")
     if dp:
         block.append(f"DESCRIPTION:{_ics_escape(' · '.join(p for p in dp if p))}")
+    if it.get("tentative"):
+        block.append("STATUS:TENTATIVE")
     block.append("END:VEVENT")
     return block
 
@@ -154184,11 +154599,13 @@ _CALDAV_EVENTS_LOCK = threading.Lock()
 
 def _caldav_events_invalidate(artist_id) -> None:
     """Se llama al escribir desde el móvil: lo siguiente que pida el iPhone tiene que verlo ya."""
+    aid = str(artist_id)
     with _CALDAV_EVENTS_LOCK:
-        _CALDAV_EVENTS_CACHE.pop(str(artist_id), None)
+        for k in [k for k in _CALDAV_EVENTS_CACHE if k[0] == aid]:
+            _CALDAV_EVENTS_CACHE.pop(k, None)
 
 
-def _caldav_artist_events(session_db, artist):
+def _caldav_artist_events(session_db, artist, full_details: bool = False):
     """Eventos CalDAV del artista, con CACHÉ de 90 s por artista.
 
     ⚠️ Un refresco del iPhone es una RÁFAGA: PROPFIND del hogar (que pide el ctag de CADA
@@ -154196,20 +154613,22 @@ def _caldav_artist_events(session_db, artist):
     cada ráfaga recorría la agenda entera (`_agenda_build`) 45 veces. Lo que se escribe desde el
     móvil invalida la del artista (`_caldav_events_invalidate`); lo que se escribe desde la web
     tarda como mucho 90 s en verse desde el móvil, mucho menos de lo que tarda el propio iPhone en
-    volver a preguntar."""
-    key = str(artist.id)
+    volver a preguntar.
+    ⚠️ `full_details` forma parte de la CLAVE: contratación y dirección ven también lo que está SIN
+    CONFIRMAR (las reservas), el resto —y la cuenta del artista— no; son dos listas distintas."""
+    key = (str(artist.id), bool(full_details))
     now = time.monotonic()
     with _CALDAV_EVENTS_LOCK:
         hit = _CALDAV_EVENTS_CACHE.get(key)
     if hit and (now - hit[0]) < _CALDAV_EVENTS_TTL:
         return hit[1]
-    events = _caldav_artist_events_build(session_db, artist)
+    events = _caldav_artist_events_build(session_db, artist, full_details=bool(full_details))
     with _CALDAV_EVENTS_LOCK:
         _CALDAV_EVENTS_CACHE[key] = (now, events)
     return events
 
 
-def _caldav_artist_events_build(session_db, artist):
+def _caldav_artist_events_build(session_db, artist, full_details: bool = False):
     """Eventos CalDAV del artista: actividades (solo lectura) + notas/bloqueos (lectura/escritura)."""
     today = today_local()
     start = today - timedelta(weeks=26)
@@ -154217,7 +154636,7 @@ def _caldav_artist_events_build(session_db, artist):
     dtstamp = _CALDAV_DTSTAMP
     events = []
     seen = set()
-    agenda_data = _agenda_build(session_db, [str(artist.id)], start, end, today)
+    agenda_data = _agenda_build(session_db, [str(artist.id)], start, end, today, full_details=full_details)
     for it in (agenda_data.get("activities") or []):
         if (it.get("kind") or "") in ("bloqueo", "otro"):
             continue  # vienen de ArtistAgendaItem como evento multi-día único (abajo)
@@ -154253,22 +154672,76 @@ def _caldav_unauthorized():
     return resp
 
 
+class _CaldavPrincipal:
+    """QUIÉN hay detrás de una cuenta CalDAV: una PERSONA de la app (entra con su correo y su
+    contraseña) o la CUENTA DE CALENDARIO de un ARTISTA (`ArtistCalendarAccount`, un usuario sin «@»).
+
+    Lo que cambia entre los dos: qué calendarios ve (`_caldav_user_artists`), si ve lo que está sin
+    confirmar (`_caldav_full_details`), si puede crear ACTIVIDADES por palabra clave
+    (`_caldav_can_create_activities`) y cómo se firma lo que apunta (`user_id` / `nick`: la cuenta
+    de un artista no tiene usuario de la app, así que firma con el nombre del artista)."""
+
+    __slots__ = ("kind", "user", "account", "artist", "user_id", "role", "display", "nick", "_state")
+
+    def __init__(self, kind, user=None, account=None, artist=None):
+        self.kind = kind
+        self.user, self.account, self.artist = user, account, artist
+        self.user_id = user.id if user is not None else None
+        self.role = int(getattr(user, "role", 0) or 0) if user is not None else 0
+        if user is not None:
+            self.display = (user.email or "").strip()
+            self.nick = _email_to_nick(user.email or "")
+        else:
+            self.display = (getattr(artist, "name", "") or "").strip() or "Artista"
+            self.nick = self.display
+        self._state = None
+
+    @property
+    def is_artist(self) -> bool:
+        return self.kind == "artist"
+
+
 def _caldav_auth(session_db):
+    """La persona o la cuenta de artista que trae la petición (Basic Auth), o None.
+
+    Primero se busca una PERSONA por su correo; si no la hay, la CUENTA DE CALENDARIO de un artista
+    por su usuario (que nunca lleva «@», así que no puede chocar con un correo)."""
     auth = request.authorization
     if not auth or not auth.username:
         return None
-    user = session_db.query(User).filter(func.lower(User.email) == (auth.username or "").strip().lower()).first()
-    if not user or not user.password_hash:
+    username = (auth.username or "").strip()
+    password = auth.password or ""
+    user = session_db.query(User).filter(func.lower(User.email) == username.lower()).first()
+    if user is not None:
+        if not user.password_hash:
+            return None
+        try:
+            return _CaldavPrincipal("user", user=user) if check_password_hash(user.password_hash, password) else None
+        except Exception:
+            return None
+    acc = (session_db.query(ArtistCalendarAccount)
+           .filter(func.lower(ArtistCalendarAccount.username) == username.lower(),
+                   ArtistCalendarAccount.status == "ACTIVE").first())
+    if acc is None or not acc.password_hash:
         return None
     try:
-        if check_password_hash(user.password_hash, auth.password or ""):
-            return user
+        if not check_password_hash(acc.password_hash, password):
+            return None
     except Exception:
         return None
-    return None
+    artist = session_db.get(Artist, acc.artist_id)
+    if artist is None:
+        return None
+    _caldav_account_touch(session_db, acc)
+    return _CaldavPrincipal("artist", account=acc, artist=artist)
 
 
-def _caldav_user_artists(session_db, user):
+def _caldav_user_artists(session_db, principal):
+    """Los calendarios que ve: la cuenta de un artista, SOLO ese artista; dirección, todos; el resto,
+    sus artistas asignados (las dos facetas juntas). Sin artistas asignados no ve ninguno."""
+    if principal.is_artist:
+        return [principal.artist]
+    user = principal.user
     if int(getattr(user, "role", 0) or 0) == 10:
         return session_db.query(Artist).order_by(Artist.name.asc()).all()
     profile = session_db.get(UserProfile, user.id)
@@ -154279,12 +154752,63 @@ def _caldav_user_artists(session_db, user):
     return session_db.query(Artist).filter(Artist.id.in_(ids)).order_by(Artist.name.asc()).all()
 
 
-def _caldav_can_access(session_db, user, artist):
+def _caldav_can_access(session_db, principal, artist):
+    if principal.is_artist:
+        return str(artist.id) == str(principal.artist.id)
+    user = principal.user
     if int(getattr(user, "role", 0) or 0) == 10:
         return True
     profile = session_db.get(UserProfile, user.id)
     ids = {str(x) for x in (getattr(profile, "assigned_artist_ids", None) or [])}
     return str(artist.id) in ids
+
+
+def _caldav_user_state(session_db, principal) -> dict:
+    """El estado de permisos de la persona (rol + grants), como el de `_current_user_state` pero SIN
+    sesión de Flask (en CalDAV no la hay): es lo que necesita `_state_has_access`."""
+    if principal._state is not None:
+        return principal._state
+    state = {"role": principal.role, "grants": {}}
+    if not principal.is_artist and principal.user is not None:
+        try:
+            _ensure_access_caches()
+        except Exception:
+            pass
+        try:
+            for grant in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == principal.user.id).all():
+                state["grants"][grant.resource_key] = {
+                    "can_view_basic": bool(grant.can_view_basic),
+                    "can_view_econ": bool(grant.can_view_econ),
+                    "can_edit": bool(grant.can_edit),
+                }
+        except Exception:
+            app.logger.exception("[caldav] no se pudieron leer los permisos")
+    principal._state = state
+    return state
+
+
+def _caldav_full_details(session_db, principal) -> bool:
+    """¿Ve también lo que está SIN CONFIRMAR (reservas, habladas, borradores)? Solo CONTRATACIÓN y
+    DIRECCIÓN, la misma regla que en la web (`_user_sees_unconfirmed_activities`). La cuenta de un
+    artista, nunca: una reserva puede caerse."""
+    if principal.is_artist:
+        return False
+    if principal.role == 10:
+        return True
+    return bool(_state_has_access(_caldav_user_state(session_db, principal), "contratacion",
+                                  include_descendants=True))
+
+
+def _caldav_can_create_activities(session_db, principal) -> bool:
+    """¿Puede crear ACTIVIDADES (reservas) por palabra clave desde el móvil? Los mismos que en la web
+    (`can_edit_concerts`: edición en contratación, o dirección). La cuenta de un artista, no: a él
+    todo le entra como nota o bloqueo."""
+    if principal.is_artist:
+        return False
+    if principal.role in (5, 6, 10):
+        return True
+    return bool(_state_has_access(_caldav_user_state(session_db, principal), "contratacion", edit=True,
+                                  include_descendants=True))
 
 
 def _xml_escape(s):
@@ -154462,6 +154986,150 @@ def _caldav_kind_and_title(summary, kind_actual=None):
     return "NOTE", (s or "Nota")
 
 
+# ─── ACTIVIDADES POR PALABRA CLAVE desde el móvil ───────────────────────────────────────────────────
+# La app de Calendario del móvil no tiene «tipo de evento»: lo único que hay es el TÍTULO. Así que
+# el tipo se dice con la primera palabra, seguida de dos puntos (o del punto medio que usa la propia
+# app al enseñar las actividades): «Concierto: Sevilla», «Ensayo · Local», «Reunión: Sello». Es el
+# MISMO vocabulario con el que el móvil enseña cada actividad, así que se aprende viéndolo.
+_CALDAV_ACTIVITY_VOCAB: dict | None = None
+_CALDAV_TYPE_SEP_RE = re.compile(r"^\s*([^·:\-–—|]+?)\s*(?:[·:\-–—|]+\s*(.*))?$")
+
+
+def _caldav_activity_vocab() -> dict:
+    """«concierto» → CONCIERTO, «grabacion de audio» → DISC_AUDIO… Sale del catálogo de tipos de
+    actividad (`QUAD_ACTIVITY_CHOICES`, normalizado con `_norm_text_key`), con singular y plural de
+    los de una palabra y unos pocos sinónimos."""
+    global _CALDAV_ACTIVITY_VOCAB
+    if _CALDAV_ACTIVITY_VOCAB is None:
+        m = {}
+        for code, label, _icon in QUAD_ACTIVITY_CHOICES:
+            k = _norm_text_key(label)
+            if not k:
+                continue
+            m[k] = code
+            if " " not in k:
+                m[k[:-1] if k.endswith("s") else k + "s"] = code   # ensayos ↔ ensayo · concierto ↔ conciertos
+        m.update({"actividad": "CONCIERTO", "reserva": "CONCIERTO", "bolo": "CONCIERTO",
+                  "evento": "EVENTO_PROMOCIONAL", "promocional": "EVENTO_PROMOCIONAL",
+                  "tv": "TV", "television": "TV", "marca": "MARCA",
+                  "grabacion": "DISC_AUDIO", "sesion de fotos": "DISC_FOTOS", "fotos": "DISC_FOTOS",
+                  "firma": "DISC_FIRMA", "composicion": "DISC_COMPOSICION", "reuniones": "DISC_REUNION",
+                  "premio": "DISC_PREMIOS"})
+        _CALDAV_ACTIVITY_VOCAB = m
+    return _CALDAV_ACTIVITY_VOCAB
+
+
+def _caldav_activity_type_from_summary(summary) -> tuple[str | None, str]:
+    """`(tipo, nombre)` si el título EMPIEZA por un tipo de actividad seguido de un separador
+    («Concierto: Sevilla», «Ensayo · Local», «Reunión - Sello») o es SOLO la palabra («Ensayo»).
+    ⚠️ Sin separador no cuenta: «Reunión con el sello» es una nota, no una reunión a medias."""
+    s = (summary or "").strip()
+    m = _CALDAV_TYPE_SEP_RE.match(s)
+    if not m:
+        return None, ""
+    code = _caldav_activity_vocab().get(_norm_text_key(m.group(1)))
+    if not code:
+        return None, ""
+    return code, (m.group(2) or "").strip()
+
+
+def _caldav_split_location(loc: str) -> tuple[str, str, str]:
+    """`(recinto, municipio, cp)` a partir del LUGAR del evento del móvil («Sala Riviera, Paseo de la
+    Virgen del Puerto 1, 28005 Madrid, España»): el primer trozo es el recinto y el municipio, el
+    último que no sea el país, sin su código postal. Todo queda editable en la ficha."""
+    trozos = [t.strip() for t in (loc or "").split(",") if t.strip()]
+    if not trozos:
+        return "", "", ""
+    venue = trozos[0]
+    resto = [t for t in trozos[1:] if _norm_text_key(t) not in ("espana", "spain")]
+    municipio, cp = "", ""
+    if resto:
+        cand = resto[-1]
+        m = re.match(r"^(\d{5})\s+(.+)$", cand)
+        if m:
+            cp, cand = m.group(1), m.group(2)
+        municipio = cand.strip()
+    return venue, municipio, cp
+
+
+def _caldav_find_activity_by_uid(session_db, artist, uid):
+    """La actividad que YA se creó desde el móvil con este mismo UID (el iPhone reenvía el PUT al
+    resincronizar): así no se crea dos veces."""
+    u = (uid or "").strip()
+    if not u:
+        return None
+    try:
+        return (session_db.query(Concert)
+                .filter(Concert.artist_id == artist.id)
+                .filter(Concert.contracting_payload["caldav_uid"].astext == u).first())
+    except Exception:
+        session_db.rollback()
+        return None
+
+
+def _caldav_create_activity(session_db, artist, principal, parsed: dict, act_type: str, name: str, resource: str):
+    """Una ACTIVIDAD creada desde el móvil por palabra clave: nace **RESERVADA** (la ven contratación,
+    dirección y quien la creó, y a contratación le sale la tarea de confirmarla), con el tipo que dice
+    la palabra, la fecha (y el fin si son varios días), la hora de comienzo si la trae, el LUGAR como
+    recinto a mano y el texto del evento como «En qué consiste». Todo se termina de rellenar en la
+    ficha. ⚠️ El UID del móvil se guarda en `contracting_payload` para no crearla dos veces si el
+    iPhone reenvía el PUT (esa clave no se pinta: `_concert_contracting_general_rows` lee claves
+    concretas)."""
+    venue, municipio, cp = _caldav_split_location(parsed.get("location") or "")
+    es_concierto = act_type in ("CONCIERTO", "FESTIVAL", "CICLO")
+    c = Concert(
+        artist_id=artist.id, date=parsed["start"], status="RESERVADO", activity_type=act_type,
+        sale_type=("VENDIDO" if es_concierto else "GRATUITO"), capacity=0,
+        festival_name=(name or None), manual_venue_name=(venue or None),
+        manual_municipality=(municipio or None), manual_postal_code=(cp or None),
+        created_by_user_id=principal.user_id, created_by_nick=principal.nick,
+    )
+    if not es_concierto:
+        c.no_capacity = True
+    fin = parsed.get("end")
+    if fin and fin > parsed["start"]:
+        c.end_date = fin
+    hora = _agenda_clean_time(parsed.get("start_time"))
+    if hora:
+        c.show_time = hora
+    payload = {"caldav_uid": (parsed.get("uid") or "").strip(), "caldav_href": resource,
+               "created_from": "calendario del movil", "description": (parsed.get("description") or "").strip()}
+    c.contracting_payload = {k: v for k, v in payload.items() if v}
+    session_db.add(c)
+    session_db.commit()
+    _caldav_notify_activity(session_db, c, artist, principal)
+    return c
+
+
+def _caldav_notify_activity(session_db, concert, artist, principal) -> int:
+    """«Nueva reserva en la agenda» a quien lleva a ese artista (nunca a quien la hace)."""
+    try:
+        destinos = [x for x in _agenda_item_involved(
+            session_db, SimpleNamespace(artist_id=artist.id, created_by_user_id=principal.user_id))
+            if str(x) != str(principal.user_id)]
+        cuando = concert.date.strftime("%d/%m/%Y") if concert.date else ""
+        if concert.end_date and concert.end_date != concert.date:
+            cuando += " → " + concert.end_date.strftime("%d/%m/%Y")
+        if concert.show_time:
+            cuando += " · " + str(concert.show_time)
+        que = _activity_kind_label(concert.activity_type) + (f" · {concert.festival_name}" if concert.festival_name else "")
+        cuerpo = " · ".join([x for x in [(artist.name or "").strip(), que, cuando,
+                                         "reservada desde la app de Calendario"] if x])
+        n = _notify_users(session_db, destinos, "AGENDA", "Nueva reserva en la agenda", cuerpo,
+                          url_for("concert_detail_view", cid=concert.id),
+                          ref_type="concert", ref_id=str(concert.id), actor_user_id=principal.user_id,
+                          actor_name=(principal.display if principal.is_artist else None), email=None)
+        session_db.commit()
+        return n
+    except Exception:
+        app.logger.exception("[caldav] no se pudo avisar de la reserva creada desde el móvil")
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+        return 0
+
+
 def _caldav_find_item(session_db, artist, resource, uid):
     q = session_db.query(ArtistAgendaItem).filter(ArtistAgendaItem.artist_id == artist.id)
     it = q.filter(ArtistAgendaItem.caldav_href == resource).first()
@@ -154494,7 +155162,7 @@ def public_caldav_root(*args, **kwargs):
         prop = ('<D:current-user-principal><D:href>/caldav/principal/</D:href></D:current-user-principal>'
                 '<D:principal-URL><D:href>/caldav/principal/</D:href></D:principal-URL>'
                 '<C:calendar-home-set><D:href>/caldav/calendars/</D:href></C:calendar-home-set>'
-                f'<D:displayname>{_xml_escape(user.email)}</D:displayname>'
+                f'<D:displayname>{_xml_escape(user.display)}</D:displayname>'
                 '<D:resourcetype><D:collection/><D:principal/></D:resourcetype>')
         inner = (f'<D:response><D:href>{_xml_escape(request.path)}</D:href>'
                  f'<D:propstat><D:prop>{prop}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
@@ -154517,8 +155185,9 @@ def public_caldav_home(*args, **kwargs):
         inner = (f'<D:response><D:href>/caldav/calendars/</D:href>'
                  f'<D:propstat><D:prop>{home_prop}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
         if (request.headers.get("Depth", "0") or "0") != "0":
+            full = _caldav_full_details(session_db, user)
             for artist in _caldav_user_artists(session_db, user):
-                events = _caldav_artist_events(session_db, artist)
+                events = _caldav_artist_events(session_db, artist, full)
                 inner += _caldav_calendar_response_xml(artist, _caldav_ctag(events))
         return _caldav_207(inner)
     finally:
@@ -154536,7 +155205,7 @@ def public_caldav_calendar(artist_id):
         artist = session_db.get(Artist, _safe_uuid(artist_id))
         if not artist or not _caldav_can_access(session_db, user, artist):
             return Response("Not found", status=404)
-        events = _caldav_artist_events(session_db, artist)
+        events = _caldav_artist_events(session_db, artist, _caldav_full_details(session_db, user))
         if request.method == "PROPFIND":
             inner = _caldav_calendar_response_xml(artist, _caldav_ctag(events))
             if (request.headers.get("Depth", "0") or "0") != "0":
@@ -154624,16 +155293,20 @@ def _caldav_notify(session_db, item, user, accion: str, antes: dict = None, snap
         artista = session_db.get(Artist, item.artist_id) if item.artist_id else None
         que = ahora.get("title") or ("Bloqueo" if (item.kind or "").upper() == "BLOCK" else "Nota")
         cuerpo = " · ".join([x for x in [(getattr(artista, "name", "") or "").strip(), que, detalle,
-                                         "desde la app de Calendario"] if x])
-        destinos = [x for x in _agenda_item_involved(session_db, item) if str(x) != str(user.id)]
+                                         ("desde el calendario del propio artista" if user.is_artist
+                                          else "desde la app de Calendario")] if x])
+        destinos = [x for x in _agenda_item_involved(session_db, item) if str(x) != str(user.user_id)]
         url = (url_for("artist_detail_view", artist_id=item.artist_id, tab="agenda")
                if item.artist_id else url_for("home"))
         # Un aviso de algo que ya no está no puede quedarse esperando a nadie (regla de la casa).
         if accion == "delete":
             _notify_resolve(session_db, "agenda_item", str(item.id))
+        # ⚠️ La cuenta de un ARTISTA no tiene usuario de la app: el aviso lleva su nombre como actor
+        # (`actor_name`) y sin `actor_user_id`, que en CalDAV no hay sesión de la que sacarlo.
         n = _notify_users(session_db, destinos, "AGENDA", titulo, cuerpo, url,
                           ref_type="agenda_item", ref_id=str(item.id),
-                          actor_user_id=user.id, email=None)
+                          actor_user_id=user.user_id,
+                          actor_name=(user.display if user.is_artist else None), email=None)
         session_db.commit()
         return n
     except Exception:
@@ -154657,7 +155330,7 @@ def public_caldav_resource(artist_id, resource):
         if not artist or not _caldav_can_access(session_db, user, artist):
             return Response("Not found", status=404)
         if request.method == "PROPFIND":
-            for e in _caldav_artist_events(session_db, artist):
+            for e in _caldav_artist_events(session_db, artist, _caldav_full_details(session_db, user)):
                 if e["href"] == resource:
                     inner = (f'<D:response><D:href>/caldav/calendars/{artist.id}/{_xml_escape(resource)}</D:href>'
                              f'<D:propstat><D:prop><D:getetag>{_xml_escape(e["etag"])}</D:getetag>'
@@ -154666,7 +155339,7 @@ def public_caldav_resource(artist_id, resource):
                     return _caldav_207(inner)
             return Response("Not found", status=404)
         if request.method in ("GET", "HEAD"):
-            for e in _caldav_artist_events(session_db, artist):
+            for e in _caldav_artist_events(session_db, artist, _caldav_full_details(session_db, user)):
                 if e["href"] == resource:
                     r = Response(e["ics"], status=200)
                     r.headers["Content-Type"] = "text/calendar; charset=utf-8"
@@ -154687,6 +155360,17 @@ def public_caldav_resource(artist_id, resource):
                 # guardar solo la primera fecha sin avisar sería peor (nadie se enteraría).
                 return Response("Recurring events are not supported", status=403)
             item = _caldav_find_item(session_db, artist, resource, parsed.get("uid"))
+            # ¿Una ACTIVIDAD por PALABRA CLAVE («Concierto: Sevilla», «Ensayo: Local»)? Solo para quien
+            # puede crearlas en la web, y solo al CREAR: una nota que ya existe no se convierte al
+            # editarla. La actividad nace RESERVADA y el evento del móvil desaparece de su calendario
+            # al resincronizar (vuelve como la actividad, de solo lectura, si puede verla).
+            act_type, act_name = _caldav_activity_type_from_summary(parsed.get("summary"))
+            if act_type and item is None and _caldav_can_create_activities(session_db, user):
+                ya = _caldav_find_activity_by_uid(session_db, artist, parsed.get("uid"))
+                if ya is None:
+                    _caldav_create_activity(session_db, artist, user, parsed, act_type, act_name, resource)
+                    _caldav_events_invalidate(artist.id)
+                return Response("", status=201 if ya is None else 204)
             is_new = item is None
             antes = None if is_new else _caldav_snapshot(item)
             kind, titulo = _caldav_kind_and_title(parsed.get("summary"), None if is_new else item.kind)
@@ -154709,8 +155393,8 @@ def public_caldav_resource(artist_id, resource):
             item.end_time = _agenda_clean_time(parsed.get("end_time"))
             item.caldav_uid = parsed.get("uid") or item.caldav_uid
             item.caldav_href = resource
-            item.created_by_user_id = item.created_by_user_id or user.id
-            item.created_by_nick = item.created_by_nick or _email_to_nick(user.email or "")
+            item.created_by_user_id = item.created_by_user_id or user.user_id
+            item.created_by_nick = item.created_by_nick or user.nick
             session_db.commit()
             _caldav_events_invalidate(artist.id)
             # El MISMO sello fijo que usa la lista de eventos: así el ETag que se devuelve aquí es el

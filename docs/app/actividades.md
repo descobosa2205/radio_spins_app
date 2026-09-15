@@ -913,7 +913,60 @@
   REPORT de cada uno) y a dirección le salen 45 calendarios: sin caché, 45 `_agenda_build` por
   ráfaga. Lo que se escribe desde el móvil la **invalida** (`_caldav_events_invalidate`); lo que se
   escribe en la web tarda como mucho 90 s en verse en el móvil (menos de lo que tarda en volver a
-  preguntar).
+  preguntar). ⚠️ La clave lleva **`full_details`**: contratación y dirección ven también lo SIN
+  CONFIRMAR y los demás no, así que son dos listas.
+
+- ⚠️⚠️ **CalDAV · EL TIPO SE ELIGE CON LA PRIMERA PALABRA, Y EL ARTISTA TIENE SU PROPIA CUENTA**
+  (sep 2026, lo pidió Dani: «distinguir el tipo de evento que se crea» y «que el propio artista
+  pueda apuntar desde su móvil»).
+  · **PALABRAS CLAVE** (`_caldav_activity_type_from_summary` + `_caldav_activity_vocab`): la app de
+  Calendario no tiene «tipo», así que lo dice **la primera palabra del título seguida de dos puntos**
+  (o del punto medio, o un guion): `Concierto: Sevilla` · `Ensayo: Local` · `Reunión: Sello` ·
+  `Grabación de audio: Estudio Uno`. El vocabulario es el **catálogo de tipos de actividad**
+  (`QUAD_ACTIVITY_CHOICES`, normalizado sin acentos, con singular/plural y unos sinónimos), el MISMO
+  con el que el móvil enseña cada actividad —por eso `_agenda_vevent_block` pone ahora delante **el
+  tipo REAL** (`_activity_kind_label` del `activity_type`, que `_agenda_build` añade al ítem) y no la
+  familia («Conciertos», «Eventos / promo»), que para un ensayo no decía qué era—. La palabra SOLA
+  también vale («Ensayo»); **sin separador no** («Reunión con el sello» es una nota).
+  · **QUÉ CREA**: una **actividad RESERVADA** (`_caldav_create_activity`): tipo de la palabra, fecha
+  (y fin si son varios días), `show_time` si trae hora, el **LUGAR** repartido en recinto a mano,
+  municipio y CP (`_caldav_split_location`: «Sala Riviera, Paseo…, 28005 Madrid, España»), el texto
+  como «En qué consiste» (`contracting_payload.description`) y `sale_type` VENDIDO en lo que es un
+  concierto / GRATUITO + aforo libre en lo demás. Aviso «Nueva reserva en la agenda» a quien lleva al
+  artista (`_caldav_notify_activity`). Al resincronizar, el evento del móvil **desaparece y vuelve
+  como la actividad** (solo lectura, con «· Reserva» y `STATUS:TENTATIVE`) si quien mira puede ver lo
+  sin confirmar; para los demás simplemente desaparece del móvil y está en la app.
+  ⚠️ **El UID del móvil se guarda en `contracting_payload.caldav_uid`** y se busca antes de crear
+  (`_caldav_find_activity_by_uid`): el iPhone REENVÍA el PUT al resincronizar y sin eso se creaban
+  dos reservas. (`_concert_contracting_general_rows` lee claves concretas, así que esa clave no se
+  pinta en la ficha.)
+  ⚠️ **Solo crea actividades quien puede en la web** (`_caldav_can_create_activities`, la regla de
+  `can_edit_concerts`: edición en contratación o roles 5/6/10), y **solo al CREAR**: editar una nota
+  que ya existe no la convierte. A los demás la palabra les entra como **nota** tal cual la escriben.
+  · **CUENTA DEL ARTISTA** (`ArtistCalendarAccount`, `ensure_artist_calendar_schema`): el artista NO
+  es usuario de la app, así que desde su ficha (Agenda → botón del enlace → «Cuenta de calendario
+  para el artista») se le crea un **usuario sin «@»** (`_caldav_account_username`, el nombre en seco:
+  «losnus») y una contraseña de 12 caracteres que **se enseña UNA vez** (se guarda el hash; se
+  regenera con `artist_calendar_account_rotate` y se anula con `_cancel`). `_caldav_auth` la
+  reconoce cuando el usuario no es el correo de nadie y devuelve un **`_CaldavPrincipal`** (persona
+  o artista): ve SOLO su calendario, sin lo sin confirmar, no crea actividades, y lo que apunta se
+  firma con el nombre del artista (`created_by_user_id` NULL) y avisa a quien lo lleva con
+  `actor_name` (en CalDAV no hay sesión de la que sacar el actor).
+  ⚠️ La contraseña viaja al **PDF de instrucciones** (`artist_calendar_account_pdf`) dentro de un
+  **token firmado de 15 min** (`_caldav_account_token`): después el PDF sale sin ella. El PDF de la
+  OFICINA es `public_caldav_guide_pdf` (`/caldav/guia.pdf`, botón en la guía); los dos salen del
+  punto único **`_caldav_guide_pdf_bytes`** (logos a la derecha, título centrado, pasos por
+  dispositivo, la tabla de palabras clave y los avisos), que también recibe el host bueno
+  (`_caldav_public_server`: manda `CALDAV_PUBLIC_HOST`).
+  ⚠️ Los endpoints `artist_calendar_account*` se mapean a **`artists.agenda`** (los DOS mapeos) y
+  exigen `can_edit_artists_stations()`. El esquema NUEVO lo crea **Render** al arrancar
+  (`CALDAV_ONLY` no migra): tras un push que toque `models.py`, esperar a Render antes del
+  `fly deploy`, o el host de Fly consultaría una tabla que no existe.
+  Probado con 31 comprobaciones más contra la app real: la cuenta del artista (entra, ve solo lo
+  suyo, apunta con hora, firma con su nombre, no crea actividades, se anula), las palabras clave
+  (quién puede, reserva completa con lugar y hora, reenvío sin duplicar, dirección la ve tentativa
+  y el artista no, reunión de dos días, palabra sola, sin separador → nota, tipo de varias palabras,
+  una nota que ya existe no se convierte) y los dos PDF.
 
 - **CONTABILIDAD · el filtro de empresa: SOLO EL LOGO** (ago 2026), y el nombre únicamente en las que
   no lo tienen (la misma regla que la columna «Empresa» de la tabla); en los dos casos, el nombre al

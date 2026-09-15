@@ -164,7 +164,11 @@ enseña el dominio de Render, que **no** sirve CalDAV.
 
 ## Actualizaciones
 
-Cada cambio de código exige **dos** despliegues: Render (solo, con el push) y este host, a mano:
+Cada cambio de código exige **dos** despliegues: Render (solo, con el push) y este host, a mano.
+⚠️ **Si el cambio toca el ESQUEMA (`models.py`), primero Render**: es quien crea las tablas al
+arrancar (`ensure_*`); el host de Fly arranca con `CALDAV_ONLY=1` y **no migra nada**. Esperar a que
+Render esté desplegado (y a que su arranque haya aplicado el esquema) antes del `fly deploy`, o el
+host de Fly consultaría una tabla que todavía no existe.
 
 ```bash
 fly deploy --app radio-spins-caldav --ha=false --wait-timeout 5m

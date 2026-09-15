@@ -36,6 +36,7 @@
       <span class="d-flex align-items-center gap-2">
         <a href="{{ request.referrer or '#' }}" class="btn btn-outline-secondary btn-sm btn-volver" onclick="if(window.history.length>1){history.back();return false;}" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
         <span class="badge text-bg-light border"><i class="fa fa-mobile-screen-button me-1 text-primary"></i>Guía de configuración</span>
+        {% if guide_pdf_url %}<a class="btn btn-sm btn-outline-primary" href="{{ guide_pdf_url }}"><i class="fa fa-file-pdf me-1"></i>Descargar en PDF</a>{% endif %}
       </span>
       <span class="d-flex gap-2 align-items-center">
         <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones" style="height:30px;object-fit:contain;">
@@ -44,7 +45,7 @@
     </div>
 
     <h1 class="h4 mb-1">Añade tu calendario al móvil</h1>
-    <p class="text-muted">Para <strong>usuarios de la app</strong>: añade una cuenta de calendario con <strong>tus mismas credenciales</strong>. Verás los calendarios de tus artistas y podrás <strong>añadir notas</strong> desde el propio móvil. Se actualiza solo.</p>
+    <p class="text-muted">Para <strong>usuarios de la app</strong>: añade una cuenta de calendario con <strong>tus mismas credenciales</strong>. Verás los calendarios de tus artistas y podrás <strong>añadir notas, bloqueos y reservas</strong> desde el propio móvil. Se actualiza solo.</p>
 
     <!-- iPhone -->
     <div class="card border-0 shadow-sm mb-4">
@@ -61,8 +62,9 @@
             <div class="alert alert-light border mt-3 mb-0 small">
               <i class="fa fa-circle-info text-primary me-1"></i><strong>Qué puedes hacer desde el móvil</strong> dentro de un calendario «Calendario · …»:
               <ul class="mb-1 mt-1 ps-3">
-                <li><strong>Crear un evento</strong> (con hora o de día completo): entra en la agenda del artista como una nota de tipo «Otro». Quien lleva a ese artista recibe el aviso.</li>
-                <li><strong>Bloquear días</strong>: escribe un título que empiece por <strong>«Bloqueo»</strong> (p. ej. «Bloqueo · Vacaciones») y entra como bloqueo.</li>
+                <li><strong>La primera palabra del título, seguida de dos puntos, dice qué es.</strong> <code>Concierto: Sevilla</code>, <code>Ensayo: Local</code>, <code>Reunión: Sello</code>… (vale cualquier tipo de actividad de la app) entra como <strong>actividad reservada</strong>: en la app se ve rayada y contratación la termina de rellenar y la confirma. Solo para quien puede crear actividades en la web (contratación y dirección); al resto le entra como nota.</li>
+                <li><code>Bloqueo: Vacaciones</code> <strong>bloquea esos días</strong>.</li>
+                <li>Cualquier otro título entra como <strong>nota</strong> («Otro»), con hora o de día completo. Quien lleva a ese artista recibe el aviso.</li>
                 <li><strong>Editar o borrar</strong> cualquier nota o bloqueo, también los creados desde la web.</li>
               </ul>
               Los <strong>conciertos y demás actividades</strong> se ven pero son de <strong>solo lectura</strong> (si los mueves, el móvil deshace el cambio): eso se toca en la app. Los <strong>eventos repetidos</strong> («todos los lunes») no se admiten: crea cada fecha por separado.
@@ -115,6 +117,14 @@
           <div class="step"><div class="step__n">1</div><div class="path"><b>Calendario</b> → menú <b>Calendario</b> → <b>Ajustes</b> → <b>Cuentas</b> → <b>+</b> → <b>Otra cuenta CalDAV…</b></div></div>
           <div class="step"><div class="step__n">2</div><div>Tipo de cuenta <strong>Manual</strong>: usuario y contraseña de la app, y servidor <code>{{ caldav_server }}</code>.</div></div>
         </div>
+      </div>
+    </div>
+
+    <!-- El propio artista -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h6"><i class="fa fa-guitar me-2"></i>¿Y el artista?</h2>
+        <p class="small mb-0">El artista no es usuario de la app, pero la oficina puede crearle <strong>una cuenta de calendario propia</strong> desde su ficha (pestaña <strong>Agenda</strong> → botón del enlace → «Cuenta de calendario para el artista»). Con ella ve sus fechas confirmadas y <strong>apunta notas y bloqueos</strong> que llegan a la app; las instrucciones con sus claves salen en un PDF para mandárselo.</p>
       </div>
     </div>
 

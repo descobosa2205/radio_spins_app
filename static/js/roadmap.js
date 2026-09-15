@@ -510,11 +510,20 @@
       if ((it.contacts || []).length) return it.contacts;
       return (it.contact && (it.contact.name || it.contact.phone || it.contact.email)) ? [it.contact] : [];
     }
-    /* LA RESERVA de una comida, como etiqueta (solo si se sabe si la hay). */
-    function mealTag(ml) {
-      if (!ml || (ml.reservation !== true && ml.reservation !== false)) return '';
-      if (ml.reservation) return '<span class="rm-tag ok"><i class="fa fa-calendar-check"></i> Reserva' + (ml.diners ? ' · ' + esc(ml.diners) + ' pers.' : '') + '</span>';
-      return '<span class="rm-tag"><i class="fa fa-calendar-xmark"></i> Sin reserva</span>';
+    /* ¿Esta comida es FUERA (en un restaurante) o en el recinto de la actividad?
+       ⚠️⚠️ Es el ESPEJO de `_roadmap_meal_out` del servidor: solo comiendo fuera hay reserva que
+       hacer, así que solo ahí se pregunta y solo ahí se guarda. Si se cambia una, se cambia la otra. */
+    function mealIsOut(it) { return !!(it && it.place && it.place.mode === 'OTHER'); }
+
+    /* LA RESERVA de una comida, como etiqueta (solo si se sabe algo y solo si se come fuera).
+       ⚠️ «Sin reserva» (hay que llamar) y «No hace falta» NO son lo mismo: lo primero es trabajo
+       pendiente y lo segundo es que no hay nada que hacer. */
+    function mealTag(ml, it) {
+      if (!ml || !mealIsOut(it)) return '';
+      if (ml.reservation === true) return '<span class="rm-tag ok"><i class="fa fa-calendar-check"></i> Reserva' + (ml.diners ? ' · ' + esc(ml.diners) + ' pers.' : '') + '</span>';
+      if (ml.reservation === false) return '<span class="rm-tag"><i class="fa fa-calendar-xmark"></i> Sin reserva</span>';
+      if (ml.reservation === 'NOT_NEEDED') return '<span class="rm-tag"><i class="fa fa-circle-minus"></i> No hace falta reserva</span>';
+      return '';
     }
     /* La nota de ACCESO tal como se enseña: el texto y, con la chincheta puesta, el icono que lleva al
        punto exacto (o solo la chincheta, si no hay texto). */
@@ -1085,7 +1094,7 @@
       tags += singTag(it);
       // EL M&G dice cuántas personas y LA COMIDA si hay reserva (y para cuántos).
       if (it.kind === 'MG' && it.mg_count) tags += '<span class="rm-tag"><i class="fa fa-users"></i> ' + esc(it.mg_count) + '</span>';
-      if (it.kind === 'COMIDA') tags += mealTag(it.meal) + menuTag(it);
+      if (it.kind === 'COMIDA') tags += mealTag(it.meal, it) + menuTag(it);
       var lugar = placeLabel(it);
       if (it.access_note || hasPin(it)) tags += '<span class="rm-tag access" title="' + esc(it.access_note || 'Punto exacto de acceso en el mapa') + '"><i class="fa fa-door-open"></i> Acceso</span>';
       var transLine = '';
@@ -2343,15 +2352,23 @@
       }
       if (esComida) {
         var ml = draft.meal;
-        h4 += '<div class="rm-wz-lbl"><i class="fa fa-book-open"></i>¿Hay reserva?</div>'
+        /* ⚠️⚠️ LA RESERVA SOLO SE PREGUNTA SI SE COME FUERA (lo pidió Dani): comiendo en el recinto
+           de la actividad —el catering, el comedor del personal, un camerino— no hay nada que
+           reservar. El bloque entero aparece y desaparece al cambiar el sitio en el paso anterior
+           (los dos pasos están en el MISMO modal), y el servidor aplica la misma regla al guardar. */
+        h4 += '<div class="rm-wz-block mb-3' + (mealIsOut(draft) ? '' : ' d-none') + '" data-meal-res>'
+          + '<div class="rm-wz-lbl"><i class="fa fa-book-open"></i>¿Hay reserva?</div>'
           + '<div class="promo-pick-grid promo-pick-grid--wide mb-2">'
           + wzPick({ name: 'rmRes', value: '1', icon: 'fa-calendar-check', label: 'Sí, hay reserva', checked: ml.reservation === true, attrs: ' data-res-opt' })
-          + wzPick({ name: 'rmRes', value: '0', icon: 'fa-calendar-xmark', label: 'No hay reserva', checked: ml.reservation === false, attrs: ' data-res-opt' })
-          + wzPick({ name: 'rmRes', value: '', icon: 'fa-circle-question', label: 'No se sabe', checked: ml.reservation !== true && ml.reservation !== false, attrs: ' data-res-opt' })
+          + wzPick({ name: 'rmRes', value: '0', icon: 'fa-calendar-xmark', label: 'No hay reserva', hint: 'Hay que hacerla', checked: ml.reservation === false, attrs: ' data-res-opt' })
+          + wzPick({ name: 'rmRes', value: 'NOT_NEEDED', icon: 'fa-circle-minus', label: 'No hace falta', hint: 'Se va sin reservar', checked: ml.reservation === 'NOT_NEEDED', attrs: ' data-res-opt' })
+          + wzPick({ name: 'rmRes', value: '', icon: 'fa-circle-question', label: 'No se sabe', checked: ml.reservation !== true && ml.reservation !== false && ml.reservation !== 'NOT_NEEDED', attrs: ' data-res-opt' })
           + '</div>'
-          + '<div class="mb-3' + (ml.reservation === true ? '' : ' d-none') + '" data-res-diners><label class="form-label small mb-1"><i class="fa fa-user-group me-1 text-muted"></i>¿Para cuántos comensales?</label>'
+          + '<div class="' + (ml.reservation === true ? '' : 'd-none') + '" data-res-diners><label class="form-label small mb-1"><i class="fa fa-user-group me-1 text-muted"></i>¿Para cuántos comensales?</label>'
           + '<input type="number" min="1" class="form-control" style="max-width:9rem" data-f="diners" value="' + esc(ml.diners || '') + '"></div>'
+          + '</div>'
           // EL MENÚ CERRADO (si lo hay): sus secciones y sus platos, aquí mismo (`mountMenuBuilder`).
+          // ⚠️ Fuera del bloque de la reserva: el menú se cierra se coma donde se coma.
           + '<div class="rm-wz-block mb-3" data-menu-builder></div>';
       }
       // ⚠️ «¿Se canta?» solo donde toca (`no_sing`): en la actuación es evidente y su repertorio es el
@@ -2518,6 +2535,9 @@
           draft.place = draft.place || {};
           draft.place.mode = r.value;
           if (otherBox) otherBox.classList.toggle('d-none', r.value !== 'OTHER');
+          // ⚠️ La reserva de una comida SOLO si se come fuera: el bloque va con el sitio.
+          var resBox = m.querySelector('[data-meal-res]');
+          if (resBox) resBox.classList.toggle('d-none', r.value !== 'OTHER');
         });
       });
       var vChip = m.querySelector('[data-venue-chip]'), vName = m.querySelector('[data-venue-name]');
@@ -3018,7 +3038,10 @@
       if (draft.kind === 'COMIDA') {
         var res = marcado('rmRes');
         draft.meal = draft.meal || {};
-        draft.meal.reservation = res === '1' ? true : (res === '0' ? false : null);
+        // ⚠️ Comiendo en el recinto no hay reserva que guardar (la misma regla que el servidor):
+        // si se venía de un restaurante y se cambia al recinto, lo que hubiera puesto se limpia.
+        draft.meal.reservation = !mealIsOut(draft) ? null
+          : (res === '1' ? true : (res === '0' ? false : (res === 'NOT_NEEDED' ? 'NOT_NEEDED' : null)));
         draft.meal.diners = draft.meal.reservation === true ? (val('[data-f="diners"]') || '').trim() : '';
         if (m.rmMenuState) draft.meal.menu = m.rmMenuState.menu;
       }
@@ -3085,7 +3108,7 @@
       var lugarD = placeLabel(it);
       if (lugarD) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(lugarD) + mapLink(itemMapsHref(it), hasPin(it) ? 'Ir al punto de acceso exacto' : 'Abrir en Mapas') + '</div>';
       if (it.kind === 'MG' && it.mg_count) h += '<div class="mb-1"><i class="fa fa-users text-muted"></i> ' + esc(it.mg_count) + ' personas</div>';
-      if (it.kind === 'COMIDA' && (mealTag(it.meal) || menuTag(it))) h += '<div class="mb-1">' + mealTag(it.meal) + ' ' + menuTag(it) + '</div>';
+      if (it.kind === 'COMIDA' && (mealTag(it.meal, it) || menuTag(it))) h += '<div class="mb-1">' + mealTag(it.meal, it) + ' ' + menuTag(it) + '</div>';
       var audH = audienceHtml(it);
       h += '<div class="mb-1 rm-sub"><i class="fa fa-users"></i> ' + (audH ? 'Afecta a:' : 'Afecta a todos') + '</div>' + audH;
       if (itemSings(it) && !(it.kind === 'ENTREVISTA' && it.interview)) {

@@ -886,6 +886,34 @@ def to_uuid(val):
     return _uuid.UUID(str(val))
 
 
+def _id_vivo(session_db, modelo, valor):
+    """El id SOLO si esa fila sigue existiendo (si no, `None`). Punto único.
+
+    ⚠️⚠️ **UN ID QUE YA NO EXISTE NO PUEDE TUMBAR UN ALTA ENTERA** (bug real y grave, sep 2026:
+    «al configurar una petición aprobada, al terminar todos los pasos me dice *No se ha creado la
+    actividad. Repasa los datos marcados*»). Un formulario arrastra ids de cosas que se eligieron
+    ANTES —el promotor y las personas de contacto de una petición, la empresa que dijo contratación,
+    un recinto, una gira—, y entre medias esa ficha puede haber desaparecido (la **fusión de
+    duplicados** de terceros es el camino normal: se queda la buena y la otra se borra con sus
+    personas). Al guardar, Postgres rechaza la clave ajena, revienta el `commit` y **se pierde TODO
+    lo tecleado** con un aviso que no dice qué pasa: ni se puede arreglar ni se sabe qué mirar.
+    · Lo que ya no existe **se deja sin poner y se DICE** (`_perdido`), que es lo único que se puede
+      hacer: el resto del alta es válido y tirarlo sería lo peor que podría pasar.
+    ⚠️ Es una comprobación por `session.get`, o sea por la **caché de identidad** de la sesión: no
+    cuesta una consulta por cada cosa que ya se haya leído en esta petición."""
+    uid = None
+    try:
+        uid = to_uuid(valor)
+    except Exception:
+        return None
+    if not uid:
+        return None
+    try:
+        return uid if session_db.get(modelo, uid) is not None else None
+    except Exception:
+        return None
+
+
 def safe_next_or(default_url: str) -> str:
     """Devuelve el parámetro next (form/args) si parece seguro (ruta relativa),
     si no, devuelve default_url.
@@ -45417,12 +45445,23 @@ def _parse_concert_contacts_form(form) -> dict:
     return by_contact
 
 
-def _replace_concert_contacts(session_db, concert_id, by_contact: dict) -> None:
+def _replace_concert_contacts(session_db, concert_id, by_contact: dict) -> int:
+    """Deja en la actividad EXACTAMENTE esas personas. Devuelve cuántas se han caído por no existir.
+
+    ⚠️⚠️ **UNA PERSONA QUE YA NO EXISTE NO PUEDE TUMBAR EL GUARDADO** (`_id_vivo`): el formulario
+    arrastra ids que se eligieron antes —los de una PETICIÓN, que los guarda en su payload— y esa
+    ficha puede haberse ido por medio (la fusión de duplicados borra la absorbida con sus personas).
+    Sin esto, el `commit` entero se caía por una clave ajena y se perdía el alta completa."""
     session_db.query(ConcertContact).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session_db.flush()
+    perdidas = 0
     for cid, roles in by_contact.items():
+        if _id_vivo(session_db, PromoterContact, cid) is None:
+            perdidas += 1
+            continue
         # Una persona sin función se guarda igual: está en la actividad.
         session_db.add(ConcertContact(concert_id=concert_id, contact_id=cid, roles=list(roles or [])))
+    return perdidas
 
 
 @app.get("/api/promoters/<promoter_id>/contactos", endpoint="api_promoter_contacts")
@@ -78538,10 +78577,10 @@ def concert_wizard_create():
             raw_artist_id = (raw_artist_id or '').strip()
             if not raw_artist_id:
                 continue
-            try:
-                uid = to_uuid(raw_artist_id)
-            except Exception:
-                continue
+            # ⚠️ Solo los que SIGUEN EXISTIENDO (`_id_vivo`): un artista borrado en medio dejaba el
+            # alta entera en una clave ajena rota. Si no queda ninguno se dice lo de siempre
+            # («Debes seleccionar al menos un artista»), que sí se entiende y se puede arreglar.
+            uid = _id_vivo(session, Artist, raw_artist_id)
             if uid and uid not in artist_ids:
                 artist_ids.append(uid)
         if not artist_ids:
@@ -78574,9 +78613,27 @@ def concert_wizard_create():
             sale_type = 'VENDIDO' if _truthy(request.form.get('has_cache')) else 'GRATUITO'
         # Chips del gestor de tags (concert_tags[]) con fallback al campo de texto legacy.
         hashtags = _dedupe_concert_tags(request.form.getlist('concert_tags[]')) or _parse_hashtag_text(request.form.get('wizard_hashtags_text'))
-        billing_company_id = to_uuid((request.form.get('billing_company_id') or '').strip() or None)
+        # ⚠️⚠️ LO QUE YA NO EXISTE SE DEJA SIN PONER Y SE DICE, PERO NO TIRA EL ALTA (`_id_vivo`).
+        # Un asistente que viene de una PETICIÓN arrastra los ids que se eligieron al pedirla, y
+        # entre medias la ficha puede haber desaparecido (una fusión de duplicados, un borrado).
+        # Antes, cualquiera de estos ids muertos reventaba el `commit` final y se perdían los cien
+        # campos que se acababan de rellenar, con un aviso que no decía qué mirar.
+        _perdidos = []
+
+        def _perdido(etiqueta):
+            if etiqueta not in _perdidos:
+                _perdidos.append(etiqueta)
+            return None
+
+        _raw_company = (request.form.get('billing_company_id') or '').strip()
+        billing_company_id = _id_vivo(session, GroupCompany, _raw_company)
+        if _raw_company and not billing_company_id:
+            _perdido('la empresa del grupo')
         festival_name = (request.form.get('festival_name') or '').strip() or None
-        venue_id = to_uuid((request.form.get('venue_id') or '').strip() or None)
+        _raw_venue = (request.form.get('venue_id') or '').strip()
+        venue_id = _id_vivo(session, Venue, _raw_venue)
+        if _raw_venue and not venue_id:
+            _perdido('el recinto')
         manual_venue_name = (request.form.get('manual_venue_name') or '').strip() or None
         manual_venue_address = (request.form.get('manual_venue_address') or '').strip() or None
         manual_municipality = (request.form.get('manual_municipality') or '').strip() or None
@@ -78741,11 +78798,16 @@ def concert_wizard_create():
             return redirect(url_for('concert_detail_view', cid=concert.id, tab='general',
                                     open='ficha'))
 
-        promoter_id = to_uuid((request.form.get('promoter_id') or '').strip() or None)
-        promoter_company_id = to_uuid((request.form.get('promoter_company_id') or '').strip() or None)
+        _raw_promoter = (request.form.get('promoter_id') or '').strip()
+        promoter_id = _id_vivo(session, Promoter, _raw_promoter)
+        if _raw_promoter and not promoter_id:
+            _perdido('el promotor')
+        promoter_company_id = _id_vivo(session, PromoterCompany,
+                                       (request.form.get('promoter_company_id') or '').strip())
         # El promotor también puede ser un MEDIO de comunicación (espejado a tercero).
         if not promoter_id:
-            promoter_media_id = to_uuid((request.form.get('promoter_media_id') or '').strip() or None)
+            promoter_media_id = _id_vivo(session, MediaOutlet,
+                                         (request.form.get('promoter_media_id') or '').strip())
             if promoter_media_id:
                 media_promoter = _ensure_promoter_for_media(session, promoter_media_id)
                 promoter_id = media_promoter.id if media_promoter else None
@@ -78921,7 +78983,10 @@ def concert_wizard_create():
         # LOGÍSTICA de las actividades cortas (ensayos y discográficas): si hace falta, se activa la
         # producción con la persona elegida (le sale en sus Activas y se le avisa).
         if _truthy(request.form.get('needs_logistics')):
-            _logi_uid = to_uuid((request.form.get('production_owner_user_id') or '').strip() or None)
+            _logi_raw = (request.form.get('production_owner_user_id') or '').strip()
+            _logi_uid = _id_vivo(session, User, _logi_raw)
+            if _logi_raw and not _logi_uid:
+                _perdido('quien lleva la producción')
             if _logi_uid:
                 concert.production_owner_user_id = _logi_uid
                 concert.production_activated_at = _now_madrid()
@@ -78960,7 +79025,8 @@ def concert_wizard_create():
         _sync_meet_greet_roadmap(concert)
 
         # Personas de contacto elegidas en el asistente (producción / ticketing / comunicación).
-        _replace_concert_contacts(session, concert.id, _parse_concert_contacts_form(request.form))
+        if _replace_concert_contacts(session, concert.id, _parse_concert_contacts_form(request.form)):
+            _perdido('alguna persona de contacto')
 
         # Hojas de ruta que tendrá la actividad (general / técnica). Por defecto, las dos.
         _set_roadmap_kinds(concert, _parse_roadmap_kinds_form(request.form))
@@ -78969,15 +79035,13 @@ def concert_wizard_create():
         _ptid = (request.form.get('wizard_purchased_tour_id') or '').strip()
         _cfid = (request.form.get('wizard_cycle_festival_id') or '').strip()
         if _ptid:
-            try:
-                concert.purchased_tour_id = to_uuid(_ptid)
-            except Exception:
-                pass
+            concert.purchased_tour_id = _id_vivo(session, PurchasedTour, _ptid)
+            if not concert.purchased_tour_id:
+                _perdido('la gira')
         if _cfid:
-            try:
-                concert.cycle_festival_id = to_uuid(_cfid)
-            except Exception:
-                pass
+            concert.cycle_festival_id = _id_vivo(session, CycleFestival, _cfid)
+            if not concert.cycle_festival_id:
+                _perdido('el ciclo o festival')
 
         _replace_concert_promoter_shares(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_promoter_share_rows(request.form)))
         _replace_concert_zone_agents(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_zone_rows(request.form)))
@@ -79053,6 +79117,12 @@ def concert_wizard_create():
                 flash(f'Actividad creada. La solicitud de cartelería quedó registrada pero el correo no se pudo enviar: {error}', 'warning')
         else:
             flash('Actividad creada correctamente.', 'success')
+        # ⚠️ LO QUE SE HA CAÍDO POR NO EXISTIR YA, SE DICE. La actividad se crea igual (es lo
+        # correcto: lo demás es válido), pero callarlo dejaría un hueco que nadie sabría que hay.
+        if _perdidos:
+            flash('La actividad se ha creado, pero esto ya no existe en la base de datos y se ha '
+                  'quedado sin poner: %s. Ponlo en su ficha.'
+                  % _join_es(_perdidos), 'warning')
         # Los contactos que se han puesto también en las OTRAS actividades de ese promotor a las
         # que les faltaban: se dice, en vez de tocarlas en silencio.
         for _aviso in (_avisos_contactos or []):
@@ -79075,12 +79145,60 @@ def concert_wizard_create():
             aviso = 'No se ha creado la actividad: %s' % str(exc)
         else:
             app.logger.exception('[asistente] no se pudo crear la actividad')
-            aviso = ('No se ha creado la actividad. Repasa los datos marcados; si sigue sin '
-                     'guardarse, avisa a dirección.')
+            # ⚠️⚠️ UN ERROR DE LA BASE DE DATOS NO PUEDE SER MUDO. «Repasa los datos marcados» no
+            # dice nada cuando lo que falla es una CLAVE AJENA —algo que se eligió antes y ya no
+            # existe—: no hay nada que repasar en pantalla y el traceback solo lo ve quien entra en
+            # el servidor. Se traduce a lo que le sirve a una persona.
+            aviso = _wizard_error_message(exc)
         _flash_form_error(aviso, campos=_wizard_error_fields(exc), abrir='concertWizardModal')
         return redirect(url_for('concerts_view', tab='vista', open_wizard=1))
     finally:
         session.close()
+
+
+# Qué dato es cada clave ajena de `concerts` y lo que cuelga de ella, en español. Es lo que se le
+# dice a una persona cuando algo que se eligió antes ya no existe (una fusión de duplicados, un
+# borrado): «el recinto», no `concerts_venue_id_fkey`.
+WIZARD_FK_LABELS = {
+    "promoter_id": "el promotor",
+    "promoter_company_id": "la sociedad del promotor",
+    "billing_company_id": "la empresa del grupo",
+    "group_company_id": "la empresa del grupo",
+    "venue_id": "el recinto",
+    "artist_id": "el artista",
+    "event_id": "el evento",
+    "purchased_tour_id": "la gira",
+    "cycle_festival_id": "el ciclo o festival",
+    "contact_id": "una persona de contacto",
+    "production_owner_user_id": "quien lleva la producción",
+    "seat_map_id": "el mapa de butacas",
+}
+
+
+def _wizard_error_message(exc) -> str:
+    """QUÉ SE LE DICE a una persona cuando el alta se cae por algo que no es un `ValueError`.
+
+    ⚠️⚠️ El caso que importa es la **clave ajena**: el formulario traía el id de algo que ya no
+    existe (lo más normal, una ficha que se fue en una FUSIÓN de duplicados). «Repasa los datos
+    marcados» no sirve de nada ahí —no hay nada marcado— y el motivo real se quedaba en el log del
+    servidor, que Dani no puede leer. Se saca de la propia excepción QUÉ dato es y se dice.
+    ⚠️ Lo demás sigue sin enseñarse en crudo: el texto técnico va al log."""
+    # ⚠️ El motivo puede venir en la excepción de SQLAlchemy, en la de psycopg2 que envuelve
+    # (`.orig`) o en el nombre de cualquiera de las dos: se miran las tres, o la mitad de los casos
+    # se escapan y vuelve a salir el aviso mudo.
+    texto = " ".join([type(exc).__name__, str(exc or ""),
+                      type(getattr(exc, "orig", None)).__name__, str(getattr(exc, "orig", "") or "")])
+    if "foreignkeyviolation" in texto.lower() or "violates foreign key" in texto.lower():
+        for campo, etiqueta in WIZARD_FK_LABELS.items():
+            if ("(%s)" % campo) in texto or ("_%s_fkey" % campo) in texto:
+                return ('No se ha creado la actividad: %s que habías elegido ya no existe en la '
+                        'base de datos (lo habrán borrado o fusionado en una fusión de '
+                        'duplicados). Elige ese dato otra vez y vuelve a guardar.' % etiqueta)
+        return ('No se ha creado la actividad: algo de lo que habías elegido ya no existe en la '
+                'base de datos (lo habrán borrado o fusionado en una fusión de duplicados). '
+                'Repasa lo elegido y vuelve a guardar.')
+    return ('No se ha creado la actividad. Repasa los datos marcados; si sigue sin '
+            'guardarse, avisa a dirección.')
 
 
 WIZARD_ERROR_FIELDS = [
@@ -83464,18 +83582,49 @@ def _roadmap_prune_responses(responses, menu) -> dict:
     return out
 
 
-def _roadmap_clean_meal(value, current=None) -> dict:
-    """LA COMIDA: si hay RESERVA (sí · no · None = no se sabe), para cuántos COMENSALES, el MENÚ cerrado
-    (o None) y las RESPUESTAS de cada persona.
+# ⚠️⚠️ LA RESERVA DE UNA COMIDA SOLO SE PREGUNTA SI SE COME FUERA (sep 2026, lo pidió Dani). Si la
+# comida es en el recinto de la actividad (el catering, el comedor del personal, un camerino) no hay
+# ninguna reserva que hacer: preguntarlo es ruido y dejaba «No se sabe» puesto para siempre en algo
+# que no aplica. Punto ÚNICO `_roadmap_meal_out` — el asistente pinta la pregunta con esta MISMA
+# regla (`roadmap.js`), así que lo que se ve y lo que se guarda no se pueden desparejar.
+def _roadmap_meal_out(place) -> bool:
+    """¿La comida es FUERA del recinto de la actividad, o sea en un restaurante?"""
+    return ((place or {}).get("mode") or "").strip().upper() == "OTHER"
+
+
+# Los cuatro estados de la reserva. ⚠️ Los BOOLEANOS son los de siempre (todo lo guardado hasta hoy
+# es `True`/`False`/`None` y se sigue leyendo igual); «no hace falta» es el estado nuevo.
+MEAL_RESERVATION_NOT_NEEDED = "NOT_NEEDED"
+
+
+def _roadmap_meal_reservation(valor):
+    """Normaliza la reserva a uno de los CUATRO estados: `True` · `False` · `NOT_NEEDED` · `None`.
+
+    ⚠️ **«No hay reserva» y «no hace falta» NO son lo mismo** (sep 2026, lo pidió Dani): lo primero
+    es algo pendiente —hay que llamar al restaurante— y lo segundo es que no hay nada que hacer. Con
+    un solo booleano las dos cosas se veían igual y no se podía saber si quedaba trabajo."""
+    if isinstance(valor, bool) or valor is None:
+        return valor
+    clave = str(valor).strip().lower()
+    if clave in ("not_needed", "no_hace_falta", "nohacefalta"):
+        return MEAL_RESERVATION_NOT_NEEDED
+    return {"1": True, "true": True, "si": True, "sí": True,
+            "0": False, "false": False, "no": False}.get(clave)
+
+
+def _roadmap_clean_meal(value, current=None, *, place=None) -> dict:
+    """LA COMIDA: si hay RESERVA (sí · no · no hace falta · None = no se sabe), para cuántos
+    COMENSALES, el MENÚ cerrado (o None) y las RESPUESTAS de cada persona.
     ⚠️ Lo que el cliente NO manda se conserva de `current`: el asistente de la hoja de ruta guarda la
     reserva sin tocar el menú, la pestaña Comidas guarda el menú sin tocar la reserva, y las
-    respuestas las escribe la gente por su enlace (nunca llegan del asistente)."""
+    respuestas las escribe la gente por su enlace (nunca llegan del asistente).
+    ⚠️⚠️ Si la comida NO es fuera (`place`), la reserva **no se guarda**: en el recinto de la
+    actividad no hay nada que reservar. Sin `place` no se toca (lo llaman así la pestaña Comidas y
+    los sitios que solo guardan el menú, que no saben dónde es)."""
     v = value if isinstance(value, dict) else {}
     cur = current if isinstance(current, dict) else {}
-    res = v.get("reservation") if "reservation" in v else cur.get("reservation")
-    if isinstance(res, str):
-        res = {"1": True, "true": True, "si": True, "sí": True, "0": False, "false": False, "no": False}.get(res.strip().lower())
-    elif not isinstance(res, bool):
+    res = _roadmap_meal_reservation(v.get("reservation") if "reservation" in v else cur.get("reservation"))
+    if place is not None and not _roadmap_meal_out(place):
         res = None
     comensales = _roadmap_int(v.get("diners") if "diners" in v else cur.get("diners"), 0)
     if "menu" in v:
@@ -84361,7 +84510,8 @@ def _roadmap_item_from_json(data: dict) -> dict:
     if kind == "MG":
         item["mg_count"] = str(data.get("mg_count") or "").strip()[:20]
     if kind == "COMIDA":
-        item["meal"] = _roadmap_clean_meal(data.get("meal"))
+        # ⚠️ Con el SITIO: la reserva solo se guarda si se come fuera (`_roadmap_meal_out`).
+        item["meal"] = _roadmap_clean_meal(data.get("meal"), place=item.get("place"))
     if kind == "ENTREVISTA":
         iv = data.get("interview") or {}
         songs = _roadmap_songs_from_json(iv.get("songs"))
@@ -84981,7 +85131,7 @@ def roadmap_item_save(entity_type, entity_id):
             # la gente por su enlace: lo que no llegue se conserva (`_roadmap_clean_meal`).
             if item["kind"] == "COMIDA":
                 item["meal"] = _roadmap_clean_meal(data.get("meal") if isinstance(data.get("meal"), dict) else {},
-                                                   current.get("meal"))
+                                                   current.get("meal"), place=item.get("place"))
             # Las personas de contacto: si no llegan ni en plural ni en singular, se conservan.
             if "contacts" not in data and "contact" not in data:
                 item["contacts"] = list(current.get("contacts")

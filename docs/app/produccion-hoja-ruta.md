@@ -1045,3 +1045,22 @@
   aviso, la página pública sin sesión, el agotado y el tope, la siguiente comida, elegir por alguien,
   pedir por SMS, los PDF, la tarea del portal, quitar un plato limpia las respuestas). Probado además
   en el navegador con la app real.
+
+- ⚠️⚠️ **LA RESERVA DE UNA COMIDA SOLO SE PREGUNTA SI SE COME FUERA, Y «NO HACE FALTA» ES UN ESTADO**
+  (sep 2026, lo pidió Dani). Dos cosas que no cuadraban:
+  · **Comiendo en el recinto de la actividad no hay nada que reservar** (el catering, el comedor del
+  personal, un camerino), así que preguntarlo era ruido y dejaba un «No se sabe» puesto para siempre
+  en algo que no aplica. Ahora el bloque entero **solo sale si el sitio es «En un restaurante»**
+  (`place.mode == OTHER`) y **aparece y desaparece al cambiar el sitio** en el paso anterior (los dos
+  pasos están en el mismo modal). Punto único **`_roadmap_meal_out`**, espejado en `mealIsOut()` de
+  `roadmap.js`: el asistente pregunta con la MISMA regla con la que el servidor guarda, así que no se
+  pueden desparejar. Al pasar una comida de un restaurante al recinto, **la reserva se limpia**.
+  · **«No hay reserva» y «no hace falta» NO son lo mismo**: lo primero es trabajo pendiente —hay que
+  llamar al restaurante— y lo segundo es que no hay nada que hacer, y con un solo booleano se veían
+  igual. La reserva tiene ahora **CUATRO estados**: `True` · `False` · **`NOT_NEEDED`** · `None` (no
+  se sabe), con `_roadmap_meal_reservation` de normalizador.
+  ⚠️ **Compatible con lo guardado**: todo lo que hay son booleanos y se sigue leyendo igual; solo se
+  añade el estado nuevo. En la fila y en el detalle sale su etiqueta («No hace falta reserva»).
+  ⚠️ Cubierto por `tools/check_hoja_ruta.py` (en el recinto no se guarda reserva, en un restaurante
+  sí, «no hace falta» se guarda y pasar al recinto la limpia) y probado en el navegador con la app
+  real.

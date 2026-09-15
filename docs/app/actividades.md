@@ -1788,3 +1788,28 @@
   ⚠️ **Lo cazó `tools/check_divs.py`** en cuanto una actividad de prueba tuvo un M&G con cantidad:
   3 pantallas en 500 (la ficha, su ancla del plan de facturación y la pestaña de producción). Es la
   razón de pasar la comprobación con datos REALISTAS, no con la base a medias.
+
+- ⚠️⚠️⚠️ **UN ID QUE YA NO EXISTE TUMBABA EL ALTA ENTERA** (bug real y grave, sep 2026: «al
+  convertir en actividad una petición ya aprobada, termino todos los pasos y me dice *No se ha
+  creado la actividad. Repasa los datos marcados*»). El asistente arrastra ids que se eligieron
+  ANTES —el promotor y las personas de contacto que trae una PETICIÓN en su payload, la empresa que
+  dijo contratación al aprobarla, un recinto, una gira—, y entre medias esa ficha puede haber
+  desaparecido: el camino normal es una **FUSIÓN de duplicados** (se queda la buena y la otra se
+  borra con sus personas), pero vale cualquier borrado. Postgres rechazaba la clave ajena, reventaba
+  el `commit` final y **se perdía todo lo tecleado** con un aviso que no decía qué mirar: ni se podía
+  arreglar ni se sabía qué pasaba, porque el motivo solo salía en el log del servidor.
+  · **Punto único `_id_vivo(session, Modelo, valor)`**: devuelve el id **solo si la fila sigue
+  existiendo**. Lo usan el artista, el promotor (y su sociedad, y el medio), la empresa del grupo, el
+  recinto, la gira, el ciclo/festival, quien lleva la producción y **`_replace_concert_contacts`**
+  (que además es el punto único de la ficha, así que vale para los dos sitios).
+  · **Lo que se cae SE DICE** y no se tira el alta: «La actividad se ha creado, pero esto ya no
+  existe en la base de datos y se ha quedado sin poner: el promotor. Ponlo en su ficha.» Tirar cien
+  campos rellenos por una ficha borrada sería lo peor que podría pasar.
+  · ⚠️ **Si NO queda ningún artista vivo**, sí se para: es el `ValueError` de siempre («Debes
+  seleccionar al menos un artista»), que se entiende y se arregla en el sitio.
+  · **RED DE SEGURIDAD `_wizard_error_message`**: si aun así se cuela una clave ajena rota por otro
+  camino, el aviso **dice cuál es** («el recinto que habías elegido ya no existe…», mapa
+  `WIZARD_FK_LABELS`) en vez del mudo «repasa los datos marcados». Lo que no es eso sigue yendo al
+  log y no se enseña en crudo.
+  ⚠️ Probado con la app real reproduciendo el fallo (el contacto de la petición borrado después de
+  aprobarla): antes **no se creaba nada**, ahora se crea y se avisa de lo que faltó.

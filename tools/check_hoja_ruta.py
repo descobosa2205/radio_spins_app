@@ -592,6 +592,21 @@ def main():
     check("una comida en un restaurante, en la sala privada, con reserva para 14",
           (co.get("place") or {}).get("mode") == "OTHER" and co.get("location") == "Casa Pepe, Calle Mayor 3"
           and (co.get("meal") or {}).get("reservation") is True and (co.get("meal") or {}).get("diners") == 14, str(co.get("meal")))
+    # ⚠️ «No hace falta reserva» es un estado propio: NO es lo mismo que «no hay reserva» (eso es
+    # trabajo pendiente). Y al pasar la comida al RECINTO, la reserva se limpia sola.
+    r = casa.post(base + "/item", json={"id": co.get("id"), "kind": "COMIDA", "day": DIA, "start_time": "14:00",
+                                        "place": {"mode": "OTHER", "space": "Sala privada"}, "location": "Casa Pepe, Calle Mayor 3",
+                                        "meal": {"reservation": "NOT_NEEDED"}})
+    co2 = ([x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("id") == co.get("id")] or [{}])[0]
+    check("en un restaurante se puede decir que NO HACE FALTA reserva",
+          (co2.get("meal") or {}).get("reservation") == "NOT_NEEDED"
+          and (co2.get("meal") or {}).get("diners") is None, str(co2.get("meal")))
+    r = casa.post(base + "/item", json={"id": co.get("id"), "kind": "COMIDA", "day": DIA, "start_time": "14:00",
+                                        "place": {"mode": "VENUE", "space": "Comedor"},
+                                        "meal": {"reservation": "1", "diners": "14"}})
+    co3 = ([x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("id") == co.get("id")] or [{}])[0]
+    check("al pasarla al recinto, la reserva se deja de guardar",
+          (co3.get("meal") or {}).get("reservation") is None and (co3.get("meal") or {}).get("diners") is None, str(co3.get("meal")))
     r = casa.post(base + "/item", json={"kind": "CITACION", "day": DIA, "start_time": "17:00", "end_time": "18:00"})
     ci = ([x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("kind") == "CITACION"] or [{}])[0]
     check("una citación es a una hora: no guarda fin", ci.get("start_time") == "17:00" and ci.get("end_time") == "", str(ci.get("end_time")))
@@ -627,13 +642,15 @@ def main():
         s.close()
     rp = casa.post(base + "/personal", json={"kind": "USER", "ref_id": uid_prod, "name": "Prod Ruta", "role": "Producción"}).get_json() if uid_prod else {}
     pid_prod = rp.get("person_id") or ""
-    # Una comida SIN menú todavía (la reserva la guarda el asistente).
+    # Una comida SIN menú todavía. ⚠️ Es EN EL RECINTO, así que NO lleva reserva aunque se mande.
     r = casa.post(base + "/item", json={"kind": "COMIDA", "day": DIA, "start_time": "14:00", "title": "Comida del equipo",
                                         "place": {"mode": "VENUE", "space": "Comedor"}, "meal": {"reservation": "1", "diners": "12"},
                                         "audience": {"mode": "PEOPLE", "roles": [], "ids": ["p1", "p2", pid_prod]}}).get_json() or {}
     co = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("kind") == "COMIDA" and x.get("title") == "Comida del equipo"] or [{}])[0]
     iid = co.get("id") or ""
     check("la comida se crea sin menú (la pestaña Comidas no se pinta)", iid and co["meal"]["menu"] is None and not A._roadmap_show_meals(r.get("payload") or {}))
+    check("comiendo EN EL RECINTO no se guarda reserva (no hay nada que reservar)",
+          co["meal"]["reservation"] is None and co["meal"]["diners"] is None, str(co.get("meal")))
     # EL MENÚ: dos secciones que se eligen (una con dos platos) y una fija.
     menu = {"kind": "MENU", "title": "Menú del catering", "sections": [
         {"id": "s_ent", "name": "Entrante", "mode": "CHOOSE", "choose_n": 1, "dishes": [
@@ -646,9 +663,9 @@ def main():
     r = casa.post(base + "/comida/%s/menu" % iid, json={"menu": menu}).get_json() or {}
     co = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("id") == iid] or [{}])[0]
     mn = (co.get("meal") or {}).get("menu") or {}
-    check("el menú se guarda: 3 secciones (la sin nombre no), las etiquetas válidas, el agotado y la reserva de antes",
+    check("el menú se guarda: 3 secciones (la sin nombre no), las etiquetas válidas y el agotado",
           len(mn.get("sections") or []) == 3 and mn["sections"][0]["dishes"][0]["tags"] == ["VEGANO", "SIN_GLUTEN"]
-          and mn["sections"][0]["dishes"][1]["sold_out"] is True and co["meal"]["reservation"] is True and co["meal"]["diners"] == 12, str(mn)[:200])
+          and mn["sections"][0]["dishes"][1]["sold_out"] is True, str(mn)[:200])
     check("ahora sí se pinta la pestaña Comidas", A._roadmap_show_meals(r.get("payload") or {}))
     check("a la persona de la casa se le avisa en la app", r.get("notified") == 1, str(r.get("notified")))
     s = A.db()
@@ -658,12 +675,13 @@ def main():
         tokens = {tk.personnel_id: tk.token for tk in s.query(RoadmapMenuToken).filter(RoadmapMenuToken.entity_id == A.to_uuid(cid)).all()}
     finally:
         s.close()
-    # El asistente vuelve a guardar la comida (la reserva) SIN mandar el menú: el menú se conserva.
+    # El asistente vuelve a guardar la comida SIN mandar el menú: el menú se conserva.
     r = casa.post(base + "/item", json={"id": iid, "kind": "COMIDA", "day": DIA, "start_time": "14:30", "title": "Comida del equipo",
                                         "meal": {"reservation": "1", "diners": "14"}}).get_json() or {}
     co = ([x for x in (r.get("payload") or {}).get("agenda", []) if x.get("id") == iid] or [{}])[0]
-    check("guardar la comida desde el asistente conserva el menú y cambia la reserva",
-          len(((co.get("meal") or {}).get("menu") or {}).get("sections") or []) == 3 and co["meal"]["diners"] == 14)
+    check("guardar la comida desde el asistente conserva el menú (y en el recinto sigue sin reserva)",
+          len(((co.get("meal") or {}).get("menu") or {}).get("sections") or []) == 3
+          and co["meal"]["reservation"] is None, str(co.get("meal"))[:160])
     # QUIÉN tiene que elegir: p1, p2 y la persona de la casa; nadie ha respondido.
     est = casa.get(base + "/comida/%s/estado" % iid).get_json() or {}
     check("el estado dice quién tiene que elegir (3) y que nadie ha respondido",

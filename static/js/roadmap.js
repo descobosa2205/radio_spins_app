@@ -31,6 +31,14 @@
     var PERSON_FIELDS = CTX.person_fields || [];
     var PERSON_COLS = CTX.person_cols || ['role', 'phone', 'email'];
     var PERSON_ROLES = CTX.roles || [];
+    /* LAS REGLAS DE CADA TIPO de punto (qué se pregunta y qué no): las dicta el SERVIDOR
+       (`ROADMAP_NO_SING_KINDS` y compañía → `kind_rules`); aquí solo se leen, así no se desparejan.
+       Y lo que la ficha ya sabe: cuántas personas hay en el M&G y las personas de contacto que se
+       sugieren (las de la actividad, el promotor y el recinto). */
+    var RULES = CTX.kind_rules || {};
+    function ruleHas(list, kind) { return (RULES[list] || []).indexOf(kind) >= 0; }
+    var MG_COUNT = CTX.meet_greet_count || '';
+    var CONTACT_SUG = CTX.contact_suggestions || [];
     var view = document.getElementById('rmView');
     // Pestaña de arranque: la primera que exista (una plantilla de personal solo tiene «personal»).
     // ⚠️ LA ACTIVIDAD va la primera, y solo cuando la hay (una plantilla no es ninguna actividad).
@@ -119,29 +127,54 @@
     function btn(label, cls, onclick) { var b = el('<button type="button" class="btn ' + cls + '">' + label + '</button>'); b.addEventListener('click', onclick); return b; }
 
     // ---------------------------------------------------------------- buscadores
+    /* ⚠️ El desplegable tiene FONDO (`.rm-wz-results`: antes era transparente y se leía lo de
+       detrás) y, con `minChars: 0`, se abre también AL PINCHAR en el campo con lo que haya (el
+       repertorio del artista entero, para elegir sin tener que escribir). Un clic fuera lo cierra
+       (un único listener en `document`, debajo). `clearOnPick` vacía el campo al elegir: es para lo
+       que se AÑADE a una lista (canciones, personas), donde el texto ya no pinta nada. */
     function attachSearch(input, results, fetcher, onPick, opts) {
       opts = opts || {};
+      if (!input || !results) return;
+      var minChars = (typeof opts.minChars === 'number') ? opts.minChars : 2;
+      results.classList.add('rm-wz-results');
       var run = debounce(function () {
         var q = input.value.trim();
         results.innerHTML = '';
-        if (q.length < 2) { results.classList.add('d-none'); return; }
+        if (q.length < minChars) { results.classList.add('d-none'); return; }
         fetcher(q).then(function (list) {
           results.innerHTML = '';
-          (list || []).slice(0, 8).forEach(function (r) {
+          (list || []).slice(0, opts.max || 8).forEach(function (r) {
             var node = el('<div class="rm-result"></div>');
-            node.innerHTML = avatar(r.logo_url, r.icon) + '<div><div>' + esc(r.label || r.name || '') + '</div>' + (r.sub ? '<div class="rm-sub">' + esc(r.sub) + '</div>' : '') + '</div>';
-            node.addEventListener('click', function () { onPick(r); results.classList.add('d-none'); results.innerHTML = ''; });
+            node.innerHTML = avatar(r.logo_url, r.icon) + '<div class="min-w-0"><div>' + esc(r.label || r.name || '') + '</div>' + (r.sub ? '<div class="rm-sub">' + esc(r.sub) + '</div>' : '') + '</div>';
+            node.addEventListener('click', function () { onPick(r); results.classList.add('d-none'); results.innerHTML = ''; if (opts.clearOnPick) input.value = ''; });
             results.appendChild(node);
           });
-          if (opts.onCreate) {
+          if (opts.onCreate && q) {
             var c = el('<div class="rm-result text-primary"><span class="noimg"><i class="fa fa-plus"></i></span><div>Crear «' + esc(q) + '»</div></div>');
             c.addEventListener('click', function () { opts.onCreate(q); results.classList.add('d-none'); results.innerHTML = ''; });
             results.appendChild(c);
           }
+          if (!results.children.length) { results.classList.add('d-none'); return; }
           results.classList.remove('d-none');
         });
       }, 240);
       input.addEventListener('input', run);
+      if (minChars === 0) input.addEventListener('focus', run);
+    }
+    document.addEventListener('click', function (e) {
+      document.querySelectorAll('.rm-wz-results').forEach(function (r) {
+        var wrap = r.parentElement;
+        if (wrap && !wrap.contains(e.target)) r.classList.add('d-none');
+      });
+    });
+    /* Los RECINTOS de la base (para «en otro recinto» de un M&G o una sesión de fotos). */
+    function searchVenues(q) {
+      return getJson('/api/search/venues?q=' + encodeURIComponent(q)).then(function (list) {
+        return (list || []).map(function (r) {
+          return { id: r.id, label: r.name || r.label || '', logo_url: r.photo_url || '', icon: 'fa-building',
+                   sub: [r.municipality, r.province].filter(Boolean).join(', '), address: r.address || '', municipality: r.municipality || '' };
+        });
+      });
     }
     function searchPromoters(q) {
       return getJson('/api/search/promoters?q=' + encodeURIComponent(q)).then(function (list) {
@@ -455,7 +488,32 @@
     function itemMapsHref(it) {
       if (!it) return '';
       if (hasPin(it)) return mapsUrlAt(it.access_lat, it.access_lng, 'Acceso · ' + (it.title || ''));
-      return it.location ? mapsUrl(it.location) : '';
+      if (it.location) return mapsUrl(it.location);
+      // Un punto que es EN EL RECINTO (la prueba de sonido, un M&G en el camerino): al recinto.
+      if (ruleHas('at_venue', it.kind) || (it.place && it.place.mode !== 'OTHER' && ruleHas('place', it.kind))) return venueMapsHref(VENUE);
+      return '';
+    }
+    /* DÓNDE se ve en la fila: lo escrito o, en un M&G, una sesión de fotos o una comida, el recinto
+       de la actividad con su espacio («Sala Ruta · Camerino 2»). */
+    function placeLabel(it) {
+      var pl = it && it.place;
+      if (pl && ruleHas('place', it.kind)) {
+        var base = pl.mode === 'OTHER' ? (it.location || pl.venue_name || '') : ((VENUE && VENUE.name) || '');
+        return [base, pl.space].filter(Boolean).join(' · ');
+      }
+      return (it && it.location) || '';
+    }
+    /* LAS PERSONAS DE CONTACTO de un punto: la lista (`contacts`) o, en uno de antes, la única. */
+    function itemContacts(it) {
+      if (!it) return [];
+      if ((it.contacts || []).length) return it.contacts;
+      return (it.contact && (it.contact.name || it.contact.phone || it.contact.email)) ? [it.contact] : [];
+    }
+    /* LA RESERVA de una comida, como etiqueta (solo si se sabe si la hay). */
+    function mealTag(ml) {
+      if (!ml || (ml.reservation !== true && ml.reservation !== false)) return '';
+      if (ml.reservation) return '<span class="rm-tag ok"><i class="fa fa-calendar-check"></i> Reserva' + (ml.diners ? ' · ' + esc(ml.diners) + ' pers.' : '') + '</span>';
+      return '<span class="rm-tag"><i class="fa fa-calendar-xmark"></i> Sin reserva</span>';
     }
     /* La nota de ACCESO tal como se enseña: el texto y, con la chincheta puesta, el icono que lleva al
        punto exacto (o solo la chincheta, si no hay texto). */
@@ -1024,6 +1082,10 @@
       }
       // SE CANTA (con cuántos temas: pinchando se va al Repertorio) y las INSTRUCCIONES DE ACCESO.
       tags += singTag(it);
+      // EL M&G dice cuántas personas y LA COMIDA si hay reserva (y para cuántos).
+      if (it.kind === 'MG' && it.mg_count) tags += '<span class="rm-tag"><i class="fa fa-users"></i> ' + esc(it.mg_count) + '</span>';
+      if (it.kind === 'COMIDA') tags += mealTag(it.meal);
+      var lugar = placeLabel(it);
       if (it.access_note || hasPin(it)) tags += '<span class="rm-tag access" title="' + esc(it.access_note || 'Punto exacto de acceso en el mapa') + '"><i class="fa fa-door-open"></i> Acceso</span>';
       var transLine = '';
       if (ki.transport && it.transport) {
@@ -1042,7 +1104,7 @@
       return '<div class="' + cls + '"' + (RO ? '' : ' draggable="true"') + ' data-item="' + esc(it.id) + '" style="--rm-line:' + esc(ki.color) + '">'
         + '<div class="rm-ico" style="background:' + esc(ki.color) + '"><i class="fa ' + esc(ki.icon) + '"></i></div>'
         + '<div class="min-w-0"><div class="rm-time">' + timeLabel(it) + '</div><div class="rm-title">' + esc(it.title || ki.label) + '</div>'
-        + (it.location ? '<div class="rm-sub">' + esc(it.location) + '</div>' : '') + (sub ? '<div class="rm-sub">' + sub + '</div>' : '') + callHtml + transLine
+        + (lugar ? '<div class="rm-sub">' + esc(lugar) + '</div>' : '') + (sub ? '<div class="rm-sub">' + sub + '</div>' : '') + callHtml + transLine
         + (tags ? '<div class="rm-tags">' + tags + '</div>' : '') + audienceHtml(it) + '</div>'
         + '<div class="rm-meta">' + meta + '</div></div>';
     }
@@ -1120,7 +1182,7 @@
       return 'Solo ' + on[0].label.toLowerCase();
     }
     function newDraft(kind, day) {
-      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, attachments: [], sheets: { GENERAL: true, TECNICA: true },
+      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, contacts: [], attachments: [], sheets: { GENERAL: true, TECNICA: true },
                 audience: { mode: 'ALL', roles: [], ids: [] }, sings: false, songs: [], access_note: '', access_lat: null, access_lng: null };
       // La ficha ya dice a qué hora abren las puertas: se precumplimenta (se puede cambiar, y se
       // pueden añadir varias aperturas en la misma actividad).
@@ -1128,6 +1190,11 @@
       if (kind === 'ENTREVISTA') d.interview = { type: '', media_id: '', media_name: '', media_logo: '', media_icon: '',
                                                  program: '', modality: '', location_id: '', zoom_url: '', zoom_tbc: false,
                                                  call_to: {}, formation: '', sings: false, live: false, songs: [] };
+      // Un M&G, una sesión de fotos o una comida son EN EL RECINTO salvo que se diga otra cosa; el
+      // M&G nace con el número de personas que dice la ficha y la comida sin saber si hay reserva.
+      if (ruleHas('place', kind)) d.place = { mode: 'VENUE', space: '', venue_id: '', venue_name: '' };
+      if (kind === 'MG') d.mg_count = MG_COUNT;
+      if (kind === 'COMIDA') d.meal = { reservation: null, diners: '' };
       if (kindInfo(kind).transport) d.transport = { mode: kind, company: '', logo_url: '', number: '', origin: '', destination: '', duration: '', ends_next_day: false, same_locator: false, locator_all: '', passengers: [] };
       return d;
     }
@@ -1207,17 +1274,34 @@
     }
 
     // ------------------------------------------------- editor de un punto (el asistente)
+    /* ⚠️⚠️ CADA TIPO PREGUNTA SOLO LO SUYO (sep 2026, lo pidió Dani). Las reglas las dicta el servidor
+       (`RULES`, ver `_roadmap_kind_rules`): sin «¿se canta?» donde no toca (la actuación ES el
+       concierto: su repertorio es el set list de la ficha), sin «dónde» en lo que es en el recinto
+       (actuación, prueba de sonido, apertura), el recinto POR DEFECTO con su ESPACIO en un M&G, una
+       sesión de fotos o una comida, una citación a UNA hora, y la actuación sin contacto. Y en
+       todos: «¿Está confirmado?» y PERSONAS DE CONTACTO (varias, sin escribir teléfonos). */
     function openItemEditor(draft) {
       var ki = kindInfo(draft.kind);
       var editing = !!draft.id;
       var esIv = draft.kind === 'ENTREVISTA';
       var esTr = !!ki.transport;
+      var esMG = draft.kind === 'MG', esComida = draft.kind === 'COMIDA';
+      var noSing = ruleHas('no_sing', draft.kind);
+      var atVenue = ruleHas('at_venue', draft.kind);
+      var esPlace = ruleHas('place', draft.kind);
+      var sinContacto = ruleHas('no_contact', draft.kind);
+      var sinFin = ruleHas('no_end', draft.kind);
       if (esIv && !draft.interview) draft.interview = { type: '', media_id: '', media_name: '', sings: false, live: false, songs: [] };
+      if (esPlace && !draft.place) draft.place = { mode: 'VENUE', space: '', venue_id: '', venue_name: '' };
+      if (esComida && !draft.meal) draft.meal = { reservation: null, diners: '' };
+      // Las personas de contacto: la lista y, en un punto de antes (una sola), esa.
+      if (!draft.contacts) draft.contacts = (draft.contact && draft.contact.name) ? [draft.contact] : [];
       var iv = draft.interview || {};
       var aud = draft.audience || { mode: 'ALL', roles: [], ids: [] };
       var audIds = (aud.ids || []).map(String);
       var dsh = itemSheets(draft);
       var roles = personnelRoles();
+      var venueName = (VENUE && VENUE.name) || '';
       var pasos = [];
 
       // ---------- 1 · QUÉ ES ----------
@@ -1239,10 +1323,10 @@
           + '</div></div>'
           + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nm-save><i class="fa fa-plus me-1"></i>Crear el medio</button></div></div></div>'
           + '<div class="filter-hint">De lo que sea el medio sale el TIPO de entrevista (radio, tele, prensa…): no hay que decirlo aparte.</div></div>'
-          + '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-microphone me-1 text-muted"></i>Programa (si lo tiene)</label>'
+          // ⚠️ Sin «título del punto»: una entrevista se llama como su medio y su programa.
+          + '<div class="mt-3"><label class="form-label small mb-1"><i class="fa fa-microphone me-1 text-muted"></i>Programa (si lo tiene)</label>'
           + '<input class="form-control" data-iv="program" value="' + esc(iv.program || '') + '" placeholder="La Ventana, El Hormiguero…"></div>'
-          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-tag me-1 text-muted"></i>Título del punto</label>'
-          + '<input class="form-control" data-f="title" value="' + esc(draft.title) + '" placeholder="Se pone solo con el medio"></div></div>';
+          + '<div class="filter-hint">En los horarios se ve como «Medio · Programa».</div>';
       } else if (esTr) {
         var t0 = draft.transport;
         h1 += '<div class="row g-2">'
@@ -1273,79 +1357,102 @@
           }).join('')
         + '</div>'
         + '<div class="row g-2 align-items-end">'
-        + '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa fa-play me-1 text-muted"></i>Empieza</label><input type="time" class="form-control" data-f="start_time" value="' + esc(draft.start_time) + '"></div>'
-        + '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa fa-flag-checkered me-1 text-muted"></i>Termina</label><input type="time" class="form-control" data-f="end_time" value="' + esc(draft.end_time) + '"></div>'
+        + '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa ' + (sinFin ? 'fa-clock' : 'fa-play') + ' me-1 text-muted"></i>' + (sinFin ? 'A qué hora' : 'Empieza') + '</label><input type="time" class="form-control" data-f="start_time" value="' + esc(draft.start_time) + '"></div>'
+        // ⚠️ Una CITACIÓN es a una hora concreta: no tiene fin.
+        + (sinFin ? '' : '<div class="col-6 col-md-3"><label class="form-label small mb-1"><i class="fa fa-flag-checkered me-1 text-muted"></i>Termina</label><input type="time" class="form-control" data-f="end_time" value="' + esc(draft.end_time) + '"></div>')
         + '<div class="col-md-6"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-f="tbc"' + (draft.tbc ? ' checked' : '') + '><i class="fa fa-hourglass-half"></i>La hora está por confirmar (TBC)</label></div></div>'
         + '</div>'
-        + '<div class="rm-wz-lbl mt-3"><i class="fa fa-circle-check"></i>¿Está cerrado?</div>'
+        + '<div class="rm-wz-lbl mt-3"><i class="fa fa-circle-check"></i>¿Está confirmado?</div>'
         + '<div class="promo-pick-grid promo-pick-grid--wide">'
         + wzPick({ name: 'rmConf', value: '1', icon: 'fa-circle-check', label: 'Confirmado', checked: !!draft.confirmed })
         + wzPick({ name: 'rmConf', value: '0', icon: 'fa-hourglass-half', label: 'Provisional', checked: !draft.confirmed, hint: 'Se ve rayado' })
         + '</div>';
       pasos.push({ title: 'Cuándo', icon: 'fa-clock', q: '¿Qué día y a qué hora?',
-                   hint: 'Sin hora se ve «TBC». Lo provisional se distingue en la hoja de ruta.', html: h2 });
+                   hint: (sinFin ? 'Una citación es a una hora concreta. ' : 'Sin hora se ve «TBC». ') + 'Lo provisional se distingue en la hoja de ruta.', html: h2 });
 
-      // ---------- 3 · DÓNDE ----------
-      var accOn = !!(draft.access_note || hasPin(draft));
-      var accHtml = '<div class="rm-wz-block"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-f="access_on"' + (accOn ? ' checked' : '') + '><i class="fa fa-door-open"></i>Instrucciones de acceso</label></div>'
-        + '<div class="mt-2' + (accOn ? '' : ' d-none') + '" data-access-wrap>'
-        + '<textarea class="form-control" rows="2" data-f="access_note" placeholder="Por dónde se entra, a quién preguntar, dónde se aparca…">' + esc(draft.access_note || '') + '</textarea>'
-        + '<div class="mt-2" data-access-pin></div></div></div>';
-      var h3 = '';
-      if (esIv) {
-        h3 += '<div class="promo-pick-grid promo-pick-grid--wide mb-3" data-mods>'
-          + IVMODS.map(function (o) { return wzPick({ name: 'rmMod', value: o.key, icon: o.icon, label: o.label, checked: (iv.modality || '') === o.key }); }).join('')
-          + '</div>'
-          // PRESENCIAL: las direcciones que ya tiene el medio y, si no, una nueva.
-          + '<div data-mod-panel="PRESENCIAL" class="d-none">'
-          + '<div class="rm-wz-lbl"><i class="fa fa-location-dot"></i>¿Dónde?</div>'
-          + '<div data-iv-locs><div class="rm-sub">Elige antes el medio para ver sus direcciones guardadas.</div></div>'
-          + '<div class="rm-wz-block mt-2" data-address-autocomplete>'
-          + '<label class="form-label small mb-1">Otra dirección</label>'
-          + '<input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Escribe la calle, el municipio…">'
-          + '<input type="hidden" data-addr="postal_code"><input type="hidden" data-addr="city"><input type="hidden" data-addr="province"><input type="hidden" data-addr="country">'
-          + '<div class="mt-2 d-none" data-loc-save><div class="rm-wz-lbl"><i class="fa fa-floppy-disk"></i>¿Guardamos esta dirección en el medio?</div>'
-          + '<div class="promo-pick-grid promo-pick-grid--wide">'
-          + wzPick({ name: 'rmLocSave', value: '1', icon: 'fa-building-circle-check', label: 'Guardarla en el medio', checked: true, hint: 'La próxima vez ya sale' })
-          + wzPick({ name: 'rmLocSave', value: '0', icon: 'fa-calendar-day', label: 'Solo para esta entrevista' })
-          + '</div></div></div>'
-          + accHtml
-          + '</div>'
-          // ZOOM: el enlace (que puede no tenerse todavía).
-          + '<div data-mod-panel="ZOOM" class="d-none">'
-          + '<label class="form-label small mb-1"><i class="fa fa-link me-1 text-muted"></i>Enlace de la videollamada</label>'
-          + '<input class="form-control" data-iv="zoom_url" value="' + esc(iv.zoom_url || '') + '" placeholder="https://zoom.us/j/…">'
-          + '<div class="filter-chips mt-2"><label class="filter-chip"><input type="checkbox" data-iv="zoom_tbc"' + (iv.zoom_tbc ? ' checked' : '') + '><i class="fa fa-hourglass-half"></i>Todavía no lo tenemos (TBC)</label></div>'
-          + '<div class="filter-hint">Con el enlace puesto, en la hoja de ruta sale el botón para entrar directamente.</div></div>'
-          // PHONER: a quién llaman.
-          + '<div data-mod-panel="PHONER" class="d-none">'
-          + '<div class="rm-wz-lbl"><i class="fa fa-phone-volume"></i>¿A quién llaman?</div>'
-          + '<div class="promo-pick-grid promo-pick-grid--wide mb-2" data-call-cards></div>'
-          + wzSearch('call', 'Busca a alguien de la casa o un tercero…', CAN_CREATE)
-          + '<div class="rm-wz-new d-none" data-new-call>'
-          + '<div class="row g-2 align-items-end"><div class="col-md-8"><label class="form-label small mb-1">Nombre</label><input class="form-control form-control-sm" data-nc-name></div>'
-          + '<div class="col-md-4"><label class="form-label small mb-1">Teléfono</label><input class="form-control form-control-sm" data-nc-phone></div>'
-          + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nc-save><i class="fa fa-plus me-1"></i>Crear el tercero</button></div></div></div>'
-          + '<div class="filter-hint">En la hoja de ruta se ve con el icono de llamada, la flecha y su nombre.</div></div>';
-      } else if (esTr) {
-        var t1 = draft.transport;
-        h3 += '<div class="row g-2">'
-          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-plane-departure me-1 text-muted"></i>Origen</label><input class="form-control" data-t="origin" value="' + esc(t1.origin) + '"></div>'
-          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-plane-arrival me-1 text-muted"></i>Destino</label><input class="form-control" data-t="destination" value="' + esc(t1.destination) + '"></div>'
-          + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-stopwatch me-1 text-muted"></i>Duración</label><input class="form-control" data-t="duration" value="' + esc(t1.duration) + '" placeholder="1h 20m"></div>'
-          + '<div class="col-md-6 d-flex align-items-end"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-t="ends_next_day"' + (t1.ends_next_day ? ' checked' : '') + '><i class="fa fa-moon"></i>Termina al día siguiente (+1)</label></div></div>'
-          + '<div class="col-12"><label class="form-label small mb-1"><i class="fa fa-location-dot me-1 text-muted"></i>Punto de encuentro</label>'
-          + '<div data-address-autocomplete><input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Dónde se recoge al equipo"></div></div>'
-          + '</div>' + accHtml;
-      } else {
-        h3 += '<div data-address-autocomplete><label class="form-label small mb-1"><i class="fa fa-location-dot me-1 text-muted"></i>Lugar</label>'
-          + '<input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Escribe la calle, el municipio…"></div>'
-          + accHtml;
+      // ---------- 3 · DÓNDE (no en lo que es en el recinto: actuación, prueba de sonido, apertura) ----------
+      if (!atVenue) {
+        var accOn = !!(draft.access_note || hasPin(draft));
+        var accHtml = '<div class="rm-wz-block"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-f="access_on"' + (accOn ? ' checked' : '') + '><i class="fa fa-door-open"></i>Instrucciones de acceso</label></div>'
+          + '<div class="mt-2' + (accOn ? '' : ' d-none') + '" data-access-wrap>'
+          + '<textarea class="form-control" rows="2" data-f="access_note" placeholder="Por dónde se entra, a quién preguntar, dónde se aparca…">' + esc(draft.access_note || '') + '</textarea>'
+          + '<div class="mt-2" data-access-pin></div></div></div>';
+        var h3 = '';
+        if (esIv) {
+          h3 += '<div class="promo-pick-grid promo-pick-grid--wide mb-3" data-mods>'
+            + IVMODS.map(function (o) { return wzPick({ name: 'rmMod', value: o.key, icon: o.icon, label: o.label, checked: (iv.modality || '') === o.key }); }).join('')
+            + '</div>'
+            // PRESENCIAL: las direcciones que ya tiene el medio y, si no, una nueva.
+            + '<div data-mod-panel="PRESENCIAL" class="d-none">'
+            + '<div class="rm-wz-lbl"><i class="fa fa-location-dot"></i>¿Dónde?</div>'
+            + '<div data-iv-locs><div class="rm-sub">Elige antes el medio para ver sus direcciones guardadas.</div></div>'
+            + '<div class="rm-wz-block mt-2" data-address-autocomplete>'
+            + '<label class="form-label small mb-1">Otra dirección</label>'
+            + '<input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Escribe la calle, el municipio…">'
+            + '<input type="hidden" data-addr="postal_code"><input type="hidden" data-addr="city"><input type="hidden" data-addr="province"><input type="hidden" data-addr="country">'
+            + '<div class="mt-2 d-none" data-loc-save><div class="rm-wz-lbl"><i class="fa fa-floppy-disk"></i>¿Guardamos esta dirección en el medio?</div>'
+            + '<div class="promo-pick-grid promo-pick-grid--wide">'
+            + wzPick({ name: 'rmLocSave', value: '1', icon: 'fa-building-circle-check', label: 'Guardarla en el medio', checked: true, hint: 'La próxima vez ya sale' })
+            + wzPick({ name: 'rmLocSave', value: '0', icon: 'fa-calendar-day', label: 'Solo para esta entrevista' })
+            + '</div></div></div>'
+            + accHtml
+            + '</div>'
+            // ZOOM: el enlace (que puede no tenerse todavía).
+            + '<div data-mod-panel="ZOOM" class="d-none">'
+            + '<label class="form-label small mb-1"><i class="fa fa-link me-1 text-muted"></i>Enlace de la videollamada</label>'
+            + '<input class="form-control" data-iv="zoom_url" value="' + esc(iv.zoom_url || '') + '" placeholder="https://zoom.us/j/…">'
+            + '<div class="filter-chips mt-2"><label class="filter-chip"><input type="checkbox" data-iv="zoom_tbc"' + (iv.zoom_tbc ? ' checked' : '') + '><i class="fa fa-hourglass-half"></i>Todavía no lo tenemos (TBC)</label></div>'
+            + '<div class="filter-hint">Con el enlace puesto, en la hoja de ruta sale el botón para entrar directamente.</div></div>'
+            // PHONER: a quién llaman.
+            + '<div data-mod-panel="PHONER" class="d-none">'
+            + '<div class="rm-wz-lbl"><i class="fa fa-phone-volume"></i>¿A quién llaman?</div>'
+            + '<div class="promo-pick-grid promo-pick-grid--wide mb-2" data-call-cards></div>'
+            + wzSearch('call', 'Busca a alguien de la casa o un tercero…', CAN_CREATE)
+            + '<div class="rm-wz-new d-none" data-new-call>'
+            + '<div class="row g-2 align-items-end"><div class="col-md-8"><label class="form-label small mb-1">Nombre</label><input class="form-control form-control-sm" data-nc-name></div>'
+            + '<div class="col-md-4"><label class="form-label small mb-1">Teléfono</label><input class="form-control form-control-sm" data-nc-phone></div>'
+            + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nc-save><i class="fa fa-plus me-1"></i>Crear el tercero</button></div></div></div>'
+            + '<div class="filter-hint">En la hoja de ruta se ve con el icono de llamada, la flecha y su nombre.</div></div>';
+        } else if (esTr) {
+          var t1 = draft.transport;
+          h3 += '<div class="row g-2">'
+            + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-plane-departure me-1 text-muted"></i>Origen</label><input class="form-control" data-t="origin" value="' + esc(t1.origin) + '"></div>'
+            + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-plane-arrival me-1 text-muted"></i>Destino</label><input class="form-control" data-t="destination" value="' + esc(t1.destination) + '"></div>'
+            + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-stopwatch me-1 text-muted"></i>Duración</label><input class="form-control" data-t="duration" value="' + esc(t1.duration) + '" placeholder="1h 20m"></div>'
+            + '<div class="col-md-6 d-flex align-items-end"><div class="filter-chips"><label class="filter-chip"><input type="checkbox" data-t="ends_next_day"' + (t1.ends_next_day ? ' checked' : '') + '><i class="fa fa-moon"></i>Termina al día siguiente (+1)</label></div></div>'
+            + '<div class="col-12"><label class="form-label small mb-1"><i class="fa fa-location-dot me-1 text-muted"></i>Punto de encuentro</label>'
+            + '<div data-address-autocomplete><input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Dónde se recoge al equipo"></div></div>'
+            + '</div>' + accHtml;
+        } else if (esPlace) {
+          // EN EL RECINTO (lo normal) con su ESPACIO, o en OTRO SITIO: otro recinto de la base o lo
+          // que se escriba (en una comida, el restaurante).
+          var pl = draft.place;
+          var otro = pl.mode === 'OTHER';
+          h3 += '<div class="promo-pick-grid promo-pick-grid--wide mb-3">'
+            + wzPick({ name: 'rmPlace', value: 'VENUE', icon: 'fa-location-dot', label: venueName ? 'En el recinto' : 'Donde la actividad', hint: venueName || 'El sitio de la actividad', checked: !otro, attrs: ' data-place-mode' })
+            + wzPick({ name: 'rmPlace', value: 'OTHER', icon: esComida ? 'fa-utensils' : 'fa-building', label: esComida ? 'En un restaurante' : 'En otro sitio', hint: esComida ? 'U otro sitio: se escribe cuál' : 'Otro recinto o una dirección', checked: otro, attrs: ' data-place-mode' })
+            + '</div>'
+            + '<div class="rm-wz-block mb-3' + (otro ? '' : ' d-none') + '" data-place-other>'
+            + (esComida ? '' : '<div class="rm-wz-lbl"><i class="fa fa-building"></i>Otro recinto</div>'
+                + '<div class="rm-chip mb-2' + (pl.venue_id ? '' : ' d-none') + '" data-venue-chip>' + avatar('', 'fa-building') + '<span data-venue-name>' + esc(pl.venue_name || '') + '</span><button type="button" class="btn-close btn-sm ms-1" data-venue-clear title="Quitar"></button></div>'
+                + wzSearch('venue', 'Busca un recinto de la base…', false))
+            + '<div class="' + (esComida ? '' : 'mt-2') + '" data-address-autocomplete><label class="form-label small mb-1"><i class="fa fa-location-dot me-1 text-muted"></i>' + (esComida ? 'Restaurante (nombre y dirección)' : 'O una dirección') + '</label>'
+            + '<input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="' + (esComida ? 'Casa Pepe, Calle Mayor 3…' : 'Escribe la calle, el municipio…') + '"></div>'
+            + '</div>'
+            + '<div class="mb-3"><label class="form-label small mb-1"><i class="fa fa-door-open me-1 text-muted"></i>' + (esComida ? 'Sala o espacio' : 'Espacio') + ' <span class="text-muted fw-normal">(dónde en concreto)</span></label>'
+            + '<input class="form-control" data-f="space" value="' + esc(pl.space || '') + '" placeholder="' + (esMG ? 'Camerino 2, sala VIP, zona de prensa…' : (esComida ? 'Comedor del personal, sala privada…' : 'Backstage, escenario, sala de prensa…')) + '"></div>'
+            + accHtml;
+        } else {
+          h3 += '<div data-address-autocomplete><label class="form-label small mb-1"><i class="fa fa-location-dot me-1 text-muted"></i>Lugar</label>'
+            + '<input class="form-control" data-addr="full" data-f="location" value="' + esc(draft.location) + '" placeholder="Escribe la calle, el municipio…"></div>'
+            + accHtml;
+        }
+        pasos.push({ title: esIv ? 'Cómo' : 'Dónde', icon: esIv ? 'fa-video' : 'fa-location-dot',
+                     q: esIv ? '¿Cómo se hace?' : (esTr ? '¿De dónde a dónde?' : '¿Dónde es?'),
+                     hint: esIv ? 'Presencial, por teléfono o por vídeo: cada una pide lo suyo.'
+                                : (esPlace ? 'Por defecto, en el recinto de la actividad: di en qué espacio, o si es en otro sitio.' : 'El sitio y, si hace falta, cómo se entra.'),
+                     html: h3 });
       }
-      pasos.push({ title: esIv ? 'Cómo' : 'Dónde', icon: esIv ? 'fa-video' : 'fa-location-dot',
-                   q: esIv ? '¿Cómo se hace?' : (esTr ? '¿De dónde a dónde?' : '¿Dónde es?'),
-                   hint: esIv ? 'Presencial, por teléfono o por vídeo: cada una pide lo suyo.' : 'El sitio y, si hace falta, cómo se entra.',
-                   html: h3 });
 
       // ---------- 4 · CÓMO VA A SER ----------
       var h4 = '';
@@ -1356,8 +1463,26 @@
           + wzPick({ name: 'rmLive', value: '0', icon: 'fa-clapperboard', label: 'Grabado', checked: !iv.live })
           + '</div>';
       }
-      // ⚠️ EN UN TRASLADO no se canta: ni la pregunta ni el repertorio vienen a cuento.
-      if (!esTr) {
+      if (esMG) {
+        // Cuántas personas: lo que dice la ficha, y se puede poner a mano.
+        h4 += '<div class="rm-wz-block mb-3"><div class="rm-wz-lbl"><i class="fa fa-users"></i>¿Cuántas personas?</div>'
+          + '<div class="d-flex align-items-center gap-2 flex-wrap"><input type="text" inputmode="numeric" class="form-control" style="max-width:9rem" data-f="mg_count" value="' + esc(draft.mg_count || '') + '" placeholder="10">'
+          + '<span class="rm-sub">' + (MG_COUNT ? 'La ficha dice ' + esc(MG_COUNT) + '.' : 'La ficha no lo dice todavía.') + '</span></div></div>';
+      }
+      if (esComida) {
+        var ml = draft.meal;
+        h4 += '<div class="rm-wz-lbl"><i class="fa fa-book-open"></i>¿Hay reserva?</div>'
+          + '<div class="promo-pick-grid promo-pick-grid--wide mb-2">'
+          + wzPick({ name: 'rmRes', value: '1', icon: 'fa-calendar-check', label: 'Sí, hay reserva', checked: ml.reservation === true, attrs: ' data-res-opt' })
+          + wzPick({ name: 'rmRes', value: '0', icon: 'fa-calendar-xmark', label: 'No hay reserva', checked: ml.reservation === false, attrs: ' data-res-opt' })
+          + wzPick({ name: 'rmRes', value: '', icon: 'fa-circle-question', label: 'No se sabe', checked: ml.reservation !== true && ml.reservation !== false, attrs: ' data-res-opt' })
+          + '</div>'
+          + '<div class="mb-3' + (ml.reservation === true ? '' : ' d-none') + '" data-res-diners><label class="form-label small mb-1"><i class="fa fa-user-group me-1 text-muted"></i>¿Para cuántos comensales?</label>'
+          + '<input type="number" min="1" class="form-control" style="max-width:9rem" data-f="diners" value="' + esc(ml.diners || '') + '"></div>';
+      }
+      // ⚠️ «¿Se canta?» solo donde toca (`no_sing`): en la actuación es evidente y su repertorio es el
+      // set list de la ficha; en una prueba de sonido, una comida o un traslado no viene a cuento.
+      if (!noSing) {
         h4 += '<div class="rm-wz-lbl"><i class="fa fa-music"></i>¿Se canta?</div>'
           + '<div class="promo-pick-grid promo-pick-grid--wide mb-2">'
           + wzPick({ name: 'rmSings', value: '1', icon: 'fa-microphone', label: 'Sí, canta', checked: !!itemSings(draft) })
@@ -1371,7 +1496,7 @@
             + '</div>';
         }
         h4 += '<div class="rm-wz-lbl"><i class="fa fa-list-ol"></i>Repertorio <span class="rm-sub">(arrastra para ordenar)</span></div>'
-          + wzSearch('song', 'Busca una canción del repertorio…', false)
+          + wzSearch('song', 'Pincha o escribe para elegir una canción del repertorio…', false)
           + '<div data-songs class="d-flex flex-column gap-1 mt-2"></div>'
           + (isConcert ? '<div class="filter-hint">El repertorio del show va en el set list de la ficha; esto es lo que se cante en ESTE punto.</div>' : '')
           + '</div>';
@@ -1391,20 +1516,31 @@
       pasos.push({ title: 'Detalles', icon: 'fa-sliders', q: '¿Cómo va a ser?',
                    hint: 'Lo que hay que saber para prepararlo.', html: h4 });
 
-      // ---------- 5 · CONTACTO ----------
-      var c0 = draft.contact || {};
-      var h5 = (esIv ? '<div data-media-contacts class="mb-2"><div class="rm-sub">Elige antes el medio para ver sus personas.</div></div>' : '')
-        + '<div class="rm-chip mb-2' + (c0.name ? '' : ' d-none') + '" data-contact-chip>'
-        + '<span data-contact-ava>' + avatar(c0.photo || '', 'fa-user') + '</span><span data-contact-name>' + esc(c0.name || '') + '</span>'
-        + '<button type="button" class="btn-close btn-sm ms-1" data-contact-clear title="Quitar"></button></div>'
-        + wzSearch('contact', esIv ? 'Otra persona (busca en toda la base)…' : 'Busca a la persona de contacto…', CAN_CREATE)
-        + '<div class="row g-2 mt-1">'
-        + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-phone me-1 text-muted"></i>Teléfono</label><input class="form-control" data-c="phone" value="' + esc(c0.phone || '') + '"></div>'
-        + '<div class="col-md-6"><label class="form-label small mb-1"><i class="fa fa-envelope me-1 text-muted"></i>Email</label><input class="form-control" data-c="email" value="' + esc(c0.email || '') + '"></div>'
-        + '</div>';
-      pasos.push({ title: 'Contacto', icon: 'fa-address-card', q: '¿Con quién se habla?',
-                   hint: esIv ? 'Las personas del medio salen con su cara; la que no esté se crea aquí y queda en su ficha.' : 'Quien lleva esto, para poder llamar desde la hoja de ruta.',
-                   html: h5 });
+      // ---------- 5 · PERSONAS DE CONTACTO (no en la actuación: es del propio artista) ----------
+      if (!sinContacto) {
+        var conPromotor = !!(ACTIVITY && ACTIVITY.promoter && ACTIVITY.promoter.kind === 'PROMOTER');
+        var h5 = '<div data-contacts-box>'
+          + (esIv ? '<div data-media-contacts class="mb-3"><div class="rm-sub">Elige antes el medio para ver sus personas.</div></div>'
+                  : '<div data-contact-sug class="mb-3"></div>')
+          + '<div class="rm-wz-lbl"><i class="fa fa-user-check"></i>Elegidas</div>'
+          + '<div data-contacts-sel class="mb-3"></div>'
+          + '<div class="rm-wz-lbl"><i class="fa fa-magnifying-glass"></i>Otra persona</div>'
+          + wzSearch('contact', 'Busca en toda la base (terceros, oficina, integrantes)…', CAN_CREATE)
+          + (CAN_CREATE ? '<div class="rm-wz-new d-none" data-new-contact>'
+              + '<div class="row g-2 align-items-end">'
+              + '<div class="col-md-6"><label class="form-label small mb-1">Nombre y apellidos</label><input class="form-control form-control-sm" data-nct="name"></div>'
+              + '<div class="col-md-6"><label class="form-label small mb-1">Cargo o función</label><input class="form-control form-control-sm" data-nct="role" placeholder="' + (esIv ? 'Redactora, productor…' : 'Jefe de producción, regidor, prensa…') + '"></div>'
+              + '<div class="col-md-6"><label class="form-label small mb-1">Teléfono</label><input class="form-control form-control-sm" data-nct="phone"></div>'
+              + '<div class="col-md-6"><label class="form-label small mb-1">Email</label><input class="form-control form-control-sm" data-nct="email"></div>'
+              + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nct-save><i class="fa fa-plus me-1"></i>Crearla y añadirla</button></div>'
+              + '</div><div class="filter-hint">' + (esIv ? 'Se le crea su ficha de tercero y queda vinculada al medio.'
+                                                          : 'Se le crea su ficha de tercero' + (conPromotor ? ' y queda como persona de contacto del promotor: la próxima vez ya sale aquí.' : '.')) + '</div></div>' : '')
+          + '</div>';
+        pasos.push({ title: 'Contactos', icon: 'fa-address-card', q: 'Personas de contacto',
+                     hint: esIv ? 'Las personas del medio salen con su cara: marca las que lleven esto.'
+                                : 'Marca a quien lleva esto (las de la actividad, el promotor y el recinto ya vienen puestas); su teléfono y su correo salen de su ficha.',
+                     html: h5 });
+      }
 
       // ---------- 6 · QUIÉN LO VE ----------
       var h6 = '<div class="promo-pick-grid promo-pick-grid--wide mb-2">'
@@ -1500,48 +1636,59 @@
         });
       });
 
-      // ---- contacto
-      var cChip = m.querySelector('[data-contact-chip]'), cName = m.querySelector('[data-contact-name]'), cAva = m.querySelector('[data-contact-ava]');
-      function setContact(c) {
-        draft.contact = c || {};
-        cName.textContent = draft.contact.name || '';
-        if (cAva) cAva.innerHTML = avatar(draft.contact.photo || '', 'fa-user');
-        cChip.classList.toggle('d-none', !draft.contact.name);
-        m.querySelector('[data-c="phone"]').value = draft.contact.phone || '';
-        m.querySelector('[data-c="email"]').value = draft.contact.email || '';
-      }
-      m.rmSetContact = setContact;
-      attachSearch(m.querySelector('[data-search="contact"]'), m.querySelector('[data-results="contact"]'), searchRoadmapPeople, function (r) {
-        setContact({ name: r.label, phone: r.phone || '', email: r.email || '', photo: r.logo_url || '',
-                     promoter_id: (r.kind === 'PROMOTER' || r.kind === 'MEMBER') ? r.id : '' });
-      }, CAN_CREATE ? { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '', photo: r.logo_url || '' }); }); } } : {});
-      var cNew = m.querySelector('[data-new="contact"]');
-      if (cNew) cNew.addEventListener('click', function () {
-        var q = (m.querySelector('[data-search="contact"]').value || '').trim();
-        if (!q) { alert('Escribe antes su nombre.'); return; }
-        createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '', photo: r.logo_url || '' }); });
+      // ---- DÓNDE: en el recinto (con su espacio) o en otro sitio (M&G, sesión de fotos, comida)
+      var otherBox = m.querySelector('[data-place-other]');
+      m.querySelectorAll('[data-place-mode]').forEach(function (r) {
+        r.addEventListener('change', function () {
+          if (!r.checked) return;
+          draft.place = draft.place || {};
+          draft.place.mode = r.value;
+          if (otherBox) otherBox.classList.toggle('d-none', r.value !== 'OTHER');
+        });
       });
-      m.querySelector('[data-contact-clear]').addEventListener('click', function () { setContact({}); });
+      var vChip = m.querySelector('[data-venue-chip]'), vName = m.querySelector('[data-venue-name]');
+      function setVenue(r) {
+        draft.place = draft.place || {};
+        draft.place.venue_id = r ? (r.id || '') : '';
+        draft.place.venue_name = r ? (r.label || '') : '';
+        if (vName) vName.textContent = draft.place.venue_name;
+        if (vChip) vChip.classList.toggle('d-none', !draft.place.venue_id);
+        var loc = m.querySelector('[data-f="location"]');
+        if (loc) loc.value = r ? [r.label, r.address, r.municipality].filter(Boolean).join(', ') : '';
+      }
+      if (m.querySelector('[data-search="venue"]')) attachSearch(m.querySelector('[data-search="venue"]'), m.querySelector('[data-results="venue"]'), searchVenues, setVenue, { clearOnPick: true });
+      var vClear = m.querySelector('[data-venue-clear]');
+      if (vClear) vClear.addEventListener('click', function () { setVenue(null); });
 
-      // ---- repertorio (se canta) — vale para CUALQUIER punto, no solo para una entrevista
+      // ---- la comida: ¿hay reserva? → para cuántos
+      var dinersBox = m.querySelector('[data-res-diners]');
+      m.querySelectorAll('[data-res-opt]').forEach(function (r) {
+        r.addEventListener('change', function () { if (r.checked && dinersBox) dinersBox.classList.toggle('d-none', r.value !== '1'); });
+      });
+
+      // ---- personas de contacto (varias, con su ficha)
+      if (m.querySelector('[data-contacts-box]')) wireContacts(m, draft, o);
+
+      // ---- repertorio (se canta) — donde se pregunta
       var singsWrap = m.querySelector('[data-sings-wrap]');
       m.querySelectorAll('input[name="rmSings"]').forEach(function (r) {
         r.addEventListener('change', function () { if (singsWrap) singsWrap.classList.toggle('d-none', !(r.checked && r.value === '1')); });
       });
       renderSongs(m, draft);
-      // ⚠️ En un TRASLADO no hay repertorio (ni el buscador): `attachSearch` sobre un campo que no
-      // existe reventaría y se llevaría por delante el resto del cableado.
+      // ⚠️ Donde no se pregunta si se canta no hay buscador: `attachSearch` sobre un campo que no
+      // existe reventaría y se llevaría por delante el resto del cableado. Se abre AL PINCHAR con el
+      // repertorio entero (`minChars: 0`) y al elegir una canción el campo se vacía.
       var buscaCancion = m.querySelector('[data-search="song"]');
       if (buscaCancion) attachSearch(buscaCancion, m.querySelector('[data-results="song"]'), function (q) {
         var lo = normText(q);
-        return Promise.resolve(SONGS.filter(function (s) { return normText(s.title).indexOf(lo) >= 0; })
-          .map(function (s) { return { id: s.id, label: s.title, logo_url: s.cover_url }; }));
+        return Promise.resolve(SONGS.filter(function (s) { return !lo || normText(s.title).indexOf(lo) >= 0; })
+          .map(function (s) { return { id: s.id, label: s.title, logo_url: s.cover_url, icon: 'fa-music' }; }));
       }, function (r) {
         var arr = itemSongList(draft);
         if (arr.some(function (s) { return String(s.song_id) === String(r.id); })) return;
         arr.push({ song_id: r.id, title: r.label, cover_url: r.logo_url || '' });
         renderSongs(m, draft);
-      });
+      }, { minChars: 0, max: 40, clearOnPick: true });
 
       if (o.esTr) wireTransport(m, draft);
       if (o.editing) {
@@ -1559,6 +1706,94 @@
         });
       }
       if (o.esIv) wireInterview(m, draft);
+    }
+
+    /* PERSONAS DE CONTACTO de un punto (sep 2026: varias, y sin escribir teléfonos). Las SUGERIDAS
+       son tarjetas que se marcan y desmarcan —las de la actividad, el promotor y el recinto
+       (`CONTACT_SUG`, del servidor); en una entrevista las del medio (`pintaContactosMedio`)—; las
+       ELEGIDAS salen con su teléfono y su correo, que son los de su ficha; y cualquier otra se
+       busca en toda la base o se CREA como tercero (que, si la actividad tiene promotor, queda como
+       persona de contacto suya para salir sugerida la próxima vez). */
+    function contactKey(c) { return (c && c.promoter_id) ? ('p:' + c.promoter_id) : ('n:' + normText((c && c.name) || '')); }
+    function wireContacts(m, draft, o) {
+      draft.contacts = draft.contacts || [];
+      var sel = m.querySelector('[data-contacts-sel]');
+      var api = {
+        rows: [], box: m.querySelector('[data-contact-sug]'), title: 'Sugeridas', empty: '',
+        has: function (c) { var k = contactKey(c); return draft.contacts.some(function (x) { return contactKey(x) === k; }); },
+        add: function (c) {
+          if (!c || !(c.name || '').trim() || api.has(c)) return;
+          draft.contacts.push({ name: (c.name || '').trim(), phone: c.phone || '', email: c.email || '', photo: c.photo || c.photo_url || c.logo_url || '',
+                                role: c.role || '', promoter_id: c.promoter_id || '', media_id: c.media_id || '' });
+          api.paint();
+        },
+        remove: function (c) { var k = contactKey(c); draft.contacts = draft.contacts.filter(function (x) { return contactKey(x) !== k; }); api.paint(); },
+        suggest: function (rows, title, box, empty) { api.rows = rows || []; if (title) api.title = title; if (box) api.box = box; api.empty = empty || ''; api.paint(); },
+        paint: function () {
+          if (sel) {
+            sel.innerHTML = draft.contacts.length ? '' : '<div class="rm-sub">Todavía nadie: marca una tarjeta o busca abajo.</div>';
+            draft.contacts.forEach(function (c) {
+              var row = el(contactRow(c, c.role || '', '<button type="button" class="btn btn-link btn-sm text-danger p-0 ms-2 flex-shrink-0" data-c-del>Quitar</button>'));
+              row.querySelector('[data-c-del]').addEventListener('click', function () { api.remove(c); });
+              sel.appendChild(row);
+            });
+          }
+          var box = api.box; if (!box) return;
+          if (!api.rows.length) { box.innerHTML = api.empty ? '<div class="rm-sub">' + esc(api.empty) + '</div>' : ''; return; }
+          box.innerHTML = '<div class="rm-wz-lbl"><i class="fa fa-address-book"></i>' + esc(api.title) + '</div><div class="promo-pick-grid">'
+            + api.rows.map(function (c, i) {
+                return wzPick({ name: 'rmCs', multi: true, value: String(i), img: c.photo || AVATAR, icon: 'fa-user', label: c.name,
+                                hint: [c.role, c.source].filter(Boolean).join(' · '), checked: api.has(c), attrs: ' data-cs-idx="' + i + '"' });
+              }).join('') + '</div>';
+          box.querySelectorAll('[data-cs-idx]').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+              var c = api.rows[parseInt(cb.getAttribute('data-cs-idx'), 10)]; if (!c) return;
+              if (cb.checked) api.add(c); else api.remove(c);
+            });
+          });
+        }
+      };
+      m.rmContacts = api;
+      if (o.esIv) api.paint();
+      else api.suggest(CONTACT_SUG, 'Sugeridas', null, 'La actividad no tiene todavía promotor ni personas de contacto: búscalas abajo.');
+
+      // Buscar en toda la base; «Crear» abre el alta con el nombre ya puesto.
+      var ncBox = m.querySelector('[data-new-contact]');
+      function abreAlta(nombre) {
+        if (!ncBox) return;
+        ncBox.classList.remove('d-none');
+        var n = ncBox.querySelector('[data-nct="name"]');
+        if (nombre) n.value = nombre;
+        n.focus();
+      }
+      attachSearch(m.querySelector('[data-search="contact"]'), m.querySelector('[data-results="contact"]'), searchRoadmapPeople, function (r) {
+        api.add({ name: r.label, phone: r.phone || '', email: r.email || '', photo: r.logo_url || '',
+                  promoter_id: (r.kind === 'PROMOTER' || r.kind === 'MEMBER') ? r.id : '' });
+      }, CAN_CREATE ? { onCreate: abreAlta, clearOnPick: true } : { clearOnPick: true });
+      var ncBtn = m.querySelector('[data-new="contact"]');
+      if (ncBtn) ncBtn.addEventListener('click', function () {
+        if (ncBox && !ncBox.classList.contains('d-none')) { ncBox.classList.add('d-none'); return; }
+        abreAlta((m.querySelector('[data-search="contact"]').value || '').trim());
+      });
+      if (ncBox) ncBox.querySelector('[data-nct-save]').addEventListener('click', function () {
+        var v = function (k) { return (ncBox.querySelector('[data-nct="' + k + '"]').value || '').trim(); };
+        var body = { name: v('name'), role: v('role'), phone: v('phone'), email: v('email') };
+        if (!body.name) { alert('Escribe su nombre.'); return; }
+        // En una entrevista la persona es DEL MEDIO (su endpoint la crea y la vincula al medio); en
+        // lo demás, un tercero que queda como persona de contacto del promotor.
+        var mid = o.esIv ? ((draft.interview || {}).media_id || '') : '';
+        var url = mid ? '/api/media/' + encodeURIComponent(mid) + '/contacts/create' : ep('/contacto/tercero');
+        postJson(url, body).then(function (r) {
+          if (!(r && r.ok)) { alert((r && r.error) || 'No se pudo crear la persona.'); return; }
+          api.add({ name: r.name || body.name, phone: r.phone || body.phone, email: r.email || body.email, photo: r.photo || '',
+                    role: r.role || body.role, promoter_id: r.promoter_id || '', media_id: mid });
+          ['name', 'role', 'phone', 'email'].forEach(function (k) { ncBox.querySelector('[data-nct="' + k + '"]').value = ''; });
+          ncBox.classList.add('d-none');
+          // Y ya es una SUGERIDA: la ficha del medio se vuelve a leer; en lo demás entra en la lista.
+          if (mid) cargaFichaMedio(m, draft);
+          else if (r.contact) { CONTACT_SUG.push(r.contact); api.suggest(CONTACT_SUG, 'Sugeridas'); }
+        });
+      });
     }
 
     /* Las canciones que se cantan en ESTE punto. ⚠️ En una entrevista viven dentro de `interview`
@@ -1746,62 +1981,20 @@
         });
       });
     }
-    /* LAS PERSONAS DEL MEDIO (sus contactos y los terceros vinculados con él), con su cara. */
+    /* LAS PERSONAS DEL MEDIO (sus contactos y los terceros vinculados con él), con su cara: son las
+       SUGERIDAS del paso de contactos de una entrevista (`wireContacts`). La que no esté se crea
+       desde el alta de ese paso, que en una entrevista va al endpoint del medio. */
     function pintaContactosMedio(m, draft) {
-      var box = m.querySelector('[data-media-contacts]'); if (!box) return;
+      var box = m.querySelector('[data-media-contacts]'); if (!box || !m.rmContacts) return;
       var iv = draft.interview || {};
-      if (!iv.media_id) { box.innerHTML = '<div class="rm-sub">Elige antes el medio para ver sus personas.</div>'; return; }
+      if (!iv.media_id) { m.rmContacts.suggest([], 'Personas del medio', box, 'Elige antes el medio para ver sus personas.'); return; }
       var card = m.rmMediaCard;
-      if (!card) { box.innerHTML = '<div class="rm-sub">Cargando las personas del medio…</div>'; return; }
-      var gente = card.contacts || [];
-      var actual = (draft.contact || {}).name || '';
-      var h = '<div class="rm-wz-lbl"><i class="fa fa-address-book"></i>Personas de ' + esc(card.name || 'este medio') + '</div>';
-      if (gente.length) {
-        h += '<div class="promo-pick-grid promo-pick-grid--wide">'
-          + gente.map(function (c, i) {
-              return wzPick({ name: 'rmMc', value: String(i), img: c.photo || AVATAR, icon: 'fa-user', label: c.name,
-                              hint: c.role || c.program || '', checked: !!actual && normText(actual) === normText(c.name), attrs: ' data-mc-opt' });
-            }).join('')
-          + '</div>';
-      } else {
-        h += '<div class="rm-sub">Todavía no hay nadie dado de alta en este medio.</div>';
-      }
-      h += '<button type="button" class="btn btn-outline-secondary btn-sm mt-2" data-mc-new><i class="fa fa-plus me-1"></i>Nueva persona del medio</button>'
-        + '<div class="rm-wz-new d-none mt-2" data-mc-form>'
-        + '<div class="row g-2 align-items-end">'
-        + '<div class="col-md-6"><label class="form-label small mb-1">Nombre y apellidos</label><input class="form-control form-control-sm" data-nmc="name"></div>'
-        + '<div class="col-md-6"><label class="form-label small mb-1">Cargo</label><input class="form-control form-control-sm" data-nmc="role" placeholder="Redactora, productor…"></div>'
-        + '<div class="col-md-6"><label class="form-label small mb-1">Teléfono</label><input class="form-control form-control-sm" data-nmc="phone"></div>'
-        + '<div class="col-md-6"><label class="form-label small mb-1">Email</label><input class="form-control form-control-sm" data-nmc="email"></div>'
-        + '<div class="col-12 text-end"><button type="button" class="btn btn-sm btn-danger" data-nmc-save><i class="fa fa-plus me-1"></i>Añadirla y usarla</button></div>'
-        + '</div><div class="filter-hint">Se le crea su ficha de tercero y queda vinculada al medio.</div></div>';
-      box.innerHTML = h;
-      box.querySelectorAll('[data-mc-opt]').forEach(function (r) {
-        r.addEventListener('change', function () {
-          if (!r.checked) return;
-          var c = gente[parseInt(r.value, 10)];
-          if (c && m.rmSetContact) m.rmSetContact({ name: c.name, phone: c.phone || '', email: c.email || '', photo: c.photo || '', role: c.role || '', media_id: iv.media_id, promoter_id: c.promoter_id || '' });
-        });
+      if (!card) { m.rmContacts.suggest([], 'Personas del medio', box, 'Cargando las personas del medio…'); return; }
+      var gente = (card.contacts || []).map(function (c) {
+        return { name: c.name, phone: c.phone || '', email: c.email || '', photo: c.photo || '', role: c.role || c.program || '',
+                 promoter_id: c.promoter_id || '', media_id: iv.media_id, source: '' };
       });
-      var form = box.querySelector('[data-mc-form]');
-      box.querySelector('[data-mc-new]').addEventListener('click', function () {
-        form.classList.toggle('d-none');
-        if (!form.classList.contains('d-none')) form.querySelector('[data-nmc="name"]').focus();
-      });
-      form.querySelector('[data-nmc-save]').addEventListener('click', function () {
-        var name = (form.querySelector('[data-nmc="name"]').value || '').trim();
-        if (!name) { alert('Escribe su nombre.'); return; }
-        postJson('/api/media/' + encodeURIComponent(iv.media_id) + '/contacts/create', {
-          name: name, role: (form.querySelector('[data-nmc="role"]').value || '').trim(),
-          phone: (form.querySelector('[data-nmc="phone"]').value || '').trim(),
-          email: (form.querySelector('[data-nmc="email"]').value || '').trim()
-        }).then(function (r) {
-          if (r && r.ok) {
-            if (m.rmSetContact) m.rmSetContact({ name: r.name, phone: r.phone || '', email: r.email || '', photo: r.photo || '', role: r.role || '', media_id: iv.media_id, promoter_id: r.promoter_id || '' });
-            cargaFichaMedio(m, draft);
-          } else alert((r && r.error) || 'No se pudo crear la persona.');
-        });
-      });
+      m.rmContacts.suggest(gente, 'Personas de ' + (card.name || 'este medio'), box, 'Todavía no hay nadie dado de alta en este medio: créala abajo.');
     }
     function renderSongs(m, draft) {
       var wrap = m.querySelector('[data-songs]'); if (!wrap) return;
@@ -1934,45 +2127,63 @@
     function saveItem(draft, m) {
       var esIv = draft.kind === 'ENTREVISTA';
       var marcado = function (name) { var n = m.querySelector('input[name="' + name + '"]:checked'); return n ? n.value : ''; };
-      draft.title = m.querySelector('[data-f="title"]').value.trim();
+      // ⚠️ Un campo que ESE tipo no pregunta no existe en el modal: se lee con guarda.
+      var val = function (sel) { var n = m.querySelector(sel); return n ? n.value : null; };
+      var tEl = m.querySelector('[data-f="title"]');
+      draft.title = tEl ? tEl.value.trim() : (draft.title || '');
       draft.day = marcado('rmDay') || draft.day;
-      draft.start_time = m.querySelector('[data-f="start_time"]').value;
-      draft.end_time = m.querySelector('[data-f="end_time"]').value;
-      draft.tbc = m.querySelector('[data-f="tbc"]').checked;
+      draft.start_time = val('[data-f="start_time"]') || '';
+      draft.end_time = ruleHas('no_end', draft.kind) ? '' : (val('[data-f="end_time"]') || '');
+      var tbcEl = m.querySelector('[data-f="tbc"]');
+      draft.tbc = !!(tbcEl && tbcEl.checked);
       draft.confirmed = marcado('rmConf') !== '0';
       draft.sheets = {};
       m.querySelectorAll('[data-sheet]').forEach(function (cb) { draft.sheets[cb.getAttribute('data-sheet')] = cb.checked; });
       var locEl = m.querySelector('[data-f="location"]');
       draft.location = locEl ? locEl.value.trim() : (draft.location || '');
-      draft.note = m.querySelector('[data-f="note"]').value.trim();
+      // DÓNDE (M&G, fotos, comida): en el recinto —sin dirección— o en otro sitio, con su espacio.
+      if (ruleHas('place', draft.kind)) {
+        draft.place = draft.place || { mode: 'VENUE', space: '', venue_id: '', venue_name: '' };
+        draft.place.mode = marcado('rmPlace') || draft.place.mode || 'VENUE';
+        draft.place.space = (val('[data-f="space"]') || '').trim();
+        if (draft.place.mode !== 'OTHER') { draft.location = ''; draft.place.venue_id = ''; draft.place.venue_name = ''; }
+      }
+      if (draft.kind === 'MG') draft.mg_count = (val('[data-f="mg_count"]') || '').trim();
+      if (draft.kind === 'COMIDA') {
+        var res = marcado('rmRes');
+        draft.meal = draft.meal || {};
+        draft.meal.reservation = res === '1' ? true : (res === '0' ? false : null);
+        draft.meal.diners = draft.meal.reservation === true ? (val('[data-f="diners"]') || '').trim() : '';
+      }
+      draft.note = (val('[data-f="note"]') || '').trim();
       draft.audience = readAudience(m);
-      draft.sings = marcado('rmSings') === '1';
+      draft.sings = ruleHas('no_sing', draft.kind) ? false : (marcado('rmSings') === '1');
       var accOn = m.querySelector('[data-f="access_on"]');
-      draft.access_note = (accOn && accOn.checked) ? (m.querySelector('[data-f="access_note"]').value.trim()) : '';
+      draft.access_note = (accOn && accOn.checked) ? (val('[data-f="access_note"]') || '').trim() : '';
       var pinOn = !!(accOn && accOn.checked && m.rmPin);
       draft.access_lat = pinOn ? m.rmPin.lat : null;
       draft.access_lng = pinOn ? m.rmPin.lng : null;
-      draft.contact = draft.contact || {};
-      draft.contact.phone = m.querySelector('[data-c="phone"]').value.trim();
-      draft.contact.email = m.querySelector('[data-c="email"]').value.trim();
+      // Las personas de contacto van en `contacts`; la primera se espeja en `contact`.
+      draft.contacts = draft.contacts || [];
+      draft.contact = draft.contacts.length ? draft.contacts[0] : {};
       if (kindInfo(draft.kind).transport) {
         var t = draft.transport;
         ['company', 'number', 'origin', 'destination', 'duration', 'logo_url', 'locator_all'].forEach(function (f) {
           var n = m.querySelector('[data-t="' + f + '"]'); if (n) t[f] = n.value.trim();
         });
-        t.ends_next_day = m.querySelector('[data-t="ends_next_day"]').checked;
-        t.same_locator = m.querySelector('[data-t="same_locator"]').checked;
+        var nd = m.querySelector('[data-t="ends_next_day"]'); t.ends_next_day = !!(nd && nd.checked);
+        var sl = m.querySelector('[data-t="same_locator"]'); t.same_locator = !!(sl && sl.checked);
       }
       var guardarUbicacion = null;
       if (esIv) {
         var iv = draft.interview;
-        iv.program = (m.querySelector('[data-iv="program"]').value || '').trim();
+        iv.program = (val('[data-iv="program"]') || '').trim();
         iv.modality = marcado('rmMod');
         iv.live = marcado('rmLive') === '1';
         iv.sings = draft.sings;
         iv.formation = marcado('rmForm');
-        iv.zoom_url = (m.querySelector('[data-iv="zoom_url"]').value || '').trim();
-        iv.zoom_tbc = m.querySelector('[data-iv="zoom_tbc"]').checked;
+        iv.zoom_url = (val('[data-iv="zoom_url"]') || '').trim();
+        var ztbc = m.querySelector('[data-iv="zoom_tbc"]'); iv.zoom_tbc = !!(ztbc && ztbc.checked);
         // ⚠️ El sitio es de una entrevista PRESENCIAL: en un phoner o un zoom no hay dónde ir, y
         // dejarlo escrito haría que la hoja de ruta enseñara una dirección que no es.
         if (iv.modality !== 'PRESENCIAL') { draft.location = ''; iv.location_id = ''; draft.access_note = ''; draft.access_lat = null; draft.access_lng = null; }
@@ -1983,8 +2194,8 @@
             && marcado('rmLocSave') === '1') {
           guardarUbicacion = { media_id: iv.media_id, address: draft.location };
         }
-        // Sin título, el del medio y su programa (es como se reconoce la entrevista).
-        if (!draft.title) draft.title = [iv.media_name, iv.program].filter(Boolean).join(' · ');
+        // ⚠️ Una entrevista se llama como su medio y su programa (ya no se pide título aparte).
+        draft.title = [iv.media_name, iv.program].filter(Boolean).join(' · ');
       }
       var i = bs('rmItemModal'); if (i) i.hide();
       var guardar = function () { postJson(ep('/item'), draft).then(apply); };
@@ -2004,7 +2215,10 @@
       if (!it.confirmed) h += '<div class="rm-tag tbc mb-2 d-inline-block">Provisional</div> ';
       if (!RO) { var shD = sheetsLabel(it); if (shD) h += '<div class="rm-tag sheet mb-2 d-inline-block"><i class="fa fa-share-nodes"></i> ' + esc(shD) + '</div> '; }
       if (it.cancelled) h += '<div class="rm-tag mb-2 d-inline-block">Cancelada</div>';
-      if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + mapLink(itemMapsHref(it), hasPin(it) ? 'Ir al punto de acceso exacto' : 'Abrir en Mapas') + '</div>';
+      var lugarD = placeLabel(it);
+      if (lugarD) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(lugarD) + mapLink(itemMapsHref(it), hasPin(it) ? 'Ir al punto de acceso exacto' : 'Abrir en Mapas') + '</div>';
+      if (it.kind === 'MG' && it.mg_count) h += '<div class="mb-1"><i class="fa fa-users text-muted"></i> ' + esc(it.mg_count) + ' personas</div>';
+      if (it.kind === 'COMIDA' && mealTag(it.meal)) h += '<div class="mb-1">' + mealTag(it.meal) + '</div>';
       var audH = audienceHtml(it);
       h += '<div class="mb-1 rm-sub"><i class="fa fa-users"></i> ' + (audH ? 'Afecta a:' : 'Afecta a todos') + '</div>' + audH;
       if (itemSings(it) && !(it.kind === 'ENTREVISTA' && it.interview)) {
@@ -2032,11 +2246,12 @@
         h += '<div class="rm-transport-line">' + (t.logo_url ? '<img src="' + esc(t.logo_url) + '">' : '') + [t.company, t.number, [t.origin, t.destination].filter(Boolean).join(' → '), t.duration].filter(Boolean).map(esc).join(' · ') + (t.ends_next_day ? ' <span class="rm-tag plus1">+1</span>' : '') + '</div>';
         (t.passengers || []).forEach(function (p) { var per = personById(p.personnel_id); h += '<div class="rm-sub"><i class="fa fa-user"></i> ' + esc(per ? per.name : '—') + (p.locator || t.locator_all ? ' · Loc: ' + esc(t.same_locator ? t.locator_all : p.locator) : '') + (p.ticket_url ? ' · <a href="' + esc(p.ticket_url) + '" target="_blank">Billete</a>' : '') + '</div>'; });
       }
-      if (it.contact && (it.contact.name || it.contact.phone || it.contact.email)) {
-        var cc = it.contact;
-        h += '<div class="mt-2 rm-contact"><span class="rm-nick">' + avatar(cc.photo || AVATAR) + '<span>' + esc(cc.name || 'Contacto') + '</span></span>'
-          + (cc.role ? '<span class="rm-sub"> · ' + esc(cc.role) + '</span>' : '')
-          + contactActs(cc.phone || '', cc.email || '') + '</div>';
+      // LAS PERSONAS DE CONTACTO (pueden ser varias), cada una con su cara, su teléfono y su correo.
+      var ccs = itemContacts(it);
+      if (ccs.length) {
+        h += '<div class="mt-2"><div class="rm-sub mb-1"><i class="fa fa-address-card"></i> ' + (ccs.length === 1 ? 'Persona de contacto' : 'Personas de contacto') + '</div>';
+        ccs.forEach(function (cc) { h += contactRow(cc, cc.role || ''); });
+        h += '</div>';
       }
       h += accesoHtml(it.access_note, it, 'Acceso · ' + (it.title || ''));
       if (it.note) h += '<div class="alert alert-warning mt-2 mb-0 py-2"><i class="fa fa-note-sticky"></i> ' + esc(it.note) + '</div>';

@@ -81987,6 +81987,35 @@ ROADMAP_PERSONNEL_KINDS = {"USER", "PROMOTER", "MEMBER", "MANUAL"}
 # a unas PERSONAS concretas del personal. Es la etiqueta que sale en su fila y lo que decide qué ve
 # cada externo al entrar en su portal (`_roadmap_payload_for_person`).
 ROADMAP_AUDIENCE_MODES = ("ALL", "ROLES", "PEOPLE")
+# ⚠️⚠️ CADA TIPO DE PUNTO PREGUNTA SOLO LO SUYO (sep 2026, lo pidió Dani). Punto único: el servidor
+# las aplica al GUARDAR y el asistente las lee del contexto (`kind_rules` → `RULES` en roadmap.js)
+# para no preguntar lo que no toca, así no se pueden desparejar.
+#  · En estos NO se pregunta «¿se canta?»: la ACTUACIÓN es el concierto (su repertorio ES el set
+#    list de la ficha, no hace falta otro) y en lo demás no viene a cuento. Un traslado tampoco.
+ROADMAP_NO_SING_KINDS = {"ACTUACION", "PRUEBA_SONIDO", "APERTURA_PUERTAS", "MG", "SESION_FOTOS",
+                         "COMIDA", "CITACION"} | ROADMAP_TRANSPORT_KINDS
+#  · Estos SON en el recinto de la actividad: no se pregunta dónde.
+ROADMAP_AT_VENUE_KINDS = {"ACTUACION", "PRUEBA_SONIDO", "APERTURA_PUERTAS"}
+#  · Estos son en el recinto POR DEFECTO, pero pueden ser en otro sitio (otro recinto, un
+#    restaurante) y dentro del recinto en un ESPACIO concreto («Camerino 2», «Sala VIP»):
+#    llevan `place` {mode, space, venue_id, venue_name} (`_roadmap_clean_place`).
+ROADMAP_PLACE_KINDS = {"MG", "SESION_FOTOS", "COMIDA"}
+ROADMAP_PLACE_MODES = ("VENUE", "OTHER")
+#  · En la actuación no hay «con quién se habla»: es del propio artista.
+ROADMAP_NO_CONTACT_KINDS = {"ACTUACION"}
+#  · Una CITACIÓN es a UNA hora: no tiene fin.
+ROADMAP_NO_END_KINDS = {"CITACION"}
+
+
+def _roadmap_kind_rules() -> dict:
+    """Las reglas de arriba tal como las lee el asistente (`CTX.kind_rules`)."""
+    return {
+        "no_sing": sorted(ROADMAP_NO_SING_KINDS),
+        "at_venue": sorted(ROADMAP_AT_VENUE_KINDS),
+        "place": sorted(ROADMAP_PLACE_KINDS),
+        "no_contact": sorted(ROADMAP_NO_CONTACT_KINDS),
+        "no_end": sorted(ROADMAP_NO_END_KINDS),
+    }
 
 
 def _roadmap_kind_catalog() -> dict:
@@ -82548,7 +82577,9 @@ def _roadmap_venue_card(session_db, row) -> dict | None:
         # Las personas VINCULADAS al recinto (el director de la sala, su técnico), con su relación.
         try:
             for l in _entity_link_rows(session_db, "venue", venue.id):
-                otro = l.get("other") or {}
+                # ⚠️ La clave de `_entity_link_rows` es `linked` (con `other` la lista salía siempre
+                # VACÍA: los contactos del recinto no se veían nunca en la hoja de ruta).
+                otro = l.get("linked") or {}
                 contactos.append({"name": otro.get("label") or otro.get("name") or "",
                                   "relation": l.get("relation_title") or "",
                                   "phone": otro.get("phone") or "", "email": otro.get("email") or "",
@@ -82795,6 +82826,12 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "person_fields": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_PERSON_FIELDS],
         "person_cols": _roadmap_person_cols(payload),
         "roles": _roadmap_role_options(payload),
+        # LAS REGLAS DE CADA TIPO de punto (qué se pregunta y qué no), LAS PERSONAS DE CONTACTO que
+        # se sugieren (las de la actividad, las del promotor y las del recinto) y cuántas personas
+        # dice la ficha que hay en el Meet & Greet: el asistente lo lee de aquí (punto único).
+        "kind_rules": _roadmap_kind_rules(),
+        "contact_suggestions": _roadmap_contact_suggestions(session_db, row),
+        "meet_greet_count": _roadmap_meet_greet_count(row),
     }
 
 
@@ -82848,6 +82885,202 @@ def _roadmap_clean_contact(contact) -> dict:
     if contact.get("media_id"):
         out["media_id"] = str(contact.get("media_id"))
     return out if any(v for v in out.values()) else {}
+
+
+def _roadmap_item_contacts(data: dict) -> list[dict]:
+    """LAS PERSONAS DE CONTACTO de un punto (sep 2026: pueden ser varias). Se acepta también el
+    `contact` de siempre (un navegador con el JS viejo en caché), y quien guarda espeja la primera
+    en `contact` para lo que todavía lo lea en singular."""
+    out, vistos = [], set()
+    filas = data.get("contacts") if isinstance(data.get("contacts"), list) else []
+    if not filas and data.get("contact"):
+        filas = [data.get("contact")]
+    for c in filas:
+        limpio = _roadmap_clean_contact(c)
+        if not limpio:
+            continue
+        clave = ("p:" + limpio["promoter_id"]) if limpio.get("promoter_id") else ("n:" + _norm_text_key(limpio.get("name") or ""))
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        out.append(limpio)
+    return out[:20]
+
+
+def _roadmap_clean_place(value) -> dict:
+    """DÓNDE es un M&G, una sesión de fotos o una comida: `mode` VENUE (en el recinto de la
+    actividad, lo normal) u OTHER (otro recinto de la base —`venue_id`/`venue_name`— o lo que se
+    haya escrito en `location`: un restaurante), y `space`, el sitio concreto («Camerino 2»)."""
+    v = value if isinstance(value, dict) else {}
+    mode = str(v.get("mode") or "VENUE").strip().upper()
+    if mode not in ROADMAP_PLACE_MODES:
+        mode = "VENUE"
+    vid = str(v.get("venue_id") or "").strip()
+    return {
+        "mode": mode,
+        "space": (v.get("space") or "").strip()[:160],
+        "venue_id": (vid if (mode == "OTHER" and _safe_uuid(vid)) else ""),
+        "venue_name": ((v.get("venue_name") or "").strip()[:200] if mode == "OTHER" else ""),
+    }
+
+
+def _roadmap_clean_meal(value) -> dict:
+    """LA COMIDA: si hay RESERVA (sí · no · None = no se sabe) y para cuántos COMENSALES."""
+    v = value if isinstance(value, dict) else {}
+    res = v.get("reservation")
+    if isinstance(res, str):
+        res = {"1": True, "true": True, "si": True, "sí": True, "0": False, "false": False, "no": False}.get(res.strip().lower())
+    elif not isinstance(res, bool):
+        res = None
+    comensales = _roadmap_int(v.get("diners"), 0)
+    return {"reservation": res, "diners": (comensales if (res is True and comensales > 0) else None)}
+
+
+def _roadmap_meet_greet_count(row) -> str:
+    """Cuántas personas dice LA FICHA que hay en el Meet & Greet (`contracting_payload.meet_greet`):
+    el punto MG nace con ese número, que se puede cambiar a mano. Vacío si no consta o no lo hay."""
+    if not isinstance(row, Concert):
+        return ""
+    cp = row.contracting_payload if isinstance(getattr(row, "contracting_payload", None), dict) else {}
+    mg = cp.get("meet_greet") if isinstance(cp.get("meet_greet"), dict) else {}
+    if not mg.get("enabled"):
+        return ""
+    return str(mg.get("quantity") or "").strip()[:20]
+
+
+def _roadmap_contact_suggestions(session_db, row) -> list[dict]:
+    """LAS PERSONAS DE CONTACTO que se ofrecen al añadir un punto a los horarios (sep 2026, lo pidió
+    Dani): las de la ACTIVIDAD (con su función), el PROMOTOR y sus personas de contacto y los
+    terceros vinculados con él, y las del RECINTO; cada una con su cara, su teléfono y su correo, y
+    sin repetirse. En una entrevista, además, las del medio (esas las trae `api_media_card`).
+    ⚠️ Es una SUGERENCIA: la que no esté se busca en toda la base o se crea como tercero
+    (`roadmap_contact_person_create`), y entonces queda como persona de contacto del promotor para
+    que la próxima vez ya salga aquí."""
+    if not isinstance(row, Concert):
+        return []
+    out, vistos = [], set()
+
+    def pon(nombre, telefono, correo, foto, rol, origen, promoter_id="", contact_id=""):
+        nombre = (nombre or "").strip()
+        if not nombre:
+            return
+        claves = {"n:" + _norm_text_key(nombre)}
+        if promoter_id:
+            claves.add("p:" + str(promoter_id))
+        if claves & vistos:
+            return
+        vistos.update(claves)
+        out.append({"name": nombre, "phone": (telefono or "").strip(), "email": (correo or "").strip(),
+                    "photo": (foto or "").strip(), "role": (rol or "").strip()[:120], "source": origen,
+                    "promoter_id": str(promoter_id or ""), "contact_id": str(contact_id or "")})
+
+    # 1) Las personas de LA ACTIVIDAD (las de su ficha, con sus funciones).
+    try:
+        for link in (getattr(row, "contacts", None) or []):
+            persona = getattr(link, "contact", None)
+            if persona is None:
+                continue
+            datos = _promoter_contact_payload(persona)
+            marcados = link.roles if isinstance(link.roles, list) else []
+            funciones = " · ".join([CONCERT_CONTACT_ROLE_META[r]["label"]
+                                    for r in CONCERT_CONTACT_ROLE_KEYS if r in marcados])
+            pon(datos.get("name"), datos.get("phone"), datos.get("email"), datos.get("photo"),
+                funciones or datos.get("title"), "De la actividad",
+                getattr(persona, "link_promoter_id", None) or "", persona.id)
+    except Exception:
+        app.logger.exception("[hoja de ruta] no se pudieron leer los contactos de la actividad")
+    # 2) EL PROMOTOR, sus personas de contacto y los terceros vinculados con él.
+    promotor = getattr(row, "promoter", None) if getattr(row, "promoter_id", None) else None
+    if promotor is not None:
+        quien = (getattr(promotor, "nick", None) or "").strip() or "el promotor"
+        try:
+            correo, telefono = _promoter_email_phone(promotor)
+            if correo or telefono:
+                pon(_promoter_display_name(promotor), telefono, correo, getattr(promotor, "logo_url", ""),
+                    "Promotor", "Promotor", promotor.id)
+            for c in _promoter_contacts_for(session_db, promotor.id):
+                pon(c.get("name"), c.get("phone"), c.get("email"), c.get("photo"), c.get("title"),
+                    "Promotor · " + quien, "", c.get("id"))
+        except Exception:
+            app.logger.exception("[hoja de ruta] no se pudieron leer los contactos del promotor")
+        try:
+            for fila in _entity_link_rows(session_db, "promoter", promotor.id):
+                otro = fila.get("linked") or {}
+                if (otro.get("type") or "") not in ("promoter", "personal"):
+                    continue
+                pon(otro.get("label"), otro.get("phone"), otro.get("email"),
+                    otro.get("logo_url") or otro.get("photo_url"), fila.get("relation_title"),
+                    "Vinculado a " + quien,
+                    otro.get("id") if (otro.get("type") or "") == "promoter" else "")
+        except Exception:
+            app.logger.exception("[hoja de ruta] no se pudieron leer las vinculaciones del promotor")
+    # 3) Las del RECINTO (el director de la sala, su técnico), las mismas de su viñeta.
+    if getattr(row, "venue_id", None):
+        try:
+            nombre_recinto = (getattr(getattr(row, "venue", None), "name", None) or "el recinto").strip()
+            for fila in _entity_link_rows(session_db, "venue", row.venue_id):
+                otro = fila.get("linked") or {}
+                if (otro.get("type") or "") not in ("promoter", "personal"):
+                    continue
+                pon(otro.get("label"), otro.get("phone"), otro.get("email"),
+                    otro.get("logo_url") or otro.get("photo_url"), fila.get("relation_title"),
+                    "Recinto · " + nombre_recinto,
+                    otro.get("id") if (otro.get("type") or "") == "promoter" else "")
+        except Exception:
+            app.logger.exception("[hoja de ruta] no se pudieron leer las vinculaciones del recinto")
+    return out
+
+
+def _roadmap_new_contact_person(session_db, row, nombre: str, telefono, correo, rol) -> dict:
+    """UNA PERSONA DE CONTACTO NUEVA escrita desde el asistente de un punto. ⚠️ Es un TERCERO (la
+    regla de la casa: sus datos viven en su ficha y no se duplican) —antes de crear otra ficha se
+    busca por su correo, como hace `_media_contact_promoter`— y, si la actividad tiene PROMOTOR,
+    queda además como persona de contacto suya (`PromoterContact` apuntando a su ficha), que es lo
+    que hace que la próxima vez salga entre las sugeridas. Devuelve la fila tal como la pinta el
+    asistente."""
+    nombre = (nombre or "").strip()[:200]
+    telefono = (telefono or "").strip()[:60]
+    correo = (correo or "").strip()[:200]
+    rol = (rol or "").strip()[:120]
+    nombre_pila, apellidos = _split_full_name(nombre)
+    promoter = None
+    if correo:
+        promoter = (session_db.query(Promoter)
+                    .filter(func.lower(func.coalesce(Promoter.contact_email, "")) == correo.lower())
+                    .first())
+    if promoter is None:
+        promoter = Promoter(
+            nick=_intake_unique_nick(session_db, nombre or correo or telefono or "Contacto"),
+            first_name=(nombre_pila or None), last_name=(apellidos or None),
+            contact_email=(correo or None), contact_phone=(telefono or None))
+        session_db.add(promoter)
+        session_db.flush()
+    else:
+        # Ya existe: solo se COMPLETA lo que le falte (nunca se pisa lo que ya está escrito).
+        if nombre_pila and not (promoter.first_name or "").strip():
+            promoter.first_name = nombre_pila
+        if apellidos and not (promoter.last_name or "").strip():
+            promoter.last_name = apellidos
+        if telefono and not (promoter.contact_phone or "").strip():
+            promoter.contact_phone = telefono
+    contacto_id = ""
+    pid = getattr(row, "promoter_id", None) if isinstance(row, Concert) else None
+    if pid:
+        ya = (session_db.query(PromoterContact)
+              .filter(PromoterContact.promoter_id == pid, PromoterContact.link_promoter_id == promoter.id)
+              .first())
+        if ya is None:
+            ya = PromoterContact(promoter_id=pid, title=(rol or "Contacto"),
+                                 first_name=(nombre_pila or nombre or "Contacto"), last_name=(apellidos or None),
+                                 email=(correo or None), phone=(telefono or None), link_promoter_id=promoter.id)
+            session_db.add(ya)
+            session_db.flush()
+        contacto_id = str(ya.id)
+    return {"name": _promoter_display_name(promoter) or nombre,
+            "phone": telefono or (getattr(promoter, "contact_phone", None) or ""),
+            "email": correo or (getattr(promoter, "contact_email", None) or ""),
+            "photo": (getattr(promoter, "logo_url", None) or ""), "role": rol,
+            "promoter_id": str(promoter.id), "contact_id": contacto_id, "source": "Nueva"}
 
 
 # ¿En qué hoja de ruta se ve cada punto de la agenda? Son las etiquetas del PROPIO punto (las dos
@@ -82937,8 +83170,13 @@ def _roadmap_songs_from_json(rows) -> list[dict]:
 
 
 def _roadmap_item_sings(item) -> bool:
-    """¿En este punto se canta? (el punto lo dice; en una entrevista también su `interview`)."""
+    """¿En este punto se canta? (el punto lo dice; en una entrevista también su `interview`).
+    ⚠️ En los tipos de `ROADMAP_NO_SING_KINDS` NUNCA: la actuación ES el concierto (su repertorio es
+    el set list de la ficha) y en una prueba de sonido, una comida o un traslado no viene a cuento —
+    así un punto antiguo que lo tuviera marcado deja de reclamar «configurar el repertorio»."""
     if not isinstance(item, dict):
+        return False
+    if (str(item.get("kind") or "")).upper() in ROADMAP_NO_SING_KINDS:
         return False
     iv = item.get("interview") if isinstance(item.get("interview"), dict) else {}
     return bool(item.get("sings") or iv.get("sings"))
@@ -83173,7 +83411,7 @@ def _roadmap_item_from_json(data: dict) -> dict:
         "location": (data.get("location") or "").strip(),
         "note": (data.get("note") or "").strip(),
         "order": _roadmap_int(data.get("order"), 0),
-        "contact": _roadmap_clean_contact(data.get("contact")),
+        "contact": {},
         "attachments": [],
         # A QUIÉN AFECTA (todos · unas funciones · unas personas), si SE CANTA en este punto y con
         # qué repertorio, y las INSTRUCCIONES DE ACCESO (cómo se llega, por dónde se entra).
@@ -83184,6 +83422,26 @@ def _roadmap_item_from_json(data: dict) -> dict:
     }
     # LA CHINCHETA del acceso de ESTE punto (las dos coordenadas o ninguna).
     item["access_lat"], item["access_lng"] = _roadmap_coord_pair(data.get("access_lat"), data.get("access_lng"))
+    # LAS PERSONAS DE CONTACTO (pueden ser varias; la primera se espeja en `contact`, que es lo que
+    # leen las pantallas de antes) y LAS REGLAS DE CADA TIPO (sep 2026): sin «se canta» donde no
+    # toca, una citación sin hora de fin, el SITIO de un M&G / una sesión de fotos / una comida (en
+    # el recinto de la actividad —en un espacio concreto— o en otro sitio), cuántas personas hay en
+    # el M&G y la reserva de una comida.
+    item["contacts"] = _roadmap_item_contacts(data)
+    item["contact"] = dict(item["contacts"][0]) if item["contacts"] else {}
+    if kind in ROADMAP_NO_SING_KINDS:
+        item["sings"], item["songs"] = False, []
+    if kind in ROADMAP_NO_END_KINDS:
+        item["end_time"] = ""
+    if kind in ROADMAP_PLACE_KINDS:
+        item["place"] = _roadmap_clean_place(data.get("place"))
+        if item["place"]["mode"] == "VENUE":
+            # En el recinto de la actividad no hay dirección que escribir: el sitio es el suyo.
+            item["location"] = ""
+    if kind == "MG":
+        item["mg_count"] = str(data.get("mg_count") or "").strip()[:20]
+    if kind == "COMIDA":
+        item["meal"] = _roadmap_clean_meal(data.get("meal"))
     if kind == "ENTREVISTA":
         iv = data.get("interview") or {}
         songs = _roadmap_songs_from_json(iv.get("songs"))
@@ -83676,9 +83934,17 @@ def roadmap_item_save(entity_type, entity_id):
                 item["sheets"] = _roadmap_item_sheets(current.get("sheets"))
             # Lo que se edita EN OTRO SITIO (el repertorio del punto, en su pestaña) o que un
             # navegador con el JS viejo no manda, se conserva en vez de perderse.
-            for clave in ("songs", "audience", "access_note", "sings", "access_lat", "access_lng"):
+            for clave in ("songs", "audience", "access_note", "sings", "access_lat", "access_lng",
+                          "place", "mg_count", "meal"):
                 if clave not in data and current.get(clave) is not None:
                     item[clave] = current.get(clave)
+            # Las personas de contacto: si no llegan ni en plural ni en singular, se conservan.
+            if "contacts" not in data and "contact" not in data:
+                item["contacts"] = list(current.get("contacts")
+                                        or ([current["contact"]] if current.get("contact") else []))
+                item["contact"] = dict(item["contacts"][0]) if item["contacts"] else {}
+            if item["kind"] in ROADMAP_NO_SING_KINDS:
+                item["sings"], item["songs"] = False, []
             if item["kind"] == "ENTREVISTA" and "songs" not in data and isinstance(item.get("interview"), dict):
                 item["interview"]["songs"] = list(item.get("songs") or item["interview"].get("songs") or [])
                 item["interview"]["sings"] = bool(item.get("sings") or item["interview"].get("sings"))
@@ -83858,6 +84124,33 @@ def roadmap_contact_delete(entity_type, entity_id):
         return _roadmap_ok(session_db, row, payload)
     except Exception as exc:
         session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/contacto/tercero', endpoint='roadmap_contact_person_create')
+@admin_required
+def roadmap_contact_person_create(entity_type, entity_id):
+    """UNA PERSONA DE CONTACTO NUEVA desde el asistente de un punto de los horarios (sep 2026). Se
+    crea como TERCERO y, si la actividad tiene promotor, como persona de contacto suya: ver
+    `_roadmap_new_contact_person`. Devuelve la fila lista para marcarla en el punto."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        nombre = (data.get("name") or "").strip()
+        if not nombre:
+            return jsonify({"ok": False, "error": "Escribe su nombre."}), 400
+        contacto = _roadmap_new_contact_person(session_db, row, nombre, data.get("phone"),
+                                               data.get("email"), data.get("role"))
+        session_db.commit()
+        return jsonify({"ok": True, **contacto, "contact": contacto})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[hoja de ruta] no se pudo crear la persona de contacto")
         return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
@@ -96439,6 +96732,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_person_no_room", "roadmap_room_number",
     # Personal: qué datos se ven y completar en su ficha lo que le falta a una persona.
     "roadmap_personnel_cols", "roadmap_person_fill",
+    # Una persona de contacto nueva desde el asistente de un punto (se crea como tercero).
+    "roadmap_contact_person_create",
     # MANDARLE UN MENSAJE (SMS o correo) al personal de la hoja de ruta: lo hace quien monta la
     # producción, que no tiene por qué poder editar la sección de la actividad.
     "roadmap_message_data", "roadmap_message_preview", "roadmap_message_send",

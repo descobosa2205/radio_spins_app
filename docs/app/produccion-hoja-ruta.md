@@ -34,6 +34,7 @@
 - HOJA DE RUTA · lo que ve cada uno, quién puede actualizarla y el repertorio (sep 2026,
 - HOJA DE RUTA · MANDARLE UN MENSAJE AL PERSONAL. «Mañana el bus sale a las 8:30» hay
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
+- HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 
 ---
 
@@ -834,3 +835,55 @@
   · **Prueba de regresión**: `/tmp/python/bin/python3 tools/check_hoja_ruta.py` (apartado 9). Al
   tocar el asistente, en verde.
 
+- ⚠️⚠️ **HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias** (sep 2026,
+  lo pidió Dani, lote 1 de la reforma de los formularios). El asistente era el mismo para todos los
+  tipos y preguntaba cosas que no venían a cuento (dónde es una prueba de sonido, si se canta en una
+  comida). Ahora **las reglas las dicta el SERVIDOR** (`ROADMAP_NO_SING_KINDS` · `ROADMAP_AT_VENUE_KINDS`
+  · `ROADMAP_PLACE_KINDS` · `ROADMAP_NO_CONTACT_KINDS` · `ROADMAP_NO_END_KINDS` → `_roadmap_kind_rules()`
+  → `CTX.kind_rules` → `RULES`/`ruleHas()` en `roadmap.js`): el asistente **no pregunta** lo que no
+  toca y el servidor **no guarda** lo que no toca (`_roadmap_item_from_json`), así que no se pueden
+  desparejar y un punto de antes que tuviera «canta» marcado deja de contar (`_roadmap_item_sings`
+  también mira el tipo).
+  · **«¿Está confirmado?»** (antes «¿Está cerrado?») en todos.
+  · **La ACTUACIÓN** no pregunta dónde (es en el recinto), ni si se canta (**su repertorio ES el set
+  list de la ficha**, no hace falta otro) ni con quién se habla (es del propio artista): Qué es ·
+  Cuándo · Detalles · Quién lo ve. La **prueba de sonido** y la **apertura de puertas** tampoco
+  preguntan dónde ni si se canta. Una **ENTREVISTA** ya no pide título: se llama «Medio · Programa»
+  (lo compone `saveItem` SIEMPRE, no solo si estaba vacío).
+  · **M&G, SESIÓN DE FOTOS y COMIDA llevan `place`** `{mode: VENUE|OTHER, space, venue_id, venue_name}`
+  (`_roadmap_clean_place`): **en el recinto de la actividad por defecto** —y entonces `location` se
+  vacía: el sitio es el suyo y el icono de mapa lleva al recinto (`itemMapsHref`)— con un **ESPACIO**
+  concreto («Camerino 2», «Sala privada»); o en OTRO sitio: otro recinto de la base (buscador
+  `/api/search/venues`, `searchVenues`) o lo que se escriba (en una comida, el restaurante). En la
+  fila y el detalle lo pinta **`placeLabel(it)`** («Sala Ruta · Camerino 2»).
+  · **El M&G nace con el nº de personas que dice la FICHA** (`contracting_payload.meet_greet.quantity`
+  → `_roadmap_meet_greet_count` → `CTX.meet_greet_count`), editable (`mg_count`). **La COMIDA**
+  pregunta si hay **reserva** (sí · no · no se sabe = `None`) y para cuántos comensales
+  (`_roadmap_clean_meal` → `meal`; el menú cerrado llega en el lote 4). **Una CITACIÓN es a UNA
+  hora**: sin «Termina», y el servidor vacía `end_time`.
+  · ⚠️⚠️ **PERSONAS DE CONTACTO, en plural y SIN escribir teléfonos**: `item['contacts']` (lista,
+  `_roadmap_item_contacts`, sin repetir por `promoter_id` o por nombre) y **la primera espejada en
+  `contact`** para lo que todavía lo lea en singular (la hoja compartida antigua, el portal). Se
+  ofrecen como TARJETAS que se marcan y desmarcan las **SUGERIDAS** —`_roadmap_contact_suggestions`,
+  punto único: las personas de la ACTIVIDAD con su función, el PROMOTOR, sus personas de contacto
+  (`PromoterContact`) y los terceros VINCULADOS con él, y los del RECINTO; en una entrevista, las del
+  MEDIO (`pintaContactosMedio` → `m.rmContacts.suggest`)—; las ELEGIDAS salen con su teléfono y su
+  correo, que son los de su ficha; y cualquier otra se busca en toda la base
+  (`api_roadmap_person_search`) o **se CREA como TERCERO** (`roadmap_contact_person_create`,
+  `/contacto/tercero`, en `SUPPORT_ACTION_ENDPOINTS`) que, si la actividad tiene promotor, **queda
+  como persona de contacto suya** (`PromoterContact` con `link_promoter_id`) para salir sugerida la
+  próxima vez; antes de crear otra ficha se busca por su correo (la regla de `_media_contact_promoter`).
+  ⚠️ Al editar, si el cliente no manda `contacts` ni `contact` (JS viejo en caché) **se conservan**,
+  igual que `place`, `mg_count` y `meal`.
+  ⚠️⚠️ **Los contactos del RECINTO no salían NUNCA en su viñeta** (bug real): `_roadmap_venue_card`
+  leía `l.get("other")` y la clave de `_entity_link_rows` es **`linked`**. Arreglado de paso.
+  · **EL BUSCADOR DE CANCIONES (y todos los del asistente) tiene FONDO**: `.rm-wz-results` era
+  transparente (los `.rm-result` no tienen fondo propio) y se leía lo de detrás (bug real que vio
+  Dani). Y **se abre AL PINCHAR** con el repertorio entero (`attachSearch` con `minChars: 0` escucha
+  también `focus`), `clearOnPick` vacía el campo al elegir y **un clic fuera lo cierra** (un único
+  listener en `document`). ⚠️ Un campo que YA tiene el foco no vuelve a disparar `focus`: al probarlo
+  a mano, pinchar fuera antes.
+  · **Prueba de regresión**: `tools/check_hoja_ruta.py`, apartado 10 (las reglas, las sugerencias,
+  el M&G con su espacio y dos personas, la comida con reserva, la citación sin fin, la persona nueva
+  como tercero del promotor). Probado además en el navegador con la app real (los seis tipos, la hoja
+  compartida sin sesión con `CSS1Compat` y un solo `<!doctype>`).

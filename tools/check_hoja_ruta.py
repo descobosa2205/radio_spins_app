@@ -9,6 +9,8 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
   · los SMS al personal PROGRAMADOS (se guardan, los manda el cron único, se anulan)
   · la tarea «Configurar el repertorio» de producción
   · el «sí» del artista deja la actividad NOTIFICADA (y la etiqueta verde se pincha)
+  · cada tipo de punto pregunta solo lo suyo: personas de contacto (varias, sugeridas y creadas como
+    tercero del promotor), el sitio y su espacio, la reserva de una comida, la citación sin fin
 
     /tmp/python/bin/python3 tools/check_hoja_ruta.py
 
@@ -38,7 +40,7 @@ import flask                                          # noqa: E402
 import app as A                                       # noqa: E402
 import geo_utils                                      # noqa: E402
 from models import (Artist, Concert, ConcertArtistNotification, MediaContact,   # noqa: E402
-                    MediaLocation, MediaOutlet, Promoter, RoadmapScheduledMessage,
+                    MediaLocation, MediaOutlet, Promoter, PromoterContact, RoadmapScheduledMessage,
                     ThirdPartyLink, User, UserProfile, Venue)
 
 A.app.config["WTF_CSRF_ENABLED"] = False
@@ -77,6 +79,15 @@ def limpia(s):
                                        ThirdPartyLink.target_id == med.id).delete()
         s.delete(med)
     for pr in s.query(Promoter).filter(Promoter.contact_email == "nuria@radioruta.com").all():
+        s.delete(pr)
+    # Lo del apartado 10: la persona de contacto del promotor, el técnico vinculado al recinto y la
+    # persona creada desde el asistente (tercero + persona de contacto del promotor).
+    for pr in s.query(Promoter).filter(Promoter.contact_email == "nuevo@ruta-lote1.local").all():
+        s.query(PromoterContact).filter(PromoterContact.link_promoter_id == pr.id).delete(synchronize_session=False)
+        s.delete(pr)
+    s.query(PromoterContact).filter(PromoterContact.email == "paco@ruta-lote1.local").delete(synchronize_session=False)
+    for pr in s.query(Promoter).filter(Promoter.nick == "Tecnico Sala Ruta").all():
+        s.query(ThirdPartyLink).filter(ThirdPartyLink.source_id == pr.id).delete(synchronize_session=False)
         s.delete(pr)
     s.flush()
 
@@ -500,6 +511,97 @@ def main():
     check("producción puede leer la ficha del medio", cli.get("/api/media/%s/ficha" % mid).status_code == 200)
     check("y guardar una dirección nueva",
           cli.post("/api/media/%s/ubicaciones" % mid, json={"address": "Otra calle 5"}).status_code == 200)
+
+    print("\n10 · Cada tipo pregunta solo lo suyo: contactos (varios), el sitio y su espacio, la reserva, sin fin")
+    s = A.db()
+    try:
+        c = s.get(Concert, A.to_uuid(cid))
+        prom = s.get(Promoter, c.promoter_id)
+        # Una persona de contacto del promotor y un tercero vinculado al recinto: lo que se SUGIERE.
+        s.add(PromoterContact(promoter_id=prom.id, title="Jefe de producción", first_name="Paco", last_name="Prod",
+                              email="paco@ruta-lote1.local", phone="600000010"))
+        teo = s.query(Promoter).filter(Promoter.nick == "Tecnico Sala Ruta").first()
+        if teo is None:
+            teo = Promoter(nick="Tecnico Sala Ruta", first_name="Teo", last_name="Sala", contact_phone="600000012")
+            s.add(teo); s.flush()
+        s.add(ThirdPartyLink(source_type="promoter", source_id=teo.id, target_type="venue", target_id=c.venue_id,
+                             relation_title="Técnico de la sala", is_active=True))
+        c.contracting_payload = {"meet_greet": {"enabled": True, "quantity": "12", "moment": "antes"}}
+        s.commit()
+        with A.app.test_request_context():
+            ctx = A._roadmap_context(s, "concert", c)
+        rules = ctx.get("kind_rules") or {}
+        check("las reglas llegan al asistente (no_sing · at_venue · place · no_contact · no_end)",
+              "ACTUACION" in rules.get("no_sing", []) and "VUELO" in rules.get("no_sing", [])
+              and "PRUEBA_SONIDO" in rules.get("at_venue", []) and "MG" in rules.get("place", [])
+              and "ACTUACION" in rules.get("no_contact", []) and "CITACION" in rules.get("no_end", []), str(rules)[:200])
+        check("el M&G nace con las personas que dice la ficha", ctx.get("meet_greet_count") == "12", str(ctx.get("meet_greet_count")))
+        nombres = [x["name"] for x in (ctx.get("contact_suggestions") or [])]
+        check("se sugieren el promotor, su persona de contacto y la del recinto",
+              "Promotora Ruta" in nombres and "Paco Prod" in nombres and "Teo Sala" in nombres, str(nombres))
+        paco = ([x for x in ctx.get("contact_suggestions") or [] if x["name"] == "Paco Prod"] or [{}])[0]
+        check("con su cargo y de dónde viene", paco.get("role") == "Jefe de producción" and (paco.get("source") or "").startswith("Promotor"), str(paco))
+        check("y los contactos del recinto salen también en su viñeta (la clave es `linked`, no `other`)",
+              any(x["name"] == "Teo Sala" for x in (ctx.get("venue") or {}).get("contacts", [])), str((ctx.get("venue") or {}).get("contacts")))
+    finally:
+        s.close()
+
+    # Un M&G en el recinto (en un espacio), con su número y DOS personas de contacto.
+    r = casa.post(base + "/item", json={
+        "kind": "MG", "day": DIA, "start_time": "19:00", "end_time": "19:30", "confirmed": True,
+        "sings": True, "songs": [{"song_id": "x", "title": "no"}], "location": "no debería quedar",
+        "place": {"mode": "VENUE", "space": "Camerino 2"}, "mg_count": "10",
+        "contacts": [{"name": "Paco Prod", "phone": "600000010", "role": "Jefe de producción"},
+                     {"name": "Teo Sala", "phone": "600000012"}, {"name": "Paco Prod"}]})
+    pay = (r.get_json() or {}).get("payload") or {}
+    mg = ([x for x in pay.get("agenda", []) if x.get("kind") == "MG"] or [{}])[0]
+    check("un M&G: en el recinto, en el Camerino 2, sin dirección y con su número",
+          (mg.get("place") or {}).get("mode") == "VENUE" and (mg.get("place") or {}).get("space") == "Camerino 2"
+          and mg.get("location") == "" and mg.get("mg_count") == "10", str(mg.get("place")) + " " + str(mg.get("location")))
+    check("en un M&G no se canta aunque el cliente lo mande (y no reclama repertorio)",
+          mg.get("sings") is False and mg.get("songs") == []
+          and not any(x.get("kind") == "MG" for x in A._roadmap_repertoire_pending(pay)))
+    check("dos personas de contacto (la repetida no entra) y la primera espejada en `contact`",
+          len(mg.get("contacts") or []) == 2 and (mg.get("contact") or {}).get("name") == "Paco Prod", str(mg.get("contacts")))
+    # Editar SIN mandar contactos ni sitio (un navegador con el JS viejo) los CONSERVA.
+    r = casa.post(base + "/item", json={"id": mg.get("id"), "kind": "MG", "day": DIA, "start_time": "19:15", "title": "M&G"})
+    pay = (r.get_json() or {}).get("payload") or {}
+    mg2 = ([x for x in pay.get("agenda", []) if x.get("id") == mg.get("id")] or [{}])[0]
+    check("editar sin mandarlos conserva las personas, el espacio y el número",
+          len(mg2.get("contacts") or []) == 2 and (mg2.get("place") or {}).get("space") == "Camerino 2" and mg2.get("mg_count") == "10")
+    # Una comida en un restaurante con reserva, y una citación a UNA hora.
+    r = casa.post(base + "/item", json={"kind": "COMIDA", "day": DIA, "start_time": "14:00", "end_time": "15:30",
+                                        "place": {"mode": "OTHER", "space": "Sala privada"}, "location": "Casa Pepe, Calle Mayor 3",
+                                        "meal": {"reservation": "1", "diners": "14"}})
+    pay = (r.get_json() or {}).get("payload") or {}
+    co = ([x for x in pay.get("agenda", []) if x.get("kind") == "COMIDA"] or [{}])[0]
+    check("una comida en un restaurante, en la sala privada, con reserva para 14",
+          (co.get("place") or {}).get("mode") == "OTHER" and co.get("location") == "Casa Pepe, Calle Mayor 3"
+          and co.get("meal") == {"reservation": True, "diners": 14}, str(co.get("meal")))
+    r = casa.post(base + "/item", json={"kind": "CITACION", "day": DIA, "start_time": "17:00", "end_time": "18:00"})
+    ci = ([x for x in ((r.get_json() or {}).get("payload") or {}).get("agenda", []) if x.get("kind") == "CITACION"] or [{}])[0]
+    check("una citación es a una hora: no guarda fin", ci.get("start_time") == "17:00" and ci.get("end_time") == "", str(ci.get("end_time")))
+    # Una persona de contacto NUEVA: tercero + persona de contacto del promotor, y sale sugerida.
+    r = casa.post(base + "/contacto/tercero", json={"name": "Nuevo Contacto Ruta", "phone": "600000099",
+                                                     "email": "nuevo@ruta-lote1.local", "role": "Prensa local"})
+    nc = r.get_json() or {}
+    check("una persona nueva vuelve lista para marcarla", r.status_code == 200 and nc.get("ok") and nc.get("promoter_id"), str(nc)[:160])
+    s = A.db()
+    try:
+        pr = s.query(Promoter).filter(Promoter.contact_email == "nuevo@ruta-lote1.local").first()
+        pc = (s.query(PromoterContact).filter(PromoterContact.link_promoter_id == pr.id).first() if pr else None)
+        c = s.get(Concert, A.to_uuid(cid))
+        check("⚠️ ES un tercero y queda como persona de contacto del promotor, con su cargo",
+              pr is not None and pc is not None and str(pc.promoter_id) == str(c.promoter_id) and pc.title == "Prensa local",
+              str(getattr(pc, "title", None)))
+        casa.post(base + "/contacto/tercero", json={"name": "Nuevo Contacto Ruta", "email": "nuevo@ruta-lote1.local"})
+        check("volver a crearla por su correo no duplica la ficha",
+              s.query(Promoter).filter(Promoter.contact_email == "nuevo@ruta-lote1.local").count() == 1)
+        with A.app.test_request_context():
+            ctx = A._roadmap_context(s, "concert", c)
+        check("y la próxima vez sale SUGERIDA", any(x["name"] == "Nuevo Contacto Ruta" for x in ctx.get("contact_suggestions") or []))
+    finally:
+        s.close()
 
     s = A.db()
     try:

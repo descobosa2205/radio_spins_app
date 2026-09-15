@@ -2310,6 +2310,38 @@ class PromoterPhone(Base):
     )
 
 
+class PromoterNotDuplicate(Base):
+    """DOS FICHAS DE TERCERO QUE **NO** SON LA MISMA, aunque se parezcan.
+
+    ⚠️⚠️ La pantalla de Terceros propone fusionar las fichas que comparten DNI, correo, teléfono o
+    nombre, pero **dos personas distintas pueden compartir algo** (el correo de una oficina, el
+    teléfono de una casa, el nombre de dos tocayos). Al decir «no son la misma» se apunta AQUÍ esa
+    pareja y deja de proponerse **solo ella**: si más adelante aparece otra ficha que también casa,
+    esa pareja nueva sí se propone. Sin esto, la única salida era fusionar —que no se puede
+    deshacer— o ver el mismo aviso para siempre.
+
+    ⚠️ La pareja se guarda **ordenada** (`a` < `b` como texto) y es ÚNICA, así que (A,B) y (B,A) son
+    la misma fila y no se puede apuntar dos veces. Si una de las dos fichas se borra o se fusiona,
+    la fila se va con ella (`ondelete=CASCADE`): ya no hay pareja que descartar."""
+
+    __tablename__ = "promoter_not_duplicates"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_a_id = Column(
+        PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    promoter_b_id = Column(
+        PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    # Quién lo dijo y cuándo: una decisión de una persona deja rastro (se puede deshacer).
+    dismissed_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("promoter_a_id", "promoter_b_id", name="uq_promoter_not_duplicates_pair"),
+        Index("idx_promoter_not_duplicates_a", "promoter_a_id"),
+        Index("idx_promoter_not_duplicates_b", "promoter_b_id"),
+    )
+
+
 class PromoterAltValue(Base):
     """Un dato ALTERNATIVO **con nombre** de un tercero.
 
@@ -9443,6 +9475,21 @@ def ensure_song_royalties_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_promoter_alt_values_promoter_id ON promoter_alt_values(promoter_id);',
+
+        # DOS FICHAS QUE **NO** SON LA MISMA: la pareja que alguien ha descartado al revisar los
+        # duplicados de Terceros, para no volver a proponerla. Se guarda ORDENADA y es única.
+        """
+        CREATE TABLE IF NOT EXISTS promoter_not_duplicates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_a_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            promoter_b_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            dismissed_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_promoter_not_duplicates_pair UNIQUE (promoter_a_id, promoter_b_id)
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promoter_not_duplicates_a ON promoter_not_duplicates(promoter_a_id);',
+        'CREATE INDEX IF NOT EXISTS idx_promoter_not_duplicates_b ON promoter_not_duplicates(promoter_b_id);',
 
         # Beneficiarios adicionales por canción
         """

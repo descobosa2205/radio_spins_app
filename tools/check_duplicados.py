@@ -47,19 +47,49 @@ for x in (a,b,c1,c2): s.add(x)
 s.commit()
 ids = {"a": a.id, "b": b.id, "c1": c1.id, "c2": c2.id}
 todos = s.query(models.Promoter).all()
-grupos = A._promoter_duplicate_groups(s, todos)
-def grupo_de(pid):
+grupos = A._promoter_duplicate_pairs(s, todos, limite=5000)
+def pareja_de(x, y):
     for g in grupos:
-        if str(pid) in [p["id"] for p in g["people"]]:
+        if {g["a"]["id"], g["b"]["id"]} == {str(x), str(y)}:
             return g
     return None
-g = grupo_de(ids["a"])
+g = pareja_de(ids["a"], ids["b"])
 check("la misma empresa con el nombre escrito distinto y el mismo correo sale como duplicada",
-      g is not None and str(ids["b"]) in [p["id"] for p in g["people"]], str(g)[:200])
+      g is not None, str(grupos)[:220])
 check("y se dice POR QUÉ (el mismo correo)", bool(g and "correo" in (g.get("why") or "")), (g or {}).get("why"))
-g2 = grupo_de(ids["c1"])
-check("dos personas con el MISMO nombre y DNI distinto NO se agrupan",
-      g2 is None or str(ids["c2"]) not in [p["id"] for p in g2["people"]], str(g2)[:200])
+check("se propone DE DOS EN DOS (una pareja, no un grupo)",
+      all(set(x) >= {"a", "b"} and "people" not in x for x in grupos), str(grupos[:1])[:200])
+check("dos personas con el MISMO nombre y DNI distinto NO se emparejan",
+      pareja_de(ids["c1"], ids["c2"]) is None)
+
+# ⚠️⚠️ UNA PERSONA NO ES LA EMPRESA A LA QUE ESTÁ VINCULADA (lo pidió Dani): ni por el CIF de su
+# sociedad ni por compartir el correo o el teléfono. Y puede estar vinculada a VARIAS sociedades.
+s = A.db()
+persona = models.Promoter(nick="Dueño %s" % suf, first_name="Ana", last_name="Dueña %s" % suf,
+                          contact_email="info+%s@sociedad.local" % suf, contact_phone="+346%s" % suf[:2].translate(str.maketrans("abcdef", "123456")).ljust(8, "7"))
+s.add(persona); s.flush()
+soc1 = models.Promoter(nick="Sociedad Una %s" % suf, kind="empresa", tax_id="B%s01" % suf[:5].upper(),
+                       contact_email="info+%s@sociedad.local" % suf, contact_phone="+34600123123")
+soc2 = models.Promoter(nick="Sociedad Dos %s" % suf, kind="empresa", tax_id="B%s02" % suf[:5].upper())
+s.add(soc1); s.add(soc2); s.flush()
+# Las DOS sociedades cuelgan de la persona (es lo normal: una persona factura por varias).
+s.add(models.PromoterCompany(promoter_id=persona.id, legal_name="Sociedad Una SL", tax_id=soc1.tax_id))
+s.add(models.PromoterCompany(promoter_id=persona.id, legal_name="Sociedad Dos SL", tax_id=soc2.tax_id))
+s.commit()
+pid_persona, pid_soc1, pid_soc2 = str(persona.id), str(soc1.id), str(soc2.id)
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+def hay(x, y):
+    return any({g["a"]["id"], g["b"]["id"]} == {x, y} for g in grupos)
+check("una PERSONA y la EMPRESA a la que está vinculada NO se proponen como la misma",
+      not hay(pid_persona, pid_soc1), str([g["why"] for g in grupos if pid_persona in (g["a"]["id"], g["b"]["id"])])[:200])
+check("ni por el CIF de su sociedad", not hay(pid_persona, pid_soc2))
+# ⚠️ Lo que no puede pasar es que se empareje con una EMPRESA (con otra persona que comparta algo,
+# sí: eso es un duplicado de verdad y hay que mirarlo).
+check("y estar vinculada a VARIAS sociedades no la empareja con ninguna empresa",
+      not any(pid_persona in (g["a"]["id"], g["b"]["id"]) and (g["a"]["company"] or g["b"]["company"])
+              for g in grupos),
+      str([(g["a"]["name"], g["b"]["name"]) for g in grupos if pid_persona in (g["a"]["id"], g["b"]["id"])])[:200])
+s.close()
 s.close()
 
 cli = A.app.test_client()
@@ -89,12 +119,49 @@ r = cli.post("/promotores/fusion", data={"keep_id": str(ids["a"]), "drop_id": st
 s = A.db()
 check("fusionadas: la que se descarta ya no existe", s.get(models.Promoter, ids["b"]) is None, r.status_code)
 check("y la que se conserva sigue ahí", s.get(models.Promoter, ids["a"]) is not None)
-grupos2 = A._promoter_duplicate_groups(s, s.query(models.Promoter).all())
-sigue = any(str(ids["a"]) in [p["id"] for p in g["people"]] and len(g["people"]) > 1
-            for g in grupos2)
-# ⚠️ Puede seguir agrupada con la que se creó con force_new (mismo correo): eso es correcto.
-check("después de fusionar, esa pareja ya no está", not any(
-    str(ids["b"]) in [p["id"] for p in g["people"]] for g in grupos2))
+grupos2 = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+# ⚠️ La que se conservó puede seguir emparejada con la que se creó con force_new (mismo correo):
+# eso es correcto; lo que no puede quedar es la que se ha borrado.
+check("después de fusionar, la ficha borrada ya no aparece en ninguna pareja", not any(
+    str(ids["b"]) in (g["a"]["id"], g["b"]["id"]) for g in grupos2))
 s.close()
+# ─── «NO SON LA MISMA»: la salida para dos personas distintas que comparten algo ───────────────
+s = A.db()
+d1 = models.Promoter(nick="Oficina Uno %s" % suf, contact_email="oficina+%s@x.local" % suf)
+d2 = models.Promoter(nick="Oficina Dos %s" % suf, contact_email="oficina+%s@x.local" % suf)
+s.add(d1); s.add(d2); s.commit()
+id1, id2 = str(d1.id), str(d2.id)
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+def juntos(x, y, gs):
+    return any({g["a"]["id"], g["b"]["id"]} == {x, y} for g in gs)
+check("dos fichas con el mismo correo salen como posible duplicado", juntos(id1, id2, grupos))
+s.close()
+
+r = cli.post("/promotores/duplicados/descartar",
+             data={"ids[]": [id1, id2], "next": "/promotores"}, follow_redirects=False)
+s = A.db()
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+check("al decir «no son la misma», esa pareja deja de proponerse", not juntos(id1, id2, grupos), r.status_code)
+check("y queda apuntado quién lo dijo, para poder deshacerlo",
+      any(d["a"]["id"] in (id1, id2) and d["b"]["id"] in (id1, id2) for d in A._promoter_dismissed_rows(s)))
+
+# ⚠️ Se descarta LA PAREJA, no la ficha: una TERCERA con el mismo correo sí se propone.
+d3 = models.Promoter(nick="Oficina Tres %s" % suf, contact_email="oficina+%s@x.local" % suf)
+s.add(d3); s.commit()
+id3 = str(d3.id)
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+check("una TERCERA ficha que coincide sí se propone (con las dos descartadas aparte)",
+      juntos(id1, id3, grupos) or juntos(id2, id3, grupos), str(grupos)[:200])
+s.close()
+
+r = cli.post("/promotores/duplicados/restaurar", data={"a": id1, "b": id2, "next": "/promotores"})
+s = A.db()
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+check("y se puede DESHACER: vuelve a salir", juntos(id1, id2, grupos), r.status_code)
+s.close()
+
+r = cli.post("/promotores/duplicados/descartar", data={"ids[]": [id1], "next": "/promotores"})
+check("con una sola ficha no se descarta nada (hacen falta dos)", r.status_code in (302, 303))
+
 print("\n%d bien · %d mal" % (len(OK), len(KO)))
 sys.exit(1 if KO else 0)

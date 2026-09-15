@@ -43,53 +43,110 @@
    el mismo, haciendo de promotor. Cuando alguien se da de alta dos veces, su historia se parte en
    dos —la mitad de sus actividades y facturas en cada una—, así que aquí se ve y se une con el
    motor de fusión de siempre, que re-apunta TODO lo que colgaba de la que se descarta.
+   ⚠️⚠️ SE PROPONE DE DOS EN DOS: con cinco fichas que comparten un correo, un grupo obligaba a
+   fusionarlas todas cuando a lo mejor solo dos son la misma.
    ⚠️ Solo aparece si hay algo que unir: una caja vacía diciendo «no hay duplicados» es ruido. #}
-{% if duplicate_groups %}
+{% if duplicate_pairs %}
 <div class="card mb-3 border-warning">
   <div class="card-body">
     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
       <i class="fa fa-clone text-warning"></i>
       <strong>Fichas repetidas</strong>
-      <span class="badge text-bg-warning text-dark">{{ duplicate_groups|length }}</span>
+      <span class="badge text-bg-warning text-dark">{{ duplicate_pairs|length }}</span>
       <button class="btn btn-sm btn-link ms-auto p-0" type="button" data-bs-toggle="collapse"
               data-bs-target="#promoterDuplicates">Ver / ocultar</button>
     </div>
-    <div class="text-muted small mb-2">La misma persona o empresa está dada de alta más de una vez.
-      Al fusionarlas, todo lo que cuelga de la que se descarta (actividades, facturas, documentos,
-      vinculaciones) pasa a la que se conserva: no se pierde nada.</div>
+    <div class="text-muted small mb-2">Estas dos fichas pueden ser la misma persona o empresa. Al
+      fusionarlas, todo lo que cuelga de la que se descarta (actividades, facturas, documentos,
+      vinculaciones) pasa a la que se conserva: no se pierde nada. Y si <strong>no</strong> son la
+      misma —dos personas pueden compartir el correo de una oficina o el nombre—, dilo y deja de
+      proponerse.</div>
     <div class="collapse show" id="promoterDuplicates">
-      {% for g in duplicate_groups %}
+      {% for g in duplicate_pairs %}
         <div class="border rounded-3 p-2 mb-2 bg-white">
           <div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Tienen {{ g.why }}.</div>
           <div class="d-flex flex-wrap gap-2 align-items-center">
-            {% for p in g.people %}
+            {% for p in [g.a, g.b] %}
               <a class="d-flex align-items-center gap-2 text-decoration-none text-reset border rounded-pill ps-1 pe-3 py-1"
                  href="{{ url_for('promoter_detail_view', pid=p.id) }}" title="Abrir su ficha">
                 <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
                      style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex:0 0 auto">
                 <span style="min-width:0">
-                  <span class="d-block small fw-semibold text-truncate">{{ p.name }}</span>
+                  <span class="d-block small fw-semibold text-truncate">{{ p.name }}
+                    {% if p.company %}<span class="badge text-bg-light border fw-normal">Empresa</span>{% endif %}</span>
                   <span class="d-block text-muted" style="font-size:.75rem">
                     {{ p.tax_id or p.email or p.phone or 'sin más datos' }}</span>
                 </span>
               </a>
+              {% if loop.first %}<i class="fa fa-arrows-left-right text-muted"></i>{% endif %}
             {% endfor %}
-            {% if CAN_EDIT_SONGS_PROMOTERS and g.people|length > 1 %}
-              {# Abre el modal de fusión de siempre YA en la comparación de estas dos (el modal es el
-                 mismo que el del menú ⋮ de cada fila: un solo sitio para fusionar). #}
-              <button type="button" class="btn btn-sm btn-warning ms-auto"
-                      data-merge-open data-merge-label="Tercero"
-                      data-merge-id="{{ g.people[0].id }}" data-merge-with="{{ g.people[1].id }}"
-                      data-merge-name="{{ g.people[0].name|e }}" data-merge-photo="{{ g.people[0].photo or '' }}"
-                      data-merge-search="{{ url_for('merge_search_promoter') }}"
-                      data-merge-compare="{{ url_for('merge_compare_promoter') }}"
-                      data-merge-execute="{{ url_for('merge_execute_promoter') }}">
-                <i class="fa fa-code-merge me-1"></i>Fusionarlas</button>
+            {% if CAN_EDIT_SONGS_PROMOTERS %}
+              <span class="ms-auto d-flex gap-2 flex-wrap">
+                {# ⚠️ LA SALIDA DE «NO SON LA MISMA»: dos personas distintas pueden compartir el
+                   correo de una oficina, un teléfono o el nombre. Se descarta ESA pareja y no se
+                   vuelve a proponer; si mañana aparece otra ficha que casa, esa sí saldrá. #}
+                <form method="post" action="{{ url_for('promoters_duplicate_dismiss') }}" class="d-inline">
+                  <input type="hidden" name="ids[]" value="{{ g.a.id }}">
+                  <input type="hidden" name="ids[]" value="{{ g.b.id }}">
+                  <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
+                  <button type="submit" class="btn btn-sm btn-outline-secondary"
+                          title="No son la misma: deja de proponerlo">
+                    <i class="fa fa-user-xmark me-1"></i>No son la misma</button>
+                </form>
+                {# Abre el modal de fusión de siempre YA en la comparación de estas dos (el modal es
+                   el mismo que el del menú ⋮ de cada fila: un solo sitio para fusionar). #}
+                <button type="button" class="btn btn-sm btn-warning"
+                        data-merge-open data-merge-label="Tercero"
+                        data-merge-id="{{ g.a.id }}" data-merge-with="{{ g.b.id }}"
+                        data-merge-name="{{ g.a.name|e }}" data-merge-photo="{{ g.a.photo or '' }}"
+                        data-merge-search="{{ url_for('merge_search_promoter') }}"
+                        data-merge-compare="{{ url_for('merge_compare_promoter') }}"
+                        data-merge-execute="{{ url_for('merge_execute_promoter') }}">
+                  <i class="fa fa-code-merge me-1"></i>Fusionarlas</button>
+              </span>
             {% endif %}
           </div>
+          {% if g.rest %}
+            <div class="small text-muted mt-2"><i class="fa fa-ellipsis me-1"></i>Y {{ g.rest }}
+              pareja{{ 's' if g.rest != 1 else '' }} más: al resolver estas, salen las siguientes.</div>
+          {% endif %}
         </div>
       {% endfor %}
     </div>
+  </div>
+</div>
+{% endif %}
+
+{# LAS PAREJAS DESCARTADAS («no son la misma»), por si hay que DESHACERLO: una decisión de una
+   persona no puede ser invisible ni definitiva (la fusión sí lo es, por eso esta no).
+   ⚠️ Sale plegada: es un archivo, no trabajo pendiente. #}
+{% if dismissed_pairs and CAN_EDIT_SONGS_PROMOTERS %}
+<div class="mb-3">
+  <button class="btn btn-sm btn-link px-0" type="button" data-bs-toggle="collapse"
+          data-bs-target="#promoterDismissed">
+    <i class="fa fa-user-xmark me-1"></i>Parejas descartadas ({{ dismissed_pairs|length }})</button>
+  <div class="collapse" id="promoterDismissed">
+    <div class="card"><div class="card-body">
+      <div class="text-muted small mb-2">Aquí está lo que se dijo que NO era la misma ficha. Si fue
+        un error, se puede deshacer y vuelve a salir como posible duplicado.</div>
+      {% for d in dismissed_pairs %}
+        <div class="d-flex flex-wrap gap-2 align-items-center border rounded-3 p-2 mb-2 bg-white">
+          <a class="small text-decoration-none text-reset" href="{{ url_for('promoter_detail_view', pid=d.a.id) }}">{{ d.a.name }}</a>
+          <span class="text-muted small">·</span>
+          <a class="small text-decoration-none text-reset" href="{{ url_for('promoter_detail_view', pid=d.b.id) }}">{{ d.b.name }}</a>
+          {% if d.by or d.at %}
+            <span class="small text-muted">— lo dijo {{ d.by or 'alguien' }}{% if d.at %} el {{ d.at }}{% endif %}</span>
+          {% endif %}
+          <form method="post" action="{{ url_for('promoters_duplicate_restore') }}" class="ms-auto">
+            <input type="hidden" name="a" value="{{ d.a.id }}">
+            <input type="hidden" name="b" value="{{ d.b.id }}">
+            <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+              <i class="fa fa-rotate-left me-1"></i>Deshacer</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div></div>
   </div>
 </div>
 {% endif %}

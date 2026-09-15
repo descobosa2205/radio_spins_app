@@ -259,15 +259,23 @@
   mitad de sus actividades, facturas y documentos cuelgan de una ficha y la otra mitad de la otra
   —y, de propina, un id que se quedó apuntado en una petición **tumbaba el alta de la actividad**
   cuando la ficha desaparecía en una fusión (ver `docs/app/actividades.md`)—.
-  · **«FICHAS REPETIDAS», arriba de Terceros** (`_promoter_duplicate_groups`): los grupos de fichas
-  que son la misma, **diciendo por qué** lo son, con las dos (o más) y el botón **«Fusionarlas»**,
-  que abre el modal de fusión de siempre **ya en la comparación** (`data-merge-with`, nuevo en
-  `merge_entities.js`) — hacer buscar a mano lo que la propia pantalla acaba de decir es trabajo
-  tonto. La fusión es la de siempre: re-apunta TODO lo que colgaba del que se descarta.
-  · **El criterio**: mismo **DNI/CIF** (también el de sus sociedades), mismo **correo** (también los
-  de su pestaña de contacto), mismo **teléfono** (normalizado, así «+34 600…» y «600…» son el mismo)
-  o el mismo **nombre completo**.
-  ⚠️⚠️ **DOS DNI DISTINTOS NUNCA SE AGRUPAN**, aunque se llamen igual: fusionar a dos personas
+  · **«FICHAS REPETIDAS», arriba de Terceros** (`_promoter_duplicate_pairs`): **DE DOS EN DOS**,
+  diciendo **por qué** lo son, con el botón **«Fusionarlas»**, que abre el modal de fusión de siempre
+  **ya en la comparación** (`data-merge-with`, nuevo en `merge_entities.js`) — hacer buscar a mano lo
+  que la propia pantalla acaba de decir es trabajo tonto. La fusión es la de siempre: re-apunta TODO
+  lo que colgaba del que se descarta.
+  ⚠️⚠️ **DE DOS EN DOS, NO EN GRUPOS** (lo pidió Dani): con cinco fichas que comparten un correo, un
+  grupo obligaba a fusionarlas todas «cuando a lo mejor solo hay que fusionar dos». Una pareja es
+  además lo que compara el modal de fusión. Se enseñan las primeras (lo más concluyente arriba) y se
+  DICE cuántas quedan.
+  · **El criterio**: mismo **DNI/CIF propio**, mismo **correo** (también los de su pestaña de
+  contacto), mismo **teléfono** (normalizado, así «+34 600…» y «600…» son el mismo) o el mismo
+  **nombre completo**.
+  ⚠️⚠️ **UNA PERSONA NO ES LA EMPRESA A LA QUE ESTÁ VINCULADA** (lo pidió Dani, y era un fallo de la
+  primera versión): el **CIF de sus sociedades NO cuenta** —una persona puede facturar por varias— y
+  una ficha de **empresa** nunca se empareja con una de **persona**, compartan lo que compartan (el
+  correo o el teléfono de una sociedad suele ser el de su dueño). `_promoter_is_company`.
+  ⚠️⚠️ **DOS DNI DISTINTOS NUNCA SE EMPAREJAN**, aunque se llamen igual: fusionar a dos personas
   distintas es mucho peor que dejar un duplicado, y no se puede deshacer.
   · **«FICHAS QUE SON ALGUIEN DE LA OFICINA»** (`_promoter_office_duplicates`): terceros que
   coinciden con personal de la casa (por DNI o por nombre), con enlace a las dos fichas. ⚠️ **Estas
@@ -282,5 +290,21 @@
   dos. Se sigue pudiendo crear si de verdad es otro (`force_new`), como con los nombres parecidos.
   ⚠️ Todo va **en bloque** (una consulta por tabla): con cientos de terceros, una consulta por ficha
   dejaría la pantalla de Terceros inservible.
-  ⚠️ Prueba de regresión: **`tools/check_duplicados.py`** (11 comprobaciones con la app real, fusión
-  incluida).
+  ⚠️ Prueba de regresión: **`tools/check_duplicados.py`** (21 comprobaciones con la app real, la
+  fusión y el descarte incluidos).
+
+- ⚠️⚠️ **«NO SON LA MISMA»: LA SALIDA DE UN DUPLICADO QUE NO LO ES** (sep 2026, lo pidió Dani). El
+  bloque de fichas repetidas proponía fusionar, y **fusionar no se puede deshacer**: si dos fichas
+  se parecían pero eran **dos personas distintas** (el correo de una oficina, el teléfono de una
+  casa, dos tocayos), la única salida era comerse el aviso para siempre.
+  · Cada pareja lleva ahora **«No son la misma»** (`promoters_duplicate_dismiss`): se apunta en
+  **`PromoterNotDuplicate`** y **deja de proponerse**.
+  ⚠️⚠️ **Se descarta LA PAREJA, no la ficha**: si mañana aparece una TERCERA que casa con cualquiera
+  de las dos, esa pareja nueva **sí** se propone — que es justo lo que pidió Dani.
+  · La pareja se guarda **ORDENADA** (`a` < `b`) y es **ÚNICA**, así que (A,B) y (B,A) son la misma
+  fila; y si una de las dos fichas se borra o se fusiona, la fila se va con ella (`CASCADE`).
+  · **SE PUEDE DESHACER** (`promoters_duplicate_restore`): «Parejas descartadas» —plegado, es un
+  archivo, no trabajo— dice **quién lo dijo y cuándo** y tiene su «Deshacer». Una decisión de una
+  persona no puede ser invisible ni definitiva.
+  ⚠️ Las dos rutas van bajo `/promotores`, así que heredan el permiso de la sección (como la fusión).
+  ⚠️ Cubierto por `tools/check_duplicados.py` (21 comprobaciones) y probado en el navegador.

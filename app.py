@@ -215,6 +215,7 @@ from models import (
     PromoterEmail,
     PromoterPhone,
     PromoterAltValue,
+    PromoterNotDuplicate,
     SongRoyaltyBeneficiary,
     PublishingCompany,
     SongEditorialShare,
@@ -50737,6 +50738,72 @@ def api_song_meta():
     return jsonify(payload)
 
 # ----------- PROMOTORES ------------
+@app.post("/promotores/duplicados/descartar", endpoint="promoters_duplicate_dismiss")
+@admin_required
+def promoters_duplicate_dismiss():
+    """«NO SON LA MISMA»: esa pareja de fichas deja de proponerse para fusionar.
+
+    ⚠️⚠️ Es la salida que faltaba (sep 2026, lo pidió Dani): la pantalla propone fusionar lo que se
+    parece, pero **dos personas distintas pueden compartir un correo, un teléfono o el nombre**, y
+    la única alternativa era fusionarlas —que no se puede deshacer— o comerse el aviso para siempre.
+    ⚠️ Se descarta **la pareja**, no la ficha: si mañana aparece otra que casa con alguna de las dos,
+    esa pareja nueva sí se propone. Y con más de dos fichas en el grupo se descartan todas sus
+    parejas, que es lo que significa «estas no son la misma».
+    ⚠️ Se puede DESHACER (`promoters_duplicate_restore`): una decisión de una persona deja rastro
+    (quién y cuándo) y se puede corregir.
+    ⚠️ Va bajo `/promotores`, así que hereda el permiso de la sección (como la fusión)."""
+    session = db()
+    back = request.form.get("next") or url_for("promoters_view")
+    try:
+        ids = [x for x in (request.form.getlist("ids[]") or []) if (x or "").strip()]
+        vivos = [str(p) for p in (_id_vivo(session, Promoter, x) for x in ids) if p]
+        if len(vivos) < 2:
+            raise ValueError("Hacen falta dos fichas para decir que no son la misma.")
+        nick = ((_current_user_state() or {}).get("nick") or "")
+        n = 0
+        for i in range(len(vivos)):
+            for j in range(i + 1, len(vivos)):
+                if _promoter_dismiss_pair(session, vivos[i], vivos[j], nick=nick):
+                    n += 1
+        session.commit()
+        flash("Anotado: no son la misma ficha, así que no se volverá a proponer fusionarlas. "
+              "Puedes deshacerlo en «Parejas descartadas»." if n
+              else "Esa pareja ya estaba descartada.", "success" if n else "info")
+    except Exception as exc:
+        session.rollback()
+        flash(str(exc) if isinstance(exc, ValueError)
+              else "No se ha podido descartar esa pareja.", "danger")
+        if not isinstance(exc, ValueError):
+            app.logger.exception("[terceros] no se pudo descartar la pareja de duplicados")
+    finally:
+        session.close()
+    return redirect(back)
+
+
+@app.post("/promotores/duplicados/restaurar", endpoint="promoters_duplicate_restore")
+@admin_required
+def promoters_duplicate_restore():
+    """DESHACER un «no son la misma»: esa pareja vuelve a proponerse si sigue pareciéndose."""
+    session = db()
+    back = request.form.get("next") or url_for("promoters_view")
+    try:
+        x, y = _promoter_pair_key(_safe_uuid(request.form.get("a")), _safe_uuid(request.form.get("b")))
+        n = (session.query(PromoterNotDuplicate)
+             .filter(PromoterNotDuplicate.promoter_a_id == _safe_uuid(x),
+                     PromoterNotDuplicate.promoter_b_id == _safe_uuid(y))
+             .delete(synchronize_session=False))
+        session.commit()
+        flash("Vuelve a salir como posible duplicado." if n else "Esa pareja ya no estaba descartada.",
+              "success" if n else "info")
+    except Exception:
+        session.rollback()
+        app.logger.exception("[terceros] no se pudo restaurar la pareja de duplicados")
+        flash("No se ha podido deshacer.", "danger")
+    finally:
+        session.close()
+    return redirect(back)
+
+
 @app.route("/promotores", methods=["GET", "POST"])
 @admin_required
 def promoters_view():
@@ -50828,10 +50895,13 @@ def promoters_view():
             "promoters.html",
             promoters=promoters,
             promoter_tag_tabs=promoter_tag_tabs,
-            # LOS DUPLICADOS, arriba del listado: la misma ficha dos veces se ve y se fusiona aquí.
-            duplicate_groups=_promoter_duplicate_groups(session, promoters),
+            # LOS DUPLICADOS, arriba del listado: la misma ficha dos veces se ve y se fusiona aquí,
+            # DE DOS EN DOS (un grupo de cinco obligaba a fusionarlas todas).
+            duplicate_pairs=_promoter_duplicate_pairs(session, promoters),
             # Y los que son, en realidad, alguien de la OFICINA (esos no se fusionan: se dicen).
             office_duplicates=_promoter_office_duplicates(session, promoters),
+            # Las parejas que ya se dijo que NO son la misma, por si hay que deshacerlo.
+            dismissed_pairs=_promoter_dismissed_rows(session),
             import_fields=[{"key": k, "label": l} for k, l, _kind, _al in promoter_import.FIELDS],
             import_target_ignore=promoter_import.TARGET_IGNORE,
             import_target_alt=promoter_import.TARGET_ALT,
@@ -50943,16 +51013,23 @@ def _promoter_apply_extra_form(session_db, p, form) -> None:
 #  dejaría la pantalla de Terceros inservible.
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
 
-def _promoter_duplicate_keys(promoter, *, taxes=(), emails=(), phones=()) -> tuple:
+def _promoter_is_company(promoter) -> bool:
+    """¿Esta ficha es una EMPRESA (o una institución) y no una persona?"""
+    return (getattr(promoter, "kind", "") or "").strip().lower() in ("empresa", "institucion")
+
+
+def _promoter_duplicate_keys(promoter, *, emails=(), phones=()) -> tuple:
     """Con qué se reconoce a este tercero. Devuelve `(claves fuertes, claves de nombre)`.
 
-    Las FUERTES (DNI, correo, teléfono) agrupan siempre; la del NOMBRE solo cuando ningún DNI
-    desmiente la pareja."""
+    Las FUERTES (DNI/CIF **propio**, correo, teléfono) emparejan siempre; la del NOMBRE solo cuando
+    ningún DNI desmiente la pareja.
+    ⚠️⚠️ **EL CIF DE SUS SOCIEDADES NO CUENTA** (lo pidió Dani): una persona vinculada a una empresa
+    **no es** esa empresa, y puede estar vinculada a varias. Mirando ahí, la ficha de la persona y la
+    de su sociedad salían como la misma — y fusionarlas habría sido un destrozo."""
     fuertes, nombres = set(), set()
-    for bruto in list(taxes or []) + [getattr(promoter, "tax_id", "") or ""]:
-        dni = _prl_norm_dni(str(bruto or ""))
-        if dni:
-            fuertes.add("dni:" + dni)
+    dni = _prl_norm_dni(getattr(promoter, "tax_id", "") or "")
+    if dni:
+        fuertes.add("dni:" + dni)
     for bruto in list(emails or []) + [getattr(promoter, "contact_email", "") or ""]:
         correo = str(bruto or "").strip().lower()
         if correo and "@" in correo:
@@ -50966,6 +51043,103 @@ def _promoter_duplicate_keys(promoter, *, taxes=(), emails=(), phones=()) -> tup
         if nombre and len(nombre) > 4:
             nombres.add("nom:" + nombre)
     return fuertes, nombres
+
+
+# Los motivos, de más a menos concluyente (así se ordena lo que se propone).
+DUPLICATE_REASONS = [("dni", "el mismo DNI/CIF"), ("mail", "el mismo correo"),
+                     ("tel", "el mismo teléfono"), ("nom", "el mismo nombre")]
+DUPLICATE_REASON_LABELS = dict(DUPLICATE_REASONS)
+DUPLICATE_REASON_ORDER = {k: n for n, (k, _l) in enumerate(DUPLICATE_REASONS)}
+
+
+def _promoter_duplicate_pairs(session_db, promoters, *, limite: int = 40) -> list:
+    """LAS FICHAS QUE SON LA MISMA, **DE DOS EN DOS**, con por qué lo son. Punto único de la pantalla.
+
+    ⚠️⚠️ **DE DOS EN DOS, NO EN GRUPOS** (lo pidió Dani): con cinco fichas que comparten un correo,
+    un grupo obligaba a fusionarlas todas cuando a lo mejor solo dos son la misma. Cada propuesta es
+    una PAREJA, que además es lo que compara el modal de fusión.
+    ⚠️⚠️ **UNA EMPRESA NUNCA SE EMPAREJA CON UNA PERSONA**: el correo o el teléfono de una sociedad
+    suele ser el de su dueño, y son dos fichas distintas a propósito (una factura, la otra firma).
+    ⚠️ **Dos DNI distintos no se emparejan** aunque se llamen igual: fusionar a dos personas
+    distintas es mucho peor que dejar un duplicado, y no se puede deshacer.
+    ⚠️ Lo que alguien ya descartó (`PromoterNotDuplicate`) no vuelve a salir.
+    ⚠️ Todo en BLOQUE (una consulta por tabla): con cientos de terceros, una por ficha dejaría la
+    pantalla inservible."""
+    filas = [p for p in (promoters or []) if getattr(p, "id", None)]
+    if len(filas) < 2:
+        return []
+    ids = [p.id for p in filas]
+    extra_mail: dict = {}
+    extra_tel: dict = {}
+    try:
+        for pid, correo in (session_db.query(PromoterEmail.promoter_id, PromoterEmail.email)
+                            .filter(PromoterEmail.promoter_id.in_(ids),
+                                    PromoterEmail.email.isnot(None)).all()):
+            extra_mail.setdefault(str(pid), []).append(correo)
+        for pid, tel in (session_db.query(PromoterPhone.promoter_id, PromoterPhone.phone)
+                         .filter(PromoterPhone.promoter_id.in_(ids),
+                                 PromoterPhone.phone.isnot(None)).all()):
+            extra_tel.setdefault(str(pid), []).append(tel)
+    except Exception:
+        app.logger.exception("[terceros] no se pudieron leer los datos para buscar duplicados")
+
+    por_id = {str(p.id): p for p in filas}
+    dni_por_id, por_clave = {}, {}
+    for p in filas:
+        sid = str(p.id)
+        fuertes, nombres = _promoter_duplicate_keys(
+            p, emails=extra_mail.get(sid, []), phones=extra_tel.get(sid, []))
+        dni_por_id[sid] = {k for k in fuertes if k.startswith("dni:")}
+        for k in (fuertes | nombres):
+            por_clave.setdefault(k, []).append(sid)
+
+    descartadas = _promoter_dismissed_pairs(session_db)
+    motivos: dict = {}
+    for clave, sids in por_clave.items():
+        if len(sids) < 2:
+            continue
+        motivo = clave.split(":", 1)[0]
+        for i in range(len(sids)):
+            for j in range(i + 1, len(sids)):
+                a, b = por_id.get(sids[i]), por_id.get(sids[j])
+                if a is None or b is None:
+                    continue
+                # Una empresa y una persona no son la misma ficha, compartan lo que compartan.
+                if _promoter_is_company(a) != _promoter_is_company(b):
+                    continue
+                if motivo == "nom":
+                    da, db = dni_por_id.get(sids[i]) or set(), dni_por_id.get(sids[j]) or set()
+                    if da and db and not (da & db):
+                        continue
+                par = _promoter_pair_key(sids[i], sids[j])
+                if par in descartadas:
+                    continue
+                motivos.setdefault(par, set()).add(motivo)
+
+    salida = []
+    for (x, y), ms in motivos.items():
+        a, b = por_id.get(x), por_id.get(y)
+        if a is None or b is None:
+            continue
+        fuerza = min(DUPLICATE_REASON_ORDER.get(m, 9) for m in ms)
+        salida.append({
+            "key": x + "|" + y, "order": fuerza,
+            "a": {"id": x, "name": (_promoter_display_name(a) or a.nick or "—"),
+                  "photo": (a.logo_url or ""), "tax_id": (a.tax_id or ""),
+                  "email": (a.contact_email or ""), "phone": (a.contact_phone or ""),
+                  "company": _promoter_is_company(a)},
+            "b": {"id": y, "name": (_promoter_display_name(b) or b.nick or "—"),
+                  "photo": (b.logo_url or ""), "tax_id": (b.tax_id or ""),
+                  "email": (b.contact_email or ""), "phone": (b.contact_phone or ""),
+                  "company": _promoter_is_company(b)},
+            "why": _join_es([DUPLICATE_REASON_LABELS[m] for m, _l in DUPLICATE_REASONS if m in ms]),
+        })
+    salida.sort(key=lambda g: (g["order"], (g["a"]["name"] or "").casefold()))
+    # ⚠️ Se enseñan las primeras (lo más concluyente arriba: DNI, correo, teléfono y luego el
+    # nombre) y se DICE cuántas quedan: recortar en silencio haría creer que no hay más.
+    if len(salida) > limite:
+        salida[limite - 1]["rest"] = len(salida) - limite
+    return salida[:limite]
 
 
 def _promoter_existing_matches(session_db, *, tax_id="", email="", phone="", exclude_id=None) -> list:
@@ -51022,8 +51196,48 @@ def _promoter_existing_matches(session_db, *, tax_id="", email="", phone="", exc
     return salida
 
 
+def _promoter_pair_key(a, b) -> tuple:
+    """La pareja ORDENADA, para que (A,B) y (B,A) sean la misma. Punto único."""
+    x, y = str(a or ""), str(b or "")
+    return (x, y) if x <= y else (y, x)
+
+
+def _promoter_dismissed_pairs(session_db) -> set:
+    """LAS PAREJAS QUE ALGUIEN YA DIJO QUE **NO** SON LA MISMA (`PromoterNotDuplicate`).
+
+    ⚠️ En bloque: es una consulta para toda la pantalla, no una por grupo."""
+    try:
+        return {_promoter_pair_key(a, b)
+                for a, b in session_db.query(PromoterNotDuplicate.promoter_a_id,
+                                             PromoterNotDuplicate.promoter_b_id).all()}
+    except Exception:
+        app.logger.exception("[terceros] no se pudieron leer las parejas descartadas")
+        return set()
+
+
+def _promoter_dismiss_pair(session_db, a, b, *, nick: str = "") -> bool:
+    """Apunta que esas dos fichas NO son la misma. Idempotente (la pareja es única)."""
+    ua, ub = _safe_uuid(a), _safe_uuid(b)
+    if not ua or not ub or ua == ub:
+        return False
+    x, y = _promoter_pair_key(ua, ub)
+    ya = (session_db.query(PromoterNotDuplicate)
+          .filter(PromoterNotDuplicate.promoter_a_id == to_uuid(x),
+                  PromoterNotDuplicate.promoter_b_id == to_uuid(y)).first())
+    if ya is not None:
+        return False
+    session_db.add(PromoterNotDuplicate(promoter_a_id=to_uuid(x), promoter_b_id=to_uuid(y),
+                                        dismissed_by_nick=(nick or "")[:120]))
+    return True
+
+
 def _promoter_duplicate_groups(session_db, promoters, *, limite: int = 40) -> list:
-    """LOS GRUPOS DE FICHAS QUE SON LA MISMA, con por qué lo son. Punto único de la pantalla."""
+    """LOS GRUPOS DE FICHAS QUE SON LA MISMA, con por qué lo son. Punto único de la pantalla.
+
+    ⚠️⚠️ **Lo que alguien ya descartó no se vuelve a proponer** (`PromoterNotDuplicate`): dos
+    personas distintas pueden compartir el correo de una oficina, el teléfono de una casa o el
+    nombre. Se descarta LA PAREJA, no la ficha: si mañana aparece una tercera que casa con
+    cualquiera de las dos, esa pareja nueva sí se propone."""
     filas = [p for p in (promoters or []) if getattr(p, "id", None)]
     if len(filas) < 2:
         return []
@@ -51078,6 +51292,7 @@ def _promoter_duplicate_groups(session_db, promoters, *, limite: int = 40) -> li
             por_clave.setdefault(k, []).append(sid)
         for k in nombres:
             por_clave.setdefault(k, []).append(sid)
+    descartadas = _promoter_dismissed_pairs(session_db)
     for clave, sids in por_clave.items():
         if len(sids) < 2:
             continue
@@ -51087,6 +51302,10 @@ def _promoter_duplicate_groups(session_db, promoters, *, limite: int = 40) -> li
                 a, b = dni_por_id.get(sids[0]) or set(), dni_por_id.get(otro) or set()
                 if a and b and not (a & b):
                     continue
+            # ⚠️⚠️ Y una pareja que alguien ya dijo que NO es la misma no se une por nada: no
+            # vuelve a proponerse ni arrastra a un grupo a otras fichas por transitividad.
+            if _promoter_pair_key(sids[0], otro) in descartadas:
+                continue
             une(sids[0], otro)
             motivo_clave.setdefault(raiz(sids[0]), set()).add(clave.split(":", 1)[0])
 
@@ -51099,6 +51318,11 @@ def _promoter_duplicate_groups(session_db, promoters, *, limite: int = 40) -> li
     salida = []
     for r, sids in grupos.items():
         if len(sids) < 2:
+            continue
+        # ⚠️ Si TODAS las parejas del grupo están descartadas, el grupo no se enseña (puede quedar
+        # armado por transitividad: A-C y B-C unen a A y B aunque esa pareja se descartara).
+        parejas = [(sids[i], sids[j]) for i in range(len(sids)) for j in range(i + 1, len(sids))]
+        if parejas and all(_promoter_pair_key(x, y) in descartadas for x, y in parejas):
             continue
         gente = [por_id[s] for s in sids if s in por_id]
         gente.sort(key=lambda p: ((p.nick or "").casefold(), str(p.id)))
@@ -51113,6 +51337,33 @@ def _promoter_duplicate_groups(session_db, promoters, *, limite: int = 40) -> li
         })
     salida.sort(key=lambda g: (-len(g["people"]), (g["people"][0]["name"] or "").casefold()))
     return salida[:limite]
+
+
+def _promoter_dismissed_rows(session_db, *, limite: int = 60) -> list:
+    """LAS PAREJAS DESCARTADAS, para poder DESHACERLO. Quién lo dijo y cuándo.
+
+    ⚠️ Una decisión así no puede ser invisible: si alguien descarta por error dos fichas que sí eran
+    la misma, tiene que poder volver atrás (la fusión, en cambio, no se deshace)."""
+    filas = []
+    try:
+        for fila in (session_db.query(PromoterNotDuplicate)
+                     .order_by(PromoterNotDuplicate.created_at.desc().nullslast()).limit(limite).all()):
+            a = session_db.get(Promoter, fila.promoter_a_id)
+            b = session_db.get(Promoter, fila.promoter_b_id)
+            if a is None or b is None:
+                continue                 # una de las dos ya no existe: no hay pareja que descartar
+            filas.append({
+                "a": {"id": str(a.id), "name": (_promoter_display_name(a) or a.nick or "—"),
+                      "photo": (a.logo_url or "")},
+                "b": {"id": str(b.id), "name": (_promoter_display_name(b) or b.nick or "—"),
+                      "photo": (b.logo_url or "")},
+                "by": (fila.dismissed_by_nick or ""),
+                "at": (fila.created_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                       if fila.created_at else ""),
+            })
+    except Exception:
+        app.logger.exception("[terceros] no se pudieron leer las parejas descartadas")
+    return filas
 
 
 def _promoter_office_duplicates(session_db, promoters, *, limite: int = 40) -> list:

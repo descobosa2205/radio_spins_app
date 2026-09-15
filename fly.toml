@@ -21,6 +21,9 @@ swap_size_mb = 512
   BRAND_PRIMARY = '#E33D48'
   CALDAV_ONLY = '1'             # solo el servidor CalDAV (+ guía + health); todo lo demás, 404
   CANONICAL_HOST = ''           # este host nunca redirige a ningún sitio
+  # El nombre público del servidor: lo enseñan la guía y los PDF que sirve ESTE host (en Render lo
+  # da la misma variable, puesta en su panel). Cambiar de nombre = cambiar esto y la de Render.
+  CALDAV_PUBLIC_HOST = 'calendario.33producciones.es'
   GUNICORN_THREADS = '4'
   PORT = '8080'
   SESSION_COOKIE_SECURE = '1'

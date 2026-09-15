@@ -154189,7 +154189,7 @@ def public_caldav_guide():
 def _caldav_public_server() -> str:
     """El HOST del servidor CalDAV que se le dice a la gente (sin «https://»).
 
-    Manda **`CALDAV_PUBLIC_HOST`** (el host de Fly, p. ej. `caldav.33producciones.es`): el servidor
+    Manda **`CALDAV_PUBLIC_HOST`** (el host de Fly, p. ej. `calendario.33producciones.es`): el servidor
     CalDAV vive en un host SIN Cloudflare (ver DEPLOY_CALDAV.md) y Render NO lo sirve. Sin esa
     variable se cae a `EXTERNAL_BASE_URL` o al host de la petición, que en el propio host de Fly es
     el bueno y en Render **no**."""

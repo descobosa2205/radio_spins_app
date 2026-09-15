@@ -395,7 +395,7 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   Fly.io** con `CALDAV_ONLY=1` (`radio-spins-caldav`, Frankfurt, **1 GB**: con 512 MB el worker
   moría por OOM al importar `app.py`), con el mismo código y la misma BD. Estado, pasos y lo que
   salió mal en **`DEPLOY_CALDAV.md`**. ⚠️ **Cada push que toque `app.py` exige además `fly deploy`**
-  (el host de Fly no se actualiza solo). Pendiente: el dominio `caldav.33producciones.es` y la env
+  (el host de Fly no se actualiza solo). Pendiente: el dominio `calendario.33producciones.es` y la env
   `CALDAV_PUBLIC_HOST` en Render (la guía `/caldav/guia` enseña hasta entonces el host de Render).
   Prueba de fuego: `PROPFIND /caldav/` sin credenciales da **401** (en Render, 405) y con ellas **207**.
 - **Holded**: se implementó **sin poder probar contra la API real** (no había cuenta y sus docs

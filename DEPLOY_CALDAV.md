@@ -5,8 +5,11 @@
 - **Desplegado**: app `radio-spins-caldav` en la cuenta de Fly.io de Dani (org «personal»,
   `d.escobosamartinez@gmail.com`), región **Frankfurt (`fra`)**, una máquina `shared-cpu-1x` con
   **1 GB** (≈ 5,7 $/mes). Hostname provisional: `https://radio-spins-caldav.fly.dev`.
-- **Pendiente**: el dominio `caldav.33producciones.es` (paso 5) y la variable `CALDAV_PUBLIC_HOST`
-  en Render (paso 6), para que la guía de la app diga el servidor bueno.
+- **Nombre público elegido por Dani: `calendario.33producciones.es`** (en línea con `app.`; el
+  camino `app.33producciones.es/calendario` NO es posible porque `app.` es Render y su proxy corta
+  los métodos CalDAV para cualquier ruta). Certificado ya registrado en Fly; queda el CNAME en Wix
+  (paso 5) y poner ese nombre en `CALDAV_PUBLIC_HOST` en Render (paso 6). El certificado de
+  `caldav.33producciones.es` que se registró primero se puede retirar (`fly certs remove`).
 - `flyctl` está instalado en el Mac de Dani en `~/.fly/bin` (vía el script de `fly.io/install.sh`,
   no hay Homebrew) y en el PATH de `~/.zshrc`.
 
@@ -24,7 +27,7 @@ sí funciona porque es un simple `GET`.
 `404` a todo lo demás, así el back office **no** queda accesible por ahí. Render sigue igual.
 
 ```
-iPhone ──PROPFIND──►  caldav.33producciones.es  (Fly.io, sin Cloudflare)  ─┐
+iPhone ──PROPFIND──►  calendario.33producciones.es  (Fly.io, sin Cloudflare)  ─┐
                                                                            ├─► misma BD Supabase (Frankfurt)
 Navegador ──────────►  app.33producciones.es    (Render, como siempre)   ─┘
 ```
@@ -119,17 +122,23 @@ Añadir cuenta CalDAV; en iOS 17: Ajustes → Calendario → Cuentas): servidor
 `radio-spins-caldav.fly.dev`, usuario y contraseña **de la app**. Si verifica y aparecen los
 calendarios «Calendario · <artista>», funciona.
 
-## Paso 5 · Dominio propio `caldav.33producciones.es`
+## Paso 5 · Dominio propio `calendario.33producciones.es`
 
-1. En el DNS de Wix (la misma zona que `app.33producciones.es`), un registro **CNAME**
-   `caldav` → `radio-spins-caldav.fly.dev`. (Para un subdominio Fly recomienda CNAME; no hace falta
-   IPv4 dedicada.)
+1. En el DNS de **Wix** (la misma zona que `app.33producciones.es`), un registro **CNAME** con
+   nombre `calendario` y valor **`pegy6d9.radio-spins-caldav.fly.dev`** (el host único que Fly da
+   para el CNAME, con `fly certs setup`; para un subdominio Fly recomienda CNAME y no hace falta
+   IPv4 dedicada).
+   ⚠️⚠️ **Tiene que ser en Wix**: el dominio delega su DNS en `ns14/ns15.wixdns.net`. El dominio
+   está comprado en otro sitio (dinahosting, por los registros de correo `serviciodecorreo.es`) y su
+   panel también ofrece «Añadir entrada DNS», pero lo que se cree ahí **no tiene ningún efecto**
+   (pasó: el registro se creó allí y los servidores de Wix nunca lo vieron). Comprobación:
+   `dig +short @ns14.wixdns.net CNAME calendario.33producciones.es`.
 2. Certificado:
    ```bash
-   fly certs add caldav.33producciones.es --app radio-spins-caldav
-   fly certs check caldav.33producciones.es --app radio-spins-caldav   # esperar a «Ready»
+   fly certs add calendario.33producciones.es --app radio-spins-caldav
+   fly certs check calendario.33producciones.es --app radio-spins-caldav   # esperar a «Ready»
    ```
-3. Repetir las comprobaciones del paso 4 contra `https://caldav.33producciones.es/caldav/`.
+3. Repetir las comprobaciones del paso 4 contra `https://calendario.33producciones.es/caldav/`.
 
 ## Paso 6 · Que la guía de la app diga el servidor bueno
 
@@ -137,7 +146,7 @@ La guía (`/caldav/guia`, el botón de la pestaña Agenda del artista) la sirve 
 Environment añadir:
 
 ```
-CALDAV_PUBLIC_HOST = caldav.33producciones.es
+CALDAV_PUBLIC_HOST = calendario.33producciones.es
 ```
 
 (o `radio-spins-caldav.fly.dev` mientras no haya dominio). Redespliega solo. Sin la variable, la guía

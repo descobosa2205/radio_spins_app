@@ -79602,6 +79602,12 @@ def concert_contract_sheet_edit(cid):
         session.close()
 
 
+# ⚠️ Topes para que la FICHA EN PDF quepa siempre en UNA CARA de A4: lo único que puede crecer sin
+# límite son las notas (las entradas, las comisiones y los pagos los acota la propia actividad).
+PDF_SHEET_MAX_NOTES = 6
+PDF_SHEET_MAX_NOTE_CHARS = 220
+
+
 @app.get('/conciertos/<cid>/ficha-contratacion/pdf', endpoint='concert_contract_sheet_pdf')
 @admin_required
 def concert_contract_sheet_pdf(cid):
@@ -79642,6 +79648,11 @@ def concert_contract_sheet_pdf(cid):
         body_txt = ParagraphStyle('BodyTxt', parent=styles['Normal'], fontSize=8, leading=10.5)
         story = []
 
+        def esc_pdf(valor) -> str:
+            """⚠️ El texto de un `Paragraph` de ReportLab se lee como mini-HTML: un «&» o un «<» en el
+            nombre de un artista o de un recinto rompe el PDF entero (no se genera). Se escapa."""
+            return (str(valor or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
         def _img(url, w, h):
             u = (url or '').strip()
             if not u:
@@ -79660,8 +79671,33 @@ def concert_contract_sheet_pdf(cid):
         logo_row = Table([['', logo_cell]], colWidths=[419, 120])
         logo_row.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT'), ('VALIGN', (0, 0), (-1, -1), 'TOP')]))
         story.append(logo_row)
-        story.append(Paragraph('Ficha de contratación', title_style))
-        story.append(Spacer(1, 3))
+        # ⚠️⚠️ LA MISMA CABECERA QUE EL CORREO Y LA FICHA (sep 2026, lo pidió Dani): una BANDA en el
+        # rojo corporativo con el TIPO de actividad encima del título y, debajo, de quién y cuándo
+        # es. Antes era un título negro suelto, que no se parecía a nada de lo demás.
+        _tipo_pdf = ""
+        try:
+            _tipo_pdf = (_activity_kind_label(getattr(concert, "activity_type", None)) or "").upper()
+        except Exception:
+            _tipo_pdf = ""
+        _sujeto_pdf = " · ".join([x for x in [
+            (concert.artist.name if concert.artist else ""),
+            (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+            (_concert_city(concert) or ""),
+        ] if x])
+        _banda = [[Paragraph(
+            (f"<font size=7 color='#ffffff'><b>{esc_pdf(_tipo_pdf)}</b></font><br/>" if _tipo_pdf else "")
+            + "<font size=15 color='#ffffff'><b>Ficha de contratación</b></font>"
+            + (f"<br/><font size=8.5 color='#ffffff'>{esc_pdf(_sujeto_pdf)}</font>" if _sujeto_pdf else ""),
+            ParagraphStyle('PdfBanda', parent=styles['Normal'], alignment=TA_CENTER, leading=13))]]
+        banda = Table(_banda, colWidths=[539])
+        banda.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#E33D48')),
+            ('ROUNDEDCORNERS', [7, 7, 7, 7]),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8), ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(banda)
+        story.append(Spacer(1, 6))
 
         # ---- CABECERA VISUAL (misma franja-resumen que la ficha) ----
         def strip_cell(label, flow):
@@ -79844,18 +79880,9 @@ def concert_contract_sheet_pdf(cid):
             pairs_table(colab_pairs)
 
         # Comisionistas
-        # ⚠️ Punto único `_concert_commission_rows`: recomponerlo a mano aquí sacaba **«None% · Neto»**
-        # cuando la comisión era un importe fijo (miraba `commission_type`, que no siempre está).
-        # Y ahora se DICE si es un gasto sobre el caché o si lo reduce, que es lo que cambia la cuenta.
-        com_pairs = []
-        for z in _concert_commission_rows(session, concert):
-            name = z['name'] + (f" · {z['concept']}" if z['concept'] else '')
-            val = (z['amount_label'] if z['is_fixed'] else f"{z['pct_label']} · {z['base_label']}")
-            com_pairs.append((name, f"{val} · {z['apply_label']}" if z.get('apply_label') else val))
-        if com_pairs:
-            sec('Comisiones')
-            pairs_table(com_pairs)
-
+        # ⚠️ EL MISMO ORDEN QUE LA FICHA (sep 2026): primero el CACHÉ y debajo lo que se le
+        # descuenta (comisiones y otros gastos). Estaban al revés, así que el papel y la
+        # pantalla se leían distinto.
         # Cachés + lo que cubre el promotor
         cache_pairs = []
         for ch in (getattr(concert, 'caches', None) or []):
@@ -79876,6 +79903,18 @@ def concert_contract_sheet_pdf(cid):
         if cache_pairs:
             sec('Cachés')
             pairs_table(cache_pairs)
+
+        # ⚠️ Punto único `_concert_commission_rows`: recomponerlo a mano aquí sacaba **«None% · Neto»**
+        # cuando la comisión era un importe fijo (miraba `commission_type`, que no siempre está).
+        # Y ahora se DICE si es un gasto sobre el caché o si lo reduce, que es lo que cambia la cuenta.
+        com_pairs = []
+        for z in _concert_commission_rows(session, concert):
+            name = z['name'] + (f" · {z['concept']}" if z['concept'] else '')
+            val = (z['amount_label'] if z['is_fixed'] else f"{z['pct_label']} · {z['base_label']}")
+            com_pairs.append((name, f"{val} · {z['apply_label']}" if z.get('apply_label') else val))
+        if com_pairs:
+            sec('Comisiones')
+            pairs_table(com_pairs)
 
         # Entradas (tipos con importes e invitaciones, como la pestaña de la ficha)
         ticket_rows = _concert_entradas_ticket_rows(concert)
@@ -79937,14 +79976,23 @@ def concert_contract_sheet_pdf(cid):
         if payment_rows:
             sec('Plan de facturación / cobro')
             trows = [[Paragraph(x, cell_lbl) for x in ['Concepto', 'Importe', 'Fecha límite', 'Estado']]]
+            _est_pago = {k: l for k, l, _i in BILLING_PAYMENT_STATUS_CHOICES}
             for r in payment_rows:
                 due = r.get('due_date')
-                due_txt = due if isinstance(due, str) else (due.strftime('%d/%m/%Y') if due else '')
+                # ⚠️ Una fecha guardada como TEXTO («2026-10-01») salía tal cual en el PDF: aquí las
+                # fechas se escriben dd/mm/aaaa, como en toda la casa.
+                if isinstance(due, str):
+                    _d = parse_optional_date(due)
+                    due_txt = _d.strftime('%d/%m/%Y') if _d else due
+                else:
+                    due_txt = due.strftime('%d/%m/%Y') if due else ''
+                # ⚠️ Y el estado, LEGIBLE: salía la clave en crudo («PENDING_INVOICE»).
+                _st = str(r.get('status') or '').strip().upper()
                 trows.append([
-                    Paragraph(str(r.get('concept') or 'Pago'), cell_val),
+                    Paragraph(esc_pdf(r.get('concept') or 'Pago'), cell_val),
                     Paragraph(format_eur(r.get('amount')), cell_val),
                     Paragraph(due_txt or '', cell_val),
-                    Paragraph(str(r.get('status') or ''), cell_val),
+                    Paragraph(esc_pdf(_est_pago.get(_st, r.get('status') or '')), cell_val),
                 ])
             t = Table(trows, colWidths=[230, 100, 100, 109])
             t.setStyle(TableStyle([
@@ -79956,11 +80004,19 @@ def concert_contract_sheet_pdf(cid):
             story.append(t)
 
         # Notas de contratación
+        # ⚠️⚠️ LA FICHA TIENE QUE CABER EN UNA CARA DE A4 (sep 2026, lo pidió Dani). Lo que puede
+        # crecer sin límite son las NOTAS: se pintan las últimas y se DICE cuántas quedan, en vez de
+        # arrastrar una segunda página con el sobrante (para leerlas todas está la ficha).
         note_lines = [(n.body or '').strip() for n in (getattr(concert, 'notes', None) or []) if (n.body or '').strip()]
         if note_lines:
             sec('Notas de contratación')
-            for line in note_lines:
-                story.append(Paragraph('· ' + line, body_txt))
+            for line in note_lines[-PDF_SHEET_MAX_NOTES:]:
+                story.append(Paragraph('· ' + esc_pdf(line[:PDF_SHEET_MAX_NOTE_CHARS]), body_txt))
+            if len(note_lines) > PDF_SHEET_MAX_NOTES:
+                story.append(Paragraph('y %d nota%s más en la ficha'
+                                       % (len(note_lines) - PDF_SHEET_MAX_NOTES,
+                                          's' if len(note_lines) - PDF_SHEET_MAX_NOTES != 1 else ''),
+                                       cell_lbl))
 
         doc.build(story)
         buf.seek(0)

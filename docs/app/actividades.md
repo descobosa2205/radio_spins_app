@@ -1727,3 +1727,18 @@
   ⚠️ Cachés, comisiones y el plan estaban repartidos entre dentro y fuera de `data-datos-view` (la
   zona que se oculta al editar los Datos): los tres van ahora **fuera**, así que editar los datos ya
   no esconde el dinero.
+
+- ⚠️⚠️ **LA FICHA EN PDF: LA CABECERA DE LA CASA Y UNA SOLA CARA DE A4** (sep 2026, lo pidió Dani).
+  · **La misma cabecera que el correo y la ficha**: el logo del grupo arriba a la derecha y una
+  **banda en el rojo corporativo** con el TIPO de actividad encima del título y, debajo, de quién y
+  cuándo es. Antes era un título negro suelto que no se parecía a nada.
+  · **El mismo orden que la ficha**: el promotor, el **caché**, lo que se le descuenta (**comisiones
+  y otros gastos**) y **el plan de pago**. Estaban caché y comisiones al revés, así que el papel y la
+  pantalla se leían distinto.
+  · **CABE EN UNA CARA**: lo único que puede crecer sin límite son las notas, así que se pintan las
+  **6 últimas** (recortadas a 220 caracteres) y se DICE cuántas quedan — para leerlas todas está la
+  ficha. Probado con **23 notas largas: 1 página**.
+  ⚠️ **`esc_pdf`**: el texto de un `Paragraph` de ReportLab se lee como mini-HTML, así que un «&» o
+  un «<» en el nombre de un artista o de un recinto **rompe el PDF entero** (no se genera).
+  ⚠️ Dos cosas que salían en crudo en el plan de pago: el estado (**«PENDING_INVOICE»** en vez de
+  «Por facturar») y una fecha guardada como texto (**«2026-10-01»** en vez de «01/10/2026»).

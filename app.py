@@ -5845,84 +5845,72 @@ def _dedupe_keep_order(valores) -> list:
     return salida
 
 
-def _parse_contract_sheet_form(form) -> dict:
-    payload = {
-        'gala_municipality': (form.get('gala_municipality') or '').strip(),
-        'gala_province': (form.get('gala_province') or '').strip(),
-        'gala_date': (form.get('gala_date') or '').strip(),
-        'gala_venue': (form.get('gala_venue') or '').strip(),
-        'gala_venue_id': (form.get('gala_venue_id') or '').strip(),
-        'gala_venue_address': (form.get('gala_venue_address') or '').strip(),
-        'gala_postal_code': (form.get('gala_postal_code') or '').strip(),
-        'gala_show_time': (form.get('gala_show_time') or '').strip(),
-        'gala_doors_time': (form.get('gala_doors_time') or '').strip(),
-        'gala_capacity': (form.get('gala_capacity') or '').strip(),
-        'company_legal_name': (form.get('company_legal_name') or '').strip(),
-        'company_tax_id': (form.get('company_tax_id') or '').strip(),
-        'company_address': (form.get('company_address') or '').strip(),
-        'company_municipality': (form.get('company_municipality') or '').strip(),
-        'company_province': (form.get('company_province') or '').strip(),
-        'company_postal_code': (form.get('company_postal_code') or '').strip(),
-        'company_representative': (form.get('company_representative') or '').strip(),
-        'company_representative_dni': (form.get('company_representative_dni') or '').strip(),
-        'company_representative_email': (form.get('company_representative_email') or '').strip(),
-        'company_representative_phone': (form.get('company_representative_phone') or '').strip(),
-        'company_email': (form.get('company_email') or '').strip(),
-        'company_phone': (form.get('company_phone') or '').strip(),
-        'local_legal_name': (form.get('local_legal_name') or '').strip(),
-        'local_tax_id': (form.get('local_tax_id') or '').strip(),
-        'local_address': (form.get('local_address') or '').strip(),
-        'local_municipality': (form.get('local_municipality') or '').strip(),
-        'local_province': (form.get('local_province') or '').strip(),
-        'local_postal_code': (form.get('local_postal_code') or '').strip(),
-        'local_representative': (form.get('local_representative') or '').strip(),
-        'local_representative_dni': (form.get('local_representative_dni') or '').strip(),
-        'local_email': (form.get('local_email') or '').strip(),
-        'local_phone': (form.get('local_phone') or '').strip(),
-        'technical_responsible': (form.get('technical_responsible') or '').strip(),
-        'technical_phone': (form.get('technical_phone') or '').strip(),
-        'technical_email': (form.get('technical_email') or '').strip(),
-        'technical_mobile': (form.get('technical_mobile') or '').strip(),
-        'economics_cache': (form.get('economics_cache') or '').strip(),
-        'economics_box_office_split': (form.get('economics_box_office_split') or '').strip(),
-        'economics_notes': (form.get('economics_notes') or '').strip(),
-        'show_format': (form.get('show_format') or '').strip(),
-        'show_duration': (form.get('show_duration') or '').strip(),
-        'show_notes': (form.get('show_notes') or '').strip(),
-        'show_types': [x for x in (form.getlist('show_types[]') or []) if (x or '').strip()],
-        'ticketing_has_mg': _truthy(form.get('ticketing_has_mg')),
-        'ticketing_points_of_sale': (form.get('ticketing_points_of_sale') or '').strip(),
-        'promotion_actions': (form.get('promotion_actions') or '').strip(),
-        'promotion_responsible': (form.get('promotion_responsible') or '').strip(),
-        'promotion_phone': (form.get('promotion_phone') or '').strip(),
-        'promotion_email': (form.get('promotion_email') or '').strip(),
-        'promotion_mobile': (form.get('promotion_mobile') or '').strip(),
-        'promotion_announcement_date': (form.get('promotion_announcement_date') or '').strip(),
-        'promotion_sale_date': (form.get('promotion_sale_date') or '').strip(),
-        'promotion_poster_logos': (form.get('promotion_poster_logos') or '').strip(),
-        # --- Campos del formulario NUEVO (por módulos). Los antiguos se conservan arriba porque las
-        # fichas ya rellenadas los tienen. ---
-        # Producción local: quién la hace y su responsable.
-        'local_by': (form.get('local_by') or '').strip().upper(),
-        # Show: tipo de concierto (y el nombre del festival/ciclo si toca), sitio y formato.
-        'show_kind': (form.get('show_kind') or '').strip().upper(),
-        'show_series_name': (form.get('show_series_name') or '').strip(),
-        'show_venue_kind': (form.get('show_venue_kind') or '').strip().upper(),
-        # Ticketing: ticketeras, taquilla física, M&G y responsable.
-        # Ticketeras marcadas MÁS las que haya escrito a mano (separadas por comas), sin repetir.
-        'ticketing_ticketers': _dedupe_keep_order(
-            [x.strip() for x in (form.getlist('ticketing_ticketers[]') or []) if (x or '').strip()]
-            + [x.strip() for x in re.split(r'[;,\n]+', form.get('ticketing_ticketers_other') or '') if x.strip()]),
-        'ticketing_box_office': _truthy(form.get('ticketing_box_office')),
-        'ticketing_mg_qty': (form.get('ticketing_mg_qty') or '').strip(),
-        'ticketing_responsible': (form.get('ticketing_responsible') or '').strip(),
-        'ticketing_email': (form.get('ticketing_email') or '').strip(),
-        'ticketing_phone': (form.get('ticketing_phone') or '').strip(),
-        # Cartelería: quién la lleva.
-        'poster_responsible': (form.get('poster_responsible') or '').strip(),
-        'poster_email': (form.get('poster_email') or '').strip(),
-        'poster_phone': (form.get('poster_phone') or '').strip(),
-    }
+def _parse_contract_sheet_form(form, base=None) -> dict:
+    """La ficha de contratación tal y como llega del formulario, SOBRE lo que ya había.
+
+    ⚠️⚠️ CENTINELA · LO QUE EL FORMULARIO NO PREGUNTA NO SE TOCA (bug real y gordo, sep 2026: «meto
+    datos en la ficha, le doy a guardar y al rato han desaparecido»). Esto devolvía un diccionario
+    con TODAS las claves —las que no venían, a `''`— y quien llamaba hacía `sheet.data = ...`, o sea
+    **reemplazaba la ficha entera**. Como el formulario por módulos ya no pinta 16 de esas claves,
+    cada guardado las VACIABA sin dar ningún error: la fecha de la gala, los tres campos
+    ECONÓMICOS (caché, reparto de taquilla, observaciones), los cuatro de PRODUCCIÓN TÉCNICA, la
+    dirección de la producción local, el DNI de su responsable, el móvil de promoción y la fecha de
+    anuncio. Y pasaba por los tres caminos: al editarla por dentro, al enviarla el promotor y al
+    CONSOLIDARLA (que parte de lo nuestro, ya vaciado).
+    Ahora se parte de lo guardado (`base`) y solo se pisa lo que el formulario TRAE — la regla de la
+    casa para cualquier guardado parcial.
+    ⚠️ Las CASILLAS y las LISTAS no viajan cuando están desmarcadas o vacías, así que para poder
+    distinguir «las ha quitado» de «no venían» se mira el centinela `ticketing_present` del módulo.
+    """
+    payload = {k: v for k, v in (base or {}).items()}
+
+    def _txt(clave, *, upper=False):
+        """Un campo de texto: solo se escribe si el formulario lo trae."""
+        if clave not in form:
+            return
+        valor = (form.get(clave) or '').strip()
+        payload[clave] = valor.upper() if upper else valor
+
+    for _clave in (
+        'gala_municipality', 'gala_province', 'gala_date', 'gala_venue', 'gala_venue_id',
+        'gala_venue_address', 'gala_postal_code', 'gala_show_time', 'gala_doors_time',
+        'gala_capacity',
+        'company_legal_name', 'company_tax_id', 'company_address', 'company_municipality',
+        'company_province', 'company_postal_code', 'company_representative',
+        'company_representative_dni', 'company_representative_email',
+        'company_representative_phone', 'company_email', 'company_phone',
+        'local_legal_name', 'local_tax_id', 'local_address', 'local_municipality',
+        'local_province', 'local_postal_code', 'local_representative',
+        'local_representative_dni', 'local_email', 'local_phone',
+        'technical_responsible', 'technical_phone', 'technical_email', 'technical_mobile',
+        'economics_cache', 'economics_box_office_split', 'economics_notes',
+        'show_format', 'show_duration', 'show_notes', 'show_series_name',
+        'ticketing_points_of_sale', 'ticketing_mg_qty', 'ticketing_responsible',
+        'ticketing_email', 'ticketing_phone',
+        'promotion_actions', 'promotion_responsible', 'promotion_phone', 'promotion_email',
+        'promotion_mobile', 'promotion_announcement_date', 'promotion_sale_date',
+        'promotion_poster_logos',
+        'poster_responsible', 'poster_email', 'poster_phone',
+    ):
+        _txt(_clave)
+    # Las OPCIONES (radios) se guardan en mayúsculas.
+    for _clave in ('local_by', 'show_kind', 'show_venue_kind'):
+        _txt(_clave, upper=True)
+    # Un <select>: viaja siempre que su módulo esté en el formulario.
+    if 'ticketing_has_mg' in form:
+        payload['ticketing_has_mg'] = _truthy(form.get('ticketing_has_mg'))
+    # La lista del formulario VIEJO (las fichas ya rellenadas la tienen y se sigue enseñando).
+    if 'show_types[]' in form:
+        payload['show_types'] = [x for x in (form.getlist('show_types[]') or []) if (x or '').strip()]
+
+    # ─── Lo que SOLO se puede vaciar si el módulo venía (su centinela) ───────────────────────────
+    if not (form.get('ticketing_present') or '').strip():
+        return payload
+    # Ticketeras marcadas MÁS las que haya escrito a mano (separadas por comas), sin repetir.
+    payload['ticketing_ticketers'] = _dedupe_keep_order(
+        [x.strip() for x in (form.getlist('ticketing_ticketers[]') or []) if (x or '').strip()]
+        + [x.strip() for x in re.split(r'[;,\n]+', form.get('ticketing_ticketers_other') or '') if x.strip()])
+    payload['ticketing_box_office'] = _truthy(form.get('ticketing_box_office'))
     ticket_types = []
     tt_names = form.getlist('ticket_type_name[]')
     tt_qtys = form.getlist('ticket_type_qty[]')
@@ -79056,7 +79044,8 @@ def public_contract_sheet_draft(token):
             return jsonify({"ok": False, "error": "Enlace no válido"}), 404
         if not _contract_sheet_can_submit(sheet):
             return jsonify({"ok": False, "error": "Esta ficha ya no admite cambios"}), 409
-        sheet.draft = _parse_contract_sheet_form(request.form)
+        # ⚠️ SOBRE el borrador anterior: el formulario solo trae los módulos que él ve.
+        sheet.draft = _parse_contract_sheet_form(request.form, base=(sheet.draft or {}))
         sheet.draft_at = datetime.now(ZoneInfo('Europe/Madrid'))
         session_db.commit()
         return jsonify({"ok": True, "at": sheet.draft_at.strftime('%H:%M')})
@@ -79190,7 +79179,8 @@ def concert_contract_public_form(token):
             if not _contract_sheet_can_submit(sheet):
                 flash('Esta ficha ya no admite más envíos.', 'warning')
                 return redirect(url_for('concert_contract_public_form', token=token))
-            data = _parse_contract_sheet_form(request.form)
+            # ⚠️ SOBRE lo que ya nos mandó: lo que su formulario no pregunta no se pierde.
+            data = _parse_contract_sheet_form(request.form, base=(sheet.promoter_data or {}))
             # ⚠️ LO QUE MANDA EL PROMOTOR NO PISA LA FICHA DE LA CASA: se guarda aparte
             # (`promoter_data`) y contratación decide campo por campo qué se queda, en la pantalla de
             # revisión. Antes se escribía en `data` y borraba lo que hubiera.
@@ -79398,7 +79388,9 @@ def concert_contract_sheet_edit(cid):
             return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
         sheet = concert.contract_sheet or _ensure_internal_contract_sheet(session, concert)
         if request.method == 'POST':
-            sheet.data = _parse_contract_sheet_form(request.form)
+            # ⚠️⚠️ SOBRE la ficha que ya había: sin esto, cada guardado vaciaba los 16 campos que
+            # este formulario no pregunta (los económicos, los de producción técnica…).
+            sheet.data = _parse_contract_sheet_form(request.form, base=(sheet.data or {}))
             sheet.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
             # ⚠️ Editar la ficha POR DENTRO no es «el promotor la ha enviado»: antes esto ponía el
             # estado en RECEIVED y disparaba el aviso amarillo como si hubiera contestado él.
@@ -119218,6 +119210,29 @@ def _contract_sheet_hero_rows(concert) -> list:
         filas.append(("fa-people-group", "Aforo", format_thousands(concert.capacity)))
     if getattr(concert, "show_time", None):
         filas.append(("fa-clock", "Hora", str(concert.show_time)[:5]))
+    elif getattr(concert, "show_time_tbc", False):
+        filas.append(("fa-clock", "Hora", "Por confirmar"))
+    # ⚠️⚠️ LO QUE ESTÁ EN LA FICHA TIENE QUE SALIR EN EL AVISO (sep 2026, lo pidió Dani: «hay campos
+    # de la ficha que no aparecen rellenos al notificar»). Estos cuatro estaban rellenos en la
+    # actividad y no se le decían a nadie, ni en el correo al artista ni en la cabecera de la ficha.
+    if getattr(concert, "doors_time", None):
+        filas.append(("fa-door-open", "Puertas", str(concert.doors_time)[:5]))
+    elif getattr(concert, "doors_time_tbc", False):
+        filas.append(("fa-door-open", "Puertas", "Por confirmar"))
+    if getattr(concert, "end_date", None) and concert.end_date != getattr(concert, "date", None):
+        filas.append(("fa-calendar-week", "Hasta", concert.end_date.strftime("%d/%m/%Y")))
+    # ⚠️ La SALIDA A LA VENTA no se pinta en lo GRATUITO: ahí no se venden entradas (arriba ya lo
+    # dice la fila «Entrada»), y una fecha de venta en algo gratis es justo lo que confunde.
+    if not _concert_is_free(concert):
+        if getattr(concert, "sale_start_date", None):
+            filas.append(("fa-ticket", "Salida a la venta", concert.sale_start_date.strftime("%d/%m/%Y")))
+        elif getattr(concert, "sale_start_tbc", False):
+            filas.append(("fa-ticket", "Salida a la venta", "Por confirmar"))
+    if getattr(concert, "announcement_date", None):
+        _an = concert.announcement_date.strftime("%d/%m/%Y")
+        if (getattr(concert, "announcement_time", None) or "").strip():
+            _an += " · " + str(concert.announcement_time)[:5]
+        filas.append(("fa-bullhorn", "Anuncio", _an))
     return filas
 
 
@@ -120233,14 +120248,50 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
 
     caches = _concert_cache_readable_rows(session_db, concert)
     filas_cache = [{"label": r["label"], "value": r["value"], "note": r["note"]} for r in caches]
-    # ⚠️⚠️ Una comisión que REDUCE el caché NO se le comunica al artista como concepto aparte: el
-    # caché que se le dice ya va con ella descontada (se la queda quien la cobra antes de llegar).
+    # ⚠️ SI NO HAY FILAS DE CACHÉ PERO LA FICHA DE CONTRATACIÓN LO DICE, se enseña eso en vez de
+    # «Sin Caché»: el dato existe, y salir vacío justo cuando lo tenemos es lo que hacía dudar de si
+    # estaba configurado. Misma cadena que el módulo de Formato: lo nuestro y, si no, lo del promotor.
+    if not filas_cache:
+        _hoja = getattr(concert, "contract_sheet", None)
+        _dh = dict((getattr(_hoja, "promoter_data", None) or {}) if _hoja is not None else {})
+        _dh.update({k: v for k, v in ((getattr(_hoja, "data", None) or {}) if _hoja is not None else {}).items()
+                    if str(v or "").strip()})
+        _txt = (_dh.get("economics_cache") or "").strip()
+        if _txt:
+            filas_cache.append({"label": "Caché", "value": _txt,
+                                "note": "Según la ficha de contratación"})
+    # ⚠️⚠️ SI UNA COMISIÓN REDUCE EL CACHÉ, ESA COMISIÓN SE ENSEÑA (sep 2026, lo pidió Dani). Antes
+    # se restaba en bloque («Menos comisiones: − 1.000 €») sin decir de quién era ni por qué: al
+    # artista le llegaba un caché más bajo que el pactado y un descuento anónimo. Ahora el caché sale
+    # COMPLETO, debajo va CADA comisión que lo reduce —con su nombre y su concepto— y al final lo que
+    # le queda. Lo que se ve es la cuenta entera, y no se puede dejar fuera: va dentro del caché.
+    try:
+        _reductoras = [c for c in _concert_commission_rows(session_db, concert)
+                       if c["apply_mode"] == "REDUCE"]
+    except Exception:
+        app.logger.exception("[aviso] no se pudieron leer las comisiones que reducen el caché")
+        _reductoras = []
     try:
         _descuento = _concert_commission_reduction(session_db, concert)
     except Exception:
         _descuento = Decimal("0")
-    if _descuento and filas_cache:
-        filas_cache.append({"label": "Menos comisiones", "value": "− %s" % format_eur(_descuento), "note": ""})
+    if filas_cache and _reductoras:
+        for _c in _reductoras:
+            filas_cache.append({
+                "label": _c["name"],
+                "value": "− %s" % (_c["amount_label"] if _c["is_fixed"]
+                                   else "%s · %s" % (_c["pct_label"], _c["base_label"])),
+                "note": (_c["concept"] or "Comisión que se descuenta del caché"),
+            })
+        # Lo que le queda al artista, solo si se puede calcular de verdad (una comisión sobre la
+        # recaudación no se sabe hasta liquidar y `_concert_commission_reduction` la deja fuera).
+        if _descuento:
+            _bruto = Decimal("0")
+            for _ch in (getattr(concert, "caches", None) or []):
+                _bruto += _money_or_zero(getattr(_ch, "amount", None))
+            if _bruto:
+                filas_cache.append({"label": "Queda", "value": format_eur(_bruto - _descuento),
+                                    "note": "Caché menos las comisiones que se descuentan"})
     modulos.append({
         "key": "cache",
         "label": "Caché",
@@ -120777,12 +120828,16 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
             if not empty_text:
                 return ""
             return f'<div style="margin-top:6px;font-size:14px;color:#6b7683;">{esc(empty_text)}</div>'
+        # ⚠️⚠️ EL VALOR VA PEGADO A SU ETIQUETA, NO EN MEDIO DEL CORREO (bug real, sep 2026). Una
+        # `<table width="100%">` con DOS celdas sin ancho la reparten al 50/50 en los clientes de
+        # correo, así que el importe del caché salía flotando en mitad del email. Con `width="1%"`
+        # + `nowrap` la etiqueta se encoge a su texto y el valor va a su lado: «Caché fijo: 12.000 €».
         out = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:8px;">'
         for r in rows:
             out += (
                 '<tr>'
-                f'<td style="padding:3px 12px 3px 0;color:#6b7683;font-size:12px;vertical-align:top;white-space:nowrap;">{esc(r.get("label") or "")}</td>'
-                f'<td style="padding:3px 0;color:#212529;font-size:14px;font-weight:700;">{esc(r.get("value") or "")}'
+                f'<td width="1%" style="padding:3px 8px 3px 0;color:#6b7683;font-size:12px;vertical-align:top;white-space:nowrap;">{esc(r.get("label") or "")}:</td>'
+                f'<td width="99%" style="padding:3px 0;color:#212529;font-size:14px;font-weight:700;text-align:left;">{esc(r.get("value") or "")}'
                 + (f'<div style="font-weight:400;color:#6b7683;font-size:12px;">{esc(r.get("note"))}</div>' if (r.get("note") or "").strip() else "")
                 + '</td></tr>'
             )
@@ -120805,8 +120860,8 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
     # ---- la CABECERA DE LA ACTIVIDAD (la galleta, igual que en la ficha) ----
     datos = "".join(
         '<tr>'
-        f'<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">{esc(r["label"])}</td>'
-        f'<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">{esc(r["value"])}</td>'
+        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">{esc(r["label"])}:</td>'
+        f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )
     partes.append(
@@ -123944,8 +123999,8 @@ def _sale_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = F
     # ---- LA GALLETA: la cabecera de la actividad, igual que en la app ----
     datos = "".join(
         '<tr>'
-        f'<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">{esc(r["label"])}</td>'
-        f'<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">{esc(r["value"])}</td>'
+        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">{esc(r["label"])}:</td>'
+        f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )
     partes.append(

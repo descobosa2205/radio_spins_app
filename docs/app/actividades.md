@@ -1589,3 +1589,51 @@
   quién, se le dice a **quien gestiona la actividad** para que avise él: un recordatorio que no sale
   es justo el que hacía falta. Se sella `announce_reminder_at` en cualquier caso, así que no se manda
   dos veces.
+
+- ⚠️⚠️⚠️ **LA FICHA DE CONTRATACIÓN PERDÍA 16 CAMPOS EN CADA GUARDADO** (bug real y gordo, sep 2026:
+  «meto datos, le doy a guardar y al rato han desaparecido»). `_parse_contract_sheet_form` devolvía
+  un diccionario con **todas** las claves —las que no venían, a `''`— y los tres sitios que lo
+  llamaban hacían `sheet.data = _parse_contract_sheet_form(form)`, o sea **reemplazaban la ficha
+  entera**. Como el formulario por módulos ya no pinta 16 de esas claves, cada guardado las VACIABA
+  sin dar ningún error: `gala_date`, los tres **económicos** (caché, reparto de taquilla,
+  observaciones), los cuatro de **producción técnica**, la dirección de la **producción local**, el
+  DNI de su responsable, `show_types`, `promotion_mobile` y `promotion_announcement_date`. Pasaba por
+  los TRES caminos —editarla por dentro, enviarla el promotor y **consolidarla** (que parte de lo
+  nuestro, ya vaciado)—, que es justo lo que contaba Dani.
+  · **Arreglo**: `_parse_contract_sheet_form(form, base=...)` parte de lo guardado y **solo pisa lo
+  que el formulario TRAE** (la regla de la casa para cualquier guardado parcial). Cada llamada pasa
+  su base: el borrador el suyo, el envío del promotor su `promoter_data` y la edición `sheet.data`.
+  · ⚠️ Las **casillas y las listas** no viajan cuando están vacías, así que para poder distinguir
+  «las ha quitado» de «no venían» el módulo lleva el centinela **`ticketing_present`** (ticketeras,
+  taquilla física y tipos de entrada).
+  ⚠️ Comprobación (`prueba_ficha.py`, con la app real): con el código de antes se perdían **10 de
+  10** campos vigilados; ahora **0**.
+
+- ⚠️⚠️ **EL VALOR IBA EN MEDIO DEL CORREO, NO PEGADO A SU ETIQUETA** (sep 2026). En el aviso al
+  artista y en el de salida a la venta las filas son una `<table width="100%">` con DOS celdas sin
+  ancho: los clientes de correo la reparten **al 50/50**, así que el importe del caché salía flotando
+  en mitad del email. Con **`width="1%"` + `nowrap`** en la etiqueta (y `99%` en el valor) se lee
+  «Caché fijo: 12.000,00 €» seguido. Las dos maquetas son la misma y se arreglaron a la vez.
+
+- ⚠️⚠️ **SI UNA COMISIÓN REDUCE EL CACHÉ, ESA COMISIÓN SE ENSEÑA** (sep 2026, lo pidió Dani). Antes se
+  restaba en bloque («Menos comisiones: − 1.000 €»): al artista le llegaba un caché más bajo que el
+  pactado y un descuento anónimo. Ahora el módulo de Caché saca el caché COMPLETO, debajo **cada
+  comisión que lo reduce con su nombre y su concepto**, y al final **«Queda»**. Va dentro del propio
+  módulo de caché, así que no se puede dejar fuera por su cuenta.
+  · Y si **no hay filas de `ConcertCache` pero la ficha de contratación dice el caché**
+  (`economics_cache`), se enseña eso en vez de «Sin Caché»: el dato existe.
+
+- ⚠️ **LO QUE ESTÁ EN LA FICHA TIENE QUE SALIR EN EL AVISO** (sep 2026). `_contract_sheet_hero_rows`
+  —la cabecera que comparten la ficha, el correo y el formulario del promotor— se dejaba cuatro
+  datos que sí estaban rellenos: **apertura de puertas**, **fecha de fin**, **salida a la venta** (no
+  en lo gratuito) y **anuncio** (con su hora). Ahora salen, y las horas «por confirmar» lo dicen.
+
+- ⚠️⚠️ **EL PRECUMPLIMENTADO DEL ASISTENTE NO PUEDE COLGAR SOLO DE `shown.bs.modal`** (bug real, sep
+  2026: «al configurar una petición me vuelve a preguntar el promotor, la persona de contacto y de
+  quién es la actividad, y eso ya estaba en la petición»). Dos agujeros, y con cualquiera de los dos
+  no se volcaba NADA y sin un error por consola: `shown.bs.modal` **no siempre llega** (trampa ya
+  conocida de la casa con `modal_stack.js` de por medio) y el listener era **`once`**, así que a la
+  segunda apertura ya no volcaba aunque el evento llegase. Ahora se vuelca en el **propio clic** del
+  botón (delegado en `document`) y en cada `shown`, con una **bandera por apertura** que se limpia al
+  cerrar el modal — la bandera es lo que impide que un modal de encima (el alta rápida de un
+  promotor) dispare el volcado al cerrarse y **pise el promotor recién creado**.

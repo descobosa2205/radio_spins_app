@@ -345,6 +345,10 @@
           <div class="csheet-mod__s">Aforo y, si se venden entradas, cómo y a qué precio.</div></div>
       </div>
       <div class="csheet-mod__body">
+        {# ⚠️ CENTINELA del módulo: las casillas y las filas de entradas NO se envían cuando están
+           desmarcadas o vacías, así que sin esto no habría forma de distinguir «las ha quitado» de
+           «este formulario no preguntaba por ellas» — y al guardar se repondrían las de antes. #}
+        <input type="hidden" name="ticketing_present" value="1">
         <div class="row g-3 mb-1">
           <div class="col-6 col-md-3">
             <label class="form-label">Aforo</label>

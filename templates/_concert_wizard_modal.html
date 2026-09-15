@@ -3397,18 +3397,44 @@
       }
     }
 
+    /* ⚠️⚠️ EL VOLCADO NO PUEDE COLGAR SOLO DE `shown.bs.modal` (bug real, sep 2026: «al configurar
+       una petición me vuelve a preguntar el promotor, la persona de contacto y de quién es la
+       actividad, y eso ya estaba en la petición»). Dos agujeros, y bastaba con cualquiera de los
+       dos para quedarse sin nada volcado —sin ningún error por consola—:
+         · `shown.bs.modal` NO SIEMPRE LLEGA (con `modal_stack.js` de por medio es una trampa ya
+           conocida de la casa: lo que haya que montar al abrir un modal se monta en el propio clic);
+         · el listener era `once`, así que a la SEGUNDA vez que se abría el asistente (cerrar y
+           volver a «Configurar evento») ya no volcaba nada aunque el evento sí llegara.
+       Ahora se vuelca al PULSAR el botón que lo abre (delegado en `document`, así sobrevive a que la
+       barra se repinte) y en cada `shown`, con una BANDERA POR APERTURA que se limpia al cerrarlo.
+       ⚠️ La bandera es lo que impide que un modal de encima (el alta rápida de un promotor) vuelva a
+       disparar el volcado al cerrarse y PISE el promotor que se acaba de crear. */
+    var yaVolcado = false;
+    function aplicarSeguro() {
+      if (yaVolcado) return;
+      yaVolcado = true;
+      try { apply(); } catch (e) { console && console.warn && console.warn('prefill', e); }
+    }
     function go() {
       var modalEl = document.getElementById('concertWizardModal');
       if (!modalEl || typeof bootstrap === 'undefined') { return setTimeout(go, 80); }
       // El propio asistente crea sus Select2 en `shown`: se vuelca DESPUÉS (este listener se
       // registra más tarde, así que corre detrás del suyo).
-      // El volcado se registra SIEMPRE (así el asistente sale cumplimentado tanto si se abre solo
-      // como si se pulsa «Configurar evento»); abrirlo por su cuenta solo con `autoopen`.
-      modalEl.addEventListener('shown.bs.modal', function once() {
-        modalEl.removeEventListener('shown.bs.modal', once);
-        try { apply(); } catch (e) { console && console.warn && console.warn('prefill', e); }
+      modalEl.addEventListener('shown.bs.modal', aplicarSeguro);
+      modalEl.addEventListener('hidden.bs.modal', function () { yaVolcado = false; });
+      // Y en el propio CLIC del botón que lo abre, que es lo único que siempre ocurre. Los Select2
+      // se crean al abrirlo, así que se reintenta un instante después.
+      document.addEventListener('click', function (ev) {
+        var t = ev.target && ev.target.closest &&
+                ev.target.closest('[data-bs-target="#concertWizardModal"],[data-wizard-open]');
+        if (!t) return;
+        yaVolcado = false;
+        setTimeout(aplicarSeguro, 350);
       });
-      if (pre.autoopen) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      if (pre.autoopen) {
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        setTimeout(aplicarSeguro, 450);   // respaldo si `shown` no llega
+      }
     }
     if (document.readyState !== 'loading') go();
     else document.addEventListener('DOMContentLoaded', go);

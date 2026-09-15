@@ -37,6 +37,11 @@
           {% endif %}
         </div>
         <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
+        {# Aprobada y sin configurar: el botón que lo resuelve, en la propia fila. #}
+        {% if p.needs_setup %}
+          <a class="btn btn-sm btn-danger" href="{{ p.setup_url }}">
+            <i class="fa fa-wand-magic-sparkles me-1"></i>Configurar la actividad</a>
+        {% endif %}
         {% if p.activity_url %}
           <a class="btn btn-sm btn-outline-secondary" href="{{ p.activity_url }}">
             <i class="fa fa-calendar-day me-1"></i>Ver la actividad</a>

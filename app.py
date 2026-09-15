@@ -55946,83 +55946,75 @@ def _home_activity_phase_tasks(limit: int = 12) -> list[dict]:
 
 
 def _my_open_peticiones(limit: int = 30) -> list[dict]:
-    """MIS PETICIONES QUE TODAVÍA NO SON UNA ACTIVIDAD. Es lo que se enseña en la pantalla de
-    ACTIVIDADES (sep 2026, lo pidió Dani: «todas las que estén pendientes de convertirse en
-    actividad o se rechacen»).
+    """Las peticiones que se enseñan en la pantalla de ACTIVIDADES.
 
-    Entran DOS cosas, que es lo que de verdad significa «pendiente de convertirse en actividad»:
-      · las que siguen ABIERTAS (`BOOKING_OPEN_STATUSES`: nueva o negociando), y
-      · **las ya APROBADAS a las que todavía les falta configurarlas** (`concert_id` vacío).
-
-    ⚠️⚠️ Las aprobadas se quedaban fuera (bug real, sep 2026: «tenía dos peticiones de Cadena 100
-    que me acababa de aprobar contratación y me han desaparecido»). El filtro era solo por estado
-    abierto, así que en cuanto contratación aprobaba una, se caía de aquí — y de «Mis peticiones»,
-    que las excluye a propósito— y solo quedaba como una tarea suelta en Inicio. Justo cuando hay
-    que hacer algo con ella es cuando desaparecía de donde se la busca."""
-    try:
-        filas = []
-        for f in _home_my_peticiones(limit=200, incluir_por_configurar=True):
-            est = (f.get("status") or "").upper()
-            if est in BOOKING_OPEN_STATUSES or (est == "CONVERTIDA" and not f.get("activity_url")):
-                filas.append(f)
-            if len(filas) >= limit:
-                break
-        return filas
-    except Exception:
-        app.logger.exception("[actividades] no se pudieron cargar mis peticiones pendientes")
-        return []
+    ⚠️⚠️ **ES LITERALMENTE LO MISMO QUE «MIS PETICIONES» DE INICIO**, sin ningún filtro propio (sep
+    2026, lo pidió Dani: «tiene que aparecer siempre lo mismo»). Tenía el suyo —solo los estados
+    abiertos— y por eso una petición **aprobada y sin configurar** salía en un sitio y no en el otro.
+    La regla de cuándo una petición sigue pendiente vive en UN solo sitio: `_home_my_peticiones`."""
+    return _home_my_peticiones(limit=limit)
 
 
-def _home_my_peticiones(limit: int = 12, *, incluir_por_configurar: bool = False) -> list[dict]:
-    """MIS PETICIONES: las que ha hecho esta persona, para ver cómo van sin buscarlas.
+def _home_my_peticiones(limit: int = 30) -> list[dict]:
+    """MIS PETICIONES: las que ha pedido esta persona y **todavía no son una actividad**.
 
-    Solo las VIVAS y las resueltas hace poco: una petición de hace un año no es seguimiento.
+    ⚠️⚠️⚠️ **UNA SOLA REGLA, Y LA MISMA EN LOS DOS SITIOS DONDE SE VEN** (sep 2026, lo pidió Dani:
+    «tiene que aparecer siempre lo mismo»): el módulo de Inicio y el bloque «Peticiones» de la
+    pantalla de Actividades salen de AQUÍ, así que no pueden desparejarse. Una petición sigue en la
+    lista **hasta que pasa una de estas dos cosas**:
+      · **se CONFIGURA la actividad** (`concert_id`) → ya es una actividad más y sale de peticiones;
+      · **se rechaza DEL TODO** (descartada **y** comunicado el rechazo) → se archiva y sale.
+    Que contratación ya la haya **aprobado no la saca**: aprobar no crea nada, y mientras no esté
+    configurada sigue pendiente. Es justo lo que hay que hacer con ella.
+
+    ⚠️ Antes se caía de aquí en cuanto la aprobaban («ya está en Actividades por cerrar») y entonces
+    solo quedaba como una tarea suelta en Inicio: **justo cuando había algo que hacer, desaparecía de
+    donde se la busca** (bug real: «tenía dos peticiones de Cadena 100 que me acababa de aprobar
+    contratación y me han desaparecido»).
 
     ⚠️ Una petición RECHAZADA sale aquí mismo como **pendiente de comunicar** (con sus dos botones:
     comunicarlo desde la app o decir que ya se ha dicho), no en otro módulo: es la misma petición en
-    otro momento de su vida. Cuando se comunica, se archiva y desaparece."""
+    otro momento de su vida. Cuando se comunica, se archiva y desaparece.
+
+    ⚠️ El filtro va en la CONSULTA, no después: filtrando en Python sobre las 60 últimas, a quien
+    tuviera muchas ya configuradas se le perdían las que sí seguían pendientes."""
     estado = _current_user_state() or {}
     uid = estado.get("user_id")
     if not uid:
         return []
     s = db()
     try:
-        desde = datetime.now(TZ_MADRID) - timedelta(days=120)
         filas = (s.query(BookingRequest)
                  .options(joinedload(BookingRequest.artist), joinedload(BookingRequest.venue))
-                 .filter(BookingRequest.created_by_user_id == to_uuid(str(uid)))
+                 .filter(BookingRequest.created_by_user_id == to_uuid(str(uid)),
+                         # CONFIGURADA = ya es una actividad: sale de peticiones.
+                         BookingRequest.concert_id.is_(None),
+                         # RECHAZADA DEL TODO = descartada y con el rechazo ya comunicado.
+                         or_(func.upper(func.coalesce(BookingRequest.status, "NUEVA")) != "DESCARTADA",
+                             BookingRequest.rejection_notified_at.is_(None)))
                  .order_by(BookingRequest.created_at.desc())
-                 .limit(60).all())
+                 .limit(max(limit, 1) * 3).all())
         salida = []
         for r in filas:
             est = (r.status or "NUEVA").upper()
-            # RECHAZADA y ya comunicada = archivada: la tarea está hecha y deja de estar aquí.
-            if est == "DESCARTADA" and r.rejection_notified_at:
-                continue
-            # ⚠️ Una petición APROBADA con trabajo pendiente NO sale aquí: está en el módulo
-            # «Actividades por cerrar» (ya es la actividad, con sus fases). Aquí se queda solo
-            # cuando ya no hay nada que hacer, como seguimiento, y por poco tiempo.
-            # ⚠️ Una petición APROBADA con trabajo pendiente NO sale en el módulo de Inicio: está
-            # en «Mis tareas pendientes» (ya es trabajo, no seguimiento). Pero la pantalla de
-            # ACTIVIDADES sí las quiere (`incluir_por_configurar`): ahí son «pendientes de
-            # convertirse en actividad», que es justo lo que se va a buscar.
-            if (est == "CONVERTIDA" and r.accepted_at and not incluir_por_configurar
-                    and _peticion_accept_tasks(s, r)):
-                continue
-            if est in ("CONVERTIDA", "DESCARTADA"):
-                creada = r.created_at
-                if creada is not None and creada.tzinfo is None:
-                    creada = creada.replace(tzinfo=TZ_MADRID)
-                if creada is not None and creada < desde:
-                    continue
             pay = r.payload or {}
             etiqueta, clase = _booking_status_meta(est)
             lugar = ((r.venue.name if r.venue else "") or (r.municipality or ""))
             chip = _peticion_requester_chip(s, r) or {}
             pendiente = bool(est == "DESCARTADA" and not r.rejection_notified_at)
+            # ⚠️⚠️ APROBADA PERO SIN CONFIGURAR: es el estado en el que más se queda una petición, y
+            # la etiqueta «Aprobada» a secas no dice lo que falta. Se DICE y se da el botón que lo
+            # resuelve (el mismo asistente de siempre, ya cumplimentado con lo de la petición): así
+            # la fila donde se la busca es también desde donde se cierra.
+            por_configurar = bool(est == "CONVERTIDA" and not r.concert_id)
+            if por_configurar:
+                etiqueta, clase = "Aprobada · falta configurarla", "text-bg-warning text-dark"
             salida.append({
                 "id": str(r.id),
                 "subject": (r.subject or "Petición"),
+                "needs_setup": por_configurar,
+                "setup_url": (url_for("booking_request_detail_view", rid=str(r.id), configurar=1)
+                              if por_configurar else ""),
                 "artist": (r.artist.name if r.artist else ""),
                 "artist_photo": ((r.artist.photo_url or "") if r.artist else ""),
                 "place": lugar,

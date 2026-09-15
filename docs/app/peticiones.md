@@ -454,3 +454,21 @@
   tocar el módulo de Inicio.
   ⚠️ Probado con la app real: antes no salían **ni en Inicio, ni en Actividades, ni en la bandeja**;
   ahora Inicio dice «Petición · \<asunto\> … Configurar el evento» y Actividades las cuenta.
+
+- ⚠️⚠️⚠️ **CUÁNDO UNA PETICIÓN SIGUE SIENDO UNA PETICIÓN: UNA SOLA REGLA, EN UN SOLO SITIO** (sep
+  2026, lo pidió Dani: «tiene que aparecer siempre lo mismo»). El módulo de Inicio y el bloque
+  «Peticiones» de la pantalla de Actividades tenían **cada uno su filtro**, así que decían cosas
+  distintas: una petición **aprobada y sin configurar** salía en uno y no en el otro.
+  · Ahora los dos salen de **`_home_my_peticiones`** (`_my_open_peticiones` es literalmente una
+  llamada a ella, sin filtro propio), y la regla es una: **una petición sigue en la lista hasta que
+  se CONFIGURA la actividad** (`concert_id` → ya es una actividad más y sale) **o hasta que se
+  rechaza DEL TODO** (descartada **y** comunicado el rechazo). Que contratación la haya **aprobado
+  no la saca**: aprobar no crea nada, y mientras no esté configurada sigue pendiente.
+  · **Aprobada pero sin configurar** se DICE («Aprobada · falta configurarla», en ámbar) y la fila
+  lleva el botón que lo resuelve — el asistente de siempre, ya cumplimentado. Donde se la busca es
+  desde donde se cierra.
+  ⚠️ El filtro va en la **CONSULTA**, no en Python después: filtrando sobre las 60 últimas, a quien
+  tuviera muchas ya configuradas se le perdían las que sí seguían pendientes.
+  ⚠️ Probado con la app real, el ciclo entero: pedida → **sale en los dos** · aprobada → **sale en los
+  dos** («falta configurarla») · configurada → **sale de los dos** · rechazada sin comunicar → sale en
+  los dos · rechazada del todo → sale de los dos. Y el número de los dos módulos coincide siempre.

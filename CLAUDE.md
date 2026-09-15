@@ -388,9 +388,14 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 - **Web Push**: faltan las claves **VAPID en Render** (`VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` ·
   `VAPID_SUBJECT`); sin ellas el push del sistema está desactivado (la campanita y el emergente van
   igual). Se generan con `vapid --gen` (`py-vapid`). En iPhone hace falta instalar la web como PWA.
-- **CalDAV**: en Render **no puede funcionar** — Cloudflare corta `PROPFIND` con un 405 y iOS no
-  verifica la cuenta. Hace falta el 2º despliegue con `CALDAV_ONLY=1` en un host sin Cloudflare:
-  pasos en **`DEPLOY_CALDAV.md`**. Prueba de fuego: `PROPFIND /caldav/` tiene que dar **207**.
+- **CalDAV**: en Render **no puede funcionar** (Cloudflare corta `PROPFIND` con un 405 y iOS no
+  verifica la cuenta), así que desde el **15-sep-2026** el servidor CalDAV corre en un **2º host en
+  Fly.io** con `CALDAV_ONLY=1` (`radio-spins-caldav`, Frankfurt, **1 GB**: con 512 MB el worker
+  moría por OOM al importar `app.py`), con el mismo código y la misma BD. Estado, pasos y lo que
+  salió mal en **`DEPLOY_CALDAV.md`**. ⚠️ **Cada push que toque `app.py` exige además `fly deploy`**
+  (el host de Fly no se actualiza solo). Pendiente: el dominio `caldav.33producciones.es` y la env
+  `CALDAV_PUBLIC_HOST` en Render (la guía `/caldav/guia` enseña hasta entonces el host de Render).
+  Prueba de fuego: `PROPFIND /caldav/` sin credenciales da **401** (en Render, 405) y con ellas **207**.
 - **Holded**: se implementó **sin poder probar contra la API real** (no había cuenta y sus docs
   están cerradas). La **primera subida real** confirma los nombres de los campos; si algo falla, el
   motivo de Holded sale tal cual en la fila del gasto. → `docs/app/administracion-pagos.md`

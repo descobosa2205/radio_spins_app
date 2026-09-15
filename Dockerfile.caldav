@@ -1,4 +1,4 @@
-# Imagen para el despliegue «SOLO CalDAV» en un host SIN Cloudflare (p. ej. Fly.io).
+# Imagen para el despliegue «SOLO CalDAV» en un host SIN Cloudflare (Fly.io).
 #
 # Es EXACTAMENTE el mismo código que corre en Render. La única diferencia es CALDAV_ONLY=1, que hace
 # que este contenedor sirva únicamente el servidor CalDAV (+ su guía y un health check) y responda
@@ -11,7 +11,6 @@
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
@@ -24,6 +23,13 @@ RUN pip install -r requirements.txt
 
 # Resto del código de la app (el .env / users.txt / .venv quedan fuera por .dockerignore).
 COPY . .
+
+# ⚠️⚠️ PRECOMPILAR EL CÓDIGO AL CONSTRUIR LA IMAGEN (sep 2026). app.py tiene ~158k líneas y
+# COMPILARLO a bytecode en el arranque dispara un pico de memoria de varios cientos de MB: con
+# PYTHONDONTWRITEBYTECODE=1 (como estaba) el .pyc no se guardaba nunca y CADA arranque del worker
+# volvía a compilar → en la máquina de 512 MB el worker moría por falta de memoria (OOM) en bucle
+# y el host nunca llegaba a responder. Con el bytecode ya en __pycache__ el arranque solo lo lee.
+RUN python -m compileall -q -f . || true
 
 # Configuración del contenedor. Los SECRETOS (DATABASE_URL, FLASK_SECRET_KEY) NO van aquí: se
 # inyectan con `fly secrets set` (ver DEPLOY_CALDAV.md). gunicorn.conf.py hace bind a 0.0.0.0:$PORT.

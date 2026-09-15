@@ -2,40 +2,51 @@
 # WebDAV (PROPFIND/REPORT) que iOS necesita para verificar la cuenta CalDAV. El resto de la app
 # sigue en Render sin cambios. Pasos completos en DEPLOY_CALDAV.md.
 #
-# El nombre real de la app lo confirma/ajusta `fly launch`. Los secretos (DATABASE_URL,
-# FLASK_SECRET_KEY) se ponen con `fly secrets set`, NO aquí (este fichero se versiona).
+# App creada el 15-sep-2026 (`fly launch --copy-config --no-deploy --yes`, org «personal» de Dani).
+# Los secretos (DATABASE_URL, FLASK_SECRET_KEY) se ponen con `fly secrets set`, NO aquí (este
+# fichero se versiona). ⚠️ `fly launch` REESCRIBE este fichero y le quita los comentarios: si se
+# vuelve a lanzar, recuperarlos de git.
 
-app = "radio-spins-caldav"
-primary_region = "ams"   # Amsterdam, cerca de Supabase (Estocolmo). Alternativa: "fra" (Frankfurt).
+app = 'radio-spins-caldav'
+primary_region = 'fra'   # Frankfurt: la misma región que Supabase (desde jul-2026) y que Render.
+# Red de seguridad contra un pico de memoria puntual (una agenda muy cargada): antes de matar el
+# worker, el sistema tira de swap. No sustituye a la memoria de abajo.
+swap_size_mb = 512
 
 [build]
-  dockerfile = "Dockerfile.caldav"
+  dockerfile = 'Dockerfile.caldav'
 
 [env]
-  CALDAV_ONLY = "1"
-  PORT = "8080"
-  WEB_CONCURRENCY = "1"
-  GUNICORN_THREADS = "4"
-  SESSION_COOKIE_SECURE = "1"
-  # Desactiva la redirección a dominio canónico en este host (solo aplica a *.onrender.com, pero
-  # así queda blindado: el host de CalDAV nunca debe redirigir a ningún sitio).
-  CANONICAL_HOST = ""
+  BRAND_ACCENT = '#007CA2'      # colores de la casa: la guía /caldav/guia también se sirve aquí
+  BRAND_PRIMARY = '#E33D48'
+  CALDAV_ONLY = '1'             # solo el servidor CalDAV (+ guía + health); todo lo demás, 404
+  CANONICAL_HOST = ''           # este host nunca redirige a ningún sitio
+  GUNICORN_THREADS = '4'
+  PORT = '8080'
+  SESSION_COOKIE_SECURE = '1'
+  WEB_CONCURRENCY = '1'
 
 [http_service]
   internal_port = 8080
   force_https = true
   # Siempre encendida: un cold-start al verificar la cuenta hace que iOS agote el tiempo y falle.
-  auto_stop_machines = "off"
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
+  # ⚠️ Mientras este check no pasa, el proxy de Fly NO manda tráfico a la máquina: el iPhone ve la
+  # conexión cortada aunque la app esté arrancada. `/caldav/health` se responde en el primer
+  # before_request (ver `_caldav_only_gate` en app.py), sin pasar por el login.
   [[http_service.checks]]
-    method = "get"
-    path = "/caldav/health"
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "15s"
+    interval = '30s'
+    timeout = '10s'
+    grace_period = '1m30s'    # Fly lo baja a 1 min; el arranque tarda unos segundos con el bytecode precompilado
+    method = 'get'
+    path = '/caldav/health'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"   # app.py importa pandas/Pillow al cargar; 256mb se queda corto.
+  size = 'shared-cpu-1x'
+  # ⚠️ Con 512 MB el worker moría por falta de memoria (OOM) en bucle al importar app.py: hacen
+  # falta 1 GB (≈5,7 $/mes). La precompilación del bytecode en Dockerfile.caldav baja el pico del
+  # arranque; si tras medirlo sobra, se puede probar a bajar (`fly scale memory 512`).
+  memory = '1gb'

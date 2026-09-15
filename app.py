@@ -485,6 +485,14 @@ if CALDAV_ONLY:
     @app.before_request
     def _caldav_only_gate():
         ep = request.endpoint or ""
+        # ⚠️⚠️ EL CHEQUEO DE SALUD SE RESPONDE AQUÍ MISMO (sep 2026, bug real): `caldav_health` no
+        # estaba en las listas de páginas públicas, así que `require_login` lo REDIRIGÍA al login
+        # (302) y el login, en este host, es un 404. Fly daba la máquina por enferma («critical») y
+        # el proxy NO LE PASABA NINGÚN TRÁFICO: el iPhone veía la conexión cortada aunque la app
+        # estuviera arrancada. Devolver la respuesta desde el primer before_request corta la cadena
+        # y no depende de ninguna lista.
+        if ep == "caldav_health":
+            return Response("ok", status=200, mimetype="text/plain")
         if ep == "static" or ep in _CALDAV_ONLY_ALLOWED_ENDPOINTS:
             return None
         return Response("Not found", status=404)
@@ -153930,7 +153938,11 @@ def artist_calendar_import_undo(artist_id, import_id):
 # (Ajustes -> Calendario -> Cuentas -> Otra -> CalDAV) con sus MISMAS credenciales. Ven los calendarios
 # de los artistas a los que tienen acceso (rol 10 = todos). Las actividades reales (conciertos, etc.)
 # son de SOLO LECTURA; las notas/bloqueos (ArtistAgendaItem) son de lectura/escritura: lo que el
-# usuario crea desde el iPhone entra como NOTA (no como actividad).
+# usuario crea desde el iPhone entra como NOTA («otro») o, si el título empieza por «Bloqueo», como
+# BLOQUEO (nunca como actividad). Los repetidos (RRULE) se rechazan: la agenda no tiene series.
+#
+# ⚠️ En Render NO se puede usar (Cloudflare corta PROPFIND con un 405): se sirve desde el host «solo
+# CalDAV» de Fly.io (CALDAV_ONLY=1, ver DEPLOY_CALDAV.md), que corre este MISMO código.
 
 def _agenda_item_caldav_ref(it):
     """(basename_sin_ics, uid, writable, item_id) estable por ítem de _agenda_build."""
@@ -154007,12 +154019,52 @@ def _caldav_item_event(item, dtstamp):
     return _caldav_wrap_event(href, uid, block, writable=True, item_id=str(item.id))
 
 
+# ⚠️ El DTSTAMP de cada evento es FIJO a propósito: el ETag es el hash del .ics entero, y con
+# `_ics_now_utc()` cambiaba en CADA petición aunque no hubiera cambiado nada → el iPhone daba TODOS
+# los eventos por modificados y se los volvía a bajar en cada refresco (y el ctag nunca coincidía,
+# así que tampoco podía saltarse el REPORT). Con el sello fijo, el ETag solo cambia si cambia el
+# contenido, que es lo que un ETag significa.
+_CALDAV_DTSTAMP = "20260101T000000Z"
+
+# Caché de los eventos de cada artista (ver `_caldav_artist_events`).
+_CALDAV_EVENTS_CACHE: dict = {}
+_CALDAV_EVENTS_TTL = 90.0
+_CALDAV_EVENTS_LOCK = threading.Lock()
+
+
+def _caldav_events_invalidate(artist_id) -> None:
+    """Se llama al escribir desde el móvil: lo siguiente que pida el iPhone tiene que verlo ya."""
+    with _CALDAV_EVENTS_LOCK:
+        _CALDAV_EVENTS_CACHE.pop(str(artist_id), None)
+
+
 def _caldav_artist_events(session_db, artist):
+    """Eventos CalDAV del artista, con CACHÉ de 90 s por artista.
+
+    ⚠️ Un refresco del iPhone es una RÁFAGA: PROPFIND del hogar (que pide el ctag de CADA
+    calendario), y PROPFIND y REPORT de cada uno; a dirección le salen 45 calendarios. Sin caché,
+    cada ráfaga recorría la agenda entera (`_agenda_build`) 45 veces. Lo que se escribe desde el
+    móvil invalida la del artista (`_caldav_events_invalidate`); lo que se escribe desde la web
+    tarda como mucho 90 s en verse desde el móvil, mucho menos de lo que tarda el propio iPhone en
+    volver a preguntar."""
+    key = str(artist.id)
+    now = time.monotonic()
+    with _CALDAV_EVENTS_LOCK:
+        hit = _CALDAV_EVENTS_CACHE.get(key)
+    if hit and (now - hit[0]) < _CALDAV_EVENTS_TTL:
+        return hit[1]
+    events = _caldav_artist_events_build(session_db, artist)
+    with _CALDAV_EVENTS_LOCK:
+        _CALDAV_EVENTS_CACHE[key] = (now, events)
+    return events
+
+
+def _caldav_artist_events_build(session_db, artist):
     """Eventos CalDAV del artista: actividades (solo lectura) + notas/bloqueos (lectura/escritura)."""
     today = today_local()
     start = today - timedelta(weeks=26)
     end = today + timedelta(weeks=78)
-    dtstamp = _ics_now_utc()
+    dtstamp = _CALDAV_DTSTAMP
     events = []
     seen = set()
     agenda_data = _agenda_build(session_db, [str(artist.id)], start, end, today)
@@ -154156,9 +154208,13 @@ def _ics_parse_date(value):
 
 
 def _ics_parse_vevent(text):
-    """UID/SUMMARY/DESCRIPTION/DTSTART/DTEND **con su HORA** del primer VEVENT (lo que manda el
-    iPhone al crear un evento).
+    """UID/SUMMARY/DESCRIPTION/LOCATION/DTSTART/DTEND **con su HORA** del PRIMER VEVENT (lo que
+    manda el iPhone al crear o editar un evento), y si es un REPETIDO (`rrule`).
 
+    ⚠️ Se lee **solo lo que está DENTRO del VEVENT**, y de él se salta el **VALARM**: un aviso del
+    iPhone lleva su propia DESCRIPTION («Recordatorio»), que sin esto PISABA la nota del evento (la
+    misma trampa que documenta el volcado de iCloud). Y las DTSTART de un VTIMEZONE (que son de
+    1970) ya no pueden pisar la fecha aunque el cliente mande la zona horaria detrás del evento.
     ⚠️ La fecha y la hora las lee **`ics_import.parse_dt`**, que es el punto único de la casa: con
     `TZID` se respeta la hora escrita y **solo lo que viene en UTC (`Z`) se pasa a la hora de
     España**. Antes se leía solo la fecha, así que un evento creado con hora en el iPhone entraba
@@ -154167,16 +154223,38 @@ def _ics_parse_vevent(text):
     anterior); con hora, es el final de verdad."""
     out = {}
     dur = None
-    for line in re.sub(r'\r?\n[ \t]', '', text or "").splitlines():
+    dentro = en_alarma = visto = False
+    for line in ics_import.unfold(text or ""):
         if ":" not in line:
             continue
         key, params, value = ics_import.parse_line(line)
+        key = (key or "").upper()
+        if key == "BEGIN":
+            comp = (value or "").strip().upper()
+            if comp == "VEVENT" and not visto:
+                dentro = visto = True
+            elif comp == "VALARM" and dentro:
+                en_alarma = True
+            continue
+        if key == "END":
+            comp = (value or "").strip().upper()
+            if comp == "VALARM":
+                en_alarma = False
+            elif comp == "VEVENT" and dentro:
+                break
+            continue
+        if not dentro or en_alarma:
+            continue
         if key == "UID":
             out["uid"] = value
         elif key == "SUMMARY":
             out["summary"] = _ics_unescape(value)
         elif key == "DESCRIPTION":
             out["description"] = _ics_unescape(value)
+        elif key == "LOCATION":
+            out["location"] = _ics_unescape(value)
+        elif key in ("RRULE", "RDATE"):
+            out["rrule"] = value
         elif key == "DTSTART":
             out["start"], out["start_time"] = ics_import.parse_dt(value, params)
         elif key == "DTEND":
@@ -154197,6 +154275,41 @@ def _ics_parse_vevent(text):
         else:
             out["end"] = (fin.date() - timedelta(days=1)) if fin.time() == datetime.min.time() else fin.date()
     return out
+
+
+# Lo que `_agenda_item_caldav_ref` emite para una ACTIVIDAD (concierto, promoción, lanzamiento,
+# cumpleaños…): `a-<hash>.ics` y `act-<hash>@33producciones`. Es de SOLO LECTURA.
+_CALDAV_ACTIVITY_HREF_RE = re.compile(r"^a-[0-9a-f]{16}\.ics$", re.IGNORECASE)
+_CALDAV_ACTIVITY_UID_RE = re.compile(r"^act-[0-9a-f]{16}@33producciones$", re.IGNORECASE)
+# «Bloqueo · motivo» / «Bloqueo: motivo» / «Bloqueo» — como sale al iPhone y como se escribe desde él.
+_CALDAV_BLOCK_RE = re.compile(r"^\s*bloqueo\b\s*(?:[·\-–:|]\s*)?", re.IGNORECASE)
+
+
+def _caldav_is_activity(resource, uid=None) -> bool:
+    """¿Este recurso es una ACTIVIDAD de la app (solo lectura)?
+
+    ⚠️⚠️ Sin esta comprobación, MOVER UN CONCIERTO desde el móvil **creaba una nota duplicada**:
+    `_caldav_find_item` no encuentra la actividad (no está en `ArtistAgendaItem`), así que el PUT la
+    daba por NUEVA y la guardaba como nota con su mismo href — invisible además para CalDAV, porque
+    ese href ya lo ocupa la actividad. Ahora responde 403 y el iPhone deshace el cambio."""
+    return bool(_CALDAV_ACTIVITY_HREF_RE.match((resource or "").strip())
+                or _CALDAV_ACTIVITY_UID_RE.match((uid or "").strip()))
+
+
+def _caldav_kind_and_title(summary, kind_actual=None):
+    """`(kind, título)` de lo que llega del móvil.
+
+    Un BLOQUEO sale al iPhone como «Bloqueo · motivo», así que al volver hay que **quitarle el
+    prefijo**: sin esto, editarlo desde el móvil dejaba el título como «Bloqueo · Bloqueo · motivo»
+    (y crecía en cada edición). Y escribir un título que empiece por «Bloqueo» **crea un bloqueo**
+    desde el móvil, que es la forma de bloquear días sin abrir la app. Lo que ya existe **no cambia
+    de tipo** (una nota sigue siendo nota aunque se le escriba «Bloqueo» delante)."""
+    s = (summary or "").strip()
+    m = _CALDAV_BLOCK_RE.match(s)
+    kind = (kind_actual or "").strip().upper()
+    if kind == "BLOCK" or (not kind and m):
+        return "BLOCK", (_CALDAV_BLOCK_RE.sub("", s, count=1).strip() if m else s)
+    return "NOTE", (s or "Nota")
 
 
 def _caldav_find_item(session_db, artist, resource, uid):
@@ -154411,17 +154524,32 @@ def public_caldav_resource(artist_id, resource):
                     return r
             return Response("Not found", status=404)
         if request.method == "PUT":
+            # Una ACTIVIDAD es de solo lectura: se rechaza ANTES de tocar nada (ver _caldav_is_activity).
+            if _caldav_is_activity(resource):
+                return Response("Read-only", status=403)
             parsed = _ics_parse_vevent(request.get_data(as_text=True) or "")
             if not parsed.get("start"):
                 return Response("Invalid event", status=400)
+            if _caldav_is_activity(resource, parsed.get("uid")):
+                return Response("Read-only", status=403)
+            if parsed.get("rrule"):
+                # La agenda no tiene series. Se RECHAZA para que el móvil lo diga en el momento:
+                # guardar solo la primera fecha sin avisar sería peor (nadie se enteraría).
+                return Response("Recurring events are not supported", status=403)
             item = _caldav_find_item(session_db, artist, resource, parsed.get("uid"))
             is_new = item is None
             antes = None if is_new else _caldav_snapshot(item)
+            kind, titulo = _caldav_kind_and_title(parsed.get("summary"), None if is_new else item.kind)
             if item is None:
-                item = ArtistAgendaItem(artist_id=artist.id, kind="NOTE")
+                item = ArtistAgendaItem(artist_id=artist.id, kind=kind)
                 session_db.add(item)
-            item.title = (parsed.get("summary") or item.title or "Nota").strip() or "Nota"
-            item.note = (parsed.get("description") or "").strip() or None
+            item.title = titulo
+            nota = (parsed.get("description") or "").strip()
+            # El LUGAR del evento no tiene campo en la nota: se conserva en el texto, que es donde se ve.
+            lugar = (parsed.get("location") or "").strip()
+            if lugar and lugar.lower() not in nota.lower():
+                nota = (nota + "\n" if nota else "") + "Lugar: " + lugar
+            item.note = nota or None
             item.start_date = parsed["start"]
             item.end_date = parsed.get("end") or parsed["start"]
             if item.end_date < item.start_date:
@@ -154434,7 +154562,10 @@ def public_caldav_resource(artist_id, resource):
             item.created_by_user_id = item.created_by_user_id or user.id
             item.created_by_nick = item.created_by_nick or _email_to_nick(user.email or "")
             session_db.commit()
-            ev = _caldav_item_event(item, _ics_now_utc())
+            _caldav_events_invalidate(artist.id)
+            # El MISMO sello fijo que usa la lista de eventos: así el ETag que se devuelve aquí es el
+            # que el iPhone verá después en el PROPFIND (si no, lo daría por cambiado otra vez).
+            ev = _caldav_item_event(item, _CALDAV_DTSTAMP)
             r = Response("", status=201 if is_new else 204)
             if ev:
                 r.headers["ETag"] = ev["etag"]
@@ -154450,6 +154581,7 @@ def public_caldav_resource(artist_id, resource):
                 if item is not None:
                     session_db.delete(item)
                     session_db.commit()
+                _caldav_events_invalidate(artist.id)
                 return Response("", status=204)
             return Response("Forbidden", status=403)  # actividad (solo lectura) o inexistente
         return Response("", status=405)

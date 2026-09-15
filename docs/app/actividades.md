@@ -873,12 +873,47 @@
   `assigned_artist_ids`): el calendario de un artista que no llevas da **404**. **Mi calendario** y
   el **Calendario general de oficina** NO salen por CalDAV a propósito (no son artistas, y sus datos
   son personales de la oficina).
-  ⚠️⚠️⚠️ **PERO EN RENDER NO SE PUEDE USAR: Cloudflare corta `PROPFIND` con un 405** (verificado otra
-  vez en sep 2026) y iOS verifica la cuenta con un `PROPFIND` → «no se puede verificar la cuenta».
-  El servidor está bien; es la infraestructura. Hay que desplegar el MISMO código en un host sin
-  Cloudflare con **`CALDAV_ONLY=1`** — los pasos exactos están en **`DEPLOY_CALDAV.md`** (Fly.io,
-  `Dockerfile.caldav`, `fly.toml`, y `CALDAV_PUBLIC_HOST` en Render para que la guía de `/caldav/guia`
-  diga el host bueno). **Prueba de fuego**: `PROPFIND /caldav/` tiene que dar **207**, no 405.
+  ⚠️⚠️⚠️ **EN RENDER NO SE PUEDE USAR: Cloudflare corta `PROPFIND` con un 405** (verificado otra vez
+  en sep 2026) y iOS verifica la cuenta con un `PROPFIND` → «no se puede verificar la cuenta». El
+  servidor está bien; es la infraestructura. Por eso **desde el 15-sep-2026 corre en un 2º host en
+  Fly.io** (`radio-spins-caldav`, Frankfurt, `CALDAV_ONLY=1`, el MISMO código y la misma BD): estado,
+  pasos y lo que salió mal en **`DEPLOY_CALDAV.md`**. ⚠️ **Cada push que toque `app.py` exige además
+  `fly deploy`**. **Prueba de fuego**: `PROPFIND /caldav/` **sin credenciales da 401** (la petición
+  llega a la app; en Render da 405) y con ellas **207**.
+  ⚠️⚠️ **512 MB NO BASTAN**: el worker moría por OOM **en bucle** al importar `app.py` → la máquina
+  va con **1 GB** y `Dockerfile.caldav` **precompila el bytecode** (compilar 158k líneas en cada
+  arranque era el pico, y tardaba ~90 s en una CPU compartida). Y el **health check redirigía al
+  login**: `caldav_health` no estaba en las listas de públicos, `require_login` lo mandaba a `/login`
+  (302 → 404 en ese host), Fly daba la máquina por enferma y **su proxy no le pasaba tráfico**. Ahora
+  `_caldav_only_gate` responde el health él mismo (el primer before_request corta la cadena).
+  · **Lo que se remató al estrenarlo** (sep 2026, probado con 53 comprobaciones contra la app real
+  con la biblioteca cliente `caldav`, que se comporta como DAVx5):
+  ⚠️⚠️ **Mover un CONCIERTO desde el móvil CREABA una nota duplicada**: `_caldav_find_item` no
+  encuentra la actividad, así que el PUT la daba por nueva y la guardaba como nota con su mismo href
+  (invisible además para CalDAV, porque ese href ya lo ocupa la actividad). Punto único
+  **`_caldav_is_activity`** (href `a-<hash>.ics` **o** UID `act-<hash>@33producciones`, que un
+  cliente puede mandar con otro href) → **403** y el iPhone deshace el cambio.
+  ⚠️ **Editar un BLOQUEO desde el móvil le pegaba el prefijo**: sale como «Bloqueo · motivo» y al
+  volver se guardaba tal cual (→ «Bloqueo · Bloqueo · motivo», creciendo en cada edición). Punto único
+  **`_caldav_kind_and_title`**: quita el prefijo, y un título NUEVO que empiece por «Bloqueo» **crea un
+  bloqueo** desde el móvil (es la forma de bloquear días sin abrir la app). Lo que ya existe **no
+  cambia de tipo** (una nota sigue siendo nota aunque se le escriba «Bloqueo» delante).
+  ⚠️ **El lector del PUT solo mira DENTRO del VEVENT y se salta el VALARM**: el recordatorio del
+  iPhone lleva su propia `DESCRIPTION` («Recordatorio») y **pisaba la nota** del evento (la trampa
+  que ya documenta el volcado de iCloud); y una `DTSTART` de un `VTIMEZONE` (1970) ya no puede pisar
+  la fecha. El **LOCATION** se conserva en el texto de la nota («Lugar: …»): la nota no tiene campo.
+  ⚠️ **Los REPETIDOS (`RRULE`) se RECHAZAN con 403**: la agenda no tiene series, y guardar solo la
+  primera fecha sin decir nada sería peor (nadie se enteraría). El móvil lo dice en el momento.
+  ⚠️⚠️ **El ETag cambiaba en CADA petición**: era el hash del .ics entero **con `DTSTAMP` =
+  `_ics_now_utc()`**, así que el iPhone daba TODOS los eventos por modificados en cada refresco y el
+  ctag nunca coincidía. Ahora el sello es FIJO (`_CALDAV_DTSTAMP`) y el ETag solo cambia si cambia el
+  contenido (el PUT devuelve el ETag con el mismo sello, o el cliente lo daría por cambiado otra vez).
+  · **CACHÉ de 90 s por artista** (`_caldav_artist_events` → `_caldav_artist_events_build`): un
+  refresco del iPhone es una RÁFAGA (PROPFIND del hogar con el ctag de CADA calendario + PROPFIND y
+  REPORT de cada uno) y a dirección le salen 45 calendarios: sin caché, 45 `_agenda_build` por
+  ráfaga. Lo que se escribe desde el móvil la **invalida** (`_caldav_events_invalidate`); lo que se
+  escribe en la web tarda como mucho 90 s en verse en el móvil (menos de lo que tarda en volver a
+  preguntar).
 
 - **CONTABILIDAD · el filtro de empresa: SOLO EL LOGO** (ago 2026), y el nombre únicamente en las que
   no lo tienen (la misma regla que la columna «Empresa» de la tabla); en los dos casos, el nombre al

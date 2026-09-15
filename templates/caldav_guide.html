@@ -53,13 +53,22 @@
         <div class="row g-4 mt-1 align-items-start">
           <div class="col-12 col-md-7">
             <div class="d-flex flex-column gap-3">
-              <div class="step"><div class="step__n">1</div><div>Abre <strong>Ajustes</strong> y entra en <strong>Calendario</strong>.</div></div>
-              <div class="step"><div class="step__n">2</div><div class="path">Pulsa <b>Cuentas</b> → <b>Añadir cuenta</b> → <b>Otra</b> → <b>Añadir cuenta CalDAV</b>.</div></div>
-              <div class="step"><div class="step__n">3</div><div>Rellena los datos (ver la pantalla de la derecha) y pulsa <strong>Siguiente / Guardar</strong>.</div></div>
+              <div class="step"><div class="step__n">1</div><div>Abre <strong>Ajustes</strong> → <strong>Apps</strong> → <strong>Calendario</strong> → <strong>Cuentas de Calendario</strong> <span class="text-muted">(en iOS 17 o anterior: Ajustes → Calendario → Cuentas)</span>.</div></div>
+              <div class="step"><div class="step__n">2</div><div class="path">Pulsa <b>Añadir cuenta</b> → <b>Otra</b> → <b>Añadir cuenta CalDAV</b>.</div></div>
+              <div class="step"><div class="step__n">3</div><div>Rellena los datos (ver la pantalla de la derecha) con <strong>tu correo y tu contraseña de esta app</strong> y pulsa <strong>Siguiente</strong>.</div></div>
               <div class="step"><div class="step__n">4</div><div>Listo: aparecerá un calendario <strong>«Calendario · &lt;artista&gt;»</strong> por cada artista al que tienes acceso.</div></div>
             </div>
             <div class="alert alert-light border mt-3 mb-0 small">
-              <i class="fa fa-circle-info text-primary me-1"></i>Para <strong>añadir una nota</strong>: crea un evento en tu app de Calendario dentro de uno de esos calendarios «Calendario · …». Aparecerá en la app como entrada de tipo «otro».
+              <i class="fa fa-circle-info text-primary me-1"></i><strong>Qué puedes hacer desde el móvil</strong> dentro de un calendario «Calendario · …»:
+              <ul class="mb-1 mt-1 ps-3">
+                <li><strong>Crear un evento</strong> (con hora o de día completo): entra en la agenda del artista como una nota de tipo «Otro». Quien lleva a ese artista recibe el aviso.</li>
+                <li><strong>Bloquear días</strong>: escribe un título que empiece por <strong>«Bloqueo»</strong> (p. ej. «Bloqueo · Vacaciones») y entra como bloqueo.</li>
+                <li><strong>Editar o borrar</strong> cualquier nota o bloqueo, también los creados desde la web.</li>
+              </ul>
+              Los <strong>conciertos y demás actividades</strong> se ven pero son de <strong>solo lectura</strong> (si los mueves, el móvil deshace el cambio): eso se toca en la app. Los <strong>eventos repetidos</strong> («todos los lunes») no se admiten: crea cada fecha por separado.
+            </div>
+            <div class="alert alert-warning border mt-2 mb-0 small">
+              <i class="fa fa-triangle-exclamation me-1"></i>Si ya tenías la <strong>suscripción</strong> al calendario del artista (el enlace <code>webcal://</code>), <strong>quítala</strong> al añadir la cuenta: si no, verás cada evento dos veces.
             </div>
           </div>
           <div class="col-12 col-md-5">
@@ -94,6 +103,17 @@
             </ul>
           </div>
           <div class="step"><div class="step__n">3</div><div>Activa los calendarios «Calendario · …» y se sincronizarán con tu app de calendario.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mac -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h6"><i class="fa fa-laptop me-2"></i>En el Mac (app Calendario)</h2>
+        <div class="d-flex flex-column gap-3">
+          <div class="step"><div class="step__n">1</div><div class="path"><b>Calendario</b> → menú <b>Calendario</b> → <b>Ajustes</b> → <b>Cuentas</b> → <b>+</b> → <b>Otra cuenta CalDAV…</b></div></div>
+          <div class="step"><div class="step__n">2</div><div>Tipo de cuenta <strong>Manual</strong>: usuario y contraseña de la app, y servidor <code>{{ caldav_server }}</code>.</div></div>
         </div>
       </div>
     </div>

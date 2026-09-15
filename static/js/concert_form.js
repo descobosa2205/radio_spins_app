@@ -39,6 +39,19 @@
       + '<option value="NET"' + n + '>Neto</option></select>';
   }
 
+  /* El TIPO DE GASTO: el MISMO catálogo de siempre (`SIM_EXPENSE_CATEGORIES`), que la página deja
+     en `window.APP33_EXPENSE_CATEGORIES`. Así un gasto apuntado aquí y uno apuntado en la bolsa se
+     clasifican igual y la liquidación los suma donde toca. */
+  function expenseCategorySelect(name) {
+    var cats = (window.APP33_EXPENSE_CATEGORIES || []);
+    var out = '<select name="' + name + '" class="form-select">';
+    if (!cats.length) out += '<option value="OTROS">Otros gastos</option>';
+    cats.forEach(function (c) {
+      out += '<option value="' + c[0] + '">' + c[1] + '</option>';
+    });
+    return out + '</select>';
+  }
+
   // Grupo selector de promotor/tercero (select2 con logo + alta rápida superpuesta).
   function promoterGroup(name) {
     var id = 'cfp' + (++cfSeq);
@@ -120,6 +133,22 @@
     return t.content.firstElementChild;
   }
 
+  /* ⚠️ Delegado en `document`: la zona se repinta por AJAX al guardar y un listener pegado a un
+     nodo de la fila moriría en el primer repintado (regla de la casa). */
+  document.addEventListener('change', function (ev) {
+    var sel = ev.target.closest && ev.target.closest('select.zone-kind');
+    if (!sel) return;
+    var fila = sel.closest('.cf-row');
+    if (!fila) return;
+    var esGasto = (sel.value === 'EXPENSE');
+    var cat = fila.querySelector('.zone-category');
+    if (cat) cat.style.display = esGasto ? '' : 'none';
+    var loc = fila.querySelector('.zone-localbox');
+    if (loc) loc.style.display = esGasto ? 'none' : '';
+    var lab = fila.querySelector('.zone-who-label');
+    if (lab) lab.textContent = esGasto ? 'A quién se le paga' : 'Comisionista';
+  });
+
   function buildRow(type) {
     var del = '<div class="col-md-1 d-grid"><label class="form-label small">&nbsp;</label>'
       + '<button type="button" class="btn btn-outline-danger" data-remove-row><i class="fa fa-trash"></i></button></div>';
@@ -145,13 +174,25 @@
     if (type === 'zone') {
       return el('<div class="cf-row border rounded p-2 mb-2">'
         + '<div class="row g-2 align-items-end">'
-        + '<div class="col-md-4"><label class="form-label small">Comisionista</label>' + promoterGroup('zone_promoter_id[]') + '</div>'
+        /* ⚠️⚠️ QUÉ ES ESTE APUNTE: una COMISIÓN o un OTRO GASTO (sep 2026, lo pidió Dani). Los dos
+           se apuntan igual —a quién, cuánto y si va contra el caché— pero no se mezclan: un gasto
+           lleva además su TIPO y entra en la bolsa con esa categoría, no con «Comisiones». */
+        + '<div class="col-md-3"><label class="form-label small">¿Qué es?</label>'
+        +   '<select name="zone_entry_kind[]" class="form-select zone-kind">'
+        +     '<option value="COMMISSION" selected>Comisión</option>'
+        +     '<option value="EXPENSE">Otro gasto</option>'
+        +   '</select></div>'
+        + '<div class="col-md-3 zone-category" style="display:none;"><label class="form-label small">Tipo de gasto</label>'
+        +   expenseCategorySelect('zone_category[]') + '</div>'
+        + '<div class="col-md-4"><label class="form-label small zone-who-label">Comisionista</label>' + promoterGroup('zone_promoter_id[]') + '</div>'
         + '<div class="col-md-2"><label class="form-label small">Tipo</label><select name="zone_commission_mode[]" class="form-select zone-mode"><option value="FIXED" selected>Fijo</option><option value="PERCENT">% Variable</option></select></div>'
         + '<div class="col-md-2 zone-pct" style="display:none;"><label class="form-label small">%</label><input type="number" step="0.01" name="zone_commission_pct[]" class="form-control" placeholder="%"></div>'
         + '<div class="col-md-2 zone-base" style="display:none;"><label class="form-label small">Base</label>' + moneyBaseSelect('zone_commission_base[]') + '</div>'
         + '<div class="col-md-2 zone-amount"><label class="form-label small">Importe (€)</label><input type="number" step="0.01" name="zone_commission_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-3"><label class="form-label small">Importe exento <span class="text-muted">(opc.)</span></label><input type="number" step="0.01" name="zone_exempt_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-7"><label class="form-label small">Motivo / concepto</label><textarea name="zone_concept[]" class="form-control" rows="1" placeholder="Motivo de la comisión..."></textarea></div>'
+        /* ⚠️ El «¿es la producción local?» solo tiene sentido en una COMISIÓN (quien se lleva la
+           comisión de zona suele ser quien está en el sitio); en un gasto se esconde. */
         /* ⚠️ CÓMO SE APLICA: gasto sobre el caché (va a la bolsa, categoría «Comisiones») o
            reducción del caché (el caché se ve y se comunica ya descontado). */
         + '<div class="col-md-5"><label class="form-label small">¿Cómo se aplica?</label>'
@@ -163,7 +204,7 @@
            está en el sitio el día de la actividad: si se dice que sí, se pone SOLO como contacto de
            «Producción local» (con su representante, si lo tiene). El <select> viaja siempre, así que
            «No» también se guarda y se puede deshacer. */
-        + '<div class="col-md-5"><label class="form-label small">¿Es la producción local?</label>'
+        + '<div class="col-md-5 zone-localbox"><label class="form-label small">¿Es la producción local?</label>'
         +   '<select name="zone_local[]" class="form-select">'
         +     '<option value="0" selected>No</option>'
         +     '<option value="1">Sí · es quien está en el sitio</option>'
@@ -265,7 +306,13 @@
           if (n != null && data[k] != null && data[k] !== '') n.value = data[k];
         });
         if (type === 'cache') applyCacheKind(row, data.cache_var_option || '');
-        if (type === 'zone') onZoneMode(row);
+        if (type === 'zone') {
+          onZoneMode(row);
+          /* ⚠️ Un apunte guardado como OTRO GASTO tiene que abrir su «tipo de gasto» al pintarse:
+             sin esto, el valor está puesto pero el campo sale escondido y parece que no hay nada. */
+          var kind = row.querySelector('select.zone-kind');
+          if (kind) kind.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         // Un pago que YA tiene factura o cobro no se toca desde aquí: se enseña bloqueado y sin
         // papelera (para cambiarlo están sus tres puntitos del plan de facturación).
         // ⚠️ `readonly` SÍ se envía; con `disabled` el pago desaparecería del POST y se perdería.

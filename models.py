@@ -3458,6 +3458,13 @@ class ConcertZoneAgent(Base):
     # es justo quien está en el sitio el día de la actividad. Si se dice que sí, se pone SOLO como
     # contacto de «Producción local» de la actividad (con su representante, si lo tiene).
     is_local_production = Column(Boolean, nullable=False, server_default=text("false"))
+    # ⚠️⚠️ QUÉ ES ESTE APUNTE: una COMISIÓN o un OTRO GASTO (sep 2026, lo pidió Dani). Los dos se
+    # apuntan igual —a quién se le paga, cuánto y si va contra el caché— y los dos llegan solos a la
+    # bolsa y a la liquidación, pero **no son lo mismo y no se mezclan**: una comisión es una
+    # comisión, y un gasto tiene además su TIPO (`expense_category`, del catálogo de siempre
+    # `SIM_EXPENSE_CATEGORIES`) y entra en la bolsa con esa categoría, no con «Comisiones».
+    entry_kind = Column(Text, nullable=False, server_default=text("'COMMISSION'"))
+    expense_category = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -10251,6 +10258,11 @@ def ensure_third_party_and_contract_sheet_schema():
         """,
         # ⚠️ Una columna nueva va en SU PROPIA sentencia (así pasa por `_ddl_already_applied`).
         "ALTER TABLE IF EXISTS concert_zone_agents ADD COLUMN IF NOT EXISTS is_local_production boolean NOT NULL DEFAULT false;",
+        # ⚠️⚠️ CADA UNA EN SU PROPIA SENTENCIA: metida en un ALTER que ya existe puede no ejecutarse
+        # nunca (`_ddl_already_applied` solo salta si TODAS las columnas de ESE alter ya están) y la
+        # app revienta al leerla — el bug de las cuatro columnas de TikTok, sep 2026.
+        "ALTER TABLE IF EXISTS concert_zone_agents ADD COLUMN IF NOT EXISTS entry_kind text NOT NULL DEFAULT 'COMMISSION';",
+        "ALTER TABLE IF EXISTS concert_zone_agents ADD COLUMN IF NOT EXISTS expense_category text;",
         # CÓMO SE APLICA la comisión (gasto sobre el caché o reducción del caché) y su factura.
         """
         ALTER TABLE IF EXISTS concert_zone_agents

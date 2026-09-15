@@ -1745,7 +1745,7 @@
        —y entonces va a la bolsa, categoría «Comisiones»— o si REDUCE el caché, que entonces se ve
        ya descontado y no se le comunica al artista como concepto aparte. #}
     <div class="ficha-section" id="comisiones">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisiones</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisiones y otros gastos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
       <div class="ficha-section__body" data-section-view>
         {% if commission_rows %}
           {% for z in commission_rows %}
@@ -1755,7 +1755,13 @@
               <div class="min-w-0">
                 <span class="fw-semibold">{{ z.name }}</span>
                 {% if z.concept %}<span class="text-muted"> · {{ z.concept }}</span>{% endif %}
-                <div class="small"><span class="badge text-bg-light border"><i class="fa {{ z.apply_icon }} me-1"></i>{{ z.apply_label }}</span></div>
+                <div class="small d-flex flex-wrap gap-1">
+                  {# QUÉ ES (comisión u otro gasto) y, si es un gasto, DE QUÉ tipo: es lo que decide
+                     con qué categoría entra en la bolsa y dónde sale en la liquidación. #}
+                  <span class="badge text-bg-light border"><i class="fa {{ z.entry_icon }} me-1"></i>{{ z.entry_label }}</span>
+                  {% if z.category_label %}<span class="badge text-bg-light border"><i class="fa {{ z.category_icon }} me-1"></i>{{ z.category_label }}</span>{% endif %}
+                  <span class="badge text-bg-light border"><i class="fa {{ z.apply_icon }} me-1"></i>{{ z.apply_label }}</span>
+                </div>
               </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -1781,7 +1787,11 @@
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='comisionistas') }}" data-inline data-inline-target="#concert-general-zone">
-        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or ''), 'zone_apply_mode': (z.apply_mode or 'EXPENSE'), 'zone_local': ('1' if z.is_local_production else '0')}|tojson }}</script>{% endfor %}</div>
+        {# El catálogo de TIPOS DE GASTO para las filas que monta `concert_form.js`: el MISMO de la
+           bolsa, así un gasto apuntado aquí y uno apuntado allí se clasifican igual.
+           ⚠️ `|tojson` A SECAS dentro de un <script> (con `forceescape` se rompe el JS). #}
+        <script>window.APP33_EXPENSE_CATEGORIES = {{ SIM_EXPENSE_CATEGORIES|map('list')|list|tojson }};</script>
+        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or ''), 'zone_apply_mode': (z.apply_mode or 'EXPENSE'), 'zone_local': ('1' if z.is_local_production else '0'), 'zone_entry_kind': (z.entry_kind or 'COMMISSION'), 'zone_category': (z.expense_category or '')}|tojson }}</script>{% endfor %}</div>
         <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="zone"><i class="fa fa-plus me-1"></i>Añadir comisión</button>
         <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
       </form>

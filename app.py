@@ -3628,8 +3628,18 @@ def _concert_commission_rows(session_db, concert) -> list[dict]:
         pct = getattr(a, "commission_pct", None)
         base = (getattr(a, "commission_base", None) or "GROSS").upper()
         modo = _commission_apply_mode(getattr(a, "apply_mode", None))
+        tipo = _commission_entry_kind(getattr(a, "entry_kind", None))
+        cat = (getattr(a, "expense_category", None) or "").strip().upper()
         filas.append({
             "id": str(a.id),
+            # QUÉ ES: una comisión o un otro gasto (y, si es gasto, de qué tipo).
+            "entry_kind": tipo,
+            "entry_label": COMMISSION_ENTRY_LABELS.get(tipo, tipo),
+            "entry_icon": COMMISSION_ENTRY_ICONS.get(tipo, "fa-user-tag"),
+            "is_expense_entry": (tipo == "EXPENSE"),
+            "category": cat,
+            "category_label": (SIM_EXPENSE_CATEGORY_LABELS.get(cat, "") if cat else ""),
+            "category_icon": (SIM_EXPENSE_CATEGORY_ICONS.get(cat, "fa-shapes") if cat else ""),
             "promoter_id": (str(a.promoter_id) if a.promoter_id else ""),
             "name": (getattr(company, "legal_name", None) or getattr(company, "name", None)
                      or getattr(promoter, "nick", None) or "—"),
@@ -52611,6 +52621,24 @@ COMMISSION_APPLY_LABELS = {k: l for k, l, _ in COMMISSION_APPLY_MODES}
 COMMISSION_APPLY_ICONS = {k: i for k, _, i in COMMISSION_APPLY_MODES}
 COMMISSION_EXPENSE_CATEGORY = "COMISIONES"
 
+# ⚠️⚠️ UNA COMISIÓN Y UN «OTRO GASTO» SE APUNTAN IGUAL PERO NO SON LO MISMO (sep 2026, lo pidió
+# Dani). Los dos dicen A QUIÉN se le paga, CUÁNTO y si va contra el caché, y los dos llegan solos a
+# la bolsa y a la liquidación. La diferencia: un gasto tiene además su TIPO (el catálogo de siempre,
+# `SIM_EXPENSE_CATEGORIES`) y entra en la bolsa **con esa categoría**, no con «Comisiones» — que es
+# justo lo que pidió Dani con «se separa de comisiones». Se ven y se notifican por separado.
+COMMISSION_ENTRY_KINDS = [
+    ("COMMISSION", "Comisión", "fa-user-tag"),
+    ("EXPENSE", "Otro gasto", "fa-receipt"),
+]
+COMMISSION_ENTRY_LABELS = {k: l for k, l, _i in COMMISSION_ENTRY_KINDS}
+COMMISSION_ENTRY_ICONS = {k: i for k, _l, i in COMMISSION_ENTRY_KINDS}
+
+
+def _commission_entry_kind(value) -> str:
+    """¿Es una COMISIÓN o un OTRO GASTO? (por defecto, comisión: es lo que había antes)."""
+    v = (value or "").strip().upper()
+    return v if v in COMMISSION_ENTRY_LABELS else "COMMISSION"
+
 
 def _commission_apply_mode(value) -> str:
     """Normaliza cómo se aplica una comisión (por defecto, GASTO sobre el caché)."""
@@ -52619,7 +52647,7 @@ def _commission_apply_mode(value) -> str:
 
 
 def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_list, concept_list,
-                     apply_list=None, local_list=None):
+                     apply_list=None, local_list=None, kind_list=None, category_list=None):
     """Parsea comisionistas (promotores de zona).
 
     - mode: FIXED | PERCENT
@@ -52674,19 +52702,60 @@ def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_li
             # ¿Es además LA PRODUCCIÓN LOCAL de la actividad?
             "is_local_production": _truthy(
                 (local_list[i] if (local_list and i < len(local_list)) else None)),
+            # ¿COMISIÓN u OTRO GASTO? Y, si es gasto, de qué tipo.
+            "entry_kind": _commission_entry_kind(
+                (kind_list[i] if (kind_list and i < len(kind_list)) else None)),
+            "expense_category": ((category_list[i] if (category_list and i < len(category_list))
+                                  else "") or "").strip().upper(),
         })
 
-    # dedupe (último gana)
+    # ⚠️⚠️ El dedupe era por PERSONA, así que a la misma empresa no se le podían apuntar DOS cosas
+    # —su comisión y, aparte, un gasto— y la segunda se comía a la primera sin decir nada. La clave
+    # es lo que de verdad distingue un apunte de otro.
     dedup = {}
     for r in rows:
-        dedup[r["id"]] = r
+        dedup[(r["id"], r.get("entry_kind"), r.get("expense_category") or "",
+               (r.get("concept") or ""))] = r
     return list(dedup.values())
 
 
+def _zone_agent_key(promoter_id, entry_kind, category, concept) -> tuple:
+    """Lo que identifica a un apunte entre guardado y guardado (no basta la persona: a la misma
+    empresa se le puede apuntar su comisión y, aparte, un gasto)."""
+    return (str(promoter_id or ""), _commission_entry_kind(entry_kind),
+            (category or "").strip().upper(), (concept or "").strip())
+
+
 def _replace_concert_zone_agents(session, concert_id, rows):
+    """Deja en la actividad EXACTAMENTE estos apuntes (comisiones y otros gastos).
+
+    ⚠️⚠️ **LO QUE YA ESTABA EN LA BOLSA SE RESPETA O SE RETIRA, PERO NO SE DUPLICA** (bug real, sep
+    2026). Esto borraba todas las filas y las recreaba, así que perdían su `bag_expense_id`: el
+    `_concert_commissions_sync_bag` de después creaba un gasto NUEVO y **el de antes se quedaba
+    huérfano en la bolsa**. Cada vez que alguien guardaba el módulo de comisiones, el dinero se
+    duplicaba en la bolsa —y de ahí, en la liquidación— sin dar ningún error.
+    Ahora se guarda lo que cuelga de cada apunte (su gasto en la bolsa y su factura), se repone en el
+    que vuelve a estar, y **el gasto del que ya no está se BORRA**."""
+    antiguos = (session.query(ConcertZoneAgent)
+                .filter_by(concert_id=concert_id).all())
+    guardado, gastos_vivos = {}, set()
+    for a in antiguos:
+        guardado[_zone_agent_key(a.promoter_id, getattr(a, "entry_kind", None),
+                                 getattr(a, "expense_category", None), a.concept)] = {
+            "bag_expense_id": getattr(a, "bag_expense_id", None),
+            "invoice_url": getattr(a, "invoice_url", None),
+            "invoice_name": getattr(a, "invoice_name", None),
+            "invoice_requested_at": getattr(a, "invoice_requested_at", None),
+            "invoice_uploaded_at": getattr(a, "invoice_uploaded_at", None),
+        }
     session.query(ConcertZoneAgent).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session.flush()
     for r in rows:
+        clave = _zone_agent_key(r["id"], r.get("entry_kind"), r.get("expense_category"),
+                                r.get("concept"))
+        antes = guardado.get(clave) or {}
+        if antes.get("bag_expense_id"):
+            gastos_vivos.add(antes["bag_expense_id"])
         session.add(
             ConcertZoneAgent(
                 concert_id=concert_id,
@@ -52701,8 +52770,27 @@ def _replace_concert_zone_agents(session, concert_id, rows):
                 concept=r.get("concept"),
                 apply_mode=_commission_apply_mode(r.get("apply_mode")),
                 is_local_production=bool(r.get("is_local_production")),
+                entry_kind=_commission_entry_kind(r.get("entry_kind")),
+                expense_category=((r.get("expense_category") or "").strip().upper() or None),
+                # Lo que ya tenía este mismo apunte: su gasto en la bolsa y su factura.
+                bag_expense_id=antes.get("bag_expense_id"),
+                invoice_url=antes.get("invoice_url"),
+                invoice_name=antes.get("invoice_name"),
+                invoice_requested_at=antes.get("invoice_requested_at"),
+                invoice_uploaded_at=antes.get("invoice_uploaded_at"),
             )
         )
+    # Y el gasto de lo que YA NO ESTÁ se retira de la bolsa: si no, se queda un importe fantasma.
+    for datos in guardado.values():
+        gid = datos.get("bag_expense_id")
+        if not gid or gid in gastos_vivos:
+            continue
+        try:
+            viejo_gasto = session.get(BagExpense, gid)
+            if viejo_gasto is not None:
+                session.delete(viejo_gasto)
+        except Exception:
+            app.logger.exception("[comisiones] no se pudo retirar de la bolsa un apunte borrado")
 
 
 def _parse_cache_rows(kinds, concept_list, amount_list, var_mode_list, var_option_list,
@@ -54560,7 +54648,14 @@ def _commission_sync_bag_expense(session_db, concert, agent) -> None:
         session_db.add(existente)
         session_db.flush()
         agent.bag_expense_id = existente.id
-    existente.category = COMMISSION_EXPENSE_CATEGORY
+    # ⚠️⚠️ UN «OTRO GASTO» ENTRA EN LA BOLSA CON SU PROPIA CATEGORÍA, no con «Comisiones» (sep
+    # 2026): es lo que Dani pidió con «se separa de comisiones», y es lo que hace que salga en la
+    # liquidación en su sitio y no mezclado con las comisiones de zona.
+    if _commission_entry_kind(getattr(agent, "entry_kind", None)) == "EXPENSE":
+        existente.category = ((getattr(agent, "expense_category", None) or "").strip().upper()
+                              or "OTROS")
+    else:
+        existente.category = COMMISSION_EXPENSE_CATEGORY
     existente.concept = _commission_expense_concept(agent)
     existente.amount_gross = importe
     existente.provider_id = getattr(agent, "promoter_id", None)
@@ -70320,6 +70415,8 @@ def concert_section_update_handler(cid, section):
                 request.form.getlist("zone_concept[]"),
                 request.form.getlist("zone_apply_mode[]"),
                 request.form.getlist("zone_local[]"),
+                request.form.getlist("zone_entry_kind[]"),
+                request.form.getlist("zone_category[]"),
             )
             _replace_concert_zone_agents(session, c.id, z_rows)
             session.flush()
@@ -119516,11 +119613,20 @@ ACTIVITY_NOTICE_MODULES = [
     ("descripcion", "Descripción"),
     ("cache", "Caché"),
     ("comisiones", "Comisiones"),
+    # ⚠️ Los «otros gastos» van aparte de las comisiones: no son lo mismo (sep 2026).
+    ("gastos", "Otros gastos"),
+    # ⚠️ Las NOTAS DE CONTRATACIÓN son internas: su módulo sale **OCULTO de serie** y hay que
+    # activarlo a propósito con su ojo para que salgan (`ACTIVITY_NOTICE_OPT_IN_MODULES`).
+    ("notas", "Notas de contratación"),
     ("promotor", "Lo que cubre el promotor"),
     ("formato", "Formato"),
     ("equipamiento", "Equipamiento"),
 ]
 ACTIVITY_NOTICE_MODULE_LABELS = {k: l for k, l in ACTIVITY_NOTICE_MODULES}
+# ⚠️⚠️ MÓDULOS QUE SALEN OCULTOS DE SERIE y hay que ACTIVAR a propósito con su ojo. Las notas de
+# contratación son NUESTRAS y son internas: que se le puedan mandar al artista es una opción (lo
+# pidió Dani), pero que salgan solas sería mandarle sin querer lo que se apunta en casa.
+ACTIVITY_NOTICE_OPT_IN_MODULES = {"notas"}
 
 
 def _concert_notice_signature(session_db, concert) -> str:
@@ -120432,20 +120538,26 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
         "empty_text": "Sin Caché",
     })
 
-    # ⚠️ Las comisiones que son un GASTO sobre el caché SÍ se enseñan, en su propio módulo: así se
-    # pueden dejar fuera del envío con su ojo, como cualquier otra condición.
-    filas_comision = []
+    # ⚠️ Lo que es un GASTO sobre el caché SÍ se enseña, en su propio módulo: así se puede dejar
+    # fuera del envío con su ojo, como cualquier otra condición.
+    # ⚠️⚠️ Y LAS COMISIONES Y LOS «OTROS GASTOS» VAN SEPARADOS (sep 2026, lo pidió Dani): no son lo
+    # mismo, así que cada uno tiene su módulo y su ojo. Un gasto dice además DE QUÉ ES.
+    filas_comision, filas_gasto = [], []
     for _c in _concert_commission_rows(session_db, concert):
         if _c["apply_mode"] != "EXPENSE":
             continue
-        filas_comision.append({
+        _fila = {
             "label": _c["name"],
             "value": (_c["amount_label"] if _c["is_fixed"] else "%s · %s" % (_c["pct_label"], _c["base_label"])),
-            "note": _c["concept"],
-        })
+            "note": " · ".join([x for x in [_c.get("category_label"), _c.get("concept")] if x]),
+        }
+        (filas_gasto if _c.get("is_expense_entry") else filas_comision).append(_fila)
     if filas_comision:
         modulos.append({"key": "comisiones", "label": "Comisiones", "icon": "fa-user-tag",
                         "rows": filas_comision, "empty_text": ""})
+    if filas_gasto:
+        modulos.append({"key": "gastos", "label": "Otros gastos", "icon": "fa-receipt",
+                        "rows": filas_gasto, "empty_text": ""})
 
     filas_promotor = []
     for pc in _promoter_costs_rows(getattr(concert, "promoter_costs_payload", None)):
@@ -120482,6 +120594,20 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
     if filas_formato:
         modulos.append({"key": "formato", "label": "Formato", "icon": "fa-guitar",
                         "rows": filas_formato, "empty_text": ""})
+
+    # ⚠️ LAS NOTAS DE CONTRATACIÓN, si se quieren mandar (sep 2026, lo pidió Dani). Su módulo sale
+    # OCULTO de serie (`ACTIVITY_NOTICE_OPT_IN_MODULES`): hay que darle al ojo para incluirlas.
+    filas_notas = []
+    for _n in (getattr(concert, "notes", None) or []):
+        _txt = (getattr(_n, "body", None) or "").strip()
+        if not _txt:
+            continue
+        _cuando = getattr(_n, "created_at", None)
+        filas_notas.append({"label": (_cuando.strftime("%d/%m/%Y") if _cuando else "Nota"),
+                            "value": _txt, "note": ""})
+    if filas_notas:
+        modulos.append({"key": "notas", "label": "Notas de contratación", "icon": "fa-note-sticky",
+                        "rows": filas_notas, "empty_text": ""})
 
     etiqueta_eq, notas_eq = _concert_equipment_label(session_db, concert)
     if etiqueta_eq or notas_eq:
@@ -121507,7 +121633,11 @@ def concert_artist_notice_view(cid):
             notice_state=estado,
             recipients=destinatarios,
             channel_label=ARTIST_NOTIFICATION_CHANNEL_LABELS.get(ctx["channel_key"], ctx["channel_key"]),
-            preview_html=_activity_notice_html(ctx, preview=True),
+            # ⚠️ La primera vista previa sale con los módulos OPT-IN ya apagados (las notas de
+            # contratación): el ojo los enciende a propósito, y a partir de ahí el front manda la
+            # lista de ocultos como siempre. Lo interno no se manda por olvido.
+            preview_html=_activity_notice_html(ctx, preview=True,
+                                               hidden=ACTIVITY_NOTICE_OPT_IN_MODULES),
             history=historial,
             # ⚠️ En una CANCELACIÓN o un APLAZAMIENTO la nota sale ya escrita con el MOTIVO y con lo
             # que se decidió del caché y de los gastos: es justo lo que hay que contarle al artista,

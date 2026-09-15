@@ -1703,3 +1703,10 @@
   mano mirando `commission_type` (que no siempre está) en vez de usar el punto único
   `_concert_commission_rows`. Ahora sale el importe bien **y si es un gasto o si reduce el caché**,
   que es lo que cambia la cuenta.
+
+- ⚠️ **LAS NOTAS DE CONTRATACIÓN SE PUEDEN MANDAR EN EL AVISO, PERO NO SALEN SOLAS** (sep 2026, lo
+  pidió Dani). Son NUESTRAS y son internas, así que su módulo existe pero sale **apagado de serie**
+  (`ACTIVITY_NOTICE_OPT_IN_MODULES`): hay que encenderlo a propósito con su ojo. La primera vista
+  previa se pinta ya con ese módulo oculto, y de ahí en adelante el front manda la lista de ocultos
+  como siempre. Al revés —que salieran de serie— sería mandarle al artista sin querer lo que se
+  apunta en casa.

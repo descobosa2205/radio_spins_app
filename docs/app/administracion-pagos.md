@@ -1273,3 +1273,32 @@
   **`_bag_artist_chips(session_db, bag)`** (reutiliza `_bag_artist_rows` y cae a `bag.artist`),
   **cacheado por bolsa**: estas pantallas la pintan una vez por gasto.
 
+
+- ⚠️⚠️⚠️ **CADA VEZ QUE SE GUARDABAN LAS COMISIONES, EL GASTO SE DUPLICABA EN LA BOLSA** (bug real y
+  de DINERO, sep 2026). `_replace_concert_zone_agents` borraba todas las filas y las recreaba, así
+  que perdían su `bag_expense_id`: el `_concert_commissions_sync_bag` de después creaba un gasto
+  **nuevo** y el de antes se quedaba **huérfano en la bolsa** —y de ahí, en la liquidación—. Sin
+  ningún error: simplemente el importe crecía.
+  ⚠️ Probado con la app real: con el código de antes, tres guardados del mismo módulo dejaban
+  **500 € → 1.000 € → 1.500 €**; con el arreglo se queda en **500 €** las tres veces.
+  · **Arreglo**: antes de borrar se guarda lo que cuelga de cada apunte (su gasto en la bolsa y su
+  factura), se repone en el que vuelve a estar (`_zone_agent_key`) y **el gasto del que ya no está
+  se borra**.
+  ⚠️ **Puede haber gastos duplicados en bolsas de producción** de antes de este arreglo: se ven en la
+  bolsa como varias líneas iguales de categoría «Comisiones».
+
+- ⚠️⚠️ **COMISIONES Y «OTROS GASTOS» SE APUNTAN IGUAL PERO NO SON LO MISMO** (sep 2026, lo pidió
+  Dani). En el módulo de la actividad se puede apuntar una **comisión** o un **otro gasto**: los dos
+  dicen a quién se le paga, cuánto y **si va contra el caché** (gasto sobre el caché o lo reduce), y
+  los dos llegan solos a la bolsa y a la liquidación. La diferencia está en dónde caen:
+  · una **comisión** entra en la bolsa con la categoría **«Comisiones»**;
+  · un **otro gasto** lleva además su **TIPO** (`expense_category`, el catálogo de siempre
+    `SIM_EXPENSE_CATEGORIES`) y entra **con esa categoría** — que es lo que Dani pidió con «se separa
+    de comisiones» y lo que hace que en la liquidación salga en su sitio.
+  · Columnas nuevas en `ConcertZoneAgent`: **`entry_kind`** y **`expense_category`**, **cada una en
+    su propia sentencia** del `ensure_*` (la regla de oro de la casa).
+  ⚠️ **El dedupe era por PERSONA**, así que a la misma empresa no se le podían apuntar DOS cosas —su
+  comisión y, aparte, un gasto— y la segunda se comía a la primera sin decir nada. Ahora la clave es
+  `_zone_agent_key` (persona + qué es + tipo + concepto).
+  · **Y SE NOTIFICA**: en el aviso al artista, «Comisiones» y «Otros gastos» son **dos módulos
+    distintos**, cada uno con su ojo, y el gasto dice de qué es. → `docs/app/actividades.md`

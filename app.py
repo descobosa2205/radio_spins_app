@@ -55902,8 +55902,20 @@ def _home_activity_phase_tasks(limit: int = 12) -> list[dict]:
                     "url": url_for("booking_request_detail_view", rid=str(r.id), configurar=1),
                     "artist": (r.artist.name if r.artist else ""),
                     "artist_photo": ((r.artist.photo_url or "") if r.artist else ""),
-                    "title": ((r.artist.name if r.artist else "") or (r.subject or "")
+                    # ⚠️⚠️ EL TÍTULO ES EL ASUNTO DE LA PETICIÓN, NO EL NOMBRE DEL ARTISTA (bug real,
+                    # sep 2026: «tenía dos peticiones de Cadena 100 que me acababa de aprobar
+                    # contratación y me han desaparecido»). No habían desaparecido: al aprobarlas
+                    # pasan de «Mis peticiones» a «Mis tareas pendientes», y ahí salían con el
+                    # nombre del ARTISTA — así que DOS peticiones del mismo artista se veían como
+                    # DOS FILAS IDÉNTICAS («DePol · Configurar el evento»), sin decir de cuál era
+                    # cada una ni que venían de una petición. El asunto es lo único que las
+                    # distingue; el artista se sigue viendo, en su sitio, con su foto.
+                    "title": ((r.subject or "").strip() or (r.artist.name if r.artist else "")
                               or _activity_kind_label(kind)),
+                    # ⚠️ Y SE DICE QUE ES UNA PETICIÓN: `_home_my_tasks` mira esto para etiquetarla
+                    # como PETICIÓN en vez de como «Actividad» — que todavía no existe, y llamarla
+                    # así es lo que hace que no se reconozca.
+                    "is_request": True,
                     "date_label": fecha,
                     "date": (r.requested_date.isoformat() if r.requested_date else ""),
                     "place_label": _place_label(r.municipality or "", r.province or "",
@@ -55934,23 +55946,34 @@ def _home_activity_phase_tasks(limit: int = 12) -> list[dict]:
 
 
 def _my_open_peticiones(limit: int = 30) -> list[dict]:
-    """MIS PETICIONES QUE SIGUEN ABIERTAS: las que he pedido y todavía no son una actividad ni se
-    han rechazado (`BOOKING_OPEN_STATUSES`). Punto único con «Mis peticiones» de Inicio: la misma
-    consulta y las mismas filas, solo que aquí se queda lo que sigue esperando una respuesta.
+    """MIS PETICIONES QUE TODAVÍA NO SON UNA ACTIVIDAD. Es lo que se enseña en la pantalla de
+    ACTIVIDADES (sep 2026, lo pidió Dani: «todas las que estén pendientes de convertirse en
+    actividad o se rechacen»).
 
-    ⚠️ Es lo que se enseña en la pantalla de ACTIVIDADES (sep 2026, lo pidió Dani: «si tienes
-    peticiones generadas por ti, debe aparecer el bloque de Peticiones indicando el número y todas
-    las que estén pendientes de convertirse en actividad o se rechacen»), para no tener que ir a
-    buscarlas a la bandeja de Contratación —que además no todo el mundo puede abrir."""
+    Entran DOS cosas, que es lo que de verdad significa «pendiente de convertirse en actividad»:
+      · las que siguen ABIERTAS (`BOOKING_OPEN_STATUSES`: nueva o negociando), y
+      · **las ya APROBADAS a las que todavía les falta configurarlas** (`concert_id` vacío).
+
+    ⚠️⚠️ Las aprobadas se quedaban fuera (bug real, sep 2026: «tenía dos peticiones de Cadena 100
+    que me acababa de aprobar contratación y me han desaparecido»). El filtro era solo por estado
+    abierto, así que en cuanto contratación aprobaba una, se caía de aquí — y de «Mis peticiones»,
+    que las excluye a propósito— y solo quedaba como una tarea suelta en Inicio. Justo cuando hay
+    que hacer algo con ella es cuando desaparecía de donde se la busca."""
     try:
-        return [f for f in _home_my_peticiones(limit=limit)
-                if (f.get("status") or "").upper() in BOOKING_OPEN_STATUSES]
+        filas = []
+        for f in _home_my_peticiones(limit=200, incluir_por_configurar=True):
+            est = (f.get("status") or "").upper()
+            if est in BOOKING_OPEN_STATUSES or (est == "CONVERTIDA" and not f.get("activity_url")):
+                filas.append(f)
+            if len(filas) >= limit:
+                break
+        return filas
     except Exception:
-        app.logger.exception("[actividades] no se pudieron cargar mis peticiones abiertas")
+        app.logger.exception("[actividades] no se pudieron cargar mis peticiones pendientes")
         return []
 
 
-def _home_my_peticiones(limit: int = 12) -> list[dict]:
+def _home_my_peticiones(limit: int = 12, *, incluir_por_configurar: bool = False) -> list[dict]:
     """MIS PETICIONES: las que ha hecho esta persona, para ver cómo van sin buscarlas.
 
     Solo las VIVAS y las resueltas hace poco: una petición de hace un año no es seguimiento.
@@ -55979,7 +56002,12 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
             # ⚠️ Una petición APROBADA con trabajo pendiente NO sale aquí: está en el módulo
             # «Actividades por cerrar» (ya es la actividad, con sus fases). Aquí se queda solo
             # cuando ya no hay nada que hacer, como seguimiento, y por poco tiempo.
-            if est == "CONVERTIDA" and r.accepted_at and _peticion_accept_tasks(s, r):
+            # ⚠️ Una petición APROBADA con trabajo pendiente NO sale en el módulo de Inicio: está
+            # en «Mis tareas pendientes» (ya es trabajo, no seguimiento). Pero la pantalla de
+            # ACTIVIDADES sí las quiere (`incluir_por_configurar`): ahí son «pendientes de
+            # convertirse en actividad», que es justo lo que se va a buscar.
+            if (est == "CONVERTIDA" and r.accepted_at and not incluir_por_configurar
+                    and _peticion_accept_tasks(s, r)):
                 continue
             if est in ("CONVERTIDA", "DESCARTADA"):
                 creada = r.created_at

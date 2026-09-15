@@ -432,3 +432,25 @@
   · Punto único **`_my_open_peticiones`**: la MISMA consulta que «Mis peticiones» de Inicio, filtrada
   por `BOOKING_OPEN_STATUSES` (NUEVA · EN_TRAMITE). Así las dos pantallas no pueden decir cosas
   distintas.
+
+- ⚠️⚠️⚠️ **UNA PETICIÓN APROBADA «DESAPARECÍA»: NI SE BORRA NI SE VE** (bug real, sep 2026 — «tenía
+  dos peticiones de Cadena 100 que me acababa de aprobar contratación y me han desaparecido»).
+  No se borraba nada: **dejaba de ser reconocible**. La cadena era ésta:
+  · al aprobarla pasa a `CONVERTIDA` y **`_home_my_peticiones` la excluye a propósito** (ya no es
+    seguimiento, es trabajo: está en «Mis tareas pendientes»);
+  · en las tareas salía con el **nombre del ARTISTA** como título, no con el asunto — así que **dos
+    peticiones del mismo artista se veían como DOS FILAS IDÉNTICAS** («DePol · Configurar el
+    evento»), sin decir cuál era cuál;
+  · y se etiquetaba como **«Actividad»** aunque la actividad **todavía no existe** (el `kind`
+    `PETICION` estaba en el catálogo pero no se usaba: faltaba `is_request` en la fila);
+  · el bloque «Peticiones» de la pantalla de Actividades filtraba solo por estado abierto, así que
+    tampoco las cogía.
+  Resultado: justo cuando hay algo que hacer con ella, se caía de los tres sitios donde se la busca.
+  · **Arreglo**: en la fila sin configurar, el **título es el asunto** (lo único que distingue dos
+  peticiones del mismo artista; el artista se sigue viendo con su foto en su sitio) y se marca
+  **`is_request: True`**, así que sale como **«Petición»**. Y `_my_open_peticiones` incluye ahora las
+  **aprobadas a las que les falta configurarlas** (`concert_id` vacío), que es literalmente
+  «pendiente de convertirse en actividad» — con `incluir_por_configurar` en el punto único, para no
+  tocar el módulo de Inicio.
+  ⚠️ Probado con la app real: antes no salían **ni en Inicio, ni en Actividades, ni en la bandeja**;
+  ahora Inicio dice «Petición · \<asunto\> … Configurar el evento» y Actividades las cuenta.

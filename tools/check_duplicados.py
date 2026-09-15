@@ -163,5 +163,88 @@ s.close()
 r = cli.post("/promotores/duplicados/descartar", data={"ids[]": [id1], "next": "/promotores"})
 check("con una sola ficha no se descarta nada (hacen falta dos)", r.status_code in (302, 303))
 
+# ─── DESCARTAR VARIAS A LA VEZ ────────────────────────────────────────────────────────────────
+s = A.db()
+lote = []
+for i in range(3):
+    x = models.Promoter(nick="Lote A%d %s" % (i, suf), contact_email="lote%d+%s@x.local" % (i, suf))
+    y = models.Promoter(nick="Lote B%d %s" % (i, suf), contact_email="lote%d+%s@x.local" % (i, suf))
+    s.add(x); s.add(y); s.flush()
+    lote.append((str(x.id), str(y.id)))
+s.commit()
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+check("las tres parejas nuevas se proponen", all(juntos(a_, b_, grupos) for a_, b_ in lote))
+s.close()
+r = cli.post("/promotores/duplicados/descartar",
+             data={"pares[]": ["%s|%s" % (a_, b_) for a_, b_ in lote], "next": "/promotores"})
+s = A.db()
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+check("se pueden descartar VARIAS de una vez (las marcadas)",
+      not any(juntos(a_, b_, grupos) for a_, b_ in lote), r.status_code)
+s.close()
+# ⚠️ El botón de UNA fila manda `solo`: descarta esa y NADA más, aunque viajen casillas marcadas.
+s = A.db()
+u1 = models.Promoter(nick="Solo A %s" % suf, contact_email="solo+%s@x.local" % suf)
+u2 = models.Promoter(nick="Solo B %s" % suf, contact_email="solo+%s@x.local" % suf)
+v1 = models.Promoter(nick="Otra A %s" % suf, contact_email="otra+%s@x.local" % suf)
+v2 = models.Promoter(nick="Otra B %s" % suf, contact_email="otra+%s@x.local" % suf)
+for x in (u1, u2, v1, v2): s.add(x)
+s.commit()
+p_solo, p_otra = (str(u1.id), str(u2.id)), (str(v1.id), str(v2.id))
+s.close()
+cli.post("/promotores/duplicados/descartar",
+         data={"solo": "%s|%s" % p_solo, "pares[]": ["%s|%s" % p_otra], "next": "/promotores"})
+s = A.db()
+grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
+check("el botón de una fila descarta SOLO esa, aunque haya casillas marcadas",
+      not juntos(*p_solo, grupos) and juntos(*p_otra, grupos))
+s.close()
+
+# ─── LAS DE LA OFICINA: «ES LA MISMA PERSONA» ─────────────────────────────────────────────────
+s = A.db()
+import datetime as _dt
+u = models.User(email="ofi+%s@33.local" % suf, password_hash="x", role=1)
+s.add(u); s.flush()
+perfil = models.UserProfile(user_id=u.id, nick="Ofi %s" % suf, first_name="Marcos",
+                            last_name="Oficina %s" % suf, dni="00000009X")
+s.add(perfil)
+tercero = models.Promoter(nick="Marcos Oficina %s" % suf, first_name="Marcos",
+                          last_name="Oficina %s" % suf, contact_phone="+34611%s" % suf[:6].translate(str.maketrans("abcdef","123456")))
+s.add(tercero); s.commit()
+uid, pid = str(u.id), str(tercero.id)
+ofi = A._promoter_office_duplicates(s, s.query(models.Promoter).all())
+check("una ficha de tercero que es alguien de la oficina se detecta",
+      any(x["promoter"]["id"] == pid and x["user"]["id"] == uid for x in ofi), str(ofi)[:200])
+s.close()
+r = cli.post("/promotores/duplicados/oficina",
+             data={"promoter_id": pid, "user_id": uid, "next": "/promotores"})
+s = A.db()
+t2 = s.get(models.Promoter, A.to_uuid(pid))
+check("«Es la misma persona» las une", str(getattr(t2, "user_id", "")) == uid, r.status_code)
+check("y completa los huecos sin pisar nada (el DNI del personal pasa a la ficha)",
+      (t2.tax_id or "") == "00000009X", t2.tax_id)
+ofi = A._promoter_office_duplicates(s, s.query(models.Promoter).all())
+check("ya no se propone", not any(x["promoter"]["id"] == pid for x in ofi))
+check("y sale entre las YA UNIDAS, para poder deshacerlo",
+      any(x["promoter"]["id"] == pid for x in A._promoter_office_linked(s, s.query(models.Promoter).all())))
+s.close()
+r = cli.post("/promotores/duplicados/oficina/deshacer", data={"promoter_id": pid, "next": "/promotores"})
+s = A.db()
+check("se puede DESHACER", not getattr(s.get(models.Promoter, A.to_uuid(pid)), "user_id", None), r.status_code)
+s.close()
+# ⚠️ Con DNI distinto NO se unen: eso es que no son la misma persona.
+s = A.db()
+otro = models.Promoter(nick="Marcos Otro %s" % suf, first_name="Marcos",
+                       last_name="Oficina %s" % suf, tax_id="00000010B")
+s.add(otro); s.commit(); pid2 = str(otro.id); s.close()
+with cli.session_transaction() as ses: ses.pop("_flashes", None)
+cli.post("/promotores/duplicados/oficina", data={"promoter_id": pid2, "user_id": uid, "next": "/promotores"})
+with cli.session_transaction() as ses: fl = ses.get("_flashes", [])
+s = A.db()
+check("con DNI distinto NO se unen, y se dice por qué",
+      not getattr(s.get(models.Promoter, A.to_uuid(pid2)), "user_id", None)
+      and any("DNI distinto" in str(m) for _c, m in fl), str(fl)[:160])
+s.close()
+
 print("\n%d bien · %d mal" % (len(OK), len(KO)))
 sys.exit(1 if KO else 0)

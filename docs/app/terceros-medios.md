@@ -278,11 +278,18 @@
   ⚠️⚠️ **DOS DNI DISTINTOS NUNCA SE EMPAREJAN**, aunque se llamen igual: fusionar a dos personas
   distintas es mucho peor que dejar un duplicado, y no se puede deshacer.
   · **«FICHAS QUE SON ALGUIEN DE LA OFICINA»** (`_promoter_office_duplicates`): terceros que
-  coinciden con personal de la casa (por DNI o por nombre), con enlace a las dos fichas. ⚠️ **Estas
-  NO se fusionan**: un usuario de la casa y una ficha de tercero son dos cosas distintas (una entra
-  en la app, la otra factura), así que se DICEN y la decisión es de dirección. Los usuarios
-  **externos** (`is_external`, el espejo de un tercero que lleva una producción) se quedan fuera: ahí
-  las dos fichas son lo normal.
+  coinciden con personal de la casa (por DNI o por nombre), con enlace a las dos fichas y el botón
+  **«Es la misma persona»** (`promoters_office_link`).
+  ⚠️⚠️ **NO SE FUNDE UNA EN OTRA** (aunque Dani pidiera «la opción de fusionarlas»): un usuario de la
+  casa **entra en la app** y un tercero **factura** —de él cuelgan gastos, invitaciones y
+  documentos—, así que borrar cualquiera de los dos se llevaría trabajo por delante. Lo que se hace
+  es **UNIRLAS**: `Promoter.user_id` dice que son la misma persona, **los huecos de cada ficha se
+  rellenan con lo que tenga la otra** (nunca se pisa un dato escrito), dejan de proponerse y se
+  pueden **DESHACER** («Fichas unidas a su persona de la oficina»).
+  ⚠️ **Con DNI distinto no se unen** y se dice por qué: eso es que no son la misma persona.
+  ⚠️ Una persona de la casa solo puede estar unida a UNA ficha de tercero (si ya lo está, se avisa).
+  ⚠️ Los usuarios **externos** (`is_external`, el espejo de un tercero que lleva una producción) se
+  quedan fuera: ahí las dos fichas son lo normal.
   · **Y NO SE CREAN NUEVOS**: el alta rápida (`api_create_promoter`, el camino por el que se crea un
   tercero desde cualquier pantalla) avisa ahora cuando ese **DNI, correo o teléfono** ya están en la
   base (`_promoter_existing_matches`) y ofrece la ficha que hay. Antes solo miraba **nombres
@@ -290,8 +297,8 @@
   dos. Se sigue pudiendo crear si de verdad es otro (`force_new`), como con los nombres parecidos.
   ⚠️ Todo va **en bloque** (una consulta por tabla): con cientos de terceros, una consulta por ficha
   dejaría la pantalla de Terceros inservible.
-  ⚠️ Prueba de regresión: **`tools/check_duplicados.py`** (21 comprobaciones con la app real, la
-  fusión y el descarte incluidos).
+  ⚠️ Prueba de regresión: **`tools/check_duplicados.py`** (31 comprobaciones con la app real: la
+  fusión, el descarte en bloque, la unión con la oficina y sus dos «deshacer»).
 
 - ⚠️⚠️ **«NO SON LA MISMA»: LA SALIDA DE UN DUPLICADO QUE NO LO ES** (sep 2026, lo pidió Dani). El
   bloque de fichas repetidas proponía fusionar, y **fusionar no se puede deshacer**: si dos fichas
@@ -306,5 +313,12 @@
   · **SE PUEDE DESHACER** (`promoters_duplicate_restore`): «Parejas descartadas» —plegado, es un
   archivo, no trabajo— dice **quién lo dijo y cuándo** y tiene su «Deshacer». Una decisión de una
   persona no puede ser invisible ni definitiva.
+  · ⚠️⚠️ **VARIAS DE UNA VEZ** (sep 2026, lo pidió Dani: «que si no se tarda mucho»): cada pareja
+  tiene su **casilla** y se descartan todas las marcadas de golpe («Marcar todas» incluido).
+  **Fusionar sigue siendo de una en una** —es irreversible y hay que mirar campo a campo—, pero
+  descartar no destruye nada.
+  ⚠️ **El bloque entero es UN formulario** (no puede haber `<form>` dentro de otro), así que el botón
+  de una sola fila manda **`solo`**: descarta ESA pareja y nada más, aunque haya casillas marcadas —
+  pulsar un botón no puede hacer de más.
   ⚠️ Las dos rutas van bajo `/promotores`, así que heredan el permiso de la sección (como la fusión).
-  ⚠️ Cubierto por `tools/check_duplicados.py` (21 comprobaciones) y probado en el navegador.
+  ⚠️ Cubierto por `tools/check_duplicados.py` (31 comprobaciones) y probado en el navegador.

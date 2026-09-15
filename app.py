@@ -50755,26 +50755,125 @@ def promoters_duplicate_dismiss():
     session = db()
     back = request.form.get("next") or url_for("promoters_view")
     try:
-        ids = [x for x in (request.form.getlist("ids[]") or []) if (x or "").strip()]
-        vivos = [str(p) for p in (_id_vivo(session, Promoter, x) for x in ids) if p]
-        if len(vivos) < 2:
-            raise ValueError("Hacen falta dos fichas para decir que no son la misma.")
+        # ⚠️⚠️ VARIAS DE UNA VEZ (sep 2026, lo pidió Dani: «para descartar deja que seleccione
+        # varias a la vez, que si no se tarda mucho»). Fusionar sigue siendo de una en una —es
+        # irreversible y hay que mirar campo a campo—, pero descartar no destruye nada.
+        #   · `solo`   = el botón de UNA fila («No son la misma»): descarta ESA y nada más, aunque
+        #                haya casillas marcadas —pulsar un botón no puede hacer de más—.
+        #   · `pares[]` = las casillas marcadas, «a|b» cada una.
+        # Se sigue aceptando `ids[]` (una pareja suelta) por si queda una pantalla vieja abierta.
+        crudos = ([request.form.get("solo")] if (request.form.get("solo") or "").strip()
+                  else (request.form.getlist("pares[]") or []))
+        parejas = []
+        for bruto in crudos:
+            trozos = [x for x in str(bruto or "").split("|") if x.strip()]
+            if len(trozos) == 2:
+                parejas.append((trozos[0], trozos[1]))
+        if not parejas:
+            ids = [x for x in (request.form.getlist("ids[]") or []) if (x or "").strip()]
+            parejas = [(ids[i], ids[j]) for i in range(len(ids)) for j in range(i + 1, len(ids))]
+        if not parejas:
+            raise ValueError("Marca al menos una pareja para descartarla.")
         nick = ((_current_user_state() or {}).get("nick") or "")
         n = 0
-        for i in range(len(vivos)):
-            for j in range(i + 1, len(vivos)):
-                if _promoter_dismiss_pair(session, vivos[i], vivos[j], nick=nick):
-                    n += 1
+        for a, b in parejas:
+            va, vb = _id_vivo(session, Promoter, a), _id_vivo(session, Promoter, b)
+            if va and vb and _promoter_dismiss_pair(session, va, vb, nick=nick):
+                n += 1
         session.commit()
-        flash("Anotado: no son la misma ficha, así que no se volverá a proponer fusionarlas. "
-              "Puedes deshacerlo en «Parejas descartadas»." if n
-              else "Esa pareja ya estaba descartada.", "success" if n else "info")
+        flash(("Anotado: %d pareja%s deja%s de proponerse. Puedes deshacerlo en «Parejas "
+               "descartadas»." % (n, "s" if n != 1 else "", "n" if n != 1 else "")) if n
+              else "Eso ya estaba descartado.", "success" if n else "info")
     except Exception as exc:
         session.rollback()
         flash(str(exc) if isinstance(exc, ValueError)
               else "No se ha podido descartar esa pareja.", "danger")
         if not isinstance(exc, ValueError):
             app.logger.exception("[terceros] no se pudo descartar la pareja de duplicados")
+    finally:
+        session.close()
+    return redirect(back)
+
+
+@app.post("/promotores/duplicados/oficina", endpoint="promoters_office_link")
+@admin_required
+def promoters_office_link():
+    """«ES LA MISMA PERSONA»: une la ficha de TERCERO con la persona de la OFICINA.
+
+    ⚠️⚠️ **No se puede fundir una en otra** (sep 2026, lo pidió Dani: «dame también la opción de
+    fusionarlas»): un usuario de la casa **entra en la app** y un tercero **factura** —de él cuelgan
+    gastos, invitaciones y documentos—, así que borrar cualquiera de los dos se llevaría por delante
+    trabajo de verdad. Lo que sí se hace es **unirlas**: la app pasa a saber que son la misma
+    persona (`Promoter.user_id`), las dos fichas se ven enlazadas, **los huecos de cada una se
+    rellenan con lo que tenga la otra** (nunca se pisa un dato ya escrito) y deja de proponerse.
+    ⚠️ Se puede DESHACER (`promoters_office_unlink`).
+    ⚠️ El DNI **no se copia si las dos lo tienen y son distintos**: eso sería que no son la misma
+    persona, y entonces no se une nada."""
+    session = db()
+    back = request.form.get("next") or url_for("promoters_view")
+    try:
+        p = session.get(Promoter, _safe_uuid(request.form.get("promoter_id")))
+        uid = _safe_uuid(request.form.get("user_id"))
+        perfil = session.get(UserProfile, uid) if uid else None
+        if p is None or perfil is None:
+            raise ValueError("Esa ficha o esa persona ya no existen.")
+        dni_p = _prl_norm_dni(p.tax_id or "")
+        dni_u = _prl_norm_dni(getattr(perfil, "dni", "") or "")
+        if dni_p and dni_u and dni_p != dni_u:
+            raise ValueError("Tienen DNI distinto, así que no son la misma persona.")
+        ya = (session.query(Promoter).filter(Promoter.user_id == uid, Promoter.id != p.id).first())
+        if ya is not None:
+            raise ValueError("Esa persona ya está unida a la ficha «%s». Deshaz esa primero."
+                             % (_promoter_display_name(ya) or ya.nick))
+        p.user_id = uid
+        # Los HUECOS de cada una se rellenan con lo que tenga la otra (nunca se pisa nada).
+        if not (p.first_name or "").strip():
+            p.first_name = (getattr(perfil, "first_name", "") or "").strip() or None
+        if not (p.last_name or "").strip():
+            p.last_name = (getattr(perfil, "last_name", "") or "").strip() or None
+        if not (p.tax_id or "").strip() and dni_u:
+            p.tax_id = (getattr(perfil, "dni", "") or "").strip() or None
+        if not (p.logo_url or "").strip():
+            p.logo_url = (getattr(perfil, "photo_url", "") or "").strip() or None
+        if not (p.address or "").strip():
+            p.address = (getattr(perfil, "address", "") or "").strip() or None
+        if not (getattr(perfil, "photo_url", "") or "").strip() and (p.logo_url or "").strip():
+            perfil.photo_url = p.logo_url
+        if not (getattr(perfil, "dni", "") or "").strip() and (p.tax_id or "").strip():
+            perfil.dni = p.tax_id
+        session.commit()
+        flash("Unidas: «%s» es %s. Se han completado los datos que le faltaban a cada ficha y deja "
+              "de salir como repetida." % ((_promoter_display_name(p) or p.nick),
+                                           (perfil.nick or "esa persona")), "success")
+    except Exception as exc:
+        session.rollback()
+        flash(str(exc) if isinstance(exc, ValueError) else "No se han podido unir.", "danger")
+        if not isinstance(exc, ValueError):
+            app.logger.exception("[terceros] no se pudo unir la ficha con la persona de la oficina")
+    finally:
+        session.close()
+    return redirect(back)
+
+
+@app.post("/promotores/duplicados/oficina/deshacer", endpoint="promoters_office_unlink")
+@admin_required
+def promoters_office_unlink():
+    """DESHACER la unión de una ficha de tercero con una persona de la oficina.
+
+    ⚠️ Solo se desata el vínculo: los datos que se completaron al unirlas **se quedan** (son suyos,
+    y borrarlos sería perder información que alguien dio por buena)."""
+    session = db()
+    back = request.form.get("next") or url_for("promoters_view")
+    try:
+        p = session.get(Promoter, _safe_uuid(request.form.get("promoter_id")))
+        if p is None:
+            raise ValueError("Esa ficha ya no existe.")
+        p.user_id = None
+        session.commit()
+        flash("Ya no están unidas. Vuelve a salir como posible repetida.", "success")
+    except Exception as exc:
+        session.rollback()
+        flash(str(exc) if isinstance(exc, ValueError) else "No se ha podido deshacer.", "danger")
     finally:
         session.close()
     return redirect(back)
@@ -50902,6 +51001,8 @@ def promoters_view():
             office_duplicates=_promoter_office_duplicates(session, promoters),
             # Las parejas que ya se dijo que NO son la misma, por si hay que deshacerlo.
             dismissed_pairs=_promoter_dismissed_rows(session),
+            # Y las fichas ya unidas a su persona de la oficina (también con su «deshacer»).
+            office_linked=_promoter_office_linked(session, promoters),
             import_fields=[{"key": k, "label": l} for k, l, _kind, _al in promoter_import.FIELDS],
             import_target_ignore=promoter_import.TARGET_IGNORE,
             import_target_alt=promoter_import.TARGET_ALT,
@@ -51366,6 +51467,26 @@ def _promoter_dismissed_rows(session_db, *, limite: int = 60) -> list:
     return filas
 
 
+def _promoter_office_linked(session_db, promoters) -> list:
+    """LAS FICHAS YA UNIDAS a su persona de la oficina, para poder DESHACERLO."""
+    filas = []
+    for p in (promoters or []):
+        uid = getattr(p, "user_id", None)
+        if not uid:
+            continue
+        perfil = session_db.get(UserProfile, uid)
+        if perfil is None:
+            continue
+        filas.append({
+            "promoter": {"id": str(p.id), "name": (_promoter_display_name(p) or p.nick or "—"),
+                         "photo": (p.logo_url or "")},
+            "user": {"id": str(perfil.user_id), "name": (perfil.nick or "—"),
+                     "photo": (perfil.photo_url or "")},
+        })
+    filas.sort(key=lambda x: (x["promoter"]["name"] or "").casefold())
+    return filas
+
+
 def _promoter_office_duplicates(session_db, promoters, *, limite: int = 40) -> list:
     """TERCEROS que son, en realidad, alguien de LA OFICINA (personal de la casa).
 
@@ -51387,6 +51508,8 @@ def _promoter_office_duplicates(session_db, promoters, *, limite: int = 40) -> l
     except Exception:
         app.logger.exception("[terceros] no se pudo leer el personal para buscar duplicados")
         return []
+    # ⚠️ Las que YA se han unido («es la misma persona») dejan de proponerse: ya está dicho.
+    unidas = {str(getattr(p, "user_id", "") or "") for p in filas if getattr(p, "user_id", None)}
     por_dni, por_nombre = {}, {}
     for u in personal:
         dni = _prl_norm_dni(getattr(u, "dni", "") or "")
@@ -51397,6 +51520,8 @@ def _promoter_office_duplicates(session_db, promoters, *, limite: int = 40) -> l
             por_nombre.setdefault(nombre, u)
     salida = []
     for p in filas:
+        if getattr(p, "user_id", None):
+            continue                      # esta ficha ya está unida a su persona de la casa
         dni = _prl_norm_dni(getattr(p, "tax_id", "") or "")
         quien, motivo = None, ""
         if dni and dni in por_dni:
@@ -51410,7 +51535,7 @@ def _promoter_office_duplicates(session_db, promoters, *, limite: int = 40) -> l
                         continue
                     quien, motivo = por_nombre[nombre], "el mismo nombre"
                     break
-        if quien is None:
+        if quien is None or str(getattr(quien, "user_id", "")) in unidas:
             continue
         salida.append({
             "promoter": {"id": str(p.id), "name": (_promoter_display_name(p) or p.nick or "—"),

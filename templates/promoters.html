@@ -61,11 +61,32 @@
       vinculaciones) pasa a la que se conserva: no se pierde nada. Y si <strong>no</strong> son la
       misma —dos personas pueden compartir el correo de una oficina o el nombre—, dilo y deja de
       proponerse.</div>
-    <div class="collapse show" id="promoterDuplicates">
+    {# ⚠️⚠️ UN SOLO FORMULARIO para todo el bloque (sep 2026, lo pidió Dani): descartar de una en
+       una se hacía eterno, así que cada pareja tiene su CASILLA y se descartan todas las marcadas
+       de golpe. Fusionar sigue siendo de una en una: es irreversible y hay que mirar campo a campo.
+       ⚠️ Los botones de una sola fila mandan `solo`, así que no arrastran lo que haya marcado. #}
+    <form method="post" action="{{ url_for('promoters_duplicate_dismiss') }}" class="collapse show"
+          id="promoterDuplicates" data-dup-form>
+      <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
+      {% if CAN_EDIT_SONGS_PROMOTERS and duplicate_pairs|length > 1 %}
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-2 p-2 rounded-3 bg-light border">
+          <label class="form-check mb-0 small">
+            <input class="form-check-input" type="checkbox" data-dup-all>
+            <span class="form-check-label">Marcar todas</span>
+          </label>
+          <span class="small text-muted" data-dup-count>Ninguna marcada</span>
+          <button type="submit" class="btn btn-sm btn-outline-secondary ms-auto" data-dup-bulk disabled>
+            <i class="fa fa-user-xmark me-1"></i>Las marcadas no son la misma</button>
+        </div>
+      {% endif %}
       {% for g in duplicate_pairs %}
         <div class="border rounded-3 p-2 mb-2 bg-white">
           <div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Tienen {{ g.why }}.</div>
           <div class="d-flex flex-wrap gap-2 align-items-center">
+            {% if CAN_EDIT_SONGS_PROMOTERS %}
+              <input class="form-check-input mt-0" type="checkbox" name="pares[]" data-dup-one
+                     value="{{ g.a.id }}|{{ g.b.id }}" title="Marcar para descartarla">
+            {% endif %}
             {% for p in [g.a, g.b] %}
               <a class="d-flex align-items-center gap-2 text-decoration-none text-reset border rounded-pill ps-1 pe-3 py-1"
                  href="{{ url_for('promoter_detail_view', pid=p.id) }}" title="Abrir su ficha">
@@ -84,15 +105,12 @@
               <span class="ms-auto d-flex gap-2 flex-wrap">
                 {# ⚠️ LA SALIDA DE «NO SON LA MISMA»: dos personas distintas pueden compartir el
                    correo de una oficina, un teléfono o el nombre. Se descarta ESA pareja y no se
-                   vuelve a proponer; si mañana aparece otra ficha que casa, esa sí saldrá. #}
-                <form method="post" action="{{ url_for('promoters_duplicate_dismiss') }}" class="d-inline">
-                  <input type="hidden" name="ids[]" value="{{ g.a.id }}">
-                  <input type="hidden" name="ids[]" value="{{ g.b.id }}">
-                  <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
-                  <button type="submit" class="btn btn-sm btn-outline-secondary"
-                          title="No son la misma: deja de proponerlo">
-                    <i class="fa fa-user-xmark me-1"></i>No son la misma</button>
-                </form>
+                   vuelve a proponer; si mañana aparece otra ficha que casa, esa sí saldrá.
+                   ⚠️ `name="solo"`: manda SOLO esta pareja, aunque haya casillas marcadas. #}
+                <button type="submit" name="solo" value="{{ g.a.id }}|{{ g.b.id }}"
+                        class="btn btn-sm btn-outline-secondary"
+                        title="No son la misma: deja de proponerlo">
+                  <i class="fa fa-user-xmark me-1"></i>No son la misma</button>
                 {# Abre el modal de fusión de siempre YA en la comparación de estas dos (el modal es
                    el mismo que el del menú ⋮ de cada fila: un solo sitio para fusionar). #}
                 <button type="button" class="btn btn-sm btn-warning"
@@ -112,7 +130,38 @@
           {% endif %}
         </div>
       {% endfor %}
-    </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# LAS FICHAS YA UNIDAS a su persona de la oficina, con su «deshacer». Plegado: es un archivo. #}
+{% if office_linked and CAN_EDIT_SONGS_PROMOTERS %}
+<div class="mb-3">
+  <button class="btn btn-sm btn-link px-0" type="button" data-bs-toggle="collapse"
+          data-bs-target="#promoterOfficeLinked">
+    <i class="fa fa-link me-1"></i>Fichas unidas a su persona de la oficina ({{ office_linked|length }})</button>
+  <div class="collapse" id="promoterOfficeLinked">
+    <div class="card"><div class="card-body">
+      <div class="text-muted small mb-2">Son la misma persona: la ficha de tercero (la que factura) y
+        su usuario de la casa (el que entra en la app). Las dos siguen existiendo, pero la app ya sabe
+        que son la misma y no vuelve a proponerlas.</div>
+      {% for d in office_linked %}
+        <div class="d-flex flex-wrap gap-2 align-items-center border rounded-3 p-2 mb-2 bg-white">
+          <a class="small text-decoration-none text-reset" href="{{ url_for('promoter_detail_view', pid=d.promoter.id) }}">{{ d.promoter.name }}</a>
+          <span class="badge text-bg-light border fw-normal">Tercero</span>
+          <i class="fa fa-link text-muted"></i>
+          <a class="small text-decoration-none text-reset" href="{{ url_for('personnel_detail_view', user_id=d.user.id) }}">{{ d.user.name }}</a>
+          <span class="badge text-bg-light border fw-normal">Oficina</span>
+          <form method="post" action="{{ url_for('promoters_office_unlink') }}" class="ms-auto">
+            <input type="hidden" name="promoter_id" value="{{ d.promoter.id }}">
+            <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+              <i class="fa fa-rotate-left me-1"></i>Deshacer</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div></div>
   </div>
 </div>
 {% endif %}
@@ -165,8 +214,9 @@
     </div>
     <div class="text-muted small mb-2">Estas fichas de tercero coinciden con personal de la casa: se
       crean solas cuando alguien de la oficina va en una hoja de ruta, pide entradas o firma un
-      gasto. Míralas y decide si la ficha de tercero hace falta (por ejemplo, para facturar) o si
-      sobra.</div>
+      gasto. Si son la misma persona, <strong>únelas</strong>: las dos fichas siguen existiendo —el
+      usuario entra en la app y el tercero factura— pero la app ya sabe que son la misma, se
+      completan los datos que le falten a cada una y dejan de salir aquí. Se puede deshacer.</div>
     <div class="collapse show" id="officeDuplicates">
       {% for d in office_duplicates %}
         <div class="border rounded-3 p-2 mb-2 bg-white d-flex flex-wrap gap-2 align-items-center">
@@ -185,7 +235,23 @@
             <span class="small fw-semibold">{{ d.user.name }}</span>
             <span class="badge text-bg-light border fw-normal">Oficina</span>
           </a>
-          <span class="small text-muted ms-auto">Tienen {{ d.why }}.</span>
+          <span class="small text-muted">Tienen {{ d.why }}.</span>
+          {% if CAN_EDIT_SONGS_PROMOTERS %}
+            <span class="ms-auto d-flex gap-2 flex-wrap">
+              {# ⚠️⚠️ NO SE FUNDE UNA EN OTRA: el usuario entra en la app y el tercero factura (de él
+                 cuelgan gastos, invitaciones y documentos), así que borrar cualquiera se llevaría
+                 trabajo por delante. Lo que se hace es UNIRLAS: la app sabe que son la misma
+                 persona, se completan los huecos de las dos y deja de proponerse. #}
+              <form method="post" action="{{ url_for('promoters_office_link') }}" class="d-inline">
+                <input type="hidden" name="promoter_id" value="{{ d.promoter.id }}">
+                <input type="hidden" name="user_id" value="{{ d.user.id }}">
+                <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
+                <button type="submit" class="btn btn-sm btn-info text-white"
+                        title="Unir las dos fichas: son la misma persona">
+                  <i class="fa fa-link me-1"></i>Es la misma persona</button>
+              </form>
+            </span>
+          {% endif %}
         </div>
       {% endfor %}
     </div>
@@ -412,6 +478,39 @@
       });
     }
     applyFilters();
+  })();
+</script>
+
+<script>
+  /* LAS CASILLAS DE «FICHAS REPETIDAS»: marcar varias y descartarlas de golpe.
+     ⚠️ Delegado en `document`: el bloque se repinta con la página y así sobrevive (regla de la
+        casa). No decide nada: solo cuenta lo marcado y habilita el botón. */
+  (function () {
+    function caja() { return document.querySelector('[data-dup-form]'); }
+    function marcadas(f) { return f ? f.querySelectorAll('[data-dup-one]:checked').length : 0; }
+    function pinta() {
+      var f = caja(); if (!f) return;
+      var n = marcadas(f);
+      var btn = f.querySelector('[data-dup-bulk]');
+      if (btn) btn.disabled = !n;
+      var txt = f.querySelector('[data-dup-count]');
+      if (txt) txt.textContent = n ? (n + (n === 1 ? ' marcada' : ' marcadas')) : 'Ninguna marcada';
+      var todas = f.querySelector('[data-dup-all]');
+      if (todas) {
+        var total = f.querySelectorAll('[data-dup-one]').length;
+        todas.checked = !!total && n === total;
+        todas.indeterminate = !!n && n < total;
+      }
+    }
+    document.addEventListener('change', function (ev) {
+      var f = caja(); if (!f) return;
+      if (ev.target.closest('[data-dup-all]')) {
+        var on = ev.target.checked;
+        f.querySelectorAll('[data-dup-one]').forEach(function (c) { c.checked = on; });
+      }
+      if (ev.target.closest('[data-dup-one], [data-dup-all]')) pinta();
+    });
+    pinta();
   })();
 </script>
 {% if CAN_EDIT_SONGS_PROMOTERS %}{% include '_merge_modal.html' %}{% endif %}

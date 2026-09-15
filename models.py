@@ -2094,6 +2094,13 @@ class Promoter(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     nick = Column(Text, nullable=False, unique=True)
     logo_url = Column(Text)
+    # ⚠️⚠️ ESTA FICHA ES ESA PERSONA DE LA CASA (sep 2026, lo pidió Dani). Alguien de la oficina
+    # acaba teniendo también ficha de tercero (va en el personal de una hoja de ruta, pide entradas,
+    # factura algo), y son DOS COSAS que no se pueden fundir en una —el usuario entra en la app, el
+    # tercero factura y de él cuelgan gastos, invitaciones y documentos—. Lo que sí se puede es
+    # decir que son LA MISMA PERSONA: con esto, la app lo sabe, las dos fichas se ven enlazadas y
+    # deja de proponerse como duplicado. `SET NULL`: si el usuario se borra, la ficha se queda.
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
 
     # Datos ampliados (autores / beneficiarios / etc.)
     first_name = Column(Text)
@@ -9488,6 +9495,10 @@ def ensure_song_royalties_schema():
             CONSTRAINT uq_promoter_not_duplicates_pair UNIQUE (promoter_a_id, promoter_b_id)
         );
         """,
+        # ⚠️⚠️ UNA COLUMNA NUEVA VA EN SU PROPIA SENTENCIA (nunca dentro de un `DO $$ … IF NOT
+        # EXISTS(…)`, que puede no ejecutarse nunca): la ficha de tercero que ES alguien de la casa.
+        'ALTER TABLE promoters ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES users(id) ON DELETE SET NULL;',
+        'CREATE INDEX IF NOT EXISTS idx_promoters_user_id ON promoters(user_id);',
         'CREATE INDEX IF NOT EXISTS idx_promoter_not_duplicates_a ON promoter_not_duplicates(promoter_a_id);',
         'CREATE INDEX IF NOT EXISTS idx_promoter_not_duplicates_b ON promoter_not_duplicates(promoter_b_id);',
 

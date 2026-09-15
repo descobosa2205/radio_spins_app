@@ -1742,3 +1742,14 @@
   un «<» en el nombre de un artista o de un recinto **rompe el PDF entero** (no se genera).
   ⚠️ Dos cosas que salían en crudo en el plan de pago: el estado (**«PENDING_INVOICE»** en vez de
   «Por facturar») y una fecha guardada como texto (**«2026-10-01»** en vez de «01/10/2026»).
+
+- ⚠️⚠️⚠️ **`(int or "").strip()` → 500 EN LA FICHA DE CUALQUIER ACTIVIDAD CON MEET & GREET** (bug real
+  y grave, en producción **desde el 26-jul-2026**). En `_concert_contracting_general_rows`, el número
+  de personas del M&G se comprobaba con `(_mg.get("quantity") or "").strip()` — y `quantity` es un
+  **número**, así que `AttributeError: 'int' object has no attribute 'strip'` y la ficha entera daba
+  la **pantalla de mantenimiento**. Solo se libraban las actividades cuyo M&G no dice de cuántas
+  personas es, que es justo lo raro.
+  · **Arreglo**: `str(...)` antes del `.strip()`, en `quantity` y en `moment`.
+  ⚠️ **Lo cazó `tools/check_divs.py`** en cuanto una actividad de prueba tuvo un M&G con cantidad:
+  3 pantallas en 500 (la ficha, su ancla del plan de facturación y la pestaña de producción). Es la
+  razón de pasar la comprobación con datos REALISTAS, no con la base a medias.

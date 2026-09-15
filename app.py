@@ -117903,9 +117903,12 @@ def _concert_contracting_general_rows(session_db, concert):
     _mg = contracting.get("meet_greet") if isinstance(contracting.get("meet_greet"), dict) else {}
     if _mg.get("enabled"):
         _mg_txt = "Sí"
-        if (_mg.get("quantity") or "").strip():
+        # ⚠️⚠️ `quantity` ES UN NÚMERO: `(int or "").strip()` revienta con AttributeError y **la ficha
+        # entera da 500** (la pantalla de mantenimiento) en cualquier actividad con Meet & Greet que
+        # diga de cuántas personas es — que es justo lo normal. Bug real, sep 2026.
+        if str(_mg.get("quantity") or "").strip():
             _mg_txt += f" · {_mg.get('quantity')} personas"
-        if (_mg.get("moment") or "").strip():
+        if str(_mg.get("moment") or "").strip():
             _mg_txt += f" · {_mg.get('moment')}"
         add("Meet & Greet", _mg_txt)
     elif _mg:

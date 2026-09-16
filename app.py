@@ -170374,6 +170374,10 @@ CRON_STATE_SETTING = "cron_state_v1"       # dónde se apunta cuándo corrió ca
 CRON_BUDGET_SECONDS = 50                   # el latido es de un minuto: lo que no cabe, a la siguiente
 CRON_RETRY_MINUTES = 15                    # si una tarea falla, se reintenta antes de su cadencia
 CRON_SILENT_MINUTES = 10                   # sin latido en 10 min, el cron está caído
+# ⚠️ El disparador externo no cae exacto (16:12:04, 16:13:03, 16:14:04…): sin este margen una tarea
+# «de cada minuto» se SALTABA uno de cada dos latidos (59 s no llegaban al minuto). Visto en producción
+# el 16-sep-2026 al estrenar cron-job.org.
+CRON_DUE_TOLERANCE_MINUTES = 0.25          # 15 s de margen al decidir si a una tarea le toca
 
 
 def _cron_session_task(fn_name: str):
@@ -170583,7 +170587,7 @@ def _cron_due(task: dict, info: dict, ahora) -> bool:
     hora = task.get("at_hour")
     if hora is not None:
         return at.astimezone(TZ_MADRID).date() != ahora.date() and ahora.hour >= int(hora)
-    return minutos >= float(task.get("every") or 1)
+    return minutos >= float(task.get("every") or 1) - CRON_DUE_TOLERANCE_MINUTES
 
 
 def _cron_resumen(salida) -> str:

@@ -87,6 +87,10 @@
   `AppSetting` (`cron_state_v1`).
   ⚠️ **Si una tarea FALLA se reintenta a los `CRON_RETRY_MINUTES` (15)** aunque sea diaria: un fallo
   a las 8:00 dejaría ese aviso sin salir hasta el día siguiente.
+  ⚠️ **La cadencia se decide con 15 s de MARGEN** (`CRON_DUE_TOLERANCE_MINUTES`, 16-sep-2026): el
+  disparador externo no cae exacto (16:12:04, 16:13:03, 16:14:04…) y, exigiendo el minuto justo, una
+  tarea «de cada minuto» se saltaba uno de cada dos latidos (59 s no llegaban a 60). Visto en
+  producción al estrenar cron-job.org.
   · **LAS RUTAS VIEJAS SE CONSERVAN** (`/cron/documentos-caducados`, `/cron/pleo/refresh`…): cada una
   fuerza SU tarea **y corre lo que le toque al resto**, así que lo que ya esté configurado en el
   servidor mantiene TODA la app al día mientras se cambia.

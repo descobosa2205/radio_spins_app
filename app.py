@@ -2201,6 +2201,873 @@ def artists_view():
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  LA CAJA DE UN ARTISTA · lo que ha ganado, lo que se ha gastado en él y qué deja
+#
+#  La pestaña «Caja» de la ficha de un artista (antes «Liquidaciones», que estaba vacía) responde
+#  tres preguntas con el dinero que YA ESTÁ EN LA APP, sin pedir que nadie lo apunte otra vez:
+#
+#   · INGRESOS — lo que el artista FACTURA: su parte de las liquidaciones de royalties y su parte
+#     del caché de cada actividad, según el reparto de SU CONTRATO. No es lo que entra en la casa:
+#     es lo que le queda a él, que es lo que factura (lo pidió Dani con esas palabras).
+#   · GASTOS — lo que han pagado las empresas del grupo por él, repartido por tipos.
+#   · BALANCE — lo anterior junto, sus adelantos y **lo que se lleva la oficina**, para ver si el
+#     artista deja beneficio o todavía se está invirtiendo en él.
+#
+#  ⚠️⚠️ **ES UN PUNTO ÚNICO Y NO GUARDA NADA**: `_artist_cash_data` lo calcula todo al vuelo desde
+#  las tablas de siempre (liquidaciones, cachés y contratos, bolsas y sus gastos, adelantos). Si se
+#  guardara un total, se desparejaría del dato el día que alguien corrigiera una factura.
+#  ⚠️ Lo ÚNICO que se guarda son los apuntes de ANTES de la app (`ArtistLedgerEntry`), que no se
+#  pueden calcular porque no están en ninguna parte: se suben en un Excel y se validan uno a uno.
+#
+#  ⚠️⚠️ **LA REGLA DEL CACHÉ** (la que pidió Dani y la que más se equivoca al contar): el gasto de
+#  una bolsa que se cubre con el caché de esa actividad **NO es gasto de la oficina** — ya lo pagó
+#  el propio caché. Solo es gasto lo que el caché no llega a cubrir, lo de una bolsa sin caché, y
+#  lo que alguien haya marcado como «lo cubre la oficina».
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# (clave, etiqueta, icono). El ORDEN es el que se lee en la pantalla.
+ARTIST_CASH_INCOME_GROUPS = (
+    ("DISCOGRAFICO", "Discográfico", "fa-compact-disc"),
+    ("ACTIVIDADES", "Actividades", "fa-guitar"),
+    ("OTROS", "Otros ingresos", "fa-circle-plus"),
+)
+ARTIST_CASH_EXPENSE_GROUPS = (
+    ("CONTENIDOS", "Contenidos discográficos", "fa-compact-disc"),
+    ("PROMOCION", "Promoción", "fa-bullhorn"),
+    ("MARKETING", "Marketing", "fa-tags"),
+    ("ACTIVIDADES", "Inversión en giras y actividades", "fa-guitar"),
+    ("OTROS", "Otros gastos", "fa-receipt"),
+)
+ARTIST_CASH_INCOME_LABELS = {k: l for k, l, _i in ARTIST_CASH_INCOME_GROUPS}
+ARTIST_CASH_EXPENSE_LABELS = {k: l for k, l, _i in ARTIST_CASH_EXPENSE_GROUPS}
+ARTIST_CASH_KINDS = (("INGRESO", "Ingreso"), ("GASTO", "Gasto"))
+ARTIST_CASH_KIND_LABELS = dict(ARTIST_CASH_KINDS)
+
+# ⚠️ QUÉ CONCEPTO DEL CONTRATO manda en una actividad. El `sale_type` ya dice si el concierto se le
+# VENDE a un promotor de fuera o lo promueve (o participa) una empresa del grupo, así que no hace
+# falta inventar ningún campo nuevo: son los dos conceptos que ya trae el contrato de artista
+# (`ARTIST_CONTRACT_DEFAULT_CONCEPTS`).
+ARTIST_CASH_SOLD_SALE_TYPES = {"VENDIDO"}
+ARTIST_CASH_CONCEPT_SOLD = ["conciertos vendidos", "conciertos", "booking", "management"]
+ARTIST_CASH_CONCEPT_OWN = ["conciertos propios", "conciertos", "booking", "management"]
+
+# Los tipos de bolsa que caen en cada grupo de gasto. Lo que no esté aquí va a «Otros gastos».
+ARTIST_CASH_BAG_GROUPS = {
+    "PROYECTO": "CONTENIDOS",
+    "SINGLE": "CONTENIDOS",
+    "DISCO": "CONTENIDOS",
+    "PROMOCION": "PROMOCION",
+    "CONCIERTO": "ACTIVIDADES",
+    "GIRA": "ACTIVIDADES",
+    "EVENTO_PROMOCIONAL": "ACTIVIDADES",
+}
+
+
+def _artist_cash_year(valor) -> int | None:
+    """El año que se está mirando (o None para «todo»)."""
+    try:
+        año = int(str(valor or "").strip())
+    except (TypeError, ValueError):
+        return None
+    return año if 2000 <= año <= 2100 else None
+
+
+def _artist_cash_row(*, group: str, title: str, subtitle: str = "", day=None,
+                     artist_amount=None, office_amount=None, invested=None,
+                     url: str = "", note: str = "", pending: bool = False) -> dict:
+    """UNA línea de la caja, se calcule de donde se calcule (todas se pintan igual).
+
+    `artist_amount` es lo que se lleva el artista, `office_amount` lo que se lleva la oficina e
+    `invested` lo que ha costado. Una línea de gasto solo trae `invested`; una de ingreso, los dos
+    primeros."""
+    return {
+        "group": group,
+        "title": (title or "—"),
+        "subtitle": (subtitle or ""),
+        "date": day,
+        "date_label": (day.strftime("%d/%m/%Y") if getattr(day, "strftime", None) else ""),
+        "artist_amount": _money_value(artist_amount or 0),
+        "office_amount": _money_value(office_amount or 0),
+        "invested": _money_value(invested or 0),
+        "url": (url or ""),
+        "note": (note or ""),
+        # Un apunte subido en un Excel y todavía sin validar: se ve, pero NO suma.
+        "pending": bool(pending),
+    }
+
+
+def _artist_cash_concert_filter(artist_id):
+    """Las actividades del artista: las suyas y aquellas en las que está entre varios."""
+    aid = str(artist_id)
+    return or_(Concert.artist_id == to_uuid(aid), Concert.artist_ids.contains([aid]))
+
+
+def _artist_cash_commitment_split(session_db, artist_id, concert, importe: Decimal) -> tuple:
+    """Cuánto de ese caché es del ARTISTA y cuánto de la OFICINA, según SU contrato.
+
+    Devuelve `(del_artista, de_la_oficina, etiqueta)`. ⚠️ Si el artista **no tiene contrato** con un
+    concepto de conciertos, se da por entero al artista y se DICE («sin contrato»): inventarse un
+    porcentaje sería peor que reconocer que falta el dato."""
+    if importe <= 0:
+        return Decimal("0"), Decimal("0"), ""
+    vendido = (getattr(concert, "sale_type", "") or "").strip().upper() in ARTIST_CASH_SOLD_SALE_TYPES
+    variantes = ARTIST_CASH_CONCEPT_SOLD if vendido else ARTIST_CASH_CONCEPT_OWN
+    try:
+        elegido, _contrato = _pick_artist_commitment(
+            session_db, to_uuid(str(artist_id)), variantes,
+            as_of_date=getattr(concert, "date", None))
+    except Exception:
+        app.logger.exception("[caja] no se pudo leer el contrato del artista")
+        elegido = None
+    if elegido is None:
+        return importe, Decimal("0"), "sin contrato"
+    pct_artista = _money_value(getattr(elegido, "pct_artist", 0))
+    pct_oficina = _money_value(getattr(elegido, "pct_office", 0))
+    if pct_artista <= 0 and pct_oficina <= 0:
+        return importe, Decimal("0"), "sin contrato"
+    # ⚠️ Los dos porcentajes se aplican sobre el MISMO importe: son el reparto de ese caché. Si
+    # suman más de 100 manda lo pactado igualmente (es lo que dice el contrato, no un cálculo).
+    del_artista = (importe * pct_artista / Decimal("100")).quantize(Decimal("0.01"))
+    de_la_oficina = (importe * pct_oficina / Decimal("100")).quantize(Decimal("0.01"))
+    return del_artista, de_la_oficina, ("%s %% para el artista" % _fmt_pct_es(pct_artista))
+
+
+def _artist_cash_concert_cache(concert) -> Decimal:
+    """EL CACHÉ de una actividad, ya descontadas las comisiones que lo reducen.
+
+    ⚠️ Es el MISMO criterio que se le comunica al artista (`_concert_cache_summary`): una comisión
+    que reduce el caché se la queda quien la cobra **antes** de que el caché llegue, así que no es
+    un ingreso que se reparta."""
+    total = Decimal("0")
+    for c in (getattr(concert, "caches", None) or []):
+        total += _money_or_zero(getattr(c, "amount", None))
+    return total
+
+
+def _artist_cash_income(session_db, artist, year: int | None) -> dict:
+    """LO QUE FACTURA EL ARTISTA, por tipos. Punto único de la sección «Ingresos»."""
+    filas = []
+    aid = artist.id
+
+    # ── 1) DISCOGRÁFICO · sus liquidaciones de royalties ───────────────────────────────────────
+    # ⚠️ `total_amount` del congelado es lo que se le liquida a ÉL (su parte ya calculada) y
+    # `total_income` lo que generó el repertorio: la diferencia es lo que le queda a la casa, que
+    # es justo «el ingreso de royalties después de pagar todos los royalties».
+    try:
+        for liq in (session_db.query(RoyaltyLiquidation)
+                    .filter(RoyaltyLiquidation.beneficiary_kind == "ARTIST",
+                            RoyaltyLiquidation.beneficiary_id == aid)
+                    .order_by(RoyaltyLiquidation.period_end.desc()).all()):
+            dia = getattr(liq, "period_end", None)
+            if year and getattr(dia, "year", None) != year:
+                continue
+            snap = dict(getattr(liq, "snapshot", None) or {})
+            del_artista = _money_value(snap.get("total_amount"))
+            generado = _money_value(snap.get("total_income"))
+            if del_artista <= 0 and generado <= 0:
+                continue
+            de_la_oficina = generado - del_artista
+            filas.append(_artist_cash_row(
+                group="DISCOGRAFICO",
+                title="Royalties %s" % _afavor_semester_ordinal(
+                    getattr(liq, "period_start", dia).year,
+                    (1 if getattr(liq, "period_start", dia).month <= 6 else 2)),
+                subtitle="Liquidación de royalties",
+                day=dia, artist_amount=del_artista,
+                office_amount=(de_la_oficina if de_la_oficina > 0 else 0),
+                # A la pantalla de royalties (no hay ficha propia de una liquidación).
+                url=_safe_url_for("discografica_view", section="royalties", roy_tab="liquidaciones"),
+                note=("Generó %s" % format_eur(generado) if generado else "")))
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las liquidaciones de royalties")
+
+    # ── 2) ACTIVIDADES · su parte del caché, según el contrato ─────────────────────────────────
+    try:
+        consulta = (session_db.query(Concert)
+                    .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                             selectinload(Concert.caches))
+                    .filter(_artist_cash_concert_filter(aid))
+                    .filter(func.upper(func.coalesce(Concert.status, "")).notin_(["CANCELADO"]))
+                    .filter(Concert.date <= today_local()))
+        if year:
+            consulta = consulta.filter(func.extract("year", Concert.date) == year)
+        for c in consulta.order_by(Concert.date.desc()).limit(400).all():
+            caché = _artist_cash_concert_cache(c)
+            if caché <= 0:
+                continue
+            del_artista, de_la_oficina, etiqueta = _artist_cash_commitment_split(
+                session_db, aid, c, caché)
+            donde = _place_label(_concert_city(c), _concert_province_value(c))
+            filas.append(_artist_cash_row(
+                group="ACTIVIDADES",
+                title=((getattr(c, "festival_name", None) or "").strip()
+                       or _concert_venue_name(c) or donde or "Actividad"),
+                subtitle=" · ".join([x for x in [
+                    _sale_type_label(getattr(c, "sale_type", ""), getattr(c, "activity_type", "")),
+                    donde] if x]),
+                day=getattr(c, "date", None),
+                artist_amount=del_artista, office_amount=de_la_oficina,
+                url=_safe_url_for("concert_detail_view", cid=str(c.id)),
+                note=(("Caché %s · %s" % (format_eur(caché), etiqueta)) if etiqueta
+                      else "Caché %s" % format_eur(caché))))
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las actividades del artista")
+
+    # ── 3) LOS APUNTES DE ANTES DE LA APP (los del Excel) ──────────────────────────────────────
+    filas.extend(_artist_cash_manual_rows(session_db, artist, year, "INGRESO"))
+    return _artist_cash_pack(filas, ARTIST_CASH_INCOME_GROUPS)
+
+
+def _artist_cash_bag_group(session_db, bag) -> str:
+    """En qué grupo de gasto cae una bolsa.
+
+    ⚠️⚠️ **UNA CAMPAÑA DE MARKETING SOLO CUENTA COMO MARKETING SI ES DEL ARTISTA**: la que va
+    pegada a una actividad o a un lanzamiento ya se está contando en SU grupo, y ponerla además
+    aquí la contaría dos veces — que es lo que pidió Dani que no pasara."""
+    tipo = (getattr(bag, "bag_type", "") or "").strip().upper()
+    grupo = ARTIST_CASH_BAG_GROUPS.get(tipo, "OTROS")
+    if (getattr(bag, "linked_type", "") or "").strip().upper() != "PROMOTION":
+        return grupo
+    try:
+        promo = session_db.get(Promotion, getattr(bag, "linked_id", None))
+    except Exception:
+        promo = None
+    if promo is None:
+        return grupo
+    if (getattr(promo, "kind", "") or "").strip().upper() != "MARKETING":
+        return "PROMOCION"
+    sujeto = (getattr(promo, "subject_type", "") or "").strip().upper()
+    if sujeto == "ARTIST":
+        return "MARKETING"
+    # De una actividad o de un lanzamiento: cuenta donde cuenta esa cosa, no en Marketing.
+    return "ACTIVIDADES" if sujeto in {"CONCERT", "GIRA", "CICLO", "EVENT"} else "CONTENIDOS"
+
+
+def _artist_cash_bag_cover(session_db, bag) -> Decimal:
+    """CON CUÁNTO CACHÉ cuenta esa bolsa para cubrirse (0 si no tiene ninguno).
+
+    Solo las bolsas de una ACTIVIDAD tienen caché: es el dinero que entra por ella y lo primero que
+    paga sus gastos."""
+    if (getattr(bag, "linked_type", "") or "").strip().upper() != "CONCERT":
+        return Decimal("0")
+    try:
+        concierto = (session_db.query(Concert)
+                     .options(selectinload(Concert.caches))
+                     .filter(Concert.id == getattr(bag, "linked_id", None)).first())
+    except Exception:
+        concierto = None
+    return _artist_cash_concert_cache(concierto) if concierto is not None else Decimal("0")
+
+
+def _artist_cash_expenses(session_db, artist, year: int | None) -> dict:
+    """LO QUE HAN PAGADO LAS EMPRESAS DEL GRUPO por este artista, por tipos.
+
+    ⚠️⚠️ LA REGLA DEL CACHÉ: lo que asume la bolsa de una actividad se paga con su caché, así que
+    **no es gasto de la oficina** mientras el caché llegue. Lo que se pasa de ahí sí (la bolsa se
+    queda en negativo y lo asume la casa), igual que una bolsa sin caché y que cada gasto marcado
+    como «lo cubre la oficina». Lo que cubre el artista o el promotor no es gasto nuestro."""
+    filas = []
+    aid = str(artist.id)
+    try:
+        bolsas = (session_db.query(WorkflowBag)
+                  .filter(or_(WorkflowBag.artist_id == artist.id,
+                              WorkflowBag.artist_ids.contains([aid])))
+                  .order_by(WorkflowBag.start_date.desc().nullslast()).limit(400).all())
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las bolsas del artista")
+        bolsas = []
+    for bag in bolsas:
+        dia = (getattr(bag, "start_date", None) or getattr(bag, "end_date", None)
+               or (getattr(bag, "created_at", None).date() if getattr(bag, "created_at", None) else None))
+        if year and getattr(dia, "year", None) != year:
+            continue
+        try:
+            gastos = (session_db.query(BagExpense)
+                      .filter(BagExpense.bag_id == bag.id).all())
+        except Exception:
+            app.logger.exception("[caja] no se pudieron leer los gastos de una bolsa")
+            continue
+        totales = _bag_totals(gastos)
+        de_la_bolsa = _money_value(totales.get("bag"))
+        de_la_oficina = _money_value(totales.get("office"))
+        caché = _artist_cash_bag_cover(session_db, bag)
+        # Lo que el caché NO llega a cubrir es lo que pone la casa.
+        sin_cubrir = de_la_bolsa - caché
+        if sin_cubrir < 0:
+            sin_cubrir = Decimal("0")
+        coste = sin_cubrir + de_la_oficina
+        if coste <= 0 and de_la_bolsa <= 0:
+            continue
+        if caché > 0:
+            nota = ("Cubierto por el caché (%s de %s)" % (format_eur(min(caché, de_la_bolsa)),
+                                                          format_eur(de_la_bolsa))
+                    if sin_cubrir <= 0 else
+                    "El caché cubre %s de %s" % (format_eur(caché), format_eur(de_la_bolsa)))
+        else:
+            nota = ""
+        if coste <= 0:
+            # Se enseña igualmente (con su nota): que no cueste dinero es un dato, no un vacío.
+            filas.append(_artist_cash_row(
+                group=_artist_cash_bag_group(session_db, bag),
+                title=(getattr(bag, "title", "") or "Bolsa"),
+                subtitle=BAG_TYPE_LABELS.get((getattr(bag, "bag_type", "") or "").upper(), ""),
+                day=dia, invested=0,
+                url=_safe_url_for("bag_detail_view", bag_id=str(bag.id)), note=nota))
+            continue
+        filas.append(_artist_cash_row(
+            group=_artist_cash_bag_group(session_db, bag),
+            title=(getattr(bag, "title", "") or "Bolsa"),
+            subtitle=BAG_TYPE_LABELS.get((getattr(bag, "bag_type", "") or "").upper(), ""),
+            day=dia, invested=coste,
+            url=_safe_url_for("bag_detail_view", bag_id=str(bag.id)), note=nota))
+
+    filas.extend(_artist_cash_manual_rows(session_db, artist, year, "GASTO"))
+    return _artist_cash_pack(filas, ARTIST_CASH_EXPENSE_GROUPS)
+
+
+def _artist_cash_manual_rows(session_db, artist, year: int | None, kind: str) -> list[dict]:
+    """Los apuntes de ANTES de la app (los del Excel) de ese tipo.
+
+    ⚠️ Los que están **sin validar salen marcados y NO suman**: se ven para poder repasarlos, pero
+    el balance no cuenta con ellos hasta que alguien les da el visto bueno."""
+    salida = []
+    try:
+        consulta = (session_db.query(ArtistLedgerEntry)
+                    .filter(ArtistLedgerEntry.artist_id == artist.id,
+                            func.upper(ArtistLedgerEntry.kind) == kind))
+        if year:
+            consulta = consulta.filter(func.extract("year", ArtistLedgerEntry.entry_date) == year)
+        for fila in consulta.order_by(ArtistLedgerEntry.entry_date.desc()).all():
+            pendiente = (getattr(fila, "status", "") or "").upper() != "VALIDADO"
+            grupos = (ARTIST_CASH_INCOME_LABELS if kind == "INGRESO" else ARTIST_CASH_EXPENSE_LABELS)
+            grupo = (getattr(fila, "category", "") or "OTROS").upper()
+            salida.append(_artist_cash_row(
+                group=(grupo if grupo in grupos else "OTROS"),
+                title=(getattr(fila, "concept", "") or "Apunte anterior"),
+                subtitle=(getattr(getattr(fila, "company", None), "name", "") or "Apunte anterior"),
+                day=getattr(fila, "entry_date", None),
+                artist_amount=getattr(fila, "amount_artist", 0),
+                office_amount=getattr(fila, "amount_company", 0),
+                invested=getattr(fila, "amount_invested", 0),
+                note=(getattr(fila, "notes", "") or ""), pending=pendiente))
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer los apuntes anteriores")
+    return salida
+
+
+def _artist_cash_pack(filas: list[dict], catalogo) -> dict:
+    """Agrupa las líneas por tipo, con sus totales y en el orden del catálogo.
+
+    ⚠️ **Lo PENDIENTE no suma** (ver `_artist_cash_manual_rows`): se cuenta aparte para poder
+    decir «y además hay N apuntes esperando el visto bueno»."""
+    por_grupo = {k: [] for k, _l, _i in catalogo}
+    for f in filas:
+        por_grupo.setdefault(f["group"], []).append(f)
+    grupos, total_artista, total_oficina, total_invertido, pendientes = [], Decimal("0"), Decimal("0"), Decimal("0"), 0
+    for clave, etiqueta, icono in catalogo:
+        lineas = sorted(por_grupo.get(clave) or [],
+                        key=lambda x: (x["date"] is None, x["date"] or date.min), reverse=True)
+        if not lineas:
+            continue
+        g_artista = sum((x["artist_amount"] for x in lineas if not x["pending"]), Decimal("0"))
+        g_oficina = sum((x["office_amount"] for x in lineas if not x["pending"]), Decimal("0"))
+        g_invertido = sum((x["invested"] for x in lineas if not x["pending"]), Decimal("0"))
+        pendientes += len([x for x in lineas if x["pending"]])
+        total_artista += g_artista
+        total_oficina += g_oficina
+        total_invertido += g_invertido
+        grupos.append({
+            "key": clave, "label": etiqueta, "icon": icono, "rows": lineas,
+            "count": len(lineas),
+            "artist_amount": g_artista, "office_amount": g_oficina, "invested": g_invertido,
+        })
+    return {
+        "groups": grupos,
+        "artist_amount": total_artista,
+        "office_amount": total_oficina,
+        "invested": total_invertido,
+        "pending_count": pendientes,
+    }
+
+
+def _artist_cash_advances(session_db, artist) -> list[dict]:
+    """LOS ADELANTOS del artista y en qué punto están (lo pidió Dani: «arranque de gira»,
+    «adelanto discográfico»…). Es el mismo dato que avisa al ir a pagarle (`PartyDebt`)."""
+    salida = []
+    try:
+        for fila in (session_db.query(PartyDebt)
+                     .options(joinedload(PartyDebt.company))
+                     .filter(PartyDebt.artist_id == artist.id)
+                     .order_by(PartyDebt.debt_date.desc().nullslast()).all()):
+            total = _money_value(getattr(fila, "amount", 0))
+            recuperado = _money_value(getattr(fila, "amount_recovered", 0))
+            pendiente = total - recuperado
+            if pendiente < 0:
+                pendiente = Decimal("0")
+            cerrado = (getattr(fila, "status", "") or "").upper() != "ABIERTA"
+            salida.append({
+                "id": str(fila.id),
+                "kind": (getattr(fila, "kind", "") or "ADELANTO").upper(),
+                "concept": (getattr(fila, "concept", "") or "Adelanto"),
+                "company": (getattr(getattr(fila, "company", None), "name", "") or ""),
+                "amount": total, "recovered": recuperado, "pending": pendiente,
+                "date_label": (fila.debt_date.strftime("%d/%m/%Y")
+                               if getattr(fila, "debt_date", None) else ""),
+                "closed": cerrado,
+                # Cuánto se lleva devuelto, para la barrita.
+                "pct": (int((recuperado / total) * 100) if total > 0 else (100 if cerrado else 0)),
+                "state_label": ("Cerrado" if cerrado else
+                                ("Devuelto entero" if pendiente <= 0 else
+                                 ("Sin devolver nada" if recuperado <= 0 else "Devolviéndose"))),
+            })
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer los adelantos")
+    return salida
+
+
+def _artist_cash_years(session_db, artist) -> list[int]:
+    """Los años en los que este artista tiene algo: es lo que ofrece el selector."""
+    años = set()
+    aid = str(artist.id)
+    try:
+        for (d,) in (session_db.query(Concert.date)
+                     .filter(_artist_cash_concert_filter(artist.id))
+                     .filter(Concert.date.isnot(None)).all()):
+            if d:
+                años.add(d.year)
+    except Exception:
+        pass
+    try:
+        for (d,) in (session_db.query(RoyaltyLiquidation.period_end)
+                     .filter(RoyaltyLiquidation.beneficiary_kind == "ARTIST",
+                             RoyaltyLiquidation.beneficiary_id == artist.id).all()):
+            if d:
+                años.add(d.year)
+    except Exception:
+        pass
+    try:
+        for (d,) in (session_db.query(WorkflowBag.start_date)
+                     .filter(or_(WorkflowBag.artist_id == artist.id,
+                                 WorkflowBag.artist_ids.contains([aid])))
+                     .filter(WorkflowBag.start_date.isnot(None)).all()):
+            if d:
+                años.add(d.year)
+    except Exception:
+        pass
+    try:
+        for (d,) in (session_db.query(ArtistLedgerEntry.entry_date)
+                     .filter(ArtistLedgerEntry.artist_id == artist.id).all()):
+            if d:
+                años.add(d.year)
+    except Exception:
+        pass
+    años.add(today_local().year)
+    return sorted(años, reverse=True)
+
+
+def _artist_cash_data(session_db, artist, year: int | None = None) -> dict:
+    """TODA LA CAJA DE UN ARTISTA · **el punto único** de las tres secciones.
+
+    Se calcula al vuelo: aquí no se guarda ningún total (si se guardara, se desparejaría del dato
+    en cuanto alguien corrigiera una factura o un caché)."""
+    ingresos = _artist_cash_income(session_db, artist, year)
+    gastos = _artist_cash_expenses(session_db, artist, year)
+    adelantos = _artist_cash_advances(session_db, artist)
+
+    # ── EL BALANCE ────────────────────────────────────────────────────────────────────────────
+    # Lo que factura el artista · lo que ha costado · y lo que le queda a la casa.
+    facturado = ingresos["artist_amount"]
+    invertido = gastos["invested"]
+    beneficio_oficina = ingresos["office_amount"]
+    # ⚠️ El beneficio de la casa es lo que se lleva MENOS lo que ha puesto: eso es lo que dice si un
+    # artista deja dinero o todavía se está invirtiendo en él, que es la pregunta de la pantalla.
+    resultado = beneficio_oficina - invertido
+    adelantos_abiertos = [a for a in adelantos if not a["closed"]]
+    return {
+        "year": year,
+        "years": _artist_cash_years(session_db, artist),
+        "income": ingresos,
+        "expense": gastos,
+        "advances": adelantos,
+        "balance": {
+            "artist_billed": facturado,
+            "office_invested": invertido,
+            "office_income": beneficio_oficina,
+            "office_result": resultado,
+            "positive": resultado >= 0,
+            "advance_pending": sum((a["pending"] for a in adelantos_abiertos), Decimal("0")),
+            "advance_count": len(adelantos_abiertos),
+            "pending_entries": ingresos["pending_count"] + gastos["pending_count"],
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  CAJA · LOS APUNTES DE ANTES DE LA APP (el Excel)
+#
+#  De lo anterior a la app no hay ni una fila, así que el cuadro de mando de un artista empezaría
+#  en blanco. Para eso está esto: **se baja una plantilla, se rellena y se sube**, y cada línea
+#  entra como PENDIENTE — se ven todas y se **validan una a una** antes de contar en el balance,
+#  que es como lo pidió Dani.
+#
+#  ⚠️ Lo subido NO toca nada de lo que la app ya calcula: son apuntes aparte (`ArtistLedgerEntry`).
+#  ⚠️ Cada subida lleva su `batch_token`, así que una subida entera se puede deshacer de un botón.
+#  ⚠️ **Los importes los escribe una PERSONA en un Excel**, así que se leen con
+#     `_parse_money_decimal` («40.000» son cuarenta mil), que es la regla de la casa.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# Las columnas de la plantilla, en su orden. (clave, título, ancho, ayuda)
+ARTIST_CASH_SHEET_COLUMNS = (
+    ("date", "Fecha", 14, "dd/mm/aaaa"),
+    ("kind", "Ingreso o gasto", 16, "Ingreso · Gasto"),
+    ("category", "Tipo", 30, "El de la lista de abajo"),
+    ("concept", "Concepto", 38, "Qué fue"),
+    ("invested", "Inversión realizada", 18, "Lo que costó"),
+    ("artist", "Beneficio artista", 18, "Lo que se llevó el artista"),
+    ("company", "Beneficio compañía", 18, "Lo que se llevó la empresa"),
+    ("group_company", "Empresa del grupo", 26, "Cuál de las nuestras"),
+    ("notes", "Notas", 30, ""),
+)
+
+
+def _artist_cash_entry_rows(session_db, artist) -> list[dict]:
+    """Los apuntes subidos de ese artista, los últimos primero (los PENDIENTES arriba del todo).
+
+    Es lo que se repasa para ir validándolos: hasta que no se validan, no cuentan en el balance."""
+    salida = []
+    try:
+        filas = (session_db.query(ArtistLedgerEntry)
+                 .options(joinedload(ArtistLedgerEntry.company))
+                 .filter(ArtistLedgerEntry.artist_id == artist.id)
+                 .order_by(ArtistLedgerEntry.entry_date.desc()).all())
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer los apuntes subidos")
+        return []
+    for f in filas:
+        pendiente = (getattr(f, "status", "") or "").upper() != "VALIDADO"
+        kind = (getattr(f, "kind", "") or "GASTO").upper()
+        grupos = (ARTIST_CASH_INCOME_LABELS if kind == "INGRESO" else ARTIST_CASH_EXPENSE_LABELS)
+        salida.append({
+            "id": str(f.id),
+            "date_label": (f.entry_date.strftime("%d/%m/%Y") if getattr(f, "entry_date", None) else ""),
+            "date": getattr(f, "entry_date", None),
+            "kind": kind,
+            "kind_label": ARTIST_CASH_KIND_LABELS.get(kind, kind.title()),
+            "category": (getattr(f, "category", "") or "OTROS").upper(),
+            "category_label": grupos.get((getattr(f, "category", "") or "OTROS").upper(), "Otros"),
+            "concept": (getattr(f, "concept", "") or ""),
+            "invested": _money_value(getattr(f, "amount_invested", 0)),
+            "artist_amount": _money_value(getattr(f, "amount_artist", 0)),
+            "company_amount": _money_value(getattr(f, "amount_company", 0)),
+            "company": (getattr(getattr(f, "company", None), "name", "") or ""),
+            "notes": (getattr(f, "notes", "") or ""),
+            "pending": pendiente,
+            "source_file": (getattr(f, "source_file", "") or ""),
+            "source_row": (getattr(f, "source_row", None) or 0),
+            "batch_token": (getattr(f, "batch_token", "") or ""),
+            "by": (getattr(f, "created_by_nick", "") or ""),
+            "validated_by": (getattr(f, "validated_by_nick", "") or ""),
+        })
+    salida.sort(key=lambda x: (not x["pending"], x["date"] is None,
+                               -(x["date"].toordinal() if x["date"] else 0)))
+    return salida
+
+
+@app.get("/artistas/<artist_id>/caja/plantilla.xlsx", endpoint="artist_cash_template")
+@admin_required
+def artist_cash_template(artist_id):
+    """LA PLANTILLA para subir lo de antes: una hoja con sus columnas y otra con las listas.
+
+    ⚠️ La segunda hoja («Cómo se rellena») no es decorado: dice **exactamente** qué vale en «Tipo»
+    y en «Ingreso o gasto», que es lo que hace que una subida entre a la primera."""
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if artist is None:
+            flash("Artista no encontrado.", "warning")
+            return redirect(url_for("artists_view"))
+        nombre = (getattr(artist, "name", "") or "Artista").strip()
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Apuntes"
+        ws.append(["Caja de %s · apuntes anteriores" % nombre])
+        ws["A1"].font = Font(bold=True, size=14)
+        ws.append([])
+        ws.append([titulo for _k, titulo, _a, _h in ARTIST_CASH_SHEET_COLUMNS])
+        for celda in ws[3]:
+            celda.font = Font(bold=True)
+            celda.fill = PatternFill("solid", fgColor="F1F3F5")
+        # Una fila de EJEMPLO, en gris: se borra y se escribe encima.
+        hoy = today_local()
+        ejemplo = [hoy.strftime("%d/%m/%Y"), "Gasto", "Contenidos discográficos",
+                   "Grabación del single «Ejemplo»", "3.500,00", "0", "0",
+                   (session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).first().name
+                    if session_db.query(GroupCompany).count() else ""), "Se puede borrar"]
+        ws.append(ejemplo)
+        for celda in ws[4]:
+            celda.font = Font(italic=True, color="9AA4AE")
+        for i, (_k, _t, ancho, _h) in enumerate(ARTIST_CASH_SHEET_COLUMNS, start=1):
+            ws.column_dimensions[ws.cell(row=3, column=i).column_letter].width = ancho
+        for fila in ws.iter_rows(min_row=4):
+            for celda in fila:
+                celda.alignment = Alignment(vertical="top", wrap_text=True)
+
+        ayuda = wb.create_sheet("Cómo se rellena")
+        ayuda.append(["Cómo se rellena"])
+        ayuda["A1"].font = Font(bold=True, size=14)
+        ayuda.append([])
+        ayuda.append(["Una línea por apunte. La fila de ejemplo se puede borrar."])
+        ayuda.append(["Los importes, en euros. Se puede escribir 3.500,00 o 3500."])
+        ayuda.append(["Lo que se suba entra como PENDIENTE: no cuenta en el balance hasta que se valida en la app."])
+        ayuda.append([])
+        ayuda.append(["«Ingreso o gasto»"])
+        ayuda[ayuda.max_row][0].font = Font(bold=True)
+        for _k, etiqueta in ARTIST_CASH_KINDS:
+            ayuda.append([etiqueta])
+        ayuda.append([])
+        ayuda.append(["«Tipo» cuando es un INGRESO"])
+        ayuda[ayuda.max_row][0].font = Font(bold=True)
+        for _k, etiqueta, _i in ARTIST_CASH_INCOME_GROUPS:
+            ayuda.append([etiqueta])
+        ayuda.append([])
+        ayuda.append(["«Tipo» cuando es un GASTO"])
+        ayuda[ayuda.max_row][0].font = Font(bold=True)
+        for _k, etiqueta, _i in ARTIST_CASH_EXPENSE_GROUPS:
+            ayuda.append([etiqueta])
+        ayuda.append([])
+        ayuda.append(["«Empresa del grupo» (tal cual está dada de alta)"])
+        ayuda[ayuda.max_row][0].font = Font(bold=True)
+        for empresa in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all():
+            ayuda.append([(getattr(empresa, "name", "") or "").strip()])
+        ayuda.column_dimensions["A"].width = 64
+
+        buf = BytesIO()
+        wb.save(buf)
+        return send_file(BytesIO(buf.getvalue()),
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True,
+                         download_name=_safe_download_filename(
+                             "Caja %s - plantilla" % nombre, "Caja - plantilla") + ".xlsx")
+    except Exception as exc:
+        app.logger.exception("[caja] no se pudo generar la plantilla")
+        flash("No se pudo generar la plantilla: %s" % exc, "danger")
+        return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="caja"))
+    finally:
+        session_db.close()
+
+
+def _artist_cash_match_group(texto: str, kind: str) -> str:
+    """De lo que escriba una persona en «Tipo» a la clave del grupo.
+
+    ⚠️ Con **tolerancia** (sin acentos ni mayúsculas, y por el principio): en un Excel nadie escribe
+    la etiqueta clavada, y rechazar «marketing » por un espacio sería absurdo."""
+    catalogo = (ARTIST_CASH_INCOME_GROUPS if kind == "INGRESO" else ARTIST_CASH_EXPENSE_GROUPS)
+    clave = _norm_text_key(texto or "")
+    if not clave:
+        return "OTROS"
+    for k, etiqueta, _i in catalogo:
+        if clave == _norm_text_key(etiqueta) or clave == k.lower():
+            return k
+    for k, etiqueta, _i in catalogo:
+        if clave.startswith(_norm_text_key(etiqueta)[:8]) or _norm_text_key(etiqueta).startswith(clave):
+            return k
+    return "OTROS"
+
+
+@app.post("/artistas/<artist_id>/caja/subir", endpoint="artist_cash_upload")
+@admin_required
+def artist_cash_upload(artist_id):
+    """SUBE un Excel de apuntes anteriores. Todo entra como PENDIENTE.
+
+    ⚠️ Una fila sin FECHA o sin ningún importe **no se sube y se dice en qué fila está**: entrar a
+    medias sería peor que no entrar (nadie sabría qué falta)."""
+    session_db = db()
+    destino = url_for("artist_detail_view", artist_id=artist_id, tab="caja")
+    try:
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if artist is None:
+            flash("Artista no encontrado.", "warning")
+            return redirect(url_for("artists_view"))
+        archivo = request.files.get("archivo")
+        if archivo is None or not (archivo.filename or "").strip():
+            flash("Elige el archivo de Excel.", "warning")
+            return redirect(destino)
+        try:
+            import openpyxl
+        except ImportError:
+            flash("Falta openpyxl en el servidor: no se puede leer el Excel.", "danger")
+            return redirect(destino)
+        try:
+            wb = openpyxl.load_workbook(BytesIO(archivo.read()), read_only=True, data_only=True)
+            ws = wb["Apuntes"] if "Apuntes" in wb.sheetnames else wb.worksheets[0]
+        except Exception as exc:
+            flash("No se pudo abrir el Excel: %s" % exc, "danger")
+            return redirect(destino)
+
+        empresas = {_norm_text_key(getattr(c, "name", "") or ""): c
+                    for c in session_db.query(GroupCompany).all()}
+        estado = _current_user_state() or {}
+        lote = _uuid_token()
+        nombre_archivo = (archivo.filename or "").strip()[:200]
+        creados, fallos = 0, []
+        for n, fila in enumerate(ws.iter_rows(values_only=True), start=1):
+            if not fila or all(v in (None, "") for v in fila):
+                continue
+            celdas = list(fila) + [None] * len(ARTIST_CASH_SHEET_COLUMNS)
+            valores = {clave: celdas[i] for i, (clave, _t, _a, _h)
+                       in enumerate(ARTIST_CASH_SHEET_COLUMNS)}
+            crudo_fecha = valores.get("date")
+            # La cabecera y el título se saltan solos: no traen una fecha válida.
+            dia = _artist_cash_cell_date(crudo_fecha)
+            if dia is None:
+                cabecera = _norm_text_key(str(crudo_fecha or ""))
+                if cabecera in ("fecha", "") or "caja de" in cabecera:
+                    continue
+                fallos.append("fila %d: la fecha no se entiende («%s»)" % (n, crudo_fecha))
+                continue
+            kind = ("INGRESO" if _norm_text_key(str(valores.get("kind") or "")).startswith("ingres")
+                    else "GASTO")
+            invertido = _parse_money_decimal(valores.get("invested"))
+            del_artista = _parse_money_decimal(valores.get("artist"))
+            de_la_empresa = _parse_money_decimal(valores.get("company"))
+            if not any([invertido, del_artista, de_la_empresa]):
+                fallos.append("fila %d: no trae ningún importe" % n)
+                continue
+            empresa = empresas.get(_norm_text_key(str(valores.get("group_company") or "")))
+            session_db.add(ArtistLedgerEntry(
+                artist_id=artist.id, entry_date=dia, kind=kind,
+                category=_artist_cash_match_group(str(valores.get("category") or ""), kind),
+                concept=(str(valores.get("concept") or "").strip()[:300] or None),
+                amount_invested=invertido, amount_artist=del_artista, amount_company=de_la_empresa,
+                company_id=(empresa.id if empresa is not None else None),
+                notes=(str(valores.get("notes") or "").strip()[:500] or None),
+                status="PENDIENTE", source="EXCEL", batch_token=lote,
+                source_file=nombre_archivo, source_row=n,
+                created_by_user_id=_safe_uuid(estado.get("user_id")),
+                created_by_nick=(estado.get("nick") or None)))
+            creados += 1
+        session_db.commit()
+        if creados:
+            flash("Subidos %d apunte(s). Están ESPERANDO tu visto bueno: hasta que no los valides "
+                  "no cuentan en el balance." % creados, "success")
+        if fallos:
+            flash("No se han podido subir %d línea(s) — %s" % (len(fallos), "; ".join(fallos[:6])),
+                  "warning")
+        if not creados and not fallos:
+            flash("El Excel no traía ninguna línea con datos.", "warning")
+        return redirect(destino)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[caja] no se pudo subir el Excel de apuntes")
+        flash("No se pudo subir: %s" % exc, "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
+def _artist_cash_cell_date(valor):
+    """La fecha de una celda, venga como fecha de Excel o escrita a mano.
+
+    ⚠️ `parse_date("")` revienta (regla de la casa), así que aquí nunca se le pasa nada vacío."""
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    texto = str(valor or "").strip()
+    if not texto:
+        return None
+    for formato in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y"):
+        try:
+            return datetime.strptime(texto[:10], formato).date()
+        except ValueError:
+            continue
+    return None
+
+
+@app.post("/artistas/<artist_id>/caja/apunte/<entry_id>/validar", endpoint="artist_cash_validate")
+@admin_required
+def artist_cash_validate(artist_id, entry_id):
+    """DA POR BUENO un apunte: a partir de ahí cuenta en el balance."""
+    session_db = db()
+    destino = url_for("artist_detail_view", artist_id=artist_id, tab="caja")
+    try:
+        fila = session_db.get(ArtistLedgerEntry, _safe_uuid(entry_id))
+        if fila is None or str(fila.artist_id) != str(_safe_uuid(artist_id)):
+            flash("Ese apunte ya no está.", "warning")
+            return redirect(destino)
+        estado = _current_user_state() or {}
+        fila.status = "VALIDADO"
+        fila.validated_at = _now_madrid()
+        fila.validated_by_nick = (estado.get("nick") or None)
+        session_db.commit()
+        flash("Apunte validado: ya cuenta en el balance.", "success")
+        return redirect(destino)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[caja] no se pudo validar el apunte")
+        flash("No se pudo validar: %s" % exc, "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/<artist_id>/caja/apunte/<entry_id>/borrar", endpoint="artist_cash_delete")
+@admin_required
+def artist_cash_delete(artist_id, entry_id):
+    """QUITA un apunte (uno que estaba mal, o una línea de más del Excel)."""
+    session_db = db()
+    destino = url_for("artist_detail_view", artist_id=artist_id, tab="caja")
+    try:
+        fila = session_db.get(ArtistLedgerEntry, _safe_uuid(entry_id))
+        if fila is None or str(fila.artist_id) != str(_safe_uuid(artist_id)):
+            flash("Ese apunte ya no está.", "warning")
+            return redirect(destino)
+        session_db.delete(fila)
+        session_db.commit()
+        flash("Apunte eliminado.", "success")
+        return redirect(destino)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[caja] no se pudo borrar el apunte")
+        flash("No se pudo borrar: %s" % exc, "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/<artist_id>/caja/subida/<token>/deshacer", endpoint="artist_cash_batch_undo")
+@admin_required
+def artist_cash_batch_undo(artist_id, token):
+    """DESHACE una subida entera (si el Excel venía mal, no hay que borrar línea a línea).
+
+    ⚠️ Solo se lleva lo que sigue PENDIENTE: lo que alguien ya ha validado no se toca — dar algo por
+    bueno y que se borre solo sería justo lo contrario de validarlo."""
+    session_db = db()
+    destino = url_for("artist_detail_view", artist_id=artist_id, tab="caja")
+    try:
+        aid = _safe_uuid(artist_id)
+        filas = (session_db.query(ArtistLedgerEntry)
+                 .filter(ArtistLedgerEntry.artist_id == aid,
+                         ArtistLedgerEntry.batch_token == (token or ""),
+                         func.upper(ArtistLedgerEntry.status) != "VALIDADO").all())
+        for f in filas:
+            session_db.delete(f)
+        session_db.commit()
+        flash("Se han quitado %d apunte(s) de esa subida (los ya validados se quedan)." % len(filas),
+              "success")
+        return redirect(destino)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[caja] no se pudo deshacer la subida")
+        flash("No se pudo deshacer: %s" % exc, "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
 @app.get("/artistas/<artist_id>", endpoint="artist_detail_view")
 @admin_required
 def artist_detail_view(artist_id):
@@ -2222,7 +3089,7 @@ def artist_detail_view(artist_id):
             "promocion",
             "marketing",
             "onesheet",
-            "liquidaciones",
+            "caja",
             "vinculaciones",
             "playlisting",
             "fotos",
@@ -2230,9 +3097,12 @@ def artist_detail_view(artist_id):
             "plantillas",
         }
         # Los INTEGRANTES son una viñeta de «Datos» (antes eran la pestaña «Personas»): los enlaces
-        # antiguos siguen funcionando y caen donde ahora está.
+        # antiguos siguen funcionando y caen donde ahora está. Lo mismo con «Liquidaciones», que es
+        # la CAJA desde sep 2026 (aquella pestaña estaba vacía).
         if tab == "personas":
             tab = "datos"
+        if tab == "liquidaciones":
+            tab = "caja"
         if tab not in allowed_tabs:
             tab = "datos"
 
@@ -2458,6 +3328,15 @@ def artist_detail_view(artist_id):
                  if c.promoter_id]) if tab == "datos" else []),
             notif_liquidation_concepts=(_artist_liquidation_concepts(session_db, artist.id)
                                         if tab == "datos" else []),
+            # LA CAJA · solo se calcula al abrir su pestaña: recorre sus actividades, sus bolsas y
+            # sus liquidaciones, y eso no se le hace pagar a quien viene a ver otra cosa.
+            cash=(_artist_cash_data(session_db, artist, _artist_cash_year(request.args.get("anio")))
+                  if tab == "caja" else None),
+            cash_entries=(_artist_cash_entry_rows(session_db, artist) if tab == "caja" else []),
+            cash_income_groups=ARTIST_CASH_INCOME_GROUPS,
+            cash_expense_groups=ARTIST_CASH_EXPENSE_GROUPS,
+            cash_companies=((session_db.query(GroupCompany)
+                             .order_by(GroupCompany.name.asc()).all()) if tab == "caja" else []),
             contracts=contracts,
             songs=songs,
             albums=albums,
@@ -83212,6 +84091,7 @@ from models import (
     PaymentBatch,
     PaymentBatchItem,
     PartyDebt,
+    ArtistLedgerEntry,
     MinorAuthConfig,
     MinorAuthorization,
     MinorAuthorizationMinor,
@@ -83435,6 +84315,9 @@ def _bootstrap_schema_bg():
     # Una sola vez: la RECAUDACIÓN del reporte de ventas (permiso nuevo, apagado para todos) se
     # concede a Ticketing, que es quien lleva las entradas.
     _safe_ensure(lambda: globals()["_sales_revenue_access_seed"](), "_sales_revenue_access_seed")
+    # Una sola vez: la CAJA del artista (permiso nuevo, apagado para todos) se concede a
+    # Administración, que es quien lleva ese dinero. Dirección ya lo ve por su rol.
+    _safe_ensure(lambda: globals()["_artist_cash_access_seed"](), "_artist_cash_access_seed")
     _safe_ensure(lambda: globals()["_song_genres_seed_once"](), "_song_genres_seed_once")
     _safe_ensure(lambda: globals()["_song_genres_backfill_once"](), "_song_genres_backfill_once")
     # Una sola vez: las peticiones que ya se habían APROBADO vuelven al proceso por pasos (el
@@ -94304,7 +95187,12 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "artists.discografica", "label": "Discográfica", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 124, "description": "Pestaña «Discográfica» del artista: lanzamientos y regalías (importes)."},
     {"key": "artists.agenda", "label": "Calendario", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 125, "description": "Pestaña «Calendario» del artista."},
     {"key": "artists.promocion", "label": "Marketing", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 126, "description": "Pestaña «Marketing» del artista: promoción y medios."},
-    {"key": "artists.liquidaciones", "label": "Liquidaciones", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 127, "description": "Pestaña «Liquidaciones» del artista (importes)."},
+    # ⚠️⚠️ LA CAJA ES LO MÁS DELICADO DE UN ARTISTA (lo que factura, lo que ha costado y lo que deja
+    # a la casa), así que es su PROPIO permiso y **nace apagado para todo el mundo**: de salida solo
+    # lo ven dirección (por su rol) y ADMINISTRACIÓN (`_artist_cash_access_seed`). La pestaña
+    # «Liquidaciones» que había aquí estaba vacía y su clave se retira sin trasladar sus permisos
+    # (`LEGACY_REMOVED_ACCESS_KEYS`), que es lo que pidió Dani: que empiece limpia.
+    {"key": "artists.caja", "label": "Caja", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 127, "description": "Pestaña «Caja» del artista: lo que factura, lo que se ha invertido en él y el balance (importes)."},
     {"key": "artists.onesheet", "label": "One-sheet", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 128, "description": "Pestaña «One-sheet» del artista: dossier público."},
 
     {"key": "discografica", "label": "Discográfica", "section_key": "discografica", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 130, "description": "Sello: catálogo, royalties, editorial, registros e ISRC."},
@@ -94942,6 +95830,12 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
     if endpoint.startswith("artist_calendar_import") or endpoint.startswith("artist_calendar_account"):
         return "artists.agenda"
+    # ⚠️⚠️ LA CAJA del artista (la plantilla de Excel, la subida y validar cada apunte): es lo más
+    # delicado de su ficha, así que va a SU recurso y no a «artists». Con una regla de PREFIJO, que
+    # es donde se ven: metida en el `mapping` de más abajo sería código muerto y el gate no
+    # comprobaría nada (la trampa que documenta `docs/app/permisos.md`).
+    if endpoint.startswith("artist_cash"):
+        return "artists.caja"
     # La BOLSA de gastos de un single o de un álbum: su pestaña «Gastos» de la ficha.
     if endpoint in {"song_bag_open", "album_bag_open"}:
         return "discografica.gastos"
@@ -95162,6 +96056,10 @@ LEGACY_REMOVED_ACCESS_KEYS = {
     # La recaudación era una subpestaña propia y ahora es el interruptor ECONÓMICO de
     # «Reporte de ventas»; `_sales_revenue_grants_migrate` pasa los permisos antes de podarla.
     "ventas.recaudacion",
+    # ⚠️ La pestaña «Liquidaciones» del artista (que estaba VACÍA) es ahora «Caja», y sus números son
+    # delicados. **A propósito NO está en `MIGRATED_ACCESS_KEYS`**: quien tuviera aquel permiso no
+    # hereda este (lo pidió Dani). Nace solo para dirección y administración.
+    "artists.liquidaciones",
 }
 
 # Clave retirada -> (clave nueva, econ). Al retirar un recurso, `_sync_access_resources` lo borra y
@@ -95541,12 +96439,26 @@ def _grant_matches(grant: dict | None, *, edit: bool = False, econ: bool = False
     return bool(grant.get("can_view_basic") or grant.get("can_view_econ") or grant.get("can_edit"))
 
 
+# ⚠️⚠️ RECURSOS QUE **NO SE HEREDAN DEL PADRE**: para casi todo, tener una SECCIÓN da sus pestañas
+# —es lo que se espera—, pero hay pantallas que no puede abrir cualquiera que trabaje en esa
+# sección. La **CAJA de un artista** es una: ahí está lo que factura, lo que ha costado y lo que
+# deja a la casa, y Dani pidió que solo la vieran dirección y administración. Tener «Artistas» NO
+# la da: hace falta SU grant.
+# ⚠️ Es el mismo problema que ya tuvo la recaudación de ventas (`can_view_sales_revenue`), que lo
+# resolvía mirando el grant exacto a mano; esto lo hace para todo el mundo y en un solo sitio, así
+# que el gate, la barra de pestañas y la vista dicen lo mismo sin poder desparejarse.
+EXACT_ACCESS_KEYS = {"artists.caja"}
+
+
 def _state_has_access(state: dict, key: str | None, *, edit: bool = False, econ: bool = False, include_descendants: bool = False) -> bool:
     if not key:
         return False
     if int(state.get("role") or 0) == 10:
         return True
     grants = state.get("grants") or {}
+    # ⚠️ Un recurso EXACTO no mira a sus padres: o se tiene, o no.
+    if key in EXACT_ACCESS_KEYS:
+        return _grant_matches(grants.get(key), edit=edit, econ=econ)
     keys_to_check = [key] + _resource_ancestors(key)
     if include_descendants:
         keys_to_check.extend(_descendant_keys(key))
@@ -95788,6 +96700,12 @@ def _resolve_request_resource_key() -> str | None:
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
     if endpoint.startswith("artist_calendar_import") or endpoint.startswith("artist_calendar_account"):
         return "artists.agenda"
+    # ⚠️⚠️ LA CAJA del artista (la plantilla de Excel, la subida y validar cada apunte): es lo más
+    # delicado de su ficha, así que va a SU recurso y no a «artists». Con una regla de PREFIJO, que
+    # es donde se ven: metida en el `mapping` de más abajo sería código muerto y el gate no
+    # comprobaría nada (la trampa que documenta `docs/app/permisos.md`).
+    if endpoint.startswith("artist_cash"):
+        return "artists.caja"
     # La BOLSA de gastos de un single o de un álbum: su pestaña «Gastos» de la ficha.
     if endpoint in {"song_bag_open", "album_bag_open"}:
         return "discografica.gastos"
@@ -95798,7 +96716,12 @@ def _resolve_request_resource_key() -> str | None:
         tab = (request.args.get("tab") or "datos").strip().lower()
         if tab == "personas":
             return "artists.datos"
-        if tab in {"datos", "contratos", "conciertos", "discografica", "agenda", "promocion", "marketing", "liquidaciones"}:
+        # ⚠️ «liquidaciones» es hoy «caja» (y los enlaces viejos siguen llegando aquí): si no
+        # estuviera, abrir la Caja caería en «artists» y la vería cualquiera con esa sección — que
+        # es justo lo que este permiso propio evita.
+        if tab == "liquidaciones":
+            tab = "caja"
+        if tab in {"datos", "contratos", "conciertos", "discografica", "agenda", "promocion", "marketing", "caja"}:
             return "artists.promocion" if tab == "marketing" else f"artists.{tab}"
         return "artists"
     if endpoint == "discografica_view":
@@ -96418,7 +97341,8 @@ def _resource_default_url(key: str) -> str:
         "artists.discografica": url_for("artists_view"),
         "artists.agenda": url_for("artists_view"),
         "artists.promocion": url_for("artists_view"),
-        "artists.liquidaciones": url_for("artists_view"),
+        # Sin la Caja se le lleva al listado de artistas (a su ficha entraría, pero a la pestaña no).
+        "artists.caja": url_for("artists_view"),
         "discografica": url_for("discografica_view", section="lanzamientos"),
         "discografica.lanzamientos": url_for("discografica_view", section="lanzamientos"),
         "discografica.canciones": url_for("discografica_view", section="canciones", rep_tab="canciones"),
@@ -99824,6 +100748,11 @@ def _access_fallback_url(key: str) -> str | None:
         if not has_access_key(seccion, include_descendants=True):
             return None                      # no lleva nada de esta sección
         args = {k: v for k, v in request.args.items(multi=False) if k not in TAB_ARGS}
+        # ⚠️⚠️ AUNQUE NO HAYA NINGUNA PESTAÑA QUE QUITAR, SE VUELVE AQUÍ CON LA MARCA. Parece un
+        # salto a la misma URL, pero **no lo es**: la vista, al no recibir `tab`, elige la PRIMERA
+        # pestaña que esta persona puede ver — que es justo lo que hace que abrir `/artistas/<id>`
+        # con solo una pestaña concedida funcione. Al "optimizarlo" devolviendo None aquí, esas 59
+        # pantallas pasaron a dar un 403 (lo cazó `tools/check_permisos.py`).
         args[ACCESS_FALLBACK_ARG] = "1"
         return url_for(request.endpoint, **(request.view_args or {}), **args)
     except Exception:
@@ -105039,6 +105968,54 @@ def _sales_revenue_access_seed() -> None:
     except Exception as exc:
         session_db.rollback()
         app.logger.warning("No se pudo sembrar el acceso a la recaudación de ventas: %s", exc)
+    finally:
+        session_db.close()
+
+
+def _artist_cash_access_seed() -> None:
+    """Da la CAJA de los artistas a quien está en **Administración**, una sola vez.
+
+    La pestaña «Caja» es un permiso nuevo y los recursos nuevos nacen APAGADOS para todos, así que
+    sin esto no la vería nadie más que dirección (que lo ve todo por su rol). Administración es
+    quien lleva ese dinero, así que se le da de salida y a partir de ahí lo concede dirección a
+    quien quiera.
+    ⚠️ Con el interruptor **económico** encendido: una caja sin importes no dice nada.
+    ⚠️ Es de una sola vez (marca en los ajustes): si dirección se lo quita a alguien, no resucita.
+    Mismo patrón que `_promo_access_seed` y `_sales_revenue_access_seed`."""
+    session_db = db()
+    try:
+        if _get_app_setting("artist_cash_access_seed_v1"):
+            return
+        if session_db.get(UserAccessResource, "artists.caja") is None:
+            return                                   # aún no se ha sincronizado el catálogo
+        fuera = _inactive_user_ids(session_db)
+        tocados = 0
+        for user, profile in (session_db.query(User, UserProfile)
+                              .join(UserProfile, UserProfile.user_id == User.id).all()):
+            if user.id in fuera:
+                continue
+            # ⚠️ Con tolerancia (sin acentos ni mayúsculas): el departamento lo escribe una persona.
+            deps = {_norm_text_key(d) for d in (getattr(profile, "departments", None) or [])}
+            if _norm_text_key("Administración") not in deps:
+                continue
+            grant = (session_db.query(UserAccessGrant)
+                     .filter(UserAccessGrant.user_id == user.id,
+                             UserAccessGrant.resource_key == "artists.caja").first())
+            if grant is None:
+                grant = UserAccessGrant(user_id=user.id, resource_key="artists.caja")
+                session_db.add(grant)
+            if not (grant.can_view_basic and grant.can_view_econ):
+                grant.can_view_basic = True
+                grant.can_view_econ = True
+                tocados += 1
+        session_db.commit()
+        _set_app_setting("artist_cash_access_seed_v1", "1")
+        if tocados:
+            app.logger.info("Artistas: la Caja se ha concedido a %s persona(s) de Administración.",
+                            tocados)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.warning("No se pudo sembrar el acceso a la Caja del artista: %s", exc)
     finally:
         session_db.close()
 

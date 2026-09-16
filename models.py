@@ -6534,6 +6534,69 @@ class PartyDebt(Base):
     )
 
 
+class ArtistLedgerEntry(Base):
+    """UN APUNTE DE LA CAJA DE UN ARTISTA metido a mano (o subido en un Excel).
+
+    La pestaña «Caja» de un artista calcula lo que ya sabe la app —los royalties que se le liquidan,
+    lo que factura por sus actividades, lo que se gasta en sus bolsas— pero de lo ANTERIOR a la app
+    no hay nada. Esto es para eso: se sube un Excel con lo que pasó y **cada línea se valida a mano**
+    antes de contar en el balance, que es lo que pidió Dani.
+
+    ⚠️ **No sustituye a nada de lo que la app ya calcula**: es un apunte APARTE, para que el cuadro
+    de mando esté completo desde el principio. Por eso lleva su `source` y su `batch_token`: se ve de
+    qué subida vino y se puede deshacer entera.
+    ⚠️ **Los tres importes son independientes**: `amount_invested` (lo que costó), `amount_artist`
+    (lo que se llevó el artista) y `amount_company` (lo que se llevó la compañía). Un mismo apunte
+    puede tener los tres (una gira: se invirtió X, el artista se llevó Y y la casa Z).
+    ⚠️ **Sin CHECK en la base a propósito**: `kind`, `category` y `status` los controla la app
+    (`ARTIST_CASH_*`). Un CHECK con la lista cerrada es una trampa conocida —añadir un valor nuevo
+    y olvidarse del DDL revienta el guardado y saca la pantalla de mantenimiento— y aquí no aporta
+    nada que no haga ya el formulario."""
+
+    __tablename__ = "artist_ledger_entries"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"),
+                       nullable=False)
+    entry_date = Column(Date, nullable=False)
+    # INGRESO | GASTO
+    kind = Column(Text, nullable=False, server_default=text("'GASTO'"))
+    # La clave del grupo en el que se suma (`ARTIST_CASH_INCOME_GROUPS` / `..._EXPENSE_GROUPS`).
+    category = Column(Text, nullable=False, server_default=text("'OTROS'"))
+    concept = Column(Text)
+    # Lo invertido, lo que se llevó el artista y lo que se llevó la compañía.
+    amount_invested = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_artist = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_company = Column(Numeric, nullable=False, server_default=text("0"))
+    # Qué empresa del grupo lo pagó o lo cobró.
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    notes = Column(Text)
+
+    # PENDIENTE (subido, esperando el visto bueno) | VALIDADO (ya cuenta en el balance)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    # EXCEL (vino de una subida) | MANUAL (se escribió en la app)
+    source = Column(Text, nullable=False, server_default=text("'EXCEL'"))
+    # De qué subida vino, cómo se llamaba el archivo y en qué fila iba: así se puede decir «la fila
+    # 14 no tiene fecha» y deshacer una subida entera.
+    batch_token = Column(Text)
+    source_file = Column(Text)
+    source_row = Column(Integer)
+
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    validated_at = Column(DateTime(timezone=True))
+    validated_by_nick = Column(Text)
+
+    artist = relationship("Artist")
+    company = relationship("GroupCompany")
+
+    __table_args__ = (
+        Index("idx_artist_ledger_artist", "artist_id", "status"),
+        Index("idx_artist_ledger_date", "artist_id", "entry_date"),
+    )
+
+
 class EmbargoOrder(Base):
     """Órdenes de embargo o levantamiento subidas desde Administración."""
 
@@ -11281,6 +11344,36 @@ def ensure_payment_batches_schema():
         'CREATE INDEX IF NOT EXISTS idx_party_debts_promoter ON party_debts(promoter_id, status);',
         'CREATE INDEX IF NOT EXISTS idx_party_debts_artist ON party_debts(artist_id, status);',
         'CREATE INDEX IF NOT EXISTS idx_party_debts_company ON party_debts(company_id, status);',
+
+        # LA CAJA DE UN ARTISTA · apuntes de antes de la app (se suben en un Excel y se validan uno
+        # a uno antes de contar en el balance). Ver `ArtistLedgerEntry`.
+        """
+        CREATE TABLE IF NOT EXISTS artist_ledger_entries (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            entry_date date NOT NULL,
+            kind text NOT NULL DEFAULT 'GASTO',
+            category text NOT NULL DEFAULT 'OTROS',
+            concept text,
+            amount_invested numeric NOT NULL DEFAULT 0,
+            amount_artist numeric NOT NULL DEFAULT 0,
+            amount_company numeric NOT NULL DEFAULT 0,
+            company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            notes text,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            source text NOT NULL DEFAULT 'EXCEL',
+            batch_token text,
+            source_file text,
+            source_row integer,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            validated_at timestamptz,
+            validated_by_nick text
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_artist_ledger_artist ON artist_ledger_entries(artist_id, status);',
+        'CREATE INDEX IF NOT EXISTS idx_artist_ledger_date ON artist_ledger_entries(artist_id, entry_date);',
     ]
     _exec_ddl_statements(stmts, "payment_batches")
 

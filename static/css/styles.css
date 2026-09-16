@@ -8141,3 +8141,105 @@ body.accsc-open{ overflow:hidden; }
 .manual-drop{ border:2px dashed #cfd4da; border-radius:12px; padding:1rem; text-align:center; background:#fafbfc; }
 .manual-drop.file-drop-hover{ border-color:var(--brand-accent); background:#eef7fa; }
 .manual-drop__pick{ color:var(--brand-accent); text-decoration:underline; cursor:pointer; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LA CAJA DE UN ARTISTA · Balance · Ingresos · Gastos
+   Lo que factura él, lo que ha costado y lo que deja a la casa. Se lee de un
+   vistazo: primero las cifras grandes, luego el reparto por tipos en una barra
+   y, al desplegar, línea a línea.
+   ⚠️ `min-width:0` en lo que debe encogerse y `flex:0 0 auto` en lo de tamaño
+   fijo, o dentro del flex el texto se parte letra a letra.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.ac-bar{ display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
+.ac-bar__years{ display:flex; gap:.35rem; flex-wrap:wrap; min-width:0; }
+.ac-bar__tools{ display:flex; gap:.5rem; flex-wrap:wrap; margin-left:auto; }
+/* El AÑO que se está mirando: pastilla, y la activa en el rojo de marca. */
+.ac-year{ display:inline-flex; align-items:center; padding:.2rem .7rem; border-radius:999px;
+  border:1px solid #e6e8ec; background:#fff; color:var(--ink,#111827); text-decoration:none;
+  font-size:.85rem; font-weight:600; }
+.ac-year:hover{ border-color:var(--brand-primary,#E33D48); color:var(--brand-primary,#E33D48); }
+.ac-year.is-on{ background:var(--brand-primary,#E33D48); border-color:var(--brand-primary,#E33D48);
+  color:#fff; }
+
+/* LAS CIFRAS DEL BALANCE. */
+.ac-cards{ display:grid; gap:.75rem; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); }
+.ac-card{ border:1px solid #e9ecf2; border-radius:14px; padding:.8rem .95rem; background:#fff; }
+.ac-card__k{ font-size:.76rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700;
+  color:var(--brand-accent,#007CA2); }
+.ac-card__v{ font-size:1.5rem; font-weight:800; line-height:1.2; margin-top:.15rem;
+  color:var(--ink,#111827); }
+.ac-card__h{ font-size:.78rem; color:var(--muted-2,#6c757d); margin-top:.1rem; }
+/* El resultado: verde si la casa gana, rojo si todavía está invirtiendo. */
+.ac-card--ok{ border-color:rgba(25,135,84,.35); background:rgba(25,135,84,.05); }
+.ac-card--ok .ac-card__v{ color:#146c43; }
+.ac-card--ko{ border-color:rgba(227,61,72,.35); background:rgba(227,61,72,.05); }
+.ac-card--ko .ac-card__v{ color:var(--brand-primary,#E33D48); }
+
+/* ADELANTOS: cuánto se lleva devuelto de cada uno. */
+.ac-sub{ font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700;
+  color:var(--muted-2,#6c757d); margin-bottom:.35rem; }
+.ac-adv__row{ display:flex; align-items:center; gap:.75rem; padding:.5rem 0;
+  border-top:1px solid #f1f3f7; flex-wrap:wrap; }
+.ac-adv__row.is-closed{ opacity:.55; }
+.ac-adv__main{ flex:1 1 12rem; min-width:0; }
+.ac-adv__t{ font-weight:600; }
+.ac-adv__s{ font-size:.8rem; color:var(--muted-2,#6c757d); }
+.ac-adv__bar{ flex:1 1 8rem; height:8px; border-radius:999px; background:#eef1f5; overflow:hidden;
+  min-width:6rem; }
+.ac-adv__bar > span{ display:block; height:100%; background:var(--brand-accent,#007CA2); }
+.ac-adv__nums{ flex:0 0 auto; text-align:right; }
+.ac-adv__pend{ font-weight:700; }
+.ac-adv__state{ font-size:.76rem; color:var(--muted-2,#6c757d); }
+
+/* EL TOTAL de una sección, en su cabecera. */
+.ac-total{ font-weight:800; font-size:1.05rem; }
+.ac-total--in{ color:#146c43; }
+.ac-total--out{ color:var(--brand-primary,#E33D48); }
+
+/* LA BARRA DE REPARTO por tipos y su leyenda. */
+.ac-mix{ display:flex; height:12px; border-radius:999px; overflow:hidden; background:#eef1f5; }
+.ac-mix__p{ display:block; height:100%; }
+.ac-legend{ display:flex; flex-wrap:wrap; gap:.35rem 1rem; margin:.5rem 0 .25rem;
+  font-size:.82rem; color:var(--muted-2,#6c757d); }
+.ac-legend__i{ display:inline-flex; align-items:center; gap:.35rem; }
+.ac-legend__i b{ color:var(--ink,#111827); }
+.ac-dot{ width:.7rem; height:.7rem; border-radius:50%; display:inline-block; flex:0 0 auto; }
+/* Cinco colores, del azul de marca al rojo (los mismos en la barra y en la leyenda). */
+.ac-mix__p--0, .ac-dot--0{ background:#007CA2; }
+.ac-mix__p--1, .ac-dot--1{ background:#3FA3C0; }
+.ac-mix__p--2, .ac-dot--2{ background:#8FBF6E; }
+.ac-mix__p--3, .ac-dot--3{ background:#E8A33D; }
+.ac-mix__p--4, .ac-dot--4{ background:#E33D48; }
+
+/* CADA TIPO, desplegable. */
+.ac-group{ border-top:1px solid #f1f3f7; }
+.ac-group__head{ display:flex; align-items:center; gap:.6rem; width:100%; background:none;
+  border:0; padding:.6rem .1rem; text-align:left; }
+.ac-group__head:hover{ background:#fafbfc; }
+.ac-group__ico{ flex:0 0 auto; width:30px; height:30px; border-radius:9px; background:#fdf2f3;
+  color:var(--brand-primary,#E33D48); display:flex; align-items:center; justify-content:center; }
+.ac-group__t{ font-weight:700; min-width:0; }
+.ac-group__v{ margin-left:auto; font-weight:700; white-space:nowrap; }
+.ac-group__chev{ flex:0 0 auto; color:#adb5bd; transition:transform .15s ease; }
+.ac-group__head[aria-expanded="true"] .ac-group__chev{ transform:rotate(180deg); }
+.ac-rows{ padding:0 0 .5rem; }
+.ac-row{ display:flex; align-items:flex-start; gap:.75rem; padding:.45rem .1rem .45rem 2.4rem;
+  border-top:1px dashed #f1f3f7; flex-wrap:wrap; }
+.ac-row__main{ flex:1 1 14rem; min-width:0; display:flex; flex-direction:column; }
+.ac-row__t{ font-weight:600; color:var(--ink,#111827); text-decoration:none; }
+a.ac-row__t:hover{ color:var(--brand-accent,#007CA2); text-decoration:underline; }
+.ac-row__s{ font-size:.8rem; color:var(--muted-2,#6c757d); }
+.ac-row__n{ font-size:.78rem; color:#8a6d00; }
+.ac-row__pend{ font-size:.76rem; color:#8a6d00; font-weight:600; }
+.ac-row__nums{ flex:0 0 auto; text-align:right; }
+.ac-row__v{ font-weight:700; display:block; white-space:nowrap; }
+.ac-row__o{ font-size:.76rem; color:var(--muted-2,#6c757d); white-space:nowrap; }
+/* Un apunte subido y sin validar: se ve, pero se ve QUE NO CUENTA (el rayado de la casa). */
+.ac-row.is-pending, .ac-entries tr.is-pending > td{
+  background-image: repeating-linear-gradient(45deg,
+      rgba(255, 193, 7, .10) 0 10px, rgba(255, 193, 7, 0) 10px 20px);
+}
+@media (max-width: 575.98px){
+  .ac-row{ padding-left:.1rem; }
+  .ac-row__nums{ width:100%; text-align:left; }
+}

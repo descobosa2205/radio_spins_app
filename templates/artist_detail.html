@@ -130,11 +130,13 @@
       One-sheet
     </a>
   </li>
-  {% if has_access_key('artists.liquidaciones', include_descendants=True) %}
+  {# ⚠️ LA CAJA tiene su PROPIO permiso y nace apagada para todos: aquí está el dinero del artista
+     (lo que factura, lo que ha costado y lo que deja). Antes era «Liquidaciones» y estaba vacía. #}
+  {% if has_access_key('artists.caja', include_descendants=True) %}
     <li class="nav-item">
-      <a class="nav-link {% if tab=='liquidaciones' %}active{% endif %}"
-         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='liquidaciones') }}">
-        Liquidaciones
+      <a class="nav-link {% if tab=='caja' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='caja') }}">
+        Caja
       </a>
     </li>
   {% endif %}
@@ -933,14 +935,13 @@
   </script>
 
 {# ===================== TAB: LIQUIDACIONES ===================== #}
-{% elif tab == 'liquidaciones' %}
+{% elif tab == 'caja' %}
 
-  <div class="card">
-    <div class="card-body">
-      <h6 class="mb-2">Próximamente</h6>
-      <div class="text-muted">Próximamente estará disponible, estamos trabajando en ello!!!.</div>
-    </div>
-  </div>
+  {# LA CAJA del artista: Balance · Ingresos · Gastos. Todo sale de `_artist_cash_data`, el punto
+     único, y vive en su propio parcial porque es una pantalla entera. #}
+  {% if cash %}
+    {% include '_artist_cash.html' %}
+  {% endif %}
 
 {% endif %}
 

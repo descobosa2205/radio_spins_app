@@ -6,6 +6,8 @@
 
 ## Qué hay aquí
 
+- UN RECURSO QUE **NO SE HEREDA DEL PADRE** (`EXACT_ACCESS_KEYS`)
+
 - Sesiones BD: s = db() con try/except rollback/finally close, o with get_db() as s.
 - Permisos
 - PERMISOS · repaso del catálogo
@@ -23,6 +25,28 @@
 - NADIE SE COME UN 403 EN UNA FUNCIÓN QUE TIENE ASIGNADA.
 
 ---
+
+## UN RECURSO QUE NO SE HEREDA DEL PADRE (`EXACT_ACCESS_KEYS`)
+
+Lo normal en esta app es que **tener una SECCIÓN dé todas sus pestañas**: `_state_has_access`
+comprueba la clave **y sus ancestros**, y eso es lo que se espera (quien lleva Contratación entra en
+sus pestañas sin que nadie se las conceda una a una).
+
+⚠️⚠️ Pero hay pantallas que **no puede abrir cualquiera que trabaje en esa sección**. La primera es
+la **CAJA de un artista** (`artists.caja`, sep 2026): ahí está lo que factura, lo que ha costado y
+lo que deja a la casa, y Dani pidió que solo la vieran **dirección y administración**. Tener
+«Artistas» **no la da**.
+
+Para eso está **`EXACT_ACCESS_KEYS`**: una clave que esté ahí se comprueba **exacta**, sin mirar a
+sus padres. Un solo `if` al principio de `_state_has_access`, así que **el gate, la barra de
+pestañas y la vista dicen lo mismo** y no se pueden desparejar.
+⚠️ Antes esto se resolvía a mano donde hacía falta (`can_view_sales_revenue` mira el grant exacto de
+`ventas.reportes` para que tener «Ventas» no dé la recaudación). Eso sigue ahí y funciona; lo nuevo
+es que ahora hay **un sitio** donde declararlo.
+⚠️ Al añadir una clave: comprobar que la pantalla **no se pinta** sin ella (la barra de pestañas usa
+el mismo `has_access_key`) y que el gate no deja entrar por la URL. Se prueba con dos usuarios, uno
+con la clave y otro sin ella; `tools/check_permisos.py` cubre lo demás.
+
 
 - **Sesiones BD**: `s = db()` con `try/except rollback/finally close`, o `with get_db() as s`.
 - **Permisos**: catálogo `UserAccessResource` (SECTION→TAB→SUBTAB, `economic_capable`) + grants

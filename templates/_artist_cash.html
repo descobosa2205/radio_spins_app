@@ -1,0 +1,312 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   LA CAJA DE UN ARTISTA · Balance · Ingresos · Gastos
+
+   Todo sale de `_artist_cash_data` (el punto único), que lo calcula al vuelo: aquí no hay ni un
+   número guardado. Se lee en este orden, que es el de la pregunta que trae quien abre esto:
+     1) BALANCE  — ¿este artista deja dinero o todavía se está invirtiendo en él?
+     2) INGRESOS — qué ha facturado él, por tipos.
+     3) GASTOS   — qué han pagado las empresas del grupo, por tipos.
+
+   ⚠️ Arriba a la derecha, el AÑO (se cambia y recarga) y los dos botones del Excel de apuntes
+      anteriores: bajar la plantilla y subirla.
+   ⚠️ Lo subido y sin validar NO suma: se ve con su marca y con su botón de dar por bueno.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+
+{% set b = cash.balance %}
+
+{# UNA SECCIÓN (Ingresos o Gastos): la barra de resumen y, debajo, sus tipos con sus líneas.
+   ⚠️ Es un MACRO para que las dos se pinten EXACTAMENTE igual: si se tocan, se tocan las dos.
+   ⚠️ Un macro de Jinja no ve las variables de la plantilla, así que recibe todo lo que usa. #}
+{% macro _ac_seccion(titulo, icono, datos, kind) %}
+  {% set es_ingreso = (kind == 'INGRESO') %}
+  {% set total = datos.artist_amount if es_ingreso else datos.invested %}
+  <div class="ficha-section mb-3">
+    <div class="ficha-section__head">
+      <h6 class="ficha-section__title"><i class="fa {{ icono }}"></i>{{ titulo }}</h6>
+      <span class="ac-total {{ 'ac-total--in' if es_ingreso else 'ac-total--out' }}">{{ total|eur }}</span>
+    </div>
+    <div class="ficha-section__body">
+      {% if datos.groups %}
+        {# LA BARRA DE RESUMEN: cuánto pesa cada tipo, para verlo sin leer un número. #}
+        <div class="ac-mix" role="img" aria-label="Reparto por tipos">
+          {% for g in datos.groups %}
+            {% set v = (g.artist_amount if es_ingreso else g.invested) %}
+            {% if total and v > 0 %}
+              <span class="ac-mix__p ac-mix__p--{{ loop.index0 % 5 }}"
+                    style="width:{{ (v / total * 100)|round(2) }}%"
+                    title="{{ g.label }}: {{ v|eur }}"></span>
+            {% endif %}
+          {% endfor %}
+        </div>
+        <div class="ac-legend">
+          {% for g in datos.groups %}
+            {% set v = (g.artist_amount if es_ingreso else g.invested) %}
+            <span class="ac-legend__i"><i class="ac-dot ac-dot--{{ loop.index0 % 5 }}"></i>{{ g.label }}
+              <b>{{ v|eur }}</b></span>
+          {% endfor %}
+        </div>
+
+        {% for g in datos.groups %}
+          <div class="ac-group">
+            <button class="ac-group__head" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#acg-{{ kind }}-{{ g.key }}" aria-expanded="false">
+              <span class="ac-group__ico"><i class="fa {{ g.icon }}"></i></span>
+              <span class="ac-group__t">{{ g.label }}</span>
+              <span class="badge text-bg-light border">{{ g.count }}</span>
+              <span class="ac-group__v">{{ (g.artist_amount if es_ingreso else g.invested)|eur }}</span>
+              <i class="fa fa-chevron-down ac-group__chev"></i>
+            </button>
+            <div class="collapse" id="acg-{{ kind }}-{{ g.key }}">
+              <div class="ac-rows">
+                {% for r in g.rows %}
+                  <div class="ac-row {{ 'is-pending' if r.pending }}">
+                    <div class="ac-row__main">
+                      {% if r.url %}
+                        <a class="ac-row__t" href="{{ r.url }}">{{ r.title }}</a>
+                      {% else %}
+                        <span class="ac-row__t">{{ r.title }}</span>
+                      {% endif %}
+                      <span class="ac-row__s">
+                        {{ r.subtitle }}{% if r.date_label %} · {{ r.date_label }}{% endif %}
+                      </span>
+                      {% if r.note %}<span class="ac-row__n">{{ r.note }}</span>{% endif %}
+                      {% if r.pending %}
+                        <span class="ac-row__pend"><i class="fa fa-hourglass-half me-1"></i>Sin validar: no suma</span>
+                      {% endif %}
+                    </div>
+                    <div class="ac-row__nums">
+                      {% if es_ingreso %}
+                        <span class="ac-row__v">{{ r.artist_amount|eur }}</span>
+                        {% if r.office_amount %}
+                          <span class="ac-row__o" title="Lo que se lleva la oficina">Oficina {{ r.office_amount|eur }}</span>
+                        {% endif %}
+                      {% else %}
+                        <span class="ac-row__v">{{ r.invested|eur }}</span>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="text-muted small py-2">
+          <i class="fa fa-inbox me-1"></i>
+          {% if es_ingreso %}Todavía no hay ingresos apuntados{% else %}Todavía no hay gastos apuntados{% endif %}
+          {% if datos.pending_count %} (hay {{ datos.pending_count }} sin validar){% endif %}.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endmacro %}
+
+{# ── LA BARRA DE ARRIBA: el año y el Excel ──────────────────────────────────────────────────── #}
+<div class="ac-bar mb-3">
+  <div class="ac-bar__years">
+    <a class="ac-year {% if not cash.year %}is-on{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='caja') }}">Todo</a>
+    {% for y in cash.years[:6] %}
+      <a class="ac-year {% if cash.year == y %}is-on{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='caja', anio=y) }}">{{ y }}</a>
+    {% endfor %}
+  </div>
+  <div class="ac-bar__tools">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('artist_cash_template', artist_id=artist.id) }}"
+       title="Bajar la plantilla de Excel para los apuntes de antes de la app">
+      <i class="fa fa-file-excel me-1"></i>Plantilla
+    </a>
+    <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#cashUploadModal"
+            title="Subir el Excel con los apuntes anteriores">
+      <i class="fa fa-upload me-1"></i>Subir apuntes
+    </button>
+  </div>
+</div>
+
+{% if b.pending_entries %}
+  <div class="alert alert-warning d-flex align-items-center gap-2 py-2">
+    <i class="fa fa-triangle-exclamation"></i>
+    <div>Hay <strong>{{ b.pending_entries }}</strong> apunte(s) subidos esperando tu visto bueno.
+      <span class="text-muted">Hasta que no los valides no cuentan en el balance.</span></div>
+    <a class="btn btn-sm btn-outline-dark ms-auto" href="#cajaApuntes">Repasarlos</a>
+  </div>
+{% endif %}
+
+{# ── 1) EL BALANCE ──────────────────────────────────────────────────────────────────────────── #}
+<div class="ficha-section mb-3">
+  <div class="ficha-section__head">
+    <h6 class="ficha-section__title"><i class="fa fa-scale-balanced"></i>Balance</h6>
+    <span class="text-muted small">{{ 'Todo lo que hay' if not cash.year else cash.year }}</span>
+  </div>
+  <div class="ficha-section__body">
+    <div class="ac-cards">
+      <div class="ac-card">
+        <div class="ac-card__k"><i class="fa fa-guitar me-1"></i>Factura el artista</div>
+        <div class="ac-card__v">{{ b.artist_billed|eur }}</div>
+        <div class="ac-card__h">Su parte de royalties y de sus actividades</div>
+      </div>
+      <div class="ac-card">
+        <div class="ac-card__k"><i class="fa fa-receipt me-1"></i>Invertido por la casa</div>
+        <div class="ac-card__v">{{ b.office_invested|eur }}</div>
+        <div class="ac-card__h">Lo que han pagado las empresas del grupo</div>
+      </div>
+      <div class="ac-card">
+        <div class="ac-card__k"><i class="fa fa-building me-1"></i>Se lleva la oficina</div>
+        <div class="ac-card__v">{{ b.office_income|eur }}</div>
+        <div class="ac-card__h">Royalties tras pagar los suyos, y su parte de los cachés</div>
+      </div>
+      <div class="ac-card {{ 'ac-card--ok' if b.positive else 'ac-card--ko' }}">
+        <div class="ac-card__k"><i class="fa fa-chart-line me-1"></i>Resultado para la casa</div>
+        <div class="ac-card__v">{{ b.office_result|eur }}</div>
+        <div class="ac-card__h">{{ 'Deja beneficio' if b.positive else 'Todavía se está invirtiendo' }}</div>
+      </div>
+    </div>
+
+    {# LOS ADELANTOS y en qué punto están (lo que pidió Dani: «arranque de gira», «discográfico»…) #}
+    {% if cash.advances %}
+      <div class="ac-sub mt-3"><i class="fa fa-hand-holding-dollar me-1"></i>Adelantos y deudas</div>
+      <div class="ac-adv">
+        {% for a in cash.advances %}
+          <div class="ac-adv__row {{ 'is-closed' if a.closed }}">
+            <div class="ac-adv__main">
+              <div class="ac-adv__t">{{ a.concept }}</div>
+              <div class="ac-adv__s">
+                {% if a.kind == 'DEUDA' %}Deuda{% else %}Adelanto{% endif %}
+                {% if a.company %} · {{ a.company }}{% endif %}
+                {% if a.date_label %} · {{ a.date_label }}{% endif %}
+              </div>
+            </div>
+            <div class="ac-adv__bar" title="Devuelto {{ a.recovered|eur }} de {{ a.amount|eur }}">
+              <span style="width:{{ a.pct }}%"></span>
+            </div>
+            <div class="ac-adv__nums">
+              <div class="ac-adv__pend">{{ a.pending|eur }}</div>
+              <div class="ac-adv__state">{{ a.state_label }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% if b.advance_count %}
+        <div class="text-muted small mt-2">
+          Queda por recuperar <strong>{{ b.advance_pending|eur }}</strong>
+          en {{ b.advance_count }} adelanto(s) abiertos.
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{# ── 2) INGRESOS ────────────────────────────────────────────────────────────────────────────── #}
+{{ _ac_seccion('Ingresos', 'fa-arrow-trend-up', cash.income, 'INGRESO') }}
+
+{# ── 3) GASTOS ──────────────────────────────────────────────────────────────────────────────── #}
+{{ _ac_seccion('Gastos', 'fa-arrow-trend-down', cash.expense, 'GASTO') }}
+
+{# ── LOS APUNTES SUBIDOS · se validan uno a uno ─────────────────────────────────────────────── #}
+{% if cash_entries %}
+  <div class="ficha-section mb-3" id="cajaApuntes">
+    <div class="ficha-section__head">
+      <h6 class="ficha-section__title"><i class="fa fa-file-excel"></i>Apuntes anteriores subidos</h6>
+      <span class="text-muted small">{{ cash_entries|length }}</span>
+    </div>
+    <div class="ficha-section__body">
+      <div class="text-muted small mb-2">
+        Lo que se sube entra <strong>pendiente</strong>: se repasa aquí y, al darlo por bueno, pasa a
+        contar en el balance.
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle ac-entries">
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Tipo</th><th>Concepto</th>
+              <th class="text-end">Inversión</th><th class="text-end">Artista</th><th class="text-end">Compañía</th>
+              <th>Empresa</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in cash_entries %}
+              <tr class="{{ 'is-pending' if e.pending }}">
+                <td class="text-nowrap">{{ e.date_label }}</td>
+                <td>
+                  <span class="badge {{ 'text-bg-success' if e.kind == 'INGRESO' else 'text-bg-secondary' }}">{{ e.kind_label }}</span>
+                  <div class="small text-muted">{{ e.category_label }}</div>
+                </td>
+                <td>
+                  {{ e.concept or '—' }}
+                  {% if e.notes %}<div class="small text-muted">{{ e.notes }}</div>{% endif %}
+                  {% if e.source_file %}
+                    <div class="small text-muted"><i class="fa fa-file-excel me-1"></i>{{ e.source_file }}{% if e.source_row %} · fila {{ e.source_row }}{% endif %}</div>
+                  {% endif %}
+                </td>
+                <td class="text-end text-nowrap">{{ e.invested|eur }}</td>
+                <td class="text-end text-nowrap">{{ e.artist_amount|eur }}</td>
+                <td class="text-end text-nowrap">{{ e.company_amount|eur }}</td>
+                <td>{{ e.company or '—' }}</td>
+                <td class="text-end text-nowrap">
+                  {% if e.pending %}
+                    <form method="post" class="d-inline"
+                          action="{{ url_for('artist_cash_validate', artist_id=artist.id, entry_id=e.id) }}">
+                      <button class="btn btn-sm btn-success" type="submit"><i class="fa fa-check me-1"></i>Validar</button>
+                    </form>
+                  {% else %}
+                    <span class="badge text-bg-light border" title="Validado por {{ e.validated_by }}"><i class="fa fa-circle-check me-1 text-success"></i>Validado</span>
+                  {% endif %}
+                  <form method="post" class="d-inline"
+                        action="{{ url_for('artist_cash_delete', artist_id=artist.id, entry_id=e.id) }}"
+                        onsubmit="return confirm('¿Quitar este apunte?');">
+                    <button class="btn btn-sm btn-link text-danger" type="submit" title="Quitarlo"><i class="fa fa-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% set lotes = cash_entries|selectattr('pending')|map(attribute='batch_token')|select|unique|list %}
+      {% if lotes %}
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          {% for t in lotes %}
+            <form method="post" action="{{ url_for('artist_cash_batch_undo', artist_id=artist.id, token=t) }}"
+                  onsubmit="return confirm('¿Deshacer esa subida entera? Los apuntes ya validados se quedan.');">
+              <button class="btn btn-sm btn-outline-danger" type="submit">
+                <i class="fa fa-rotate-left me-1"></i>Deshacer una subida
+              </button>
+            </form>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+{# ── EL POP-UP DE SUBIR ─────────────────────────────────────────────────────────────────────── #}
+<div class="modal fade" id="cashUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('artist_cash_upload', artist_id=artist.id) }}">
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-file-excel me-2"></i>Subir apuntes anteriores</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          Para lo de <strong>antes de la app</strong>: lo que se invirtió, lo que se llevó el artista y
+          lo que se llevó la compañía. Cada línea entra <strong>pendiente</strong> y se valida aquí
+          antes de contar en el balance.
+        </p>
+        <div class="mb-3">
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('artist_cash_template', artist_id=artist.id) }}">
+            <i class="fa fa-download me-1"></i>Bajar la plantilla
+          </a>
+        </div>
+        <label class="form-label">El archivo de Excel</label>
+        <input type="file" class="form-control" name="archivo" accept=".xlsx,.xlsm" required>
+        <div class="form-text">La plantilla lleva una segunda hoja con lo que vale en cada columna.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-upload me-1"></i>Subir</button>
+      </div>
+    </form>
+  </div>
+</div>

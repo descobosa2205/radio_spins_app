@@ -6,6 +6,8 @@
 
 ## Qué hay aquí
 
+- LA COMPAÑÍA DE UN TRASLADO: el logo a su tamaño y solo la elegida
+
 - La ficha y los listados de ACTIVIDAD se abren desde muchas secciones
 - Responsable de PRODUCCIÓN (Concert.production_owner_user_id): en un EVENTO (que no es de ningún
 - PRODUCCIÓN EXTERNA · la lleva un TERCERO, con su propio acceso
@@ -40,6 +42,24 @@
 - LA COMIDA CON MENÚ: secciones y platos, quién elige por su enlace, la pestaña Comidas, pedir
 
 ---
+
+## LA COMPAÑÍA DE UN TRASLADO: el logo a su tamaño y solo la elegida
+
+⚠️⚠️ **EL LOGO DE LA COMPAÑÍA SALÍA A TAMAÑO NATURAL** (bug real, sep 2026: «al pinchar en la
+compañía, el logo se pone en grande ocupando la pantalla»). El chip que se pinta al elegirla
+(`avatar()`) devuelve un `<img>` **sin tamaño**, y `.rm-chip` no tenía ninguna regla para imágenes:
+un PNG de logo de 2.000 px se pintaba entero y reventaba el pop-up. Ahora el chip lo fija a 22 px
+con **`flex:0 0 auto`** (lo de tamaño fijo no se encoge, la regla de la casa).
+
+**Y AL ELEGIR UNA, LAS DEMÁS SE QUITAN DE EN MEDIO** (lo pidió Dani): queda la marcada y ya. Al
+quitarla con la **«✕» del chip** vuelven todas, que es como se cambia de compañía.
+
+⚠️ **SOLO SALEN LAS COMPAÑÍAS DE ESE TIPO**, y eso vale para las TARJETAS y para el BUSCADOR
+(`searchCompanies(q, draft.kind)` → la API filtra por `kind`). Comprobado: buscando «ren» en un
+VUELO, **Renfe no aparece**. Si en producción se ve una compañía de tren en un vuelo, lo que pasa
+es que **su ficha tiene marcada también la etiqueta «Vuelo»** (Bases de datos → Compañías de
+transporte): ahí se quita y deja de salir.
+
 
 - ⚠️ **La ficha y los listados de ACTIVIDAD se abren desde muchas secciones**: producción monta la
   hoja de ruta, administración la bolsa, promoción su marketing… Por eso el acceso de LECTURA a

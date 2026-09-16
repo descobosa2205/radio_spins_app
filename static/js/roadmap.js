@@ -2124,6 +2124,14 @@
         if (cAva) cAva.innerHTML = avatar(t.logo_url, 'fa-building');
         cChip.classList.toggle('d-none', !(t.company_id || t.company));
         m.querySelectorAll('[data-company-opt]').forEach(function (r) { r.checked = String(r.value) === String(t.company_id || ''); });
+        // ⚠️ ELEGIDA UNA, LAS DEMÁS SE QUITAN DE EN MEDIO (lo pidió Dani): queda la marcada y ya.
+        // Al quitarla con la «x» del chip vuelven todas, que es como se cambia de compañía.
+        var elegida = String(t.company_id || '');
+        m.querySelectorAll('[data-company-cards] .promo-pick').forEach(function (card) {
+          var r = card.querySelector('[data-company-opt]');
+          var esta = !!(r && String(r.value) === elegida);
+          card.classList.toggle('d-none', !!elegida && !esta);
+        });
       }
       function deLaBase(id) { return COMPANIES.filter(function (x) { return String(x.id) === String(id); })[0]; }
       function wireCards() {

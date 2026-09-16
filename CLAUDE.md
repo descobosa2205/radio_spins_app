@@ -193,6 +193,12 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   (y un `required` invisible bloquea el envío sin decir por qué).
 - `shown.bs.modal` **no siempre llega** (con `modal_stack.js` por medio) → lo que haya que montar al
   abrir un modal se monta **en el propio clic**.
+- ⚠️⚠️ **UN `<a>` DENTRO DE OTRO `<a>` PARTE EL HTML**: el navegador saca lo de dentro FUERA del
+  enlace, sin dar ningún error. Dentro de una fila que ya es un enlace, los items de un menú van en
+  **`<button>`**. → detalle abajo. Lo caza `tools/check_divs.py`.
+- Un **atributo `data-*` de ESTADO no puede llamarse como el que selecciona un botón**: el
+  `closest('[data-x]')` del handler acaba encontrando el contenedor y se come los clics de dentro.
+  → detalle abajo.
 - Un parcial que se pinta **varias veces** en la misma página no puede llevar `id` fijos (sufijo por
   fila), o `getElementById` y los `<label for>` cogen el primero.
 - Bootstrap se carga **después** del contenido: los scripts en línea de una plantilla corren antes
@@ -226,6 +232,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   DATO, no una marca aparte.
 - **Lo que no se puede abrir no se pinta**, y si aun así se llega, el gate lleva a lo que sí puede
   ver en vez de denegar (`_access_fallback_url`). → `docs/app/permisos.md`
+- **Un permiso se hereda del PADRE**: tener una sección da todas sus pestañas. Para lo que no puede
+  ver cualquiera que trabaje en esa sección (la **Caja** de un artista) está **`EXACT_ACCESS_KEYS`**:
+  esas claves se comprueban exactas. → `docs/app/permisos.md`
 - **Nunca se dice que algo se ha enviado si no salió**, y un rechazo **deja rastro** (no puede ser
   invisible).
 - Los **errores 500 muestran la página de MANTENIMIENTO**: si Dani dice «sale la página de cerrado
@@ -349,6 +358,32 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   entero de cancelar y de aplazar llega hasta el final («La actividad queda CANCELADA. Producción ya
   tiene sus tareas»).
 
+- ⚠️⚠️⚠️ **UN `<a>` DENTRO DE OTRO `<a>`: EL NAVEGADOR PARTE EL ÁRBOL Y LO DE DENTRO SE QUEDA
+  FUERA** (bug real, sep 2026: «desde el listado de actividades, al pinchar en cambiar el estado se
+  pone a pensar pero no hace nada»). En el listado, **la fila entera es un `<a>`**; el menú de estado
+  que va dentro tenía dos items («Aplazar», «Cancelar») como `<a>`, y eso es HTML inválido: el
+  parser **cierra el enlace exterior** y saca el `<ul class="dropdown-menu">` fuera —quedaba de
+  HERMANO de la fila—, así que Bootstrap no lo encontraba y **el desplegable no se abría**.
+  · Dentro de una fila-enlace, los items van en **`<button>`** (navegan con un `data-*` y un
+  listener delegado). Así el menú se queda donde tiene que estar.
+  · Y el **loader** miraba solo el `<a>` de alrededor: al pinchar cualquier control dentro de una
+  fila clicable pintaba «Cargando…» y, como no se navegaba, **se quedaba ahí para siempre**. Ahora
+  mira **lo que se ha pinchado** (`data-no-loader` / `.no-loader` / un `dropdown` por el camino).
+  · ⚠️ `stopPropagation()` en el contenedor **tampoco** valía: Bootstrap abre el desplegable
+  escuchando en `document`, así que cortar la propagación lo dejaba sin abrir.
+  ⚠️ Comprobación: `tools/check_divs.py` avisa ya de los `<a>` anidados de cada pantalla (probado
+  con un HTML roto y uno bueno).
+
+- ⚠️⚠️ **UN `data-*` DE ESTADO CON EL MISMO NOMBRE QUE EL SELECTOR DE UN BOTÓN SE COME LOS CLICS**
+  (bug real, sep 2026: «al crear o editar un tercero, las etiquetas se muestran pero no se pueden
+  seleccionar»). `quick_create.js` abría «Rellenar más campos» con
+  `closest('[data-qc-more-open]')` + `preventDefault()`… y **marcaba el estado de la caja con ESE
+  MISMO atributo** (`caja.dataset.qcMoreOpen`). Desde entonces, **cualquier clic dentro de la caja**
+  encontraba el atributo en un ancestro y se llevaba un `preventDefault()`: los checkboxes y los
+  radios de las etiquetas **no se marcaban** (y no daba ningún error).
+  · La marca de estado se llama ahora `data-qc-more-shown`, y el handler exige `button[...]`.
+  · La regla: **una cosa, un nombre**. Es la misma trampa que las funciones duplicadas, en HTML.
+
 ## Marca / estética
 
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
@@ -467,6 +502,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 ### Administración y dinero
 - **`administracion-pagos.md`** — gastos, bolsas, facturas, pagos y remesas, contabilidad y Holded,
   IBAN, retenciones, embargos, **y las reglas del dinero**. ⚠️ *Los dos parsers de importes.*
+- **`caja-artista.md`** — la CAJA de un artista: lo que factura, lo que se ha invertido en él, el
+  balance, sus adelantos y el Excel de apuntes anteriores. ⚠️ *El gasto de una bolsa cubierto por el
+  caché no es gasto de la oficina; y su permiso NO se hereda de la sección Artistas.*
 
 ### Comunicación
 - **`avisos-correo-sms.md`** — avisos (campanita, franjas), correo, cuentas de envío y SMS.

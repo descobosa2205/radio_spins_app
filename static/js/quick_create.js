@@ -163,13 +163,21 @@
     caja.querySelectorAll('input,select,textarea').forEach(function (c) { c.disabled = !abierto; });
     var boton = raiz.querySelector('[data-qc-more-btn]');
     if (boton) boton.classList.toggle('d-none', !!abierto);
-    caja.dataset.qcMoreOpen = abierto ? '1' : '';
+    // ⚠️⚠️ LA MARCA DE ESTADO **NO PUEDE LLAMARSE COMO EL BOTÓN** (bug real, sep 2026: «las
+    // etiquetas de un tercero se muestran pero no se pueden seleccionar»). Esto escribía
+    // `data-qc-more-open` en la CAJA, que es el MISMO selector con el que se busca el botón que la
+    // abre: desde entonces, `closest('[data-qc-more-open]')` lo encontraba en CUALQUIER clic de
+    // dentro y le hacía `preventDefault()` — así que los checkboxes y los radios de ahí dentro no
+    // se marcaban. Dos cosas distintas, dos nombres distintos.
+    caja.dataset.qcMoreShown = abierto ? '1' : '';
   }
 
   function raizDe(el) { return (el && (el.closest('form') || el.closest('.modal'))) || document; }
 
   document.addEventListener('click', function (e) {
-    var abre = e.target.closest('[data-qc-more-open]');
+    // ⚠️ Solo el BOTÓN de «Rellenar más campos»: sin acotarlo a `button`, cualquier cosa que
+    // llevara ese atributo se comía el clic de lo que hubiera dentro.
+    var abre = e.target.closest('button[data-qc-more-open]');
     if (!abre) return;
     e.preventDefault();
     mas(raizDe(abre), true);
@@ -180,7 +188,7 @@
      deshabilitados— y se perderían al guardar otra vez. */
   document.addEventListener('input', function (e) {
     var caja = e.target.closest && e.target.closest('[data-qc-more]');
-    if (caja && !caja.dataset.qcMoreOpen) mas(raizDe(caja), true);
+    if (caja && !caja.dataset.qcMoreShown) mas(raizDe(caja), true);
   });
 
   function arrancaMas() {

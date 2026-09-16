@@ -2467,6 +2467,18 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     modal.show();
   }
 
+  // ⚠️ «Aplazar» y «Cancelar» del menú de estado son BOTONES (no `<a>`: dentro de una fila que ya es
+  // un enlace, un `<a>` anidado parte el HTML y el menú se queda fuera del desplegable), así que la
+  // navegación se hace aquí.
+  document.addEventListener('click', function (e) {
+    var ir = e.target.closest('[data-status-go]');
+    if (!ir) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var destino = ir.getAttribute('data-status-go');
+    if (destino) window.location.href = destino;
+  });
+
   document.addEventListener('click', function (e) {
     var opt = e.target.closest('[data-status-option]');
     if (!opt) return;

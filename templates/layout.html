@@ -677,10 +677,19 @@
   // antes de congelar el JS al iniciar la navegación.
   document.addEventListener('click', function(e){
     var a=e.target.closest('a'); if(!a) return;
+    // ⚠️⚠️ UN CONTROL DENTRO DE UNA FILA CLICABLE NO ES UNA NAVEGACIÓN (bug real, sep 2026: «al
+    // cambiar el estado desde el listado de actividades se pone a pensar y no hace nada»). La fila
+    // del listado es un `<a>` que envuelve TODO, incluida la etiqueta de estado; al pinchar la
+    // etiqueta, esto veía el `<a>` de alrededor y pintaba el loader… pero no se navegaba a ninguna
+    // parte, así que el loader se quedaba ahí para siempre. Se mira lo que se ha PINCHADO, no solo
+    // el enlace: si eso (o algo por el camino) dice `data-no-loader`, no hay nada que cargar.
+    if(e.target.closest('[data-no-loader],.no-loader')) return;
     var href=a.getAttribute('href')||'';
     if(!href || href.charAt(0)==='#') return;
     if(href.indexOf('javascript:')===0||href.indexOf('mailto:')===0||href.indexOf('tel:')===0) return;
     if(a.target==='_blank'||a.hasAttribute('download')||a.hasAttribute('data-bs-toggle')||a.classList.contains('no-loader')) return;
+    // Lo mismo con un desplegable metido en una fila: abre un menú, no lleva a otra pantalla.
+    if(e.target.closest('[data-bs-toggle="dropdown"],.dropdown-menu')) return;
     if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0) return;
     if(a.host && a.host!==location.host) return;          // enlaces externos
     if(DOWNLOAD_RE.test(href)) return;                    // descargas directas

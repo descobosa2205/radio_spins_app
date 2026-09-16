@@ -6,6 +6,8 @@
 
 ## Qué hay aquí
 
+- EL MENÚ DE ESTADO desde el LISTADO (y por qué sus items son botones)
+
 - Histórico de actividades
 - AGENDA DEL ARTISTA · VOLCAR SU CALENDARIO DE iCLOUD. Cada artista tenía su
 - LO QUE NO ESTÁ CONFIRMADO ES DE CONTRATACIÓN. Una reserva puede caerse, y
@@ -86,6 +88,22 @@
 - EL DÍA DEL ANUNCIO, AL ARTISTA LE LLEGA UN SMS CON SUS CARTELES (sep 2026)
 
 ---
+
+## EL MENÚ DE ESTADO desde el LISTADO (y por qué sus items son botones)
+
+La etiqueta de estado (`templates/_concert_status_badge.html`) es la MISMA en la ficha y en el
+listado: un desplegable con los cuatro estados que se guardan al momento (`concert_quick_status`) y,
+abajo, **Aplazar** y **Cancelar**, que llevan a su proceso porque no son un cambio de etiqueta.
+
+⚠️⚠️ **SUS ITEMS SON `<button>`, NO `<a>`, y no se pueden volver a cambiar** (bug real, sep 2026:
+«desde el listado de actividades, al pinchar en cambiar el estado se pone a pensar pero no hace
+nada»). En el listado **la fila entera es un `<a>`**, y un `<a>` dentro de otro `<a>` es HTML
+inválido: el navegador **parte el árbol y saca el menú fuera del desplegable**, así que Bootstrap no
+lo encontraba y no se abría. Encima, el loader veía el enlace de la fila y pintaba «Cargando…» que
+no se iba nunca. El detalle entero está en `CLAUDE.md` (es una trampa de cualquier pantalla).
+⚠️ El contenedor lleva `data-no-loader` y **solo** `preventDefault()`: con `stopPropagation()` el
+clic no llegaba a `document` y Bootstrap tampoco abría el menú.
+
 
 - **Histórico de actividades**: `LEGACY_ACTIVITY_CUTOFF` (28-jul-2026). Las actividades ANTERIORES se
   conservan en el listado y en su ficha, pero **no generan trabajo**: `_concert_needs_production`

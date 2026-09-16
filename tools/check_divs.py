@@ -76,6 +76,28 @@ def desbalance(html):
     return sobra, [html[:0].count("\n") for _ in ()] or pila
 
 
+# ⚠️⚠️ UN `<a>` DENTRO DE OTRO `<a>` ES HTML INVÁLIDO Y EL NAVEGADOR PARTE EL ÁRBOL: lo de dentro
+# **se sale** del enlace exterior. No da ningún error, así que el síntoma es un control que deja de
+# funcionar sin motivo aparente — pasó con el menú de ESTADO de una actividad, que en el listado
+# (donde la fila entera es un `<a>`) quedaba FUERA del desplegable y no se abría («se pone a pensar
+# y no hace nada»). La solución de la casa: dentro de una fila-enlace, los items van en `<button>`.
+A_TAG = re.compile(r"<(/?)a\b[^>]*>", re.I)
+
+
+def enlaces_anidados(html):
+    """Las líneas de los `<a>` que están DENTRO de otro `<a>` (vacío si no hay ninguno)."""
+    html = _limpia(html)
+    dentro, malos = 0, []
+    for m in A_TAG.finditer(html):
+        if m.group(1):
+            dentro = max(0, dentro - 1)
+            continue
+        if dentro > 0:
+            malos.append(html[:m.start()].count("\n") + 1)
+        dentro += 1
+    return malos
+
+
 def contexto(html, linea, antes=8, despues=2):
     ls = html.split("\n")
     return "\n".join("   %6d %s %s" % (n, ">>" if n == linea else "  ", ls[n - 1][:130])
@@ -168,9 +190,18 @@ def main():
         html = r.get_data(as_text=True)
         vistas += 1
         sobra, abiertos = desbalance(html)
-        if sobra or abiertos:
+        anidados = enlaces_anidados(html)
+        if anidados:
             malas += 1
             print("\n❌ %s" % url)
+            print("   hay %d <a> DENTRO de otro <a> (líneas %s): el navegador los saca fuera y lo "
+                  "que haya ahí deja de funcionar. Dentro de una fila-enlace, usa <button>."
+                  % (len(anidados), ", ".join(str(x) for x in anidados[:6])))
+            print(contexto(html, anidados[0]))
+        if sobra or abiertos:
+            if not anidados:
+                malas += 1
+                print("\n❌ %s" % url)
             if sobra:
                 print("   sobra un </div> (el contenedor ya estaba cerrado) en la línea %d:" % sobra)
                 print(contexto(html, sobra))

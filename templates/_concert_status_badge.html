@@ -12,7 +12,13 @@
 {% set _cs = (cs_status or 'BORRADOR')|upper %}
 {% set _cls = _cs_map.get(_cs, 'bg-warning text-dark') %}
 {% if CAN_EDIT_CONCERTS %}
-<span class="dropdown {{ cs_extra_class or '' }}" data-status-menu data-status-url="{{ url_for('concert_quick_status', cid=cs_id) }}" onclick="event.preventDefault(); event.stopPropagation();">
+{# ⚠️⚠️ AQUÍ **NO** SE LLAMA A `stopPropagation` (bug real, sep 2026: «al cambiar el estado desde
+   el listado se pone a pensar y no hace nada»). Bootstrap abre el desplegable escuchando el clic en
+   `document`, así que cortar la propagación **impedía que el menú se abriera**. El `preventDefault`
+   sí hace falta: la fila del listado es un `<a>` y sin él se iría a la ficha.
+   ⚠️ Y el `data-no-loader` va en el CONTENEDOR (no solo en el botón): el loader mira lo que se ha
+   pinchado, y las opciones del menú también cuelgan de aquí. #}
+<span class="dropdown {{ cs_extra_class or '' }}" data-status-menu data-no-loader data-status-url="{{ url_for('concert_quick_status', cid=cs_id) }}" onclick="event.preventDefault();">
   <button type="button" class="badge border-0 dropdown-toggle {{ _cls }}" data-bs-toggle="dropdown" data-no-loader title="Cambiar el estado">{{ _cs }}</button>
   <ul class="dropdown-menu">
     {% for k, c in [('BORRADOR', 'bg-primary text-white'), ('HABLADO', 'bg-primary text-white'), ('RESERVADO', 'bg-warning text-dark'), ('CONFIRMADO', 'bg-success')] %}
@@ -22,14 +28,20 @@
        caché y con los gastos, y el aviso OBLIGATORIO al artista). Por eso llevan a su pantalla en
        vez de guardarse al momento como los demás estados. #}
     <li><hr class="dropdown-divider"></li>
-    <li><a class="dropdown-item d-flex align-items-center gap-2 {% if _cs == 'APLAZADO' %}active{% endif %}"
-           href="{{ url_for('concert_cancel_view', cid=cs_id, kind='APLAZADO') }}">
+    {# ⚠️⚠️ ESTOS DOS SON **BOTONES**, NO ENLACES, Y NO SE PUEDEN VOLVER A PONER COMO `<a>` (bug real
+       y feo, sep 2026: «al cambiar el estado desde el listado se pone a pensar y no hace nada»).
+       En el LISTADO, la fila entera es un `<a>`, y un `<a>` DENTRO de otro `<a>` es HTML inválido:
+       el navegador **parte el árbol y saca el menú fuera del desplegable** —se quedaba de hermano
+       de la fila—, así que Bootstrap no lo encontraba y el menú NO SE ABRÍA. Con `<button>` el
+       menú se queda donde tiene que estar. Navegan con `data-status-go` (handler en `scripts.js`). #}
+    <li><button type="button" class="dropdown-item d-flex align-items-center gap-2 {% if _cs == 'APLAZADO' %}active{% endif %}"
+           data-status-go="{{ url_for('concert_cancel_view', cid=cs_id, kind='APLAZADO') }}">
         <span class="badge bg-warning text-dark">Aplazar</span>
-        <span class="small text-muted">nueva fecha, gastos…</span></a></li>
-    <li><a class="dropdown-item d-flex align-items-center gap-2 {% if _cs == 'CANCELADO' %}active{% endif %}"
-           href="{{ url_for('concert_cancel_view', cid=cs_id, kind='CANCELADO') }}">
+        <span class="small text-muted">nueva fecha, gastos…</span></button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center gap-2 {% if _cs == 'CANCELADO' %}active{% endif %}"
+           data-status-go="{{ url_for('concert_cancel_view', cid=cs_id, kind='CANCELADO') }}">
         <span class="badge bg-danger">Cancelar</span>
-        <span class="small text-muted">motivo, caché, gastos…</span></a></li>
+        <span class="small text-muted">motivo, caché, gastos…</span></button></li>
   </ul>
 </span>
 {% else %}

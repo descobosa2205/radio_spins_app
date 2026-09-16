@@ -6,6 +6,8 @@
 
 ## Qué hay aquí
 
+- LAS ETIQUETAS DE UN TERCERO al crearlo (el clic que no marcaba nada)
+
 - Vinculaciones entre entidades (ThirdPartyLink + templates/_entity_links_panel.html +
 - TELÉFONOS · EL PREFIJO DEL PAÍS SE PONE AL GUARDAR. Un teléfono escrito
 - IMPORTAR TERCEROS DESDE UN FICHERO. Botón «Añadir desde fichero» en
@@ -18,6 +20,22 @@
 - PromoterCompany NO TIENE COLUMNA name (bug real, sep 2026): su nombre es legal_name
 
 ---
+
+## LAS ETIQUETAS DE UN TERCERO al crearlo (el clic que no marcaba nada)
+
+Al dar de alta un tercero, «**Rellenar más campos**» abre los módulos con todo lo demás
+(`templates/_promoter_extra_fields.html`): etiquetas, alta y PRL, banco, viaje… Nacen ocultos **y
+deshabilitados** (un campo oculto se envía igual, y sus centinelas guardarían un vacío).
+
+⚠️⚠️ **LAS ETIQUETAS NO SE PODÍAN MARCAR** (bug real, sep 2026, lo vio Dani). `quick_create.js`
+abría esa caja con `closest('[data-qc-more-open]')` + `preventDefault()` y **marcaba el estado de la
+caja con ESE MISMO atributo**, así que a partir de ahí **cualquier clic dentro** encontraba el
+atributo en un ancestro y se llevaba el `preventDefault()`: los checkboxes y los radios no cambiaban
+y no había ningún error que mirar. La marca de estado se llama ahora **`data-qc-more-shown`** y el
+handler exige `button[data-qc-more-open]`. → el detalle, en `CLAUDE.md`.
+⚠️ Comprobado de punta a punta: se marcan y **viajan en el formulario** (`assoc_tags[]`,
+`roles_manual[]`, con su centinela `assoc_present`).
+
 
 - **Vinculaciones entre entidades** (`ThirdPartyLink` + `templates/_entity_links_panel.html` +
   `static/js/entity_links.js`): relacionan un tercero/artista/medio/recinto/ticketera/editorial con

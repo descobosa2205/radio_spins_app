@@ -39,6 +39,11 @@ que cambiarla también en el paso 2.
 
 Listo. En «History» se ve cada latido; todos tienen que salir en **200**.
 
+> ⚠️ cron-job.org **corta la conexión a los 30 segundos** y **desactiva el trabajo tras 25 fallos
+> seguidos**. Por eso `/cron` **responde al instante** y hace el trabajo en segundo plano (desde el
+> 16-sep-2026): la llamada tarda milisegundos aunque ese minuto toquen varias tareas. Para ver el
+> resultado de un latido a mano: `…/cron?key=LA_CLAVE&sync=1` (espera y lo devuelve).
+
 ### Opción B — Render Cron Job
 
 1. Render → **New +** → **Cron Job**.
@@ -77,7 +82,13 @@ Se pueden **borrar** en cuanto el nuevo esté latiendo:
 /cron/publicaciones          /cron/entrega-masters       /cron/materiales-proyecto
 /cron/afavor                 /cron/pleo/refresh          /cron/cabify/refresh
 /cron/holded/refresh         /cron/chartmetric/refresh   /cron/enterticket/refresh
+/cron/gastos-sin-asignar     /cron/promoter-requests
 ```
+
+> ⚠️ Hasta el 16-sep-2026 **«gastos sin asignar» NO estaba en el registro**: su lógica vivía solo en
+> su ruta vieja, así que borrar ese cron habría apagado el aviso sin que nadie se enterase. Ya está
+> en el registro (`gastos_sin_asignar`, cada día a partir de las 9:00). Antes de borrar un cron viejo,
+> comprobar que su tarea aparece en Integraciones → Automatizaciones.
 
 Las rutas **siguen existiendo** (si dejas alguna configurada no pasa nada: además de lo suyo,
 ejecuta lo que le toque al resto), pero ya no hacen falta.
@@ -94,7 +105,7 @@ ejecuta lo que le toque al resto), pero ya no hacen falta.
 | hora | **Actividades sin anunciar** (el aviso del mes, el recordatorio y el escalado a dirección) · pedir al promotor que actualice sus ventas · recordárselo a ticketing · Pleo · Holded |
 | 2 horas | Cabify |
 | día (8:00) | Documentos caducados · entregas de masters · plazos de materiales · avisos del plan · royalties «a favor» · playlists de valoración |
-| día (9:00) | Enlaces de venta al promotor |
+| día (9:00) | Enlaces de venta al promotor · **Gastos sin asignar** (aviso a la persona y escalado a dirección) |
 | día (6:00) | Chartmetric |
 
 **Una automatización nueva se añade en el código (`CRON_TASKS`) y empieza a correr sola: aquí no

@@ -129116,87 +129116,89 @@ def _expense_alert_email(rows: list, title: str, intro: str, person=None) -> str
     """
 
 
-@app.get('/cron/gastos-sin-asignar', endpoint='cron_unassigned_expenses')
-def cron_unassigned_expenses():
-    """Avisos de gastos sin asignar: a la PERSONA cuando pasa la semana y a DIRECCIÓN a los 15 días.
-    No aplica a dirección. Lo llama una tarea programada (misma clave que los otros cron)."""
-    key = (request.args.get("key") or "").strip()
-    expected = (settings.ENTERTICKET_CRON_KEY or settings.CHARTMETRIC_CRON_KEY or "").strip()
-    if not expected or key != expected:
-        abort(404)
+def _unassigned_expenses_sweep(session_db) -> dict:
+    """Avisos de GASTOS SIN ASIGNAR: a la PERSONA cuando pasa la semana y a DIRECCIÓN a los 15 días.
+    No aplica a dirección.
+
+    ⚠️ Es una tarea del CRON ÚNICO (`gastos_sin_asignar`, cada día a partir de las 9:00). Hasta el
+    16-sep-2026 esta lógica vivía SOLO dentro de la ruta vieja `/cron/gastos-sin-asignar`, así que no
+    estaba en el registro: al borrar el cron antiguo de Render este aviso habría dejado de salir sin
+    que nadie se enterase. La ruta vieja sigue existiendo y delega aquí (`_cron_legacy`)."""
     notified, escalated = 0, 0
-    session_db = db()
-    try:
-        rows = (session_db.query(PersonalExpense)
-                .filter(PersonalExpense.status.in_(("PENDING", "IN_BAG")))
-                .all())
-        by_user = {}
-        for r in rows:
-            by_user.setdefault(str(r.user_id), []).append(r)
-        pause_all = _expense_pause_global()
-        if pause_all["paused"]:
-            # Plazo parado para todo el personal: no se reclama nada a nadie.
-            return jsonify({"ok": True, "notified": 0, "escalated": 0, "paused": "ALL"})
-        for uid, items in by_user.items():
-            if _user_is_direccion(session_db, uid):
-                continue
-            profile = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first()
-            pause = _expense_pause_context(session_db, uid, pause_all, profile)
-            if pause["paused"]:
-                continue                      # a esta persona se le ha parado el plazo
-            user = session_db.get(User, to_uuid(uid))
-            email_to = (getattr(user, "email", None) or "").strip()
-            overdue = [r for r in items if _expense_days_left(r, pause) < 0]
-            if not overdue:
-                continue
-            # 1) Aviso a la persona (una vez por gasto).
-            fresh = [r for r in overdue if not r.notified_at]
-            if fresh and email_to:
+    rows = (session_db.query(PersonalExpense)
+            .filter(PersonalExpense.status.in_(("PENDING", "IN_BAG")))
+            .all())
+    by_user = {}
+    for r in rows:
+        by_user.setdefault(str(r.user_id), []).append(r)
+    pause_all = _expense_pause_global()
+    if pause_all["paused"]:
+        # Plazo parado para todo el personal: no se reclama nada a nadie.
+        return {"notified": 0, "escalated": 0, "paused": "ALL"}
+    for uid, items in by_user.items():
+        if _user_is_direccion(session_db, uid):
+            continue
+        profile = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first()
+        pause = _expense_pause_context(session_db, uid, pause_all, profile)
+        if pause["paused"]:
+            continue                      # a esta persona se le ha parado el plazo
+        user = session_db.get(User, to_uuid(uid))
+        email_to = (getattr(user, "email", None) or "").strip()
+        overdue = [r for r in items if _expense_days_left(r, pause) < 0]
+        if not overdue:
+            continue
+        # 1) Aviso a la persona (una vez por gasto).
+        fresh = [r for r in overdue if not r.notified_at]
+        if fresh and email_to:
+            ok, _err = _send_optional_email(
+                email_to,
+                f"Tienes {len(overdue)} gasto{'s' if len(overdue) != 1 else ''} sin asignar a una bolsa",
+                _expense_alert_email(
+                    [_personal_expense_row(r, pause) for r in overdue],
+                    "Gastos sin asignar",
+                    f"Tienes <strong>{len(overdue)}</strong> gasto{'s' if len(overdue) != 1 else ''} "
+                    f"sin asignar a una bolsa. Tienes <strong>una semana</strong> para asignarlos.",
+                ),
+            )
+            if ok:
+                for r in fresh:
+                    r.notified_at = _now_madrid()
+                notified += 1
+        # 2) Escalado a dirección a los 15 días.
+        very_old = [r for r in overdue
+                    if not r.escalated_at
+                    and _expense_days_left(r, pause) <= (EXPENSE_ASSIGN_DAYS - EXPENSE_ESCALATE_DAYS)]
+        if very_old:
+            _inactive_dir = _inactive_user_ids(session_db)
+            dir_emails = [u.email for u in session_db.query(User).filter(User.role == 10).all()
+                          if (u.email or "").strip() and u.id not in _inactive_dir]
+            if dir_emails:
                 ok, _err = _send_optional_email(
-                    email_to,
-                    f"Tienes {len(overdue)} gasto{'s' if len(overdue) != 1 else ''} sin asignar a una bolsa",
+                    dir_emails[:5],
+                    f"{getattr(profile, 'nick', '') or 'Una persona'}: gastos sin asignar desde hace más de {EXPENSE_ESCALATE_DAYS} días",
                     _expense_alert_email(
-                        [_personal_expense_row(r, pause) for r in overdue],
-                        "Gastos sin asignar",
-                        f"Tienes <strong>{len(overdue)}</strong> gasto{'s' if len(overdue) != 1 else ''} "
-                        f"sin asignar a una bolsa. Tienes <strong>una semana</strong> para asignarlos.",
+                        [_personal_expense_row(r, pause) for r in very_old],
+                        "Gastos sin asignar a una bolsa",
+                        f"tiene los siguientes gastos sin asignar a una bolsa desde hace más de "
+                        f"<strong>{EXPENSE_ESCALATE_DAYS} días</strong>.",
+                        person=profile,
                     ),
                 )
                 if ok:
-                    for r in fresh:
-                        r.notified_at = _now_madrid()
-                    notified += 1
-            # 2) Escalado a dirección a los 15 días.
-            very_old = [r for r in overdue
-                        if not r.escalated_at
-                        and _expense_days_left(r, pause) <= (EXPENSE_ASSIGN_DAYS - EXPENSE_ESCALATE_DAYS)]
-            if very_old:
-                _inactive_dir = _inactive_user_ids(session_db)
-                dir_emails = [u.email for u in session_db.query(User).filter(User.role == 10).all()
-                              if (u.email or "").strip() and u.id not in _inactive_dir]
-                if dir_emails:
-                    ok, _err = _send_optional_email(
-                        dir_emails[:5],
-                        f"{getattr(profile, 'nick', '') or 'Una persona'}: gastos sin asignar desde hace más de {EXPENSE_ESCALATE_DAYS} días",
-                        _expense_alert_email(
-                            [_personal_expense_row(r, pause) for r in very_old],
-                            "Gastos sin asignar a una bolsa",
-                            f"tiene los siguientes gastos sin asignar a una bolsa desde hace más de "
-                            f"<strong>{EXPENSE_ESCALATE_DAYS} días</strong>.",
-                            person=profile,
-                        ),
-                    )
-                    if ok:
-                        for r in very_old:
-                            r.escalated_at = _now_madrid()
-                        escalated += 1
-        session_db.commit()
-        return jsonify({"ok": True, "notified": notified, "escalated": escalated})
-    except Exception as exc:
-        session_db.rollback()
-        return jsonify({"ok": False, "error": str(exc)}), 500
-    finally:
-        session_db.close()
+                    for r in very_old:
+                        r.escalated_at = _now_madrid()
+                    escalated += 1
+    session_db.commit()
+    return {"notified": notified, "escalated": escalated}
+
+
+@app.get('/cron/gastos-sin-asignar', endpoint='cron_unassigned_expenses')
+def cron_unassigned_expenses():
+    """Ruta ANTIGUA: fuerza «gastos_sin_asignar» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("gastos_sin_asignar")
 
 
 # ===========================================================================
@@ -170500,6 +170502,11 @@ CRON_TASKS = [
      "at_hour": 8, "fn": "_afavor_request_sweep", "icon": "fa-hand-holding-dollar"},
     {"key": "playlists_valoracion", "label": "Recordar el plazo de una playlist de valoración",
      "every": 1440, "at_hour": 8, "fn": "_playlist_vote_reminder_sweep", "icon": "fa-list-check"},
+    # ⚠️ Estaba SOLO en su ruta vieja (`/cron/gastos-sin-asignar`, el cron de las 9:15): sin esta línea,
+    # borrar ese cron habría apagado el aviso sin que nadie se enterase (16-sep-2026).
+    {"key": "gastos_sin_asignar", "label": "Gastos sin asignar: recordárselo a la persona y escalar a "
+                                           "dirección a los 15 días", "every": 1440, "at_hour": 9,
+     "run": _cron_session_task("_unassigned_expenses_sweep"), "icon": "fa-receipt"},
     {"key": "canales_venta", "label": "Recordar al promotor los enlaces de venta", "every": 1440,
      "at_hour": 9, "run": _cron_session_task("_process_sale_channel_reminders"), "icon": "fa-link"},
     {"key": "chartmetric", "label": "Chartmetric · reproducciones y enlaces", "every": 1440,
@@ -170670,6 +170677,51 @@ def _cron_tick(*, only=None, force: bool = False, budget: float = CRON_BUDGET_SE
         return salida
 
 
+_CRON_TICK_BUSY = threading.Lock()   # UN latido en marcha por proceso (entre procesos manda el advisory lock)
+
+
+@contextmanager
+def _cron_request_context():
+    """Un contexto de PETICIÓN para las tareas cuando el latido corre en un hilo: los barridos
+    componen avisos y enlaces (`_notify_user` mira `session`, `url_for` necesita petición). La base es
+    el host canónico, para que ningún enlace salga con «localhost»."""
+    if has_request_context():
+        yield
+        return
+    try:
+        base = (_public_base_url() or "").strip().rstrip("/")
+    except Exception:
+        base = ""
+    with app.test_request_context("/", base_url=(base + "/") if base else None):
+        yield
+
+
+def _cron_tick_bg(only, force) -> None:
+    try:
+        with _cron_request_context():
+            _cron_tick(only=only, force=force)
+    except Exception:
+        app.logger.exception("[cron] el latido en segundo plano falló")
+    finally:
+        try:
+            _CRON_TICK_BUSY.release()
+        except RuntimeError:
+            pass
+
+
+def _cron_tick_async(only=None, force: bool = False) -> bool:
+    """Lanza el latido en un HILO y vuelve al momento. Devuelve False si este proceso ya tiene uno en
+    marcha (entonces no se lanza otro: el que va ya cogerá lo que toque)."""
+    if not _CRON_TICK_BUSY.acquire(blocking=False):
+        return False
+    try:
+        threading.Thread(target=_cron_tick_bg, args=(only, force), daemon=True, name="cron-tick").start()
+    except Exception:
+        _CRON_TICK_BUSY.release()
+        raise
+    return True
+
+
 @app.get("/cron", endpoint="cron_tick")
 def cron_tick_view():
     """⚠️⚠️ EL ÚNICO CRON DE LA APP. El servidor le pega CADA MINUTO y la app decide lo demás.
@@ -170678,11 +170730,21 @@ def cron_tick_view():
 
     · `?tarea=<clave>`  corre solo esa (o varias separadas por comas)
     · `?forzar=1`       se salta la cadencia (para probar una ahora mismo)
-    Las automatizaciones están en `CRON_TASKS`: una nueva se añade ahí y empieza a correr sola."""
+    · `?sync=1`         espera al resultado y lo devuelve (para probar a mano)
+    Las automatizaciones están en `CRON_TASKS`: una nueva se añade ahí y empieza a correr sola.
+
+    ⚠️⚠️ RESPONDE AL INSTANTE y trabaja EN SEGUNDO PLANO (16-sep-2026): quien le pega puede cortar la
+    conexión a los 30 s (cron-job.org lo hace, y desactiva el trabajo tras 25 fallos seguidos), y un
+    latido con varias tareas tarda más. Esperando al resultado, el cron se habría dado por muerto y
+    con él TODAS las automatizaciones. El cerrojo de Postgres sigue evitando dos latidos a la vez."""
     if not _cron_key_ok(request.args.get("key") or ""):
         abort(404)
     solo = [x.strip() for x in (request.args.get("tarea") or "").split(",") if x.strip()]
-    return jsonify(_cron_tick(only=solo or None, force=_truthy(request.args.get("forzar"))))
+    forzar = _truthy(request.args.get("forzar"))
+    if _truthy(request.args.get("sync")):
+        return jsonify(_cron_tick(only=solo or None, force=forzar))
+    lanzado = _cron_tick_async(only=solo or None, force=forzar)
+    return jsonify({"ok": True, "lanzado": lanzado, "ocupado": (not lanzado), "at": _now_madrid().isoformat()})
 
 
 def _cron_legacy(*claves):

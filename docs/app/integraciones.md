@@ -102,4 +102,20 @@
   `PLEO_CRON_KEY`…) para no romper lo que ya está puesto. `cron_tick` va en las listas de PÚBLICOS
   (lo autoriza su `?key=`), y `cron_run_now` se mapea a `integraciones`.
   ⚠️ `?tarea=<clave>` corre solo esa y `?forzar=1` se salta la cadencia (para probar una ahora).
+  · ⚠️⚠️ **`/cron` RESPONDE AL INSTANTE y trabaja en un HILO** (16-sep-2026, `_cron_tick_async` →
+  `_cron_tick_bg`): quien le pega puede cortar la conexión a los 30 s —cron-job.org lo hace, y
+  **desactiva el trabajo tras 25 fallos seguidos**— y un latido con varias tareas tarda más
+  (`CRON_BUDGET_SECONDS` = 50). Esperando al resultado, el disparador habría dado el cron por muerto y
+  con él TODAS las automatizaciones. Un cerrojo por PROCESO (`_CRON_TICK_BUSY`) evita apilar hilos y
+  el advisory lock de Postgres sigue evitando dos latidos a la vez entre workers. El hilo corre con
+  **contexto de PETICIÓN** (`_cron_request_context`, base = host canónico): los barridos componen
+  avisos y enlaces y `_notify_user` mira `session`. `?sync=1` espera y devuelve el resultado (para
+  probar a mano); `cron_run_now` (el botón de la pantalla) sigue siendo síncrono.
+  · ⚠️⚠️ **UNA RUTA VIEJA CON SU PROPIA LÓGICA ES UNA AUTOMATIZACIÓN INVISIBLE** (bug real,
+  16-sep-2026): «gastos sin asignar» (`/cron/gastos-sin-asignar`, el cron de las 9:15) tenía el
+  barrido DENTRO de la vista y **no estaba en `CRON_TASKS`**: al borrar los crons antiguos habría
+  dejado de salir sin que nadie se enterase. Ahora es `_unassigned_expenses_sweep` (tarea
+  `gastos_sin_asignar`, diaria a las 9:00) y la ruta delega en `_cron_legacy`. Regla: **toda ruta
+  `/cron/*` tiene que ser un `_cron_legacy(...)` de una tarea del registro**; si una hace algo por su
+  cuenta, esa cosa no sale en Automatizaciones y no la lanza el latido único.
 

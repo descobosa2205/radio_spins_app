@@ -123366,20 +123366,28 @@ def _activity_notice_ask_urls(token: str) -> dict:
 # cambiar por variable de entorno (y trae otro por defecto), y un correo que sale con un color que no
 # es el de la marca no se puede recoger. Son los mismos que usan el PDF y `styles.css`.
 BRAND_RED, BRAND_BLUE = "#E33D48", "#007CA2"
+# ⚠️ La CABECERA de cada módulo de una comunicación: fondo del azul de la marca muy suave y las
+# letras (y el icono) en el azul corporativo **más oscuro**, para que todos los módulos se lean
+# igual — lo pidió Dani. En duro porque esto sale por correo: ahí no hay variables de CSS ni `rgba`
+# de fiar.
+BRAND_BLUE_DARK, BRAND_BLUE_SOFT = "#00607D", "#EAF4F8"
 
-NOTICE_EMOJI = {
-    "fa-calendar-day": "📅", "fa-calendar-week": "📆", "fa-location-dot": "📍", "fa-star": "⭐",
-    "fa-gift": "🎁", "fa-people-group": "👥", "fa-clock": "🕐", "fa-door-open": "🚪",
-    "fa-ticket": "🎟️", "fa-bullhorn": "📣", "fa-money-bill-wave": "💶", "fa-user-tag": "🏷️",
-    "fa-receipt": "🧾", "fa-hand-holding-heart": "🤝", "fa-guitar": "🎸", "fa-sliders": "🎛️",
-    "fa-image": "🖼️", "fa-note-sticky": "📝", "fa-user-tie": "👤", "fa-screwdriver-wrench": "🔧",
-    "fa-people-carry-box": "📦", "fa-file-signature": "✍️", "fa-user-group": "👥",
-}
+def _notice_icon(icono: str, *, size: int = 14, color: str = "") -> str:
+    """EL ICONO de una comunicación: el **sólido de la casa, en el azul corporativo**.
 
-
-def _notice_emoji(icono: str) -> str:
-    """El emoji de un icono de la casa (vacío si no tiene): para los correos y la página pública."""
-    return NOTICE_EMOJI.get((icono or "").strip(), "")
+    ⚠️⚠️ **Antes eran EMOJIS y ya no** (lo pidió Dani, sep 2026: «los iconos me gustan más los
+    sólidos de color corporativo, no emojis, esto corrígelo en toda la app y en todas las
+    notificaciones»). Un emoji lo pinta cada sistema a su manera y con sus colores, así que ni era
+    el icono de la casa ni se parecía a la app.
+    ⚠️ Va como PNG porque esto se ve en un CLIENTE DE CORREO, donde la fuente de iconos no carga
+    (`_brand_icon`, el punto único). En la vista previa y en la página pública se ve igual, así que
+    los tres sitios coinciden."""
+    nombre = (icono or "").strip()
+    if not nombre:
+        return ""
+    if nombre.startswith("fa-"):
+        nombre = nombre[3:]
+    return _brand_icon(nombre, email=True, size=size, color=(color or BRAND_BLUE).lstrip("#"))
 
 
 def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
@@ -123409,22 +123417,26 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
             return ""
         oculto_ahora = ' data-notice-hidden="1"' if clave in ocultos else ""
         estilo_extra = "opacity:.35;" if (preview and clave in ocultos) else ""
-        # ⚠️ EMOJI, no Font Awesome: en un cliente de correo la fuente de iconos NO carga y el
-        # icono sale VACÍO. En la vista previa se ve igual, así que los dos sitios coinciden.
-        _emo = _notice_emoji(icono)
-        icono_html = ('<span style="margin-right:6px;">%s</span>' % _emo) if _emo else ""
+        # ⚠️ El icono SÓLIDO de la casa en el AZUL corporativo, como las letras de la cabecera: así
+        # todos los módulos se leen igual y como en la app (nada de emojis, ver `_notice_icon`).
+        _ico = _notice_icon(icono, size=15, color=BRAND_BLUE_DARK)
+        icono_html = ('<span style="margin-right:6px;">%s</span>' % _ico) if _ico else ""
+        # ⚠️ TODOS LOS MÓDULOS SE LEEN IGUAL: cabecera con el fondo azul suave de la marca y las
+        # letras y el icono en el azul corporativo oscuro (lo pidió Dani). El cuerpo, en blanco.
         cabecera = (
-            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
-            f'<tr><td style="font-size:14px;font-weight:800;color:{BRAND_BLUE};">'
+            f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            f'style="border-collapse:collapse;background:{BRAND_BLUE_SOFT};border-radius:10px;">'
+            f'<tr><td style="font-size:14px;font-weight:800;color:{BRAND_BLUE_DARK};padding:7px 10px;">'
             # El módulo de la descripción no repite su nombre: el título centrado ya lo dice. Pero
             # conserva su ojo, que es lo que permite dejarlo fuera del aviso.
             + ((icono_html + esc(etiqueta)) if mostrar_etiqueta else "")
             + '</td>'
-            + f'<td align="right">{ojo(clave, etiqueta)}</td></tr></table>'
+            + f'<td align="right" style="padding:7px 10px;">{ojo(clave, etiqueta)}</td></tr></table>'
         )
         return (f'<div class="an-module" data-notice-module="{esc(clave)}"{oculto_ahora} '
-                f'style="border:1px solid #e6e8eb;border-radius:14px;padding:12px 14px;margin:0 0 10px;'
-                f'background:#fff;{estilo_extra}">{cabecera}{cuerpo_html}</div>')
+                f'style="border:1px solid #e6e8eb;border-radius:14px;padding:6px 6px 12px;margin:0 0 10px;'
+                f'background:#fff;{estilo_extra}">{cabecera}'
+                f'<div style="padding:0 8px;">{cuerpo_html}</div></div>')
 
     def filas_html(rows, empty_text=""):
         if not rows:
@@ -123477,8 +123489,12 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
     # ---- la CABECERA DE LA ACTIVIDAD (la galleta, igual que en la ficha) ----
     datos = "".join(
         '<tr>'
-        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">'
-        f'{_notice_emoji(r.get("icon") or "")} {esc(r["label"])}:</td>'
+        # ⚠️ SOLO EL ICONO, sin el nombre del concepto: es como se lee en la ficha de la app (lo
+        # pidió Dani). El icono ya dice qué es, y repetir «Fecha:», «Recinto:»… era ruido. El
+        # `title` lo conserva para quien pase el ratón.
+        f'<td width="22" style="width:22px;min-width:22px;padding:2px 8px 2px 0;font-size:12px;'
+        f'white-space:nowrap;vertical-align:top;" '
+        f'title="{esc(r["label"])}">{_notice_icon(r.get("icon") or "", size=14) or esc(r["label"] + ":")}</td>'
         f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )
@@ -126827,8 +126843,12 @@ def _sale_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = F
     # ---- LA GALLETA: la cabecera de la actividad, igual que en la app ----
     datos = "".join(
         '<tr>'
-        f'<td width="1%" style="padding:2px 8px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;vertical-align:top;">'
-        f'{_notice_emoji(r.get("icon") or "")} {esc(r["label"])}:</td>'
+        # ⚠️ SOLO EL ICONO, sin el nombre del concepto: es como se lee en la ficha de la app (lo
+        # pidió Dani). El icono ya dice qué es, y repetir «Fecha:», «Recinto:»… era ruido. El
+        # `title` lo conserva para quien pase el ratón.
+        f'<td width="22" style="width:22px;min-width:22px;padding:2px 8px 2px 0;font-size:12px;'
+        f'white-space:nowrap;vertical-align:top;" '
+        f'title="{esc(r["label"])}">{_notice_icon(r.get("icon") or "", size=14) or esc(r["label"] + ":")}</td>'
         f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )
@@ -140863,7 +140883,7 @@ def _notice_channels_save(session_db, form) -> None:
 # y abajo a la derecha, el BOTÓN que lleva a hacer el trabajo. Debajo, lo que haga falta contar
 # (p. ej., en un encargo de diseño, el listado de lo que se pide con su formato y su plazo).
 #
-# ⚠️ En un correo NO se puede usar la fuente de iconos: van como PNG (`_sync_icon(..., email=True)`),
+# ⚠️ En un correo NO se puede usar la fuente de iconos: van como PNG (`_brand_icon(..., email=True)`),
 #    que es el punto único de la casa. Nada de emojis.
 # ⚠️ Se maqueta con TABLAS y estilos en línea: es un correo, no una página.
 # ═════════════════════════════════════════════════════════════════════════════
@@ -140871,11 +140891,11 @@ def _notice_channels_save(session_db, form) -> None:
 def _notice_icon_img(nombre: str, size: int = 16) -> str:
     """El icono de un correo de aviso, como PNG. Vacío si no se puede montar.
 
-    ⚠️ `_sync_icon(..., email=True)` construye la URL con `url_for`, que **revienta fuera de una
+    ⚠️ `_brand_icon(..., email=True)` construye la URL con `url_for`, que **revienta fuera de una
     petición** (un cron en segundo plano, un hilo): sin esta protección se perdería el correo entero
     por un icono. Es la misma trampa de `_royalty_holded_fields` y `_disco_pitch_url`."""
     try:
-        return _sync_icon(str(nombre or "circle").replace("fa-", ""), email=True, size=size)
+        return _brand_icon(str(nombre or "circle").replace("fa-", ""), email=True, size=size)
     except Exception:
         return ""
 
@@ -151810,7 +151830,9 @@ def _invitation_download_unavailable(reason: str = "empty"):
         '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>'
         '<body style="background:#f5f6f8"><main class="container py-5" style="max-width:560px">'
         '<div class="card border-0 shadow-sm"><div class="card-body text-center p-4">'
-        '<div style="font-size:2rem">🎫</div>'
+        # ⚠️ El icono de la casa, no un emoji: esto es una página nuestra (`_brand_icon`).
+        + ('<div style="margin-bottom:6px;">%s</div>'
+           % _brand_icon("ticket", email=True, size=34, color=BRAND_RED.lstrip("#"))) +
         '<h1 class="h5 mt-2">Invitaciones</h1>'
         f'<p class="text-muted">{msg}</p>'
         '</div></div></main></body></html>'
@@ -169322,17 +169344,24 @@ def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
     }
 
 
-def _sync_icon(nombre: str, *, email: bool, size: int = 16, color: str = "007CA2") -> str:
-    """Un icono SÓLIDO de la casa, en el color de marca.
+def _brand_icon(nombre: str, *, email: bool, size: int = 16, color: str = "007CA2") -> str:
+    """UN ICONO SÓLIDO DE LA CASA, EN EL COLOR DE MARCA · **punto único de toda la app**.
 
-    ⚠️ En un CORREO no se puede usar la fuente de iconos (ningún cliente carga Font Awesome), así que
-    ahí va el MISMO icono como PNG renderizado desde `fa-solid-900.ttf` (`brand_icon_png`). En la web
-    va como `<i class="fa-solid …">` de siempre. Nada de emojis: el icono es el mismo en los dos sitios.
+    ⚠️⚠️ En un CORREO no se puede usar la fuente de iconos (ningún cliente carga Font Awesome), así
+    que ahí va el MISMO icono como PNG renderizado desde `fa-solid-900.ttf` (`brand_icon_png`). En
+    la web va como `<i class="fa-solid …">` de siempre.
+    ⚠️⚠️ **NADA DE EMOJIS** (lo pidió Dani, sep 2026): un emoji lo pinta cada sistema a su manera
+    —y de colores—, así que ni es el icono de la casa ni se parece a lo que se ve en la app. Con
+    esto, el icono es EL MISMO y del MISMO color en la app, en el correo y en la página pública.
     """
     if email:
         url = _external_url_for("brand_icon_png", nombre=nombre, c=color, s=max(32, size * 2))
+        # ⚠️⚠️ `max-width:none` Y `flex:0 0 auto`: el CSS de la app pone `img{max-width:100%}` y,
+        # dentro de una celda estrecha (la del icono es `width:1%`), el ancho computado salía **0px**
+        # — el icono no se veía y la celda se encogía con él (bug real, sep 2026). Es la trampa de
+        # siempre: lo de tamaño fijo hay que decir que NO se encoge. En un correo esto no estorba.
         return ('<img src="%s" width="%d" height="%d" alt="" '
-                'style="width:%dpx;height:%dpx;vertical-align:-2px;">'
+                'style="width:%dpx;height:%dpx;max-width:none;flex:0 0 auto;vertical-align:-2px;">'
                 % (escape(url), size, size, size, size))
     return '<i class="fa-solid fa-%s" style="color:#%s;"></i>' % (escape(nombre), escape(color))
 
@@ -169363,7 +169392,7 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
     """
     t = ctx["t"]
     esc = lambda v: escape(str(v or ""))
-    ico = lambda n, size=16: _sync_icon(n, email=email, size=size)
+    ico = lambda n, size=16: _brand_icon(n, email=email, size=size)
 
     # ── Los DOS logos del grupo (PIES y Plataforma Musical), arriba a la derecha ──
     # ⚠️ Los logos van en una FILA DE TABLA con `vertical-align:middle` y la MISMA altura: sueltos
@@ -169390,7 +169419,7 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
         generos += ('<span style="display:inline-block;background:#212529;color:#fff;'
                     'border:1px solid #212529;border-radius:999px;padding:2px 10px;font-size:12px;'
                     'font-weight:700;margin:0 6px 4px 0;">%s&nbsp; %s</span>'
-                    % (_sync_icon("e", email=email, size=11, color="ffffff"), esc(EXPLICIT_LABEL)))
+                    % (_brand_icon("e", email=email, size=11, color="ffffff"), esc(EXPLICIT_LABEL)))
 
     # ⚠️ LA COLUMNA DEL IPI solo si ALGÚN autor lo tiene (es opcional): una columna vacía en la
     # ficha que ve un supervisor solo quita sitio a lo que sí importa.
@@ -169430,7 +169459,7 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
                        'border-radius:999px;padding:4px 12px 4px 10px;font-size:11px;font-weight:800;'
                        'letter-spacing:.06em;white-space:nowrap;">%s&nbsp; %s</span>'
                        % (esc(t["one_stop_help"]),
-                          _sync_icon("clapperboard", email=email, size=12, color="ffffff"),
+                          _brand_icon("clapperboard", email=email, size=12, color="ffffff"),
                           esc(t["one_stop"])))
 
     if ctx.get("cover_url"):
@@ -169498,7 +169527,7 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
         botones += ('<a href="%s" style="display:inline-block;background:#007CA2;color:#fff;'
                     'text-decoration:none;border-radius:8px;padding:9px 16px;font-size:13.5px;'
                     'font-weight:700;margin:0 8px 8px 0;">%s&nbsp; %s</a>'
-                    % (esc(play_url), _sync_icon("play", email=email, size=13, color="ffffff"),
+                    % (esc(play_url), _brand_icon("play", email=email, size=13, color="ffffff"),
                        esc(t["play"])))
     if download_url:
         botones += ('<a href="%s" title="%s" style="display:inline-block;background:#fff;color:#111827;'

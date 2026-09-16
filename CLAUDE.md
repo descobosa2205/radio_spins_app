@@ -209,6 +209,10 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   escuchan `submit` en `document`) → `stopImmediatePropagation`.
 - Iconos: comprobar que existen en esta versión de Font Awesome antes de usarlos (salen **vacíos**),
   y los de **marca** van en `fa-brands`, no en la familia sólida. → comando abajo.
+- ⚠️⚠️ **EN UN CORREO, EL ICONO VA COMO IMAGEN, NUNCA UN EMOJI NI `<i class="fa">`**: punto único
+  **`_brand_icon`** (PNG del sólido de la casa en el color de marca). Y el `<img>` necesita
+  `max-width:none`, o el `img{max-width:100%}` de la app lo deja en **0 px** dentro de una celda
+  estrecha. → detalle abajo.
 
 **Datos que escribe una persona**
 - **Dinero: hay DOS parsers y el formato lo decide el ORIGEN.** `_parse_money_decimal` para lo que
@@ -383,6 +387,21 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   radios de las etiquetas **no se marcaban** (y no daba ningún error).
   · La marca de estado se llama ahora `data-qc-more-shown`, y el handler exige `button[...]`.
   · La regla: **una cosa, un nombre**. Es la misma trampa que las funciones duplicadas, en HTML.
+
+- ⚠️⚠️ **LOS ICONOS DE UNA COMUNICACIÓN SON LOS SÓLIDOS DE LA CASA, NO EMOJIS** (sep 2026, lo pidió
+  Dani: «me gustan más los sólidos de color corporativo, no emojis, corrígelo en toda la app y en
+  todas las notificaciones»). Un emoji lo pinta cada sistema a su manera y con sus colores: ni es el
+  icono de la casa ni se parece a la app. Punto único **`_brand_icon(nombre, email=…)`** (antes
+  `_sync_icon`, que solo usaba Syncros): en la web `<i class="fa-solid">` y en un correo el MISMO
+  icono como **PNG** (`brand_icon_png`, renderizado de `fa-solid-900.ttf` en el color que se pida),
+  porque ahí la fuente de iconos no carga.
+  · En las comunicaciones, cada dato lleva **solo su icono, sin el rótulo** —como en la ficha de la
+  app—, y **cada módulo** una cabecera con el **fondo azul suave** de la marca y las letras y el
+  icono en el **azul corporativo oscuro** (`BRAND_BLUE_DARK` / `BRAND_BLUE_SOFT`).
+  ⚠️⚠️ **Y EL `<img>` DEL ICONO NECESITA `max-width:none`**: con el `img{max-width:100%}` de la app,
+  dentro de una celda estrecha (`width:1%`) el ancho computado salía **0 px** — el icono no se veía
+  y la celda se encogía con él. Es la trampa de siempre: lo de tamaño fijo tiene que decir que no
+  se encoge. Comprobación: `getBoundingClientRect().width` del icono **no puede ser 0**.
 
 ## Marca / estética
 

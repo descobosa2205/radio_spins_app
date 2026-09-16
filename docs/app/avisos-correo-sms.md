@@ -6,6 +6,8 @@
 
 ## Qué hay aquí
 
+- LOS ICONOS DE UNA COMUNICACIÓN: los sólidos de la casa, nunca emojis
+
 - AVISOS · un aviso de algo YA resuelto se cierra solo (_notify_resolve, ago 2026): un aviso es
 - UN AVISO SE VE EN UN POP-UP, no navegando a otra pantalla
 - CÓMO SE AVISA DE CADA COSA: app · correo · SMS, y lo configura DIRECCIÓN.
@@ -24,6 +26,30 @@
 - CUENTAS DE ENVÍO · el catálogo de las que la app ESPERA (sep 2026,
 
 ---
+
+## LOS ICONOS DE UNA COMUNICACIÓN: los sólidos de la casa, nunca emojis
+
+⚠️⚠️ **NADA DE EMOJIS** (sep 2026, lo pidió Dani). Durante un tiempo los avisos usaron emojis
+porque en un cliente de correo la fuente de iconos no carga y `<i class="fa …">` sale VACÍO. El
+problema es que **un emoji lo pinta cada sistema a su manera y con sus colores**: ni es el icono de
+la casa ni se parece a lo que se ve en la app.
+
+**Punto único `_brand_icon(nombre, *, email, size, color)`** (antes se llamaba `_sync_icon` y solo
+lo usaba Syncros, que ya lo hacía bien):
+· en la **web**, `<i class="fa-solid …">` en el color que se pida;
+· en un **correo**, el MISMO icono como **PNG** (`brand_icon_png`, que lo renderiza de
+`fa-solid-900.ttf` en ese color). Así el icono es idéntico en la app, en el correo y en la página
+pública.
+⚠️⚠️ El `<img>` lleva **`max-width:none`**: con el `img{max-width:100%}` de la app, dentro de una
+celda estrecha el ancho computado salía **0 px** y el icono no se veía (bug real: se arregló
+mirando `getBoundingClientRect().width`, que daba 0 con la imagen bien cargada).
+
+**Cómo se lee una comunicación** (`_activity_notice_html`, el motor de los tres canales):
+· los datos de la actividad, **solo con su icono y sin el nombre del concepto** —como en la ficha de
+la app—; el nombre se conserva en el `title` para quien pase el ratón;
+· **cada módulo**, con su cabecera de **fondo azul suave** (`BRAND_BLUE_SOFT`) y las letras y el
+icono en el **azul corporativo oscuro** (`BRAND_BLUE_DARK`), para que todos se lean igual.
+
 
 - **AVISOS · un aviso de algo YA resuelto se cierra solo** (`_notify_resolve`, ago 2026): un aviso es
   «esto te está esperando»; cuando deja de estarlo tiene que desaparecer sin que nadie lo pinche.

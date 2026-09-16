@@ -256,6 +256,11 @@
   ⚠️ **ARRIBA A LA DERECHA VA SOLO EL LOGO DE PIES** (no los dos del grupo como en Syncros, lo
   pidió Dani): a una emisora le presenta el tema **el sello**, y el de la editorial no pinta nada.
   Se busca **por su nombre** entre los logos del grupo, no por su posición en la lista.
+  ⚠️ Y **al MISMO TAMAÑO que en las demás comunicaciones de la casa** (`max-height:54px;
+  max-width:190px`, la medida que usan los avisos y las liquidaciones; 42 px en móvil): un logo más
+  pequeño que el de los otros correos se lee como si fuera otra cosa.
+  · Debajo del logo, el **TÍTULO CENTRADO «Presentación nuevo single»** (`RADIO_PITCH_SUBJECT`, el
+  mismo texto con el que empieza el asunto) y, debajo, el texto **JUSTIFICADO**: es una carta.
   ⚠️ **SIN galleta de contacto al pie** (también lo pidió Dani): el correo sale desde el buzón de
   quien lo manda y se contesta ahí mismo, así que una tarjeta con sus datos solo es ruido.
 
@@ -275,6 +280,29 @@
   presentado** y lleva **tope de tiempo** (`RADIO_SEND_BUDGET_SECONDS`, 45 s) guardando por el
   camino y diciendo **cuántos quedan** — la regla de la casa para las acciones en bloque.
   ⚠️ Lo que NO sale se dice **con nombre y apellidos**: esas emisoras siguen pendientes.
+
+- ⚠️⚠️ **LO QUE HACE QUE UNA PRESENTACIÓN NO CAIGA EN SPAM** (sep 2026, lo pidió Dani). Un correo
+  que acaba en la carpeta de spam de la emisora es peor que no mandarlo: nadie se entera.
+  · **UN CORREO POR PERSONA**, nunca uno con todos en el «Para» —ni siquiera cuando salen «todos a
+  la vez»: eso es un bucle de correos individuales, no un envío colectivo—.
+  · **DESDE UN BUZÓN ALINEADO**: sale por la cuenta propia de quien lo manda (SPF/DKIM de SU
+  dominio), no «como» otra dirección. ⚠️ Si el usuario con el que se conecta **no es del dominio**
+  del remitente, SPF y DKIM no pueden cuadrar: se avisa **en la pantalla de presentar, antes de
+  mandar** (`_radio_sender_health` → `aligned`), igual que si la última prueba de conexión falló.
+  · **AL RITMO DE UNA PERSONA**: un respiro entre un correo y el siguiente
+  (`MailAccount.pause_ms`, y `RADIO_SEND_PACE_MS` = 800 ms si la cuenta no dice otra cosa).
+  Veinte correos disparados en dos segundos es lo que hace que el hosting corte y que el filtro lo
+  lea como una máquina.
+  · **RESPETANDO EL TOPE POR HORA** de la cuenta (`_radio_send_hourly_left`, contando los envíos
+  de radio de la última hora desde esa dirección): pasarse es la forma más rápida de que el
+  proveedor corte el buzón. Lo que no cabe se dice y sale cuando pasa la hora.
+  · **`auto_submitted=False`** (lo escribe una persona) y **la parte de TEXTO bien formada**: sale
+  del propio HTML con `_html_to_text`, que **quita el `<style>`** —un correo cuya parte de texto
+  empieza con CSS puntúa como spam— y deja los enlaces a la vista.
+  ⚠️ **NO lleva `List-Unsubscribe`** a propósito: esto es correspondencia de una persona a otra
+  (cinco o diez correos por single), no un boletín, y ofrecer una baja que nadie gestiona sería
+  prometer algo que no se cumple. Si algún día se manda a listas grandes, eso cambia —y entonces
+  hay que gestionarlas de verdad, como en Syncros (`opted_out_at`)—.
   ⚠️ Las descargas van por **`public_radio_download`** con el token del ENVÍO (al otro lado no hay
   sesión) y sirven el archivo **tal cual**: a una emisora no se le manda un MP3 recomprimido.
   · **DESDE QUÉ CORREO** (`_radio_sender_options`, `MailAccount.user_id`): el buzón de esa persona,

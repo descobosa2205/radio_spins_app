@@ -66,6 +66,27 @@
         <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Integraciones → Correo</a>.
       </div>
     {% endif %}
+
+    {# ⚠️⚠️ LO QUE DE VERDAD DECIDE QUE NO CAIGA EN SPAM: que el buzón con el que se conecta sea del
+       MISMO dominio que el remitente (si no, SPF y DKIM no pueden cuadrar) y que la conexión esté
+       probada. Se avisa AQUÍ, antes de mandar: cuando el correo ya está en la carpeta de spam de la
+       emisora, nadie se entera. #}
+    {% for o in sender.options %}
+      {% if not o.aligned %}
+        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+          <i class="fa fa-triangle-exclamation me-1"></i>El buzón con el que se conecta
+          (<strong>{{ o.smtp_username }}</strong>) no es del dominio de <strong>{{ o.email }}</strong>:
+          así el correo puede llegar marcado como falsificado.
+          <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Revisar la cuenta</a>.
+        </div>
+      {% elif o.tested_ok is sameas false %}
+        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+          <i class="fa fa-plug-circle-xmark me-1"></i>La última prueba de conexión de
+          <strong>{{ o.email }}</strong> falló.
+          <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Probarla otra vez</a>.
+        </div>
+      {% endif %}
+    {% endfor %}
   </div>
 </div>
 
@@ -207,7 +228,8 @@
               </form>
               <div class="text-muted small mt-3">
                 <div class="mb-2"><i class="fa fa-circle-info me-1"></i>Se manda <strong>un correo
-                  por dirección</strong>, nunca uno con todos en el «Para».</div>
+                  por dirección</strong> —nunca uno con todos en el «Para»— y con un respiro entre
+                  uno y otro, para que no se lea como un envío automático.</div>
                 {% if normales|length > 1 %}
                   <div><i class="fa fa-sliders me-1"></i>Si quieres cambiarle el texto a alguno,
                     <a href="{{ url_for('song_radio_send_view', song_id=song.id, detalle=1) }}">ábrelos

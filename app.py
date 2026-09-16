@@ -41024,6 +41024,9 @@ def song_radio_send(song_id):
 # servidor corta la petición mucho antes de acabar con decenas de correos, así que se manda lo que
 # cabe —guardando por el camino— y se DICE cuántos quedan para volver a pulsar.
 RADIO_SEND_BUDGET_SECONDS = 45.0
+# El RESPIRO entre un correo y el siguiente cuando la cuenta no dice otra cosa (el mismo orden de
+# magnitud que el de Syncros y el de las notas de prensa).
+RADIO_SEND_PACE_MS = 800
 
 
 @app.post("/radio/cancion/<song_id>/presentar/enviar-todos", endpoint="song_radio_send_all")
@@ -41068,9 +41071,24 @@ def song_radio_send_all(song_id):
         if not destinatarios:
             flash("No queda ningún correo que mandar a la vez.", "info")
             return redirect(safe_next_or(destino))
+        # ⚠️⚠️ EL TOPE POR HORA de la cuenta: pasarse es la forma más rápida de que el proveedor
+        # corte el buzón —y de que el dominio empiece a puntuar mal en Gmail—.
+        total_pedidos = len(destinatarios)
+        caben = _radio_send_hourly_left(session_db, elegido)
+        if caben == 0:
+            flash("La cuenta %s ha llegado a su tope de correos por hora. Vuelve a intentarlo "
+                  "dentro de un rato." % elegido["email"], "warning")
+            return redirect(safe_next_or(destino))
+        if caben > 0 and len(destinatarios) > caben:
+            destinatarios = destinatarios[:caben]
+        # ⚠️⚠️ AL RITMO DE UNA PERSONA (`MailAccount.pause_ms`, la misma regla que Syncros y las
+        # notas de prensa): veinte correos disparados en dos segundos es lo que hace que un
+        # hosting compartido corte la conexión y que el filtro del otro lado lo lea como un envío
+        # automático. Un respiro entre uno y otro cuesta nada y cambia mucho.
+        respiro = max(0.0, min(5.0, float(elegido.get("pause_ms") or RADIO_SEND_PACE_MS) / 1000.0))
         t0 = time.monotonic()
         mandados, fallos, quedan = 0, [], 0
-        for d in destinatarios:
+        for i, d in enumerate(destinatarios):
             if time.monotonic() - t0 > RADIO_SEND_BUDGET_SECONDS:
                 quedan = len(destinatarios) - mandados - len(fallos)
                 break
@@ -41079,6 +41097,8 @@ def song_radio_send_all(song_id):
             pitches = [p for p in pitches if _song_radio_status(p) == "PLANNED"]
             if not pitches:
                 continue
+            if i and respiro:
+                time.sleep(respiro)
             ok, _aviso, error = _song_radio_send_one(
                 session_db, cancion, d["email"], d["name"], pitches, elegido, yo)
             if ok:
@@ -41090,6 +41110,9 @@ def song_radio_send_all(song_id):
                                                             "s" if mandados != 1 else "")
             if quedan:
                 aviso += (" Quedan %d por mandar: vuelve a pulsar «Enviar todos»." % quedan)
+            elif caben > 0 and caben < total_pedidos:
+                aviso += (" El resto sale cuando pase la hora (tope de la cuenta %s)."
+                          % elegido["email"])
             flash(aviso, "success")
         if fallos:
             # ⚠️ Lo que NO ha salido se dice con nombre y apellidos: esas emisoras siguen
@@ -134032,6 +134055,49 @@ def _user_mail_account(session_db, user_id):
         return None
 
 
+def _radio_sender_health(cuenta) -> dict:
+    """LO QUE DECIDE QUE UN CORREO NO CAIGA EN SPAM, de esa cuenta: que el usuario con el que se
+    autentica sea **del mismo dominio** que el remitente (si no, SPF y DKIM no pueden cuadrar) y
+    que el servidor esté probado.
+
+    ⚠️ Se avisa **en la pantalla de presentar, antes de mandar**: cuando el correo ya ha salido y
+    ha caído en la carpeta de spam de la emisora, no hay forma de saberlo."""
+    email = (getattr(cuenta, "from_email", "") or "").strip().lower()
+    usuario = (getattr(cuenta, "smtp_username", "") or "").strip().lower()
+    dominio = email.split("@", 1)[1] if "@" in email else ""
+    alineado = bool(dominio and (not usuario or "@" not in usuario
+                                 or usuario.split("@", 1)[1] == dominio))
+    return {
+        "aligned": alineado,
+        "domain": dominio,
+        "smtp_username": usuario,
+        "tested_ok": (True if getattr(cuenta, "last_test_ok", None) else
+                      (None if getattr(cuenta, "last_test_ok", None) is None else False)),
+        "pause_ms": int(getattr(cuenta, "pause_ms", 0) or 0),
+        "hourly_cap": int(getattr(cuenta, "hourly_cap", 0) or 0),
+    }
+
+
+def _radio_send_hourly_left(session_db, elegido) -> int:
+    """Cuántos correos CABEN todavía esta hora por esa cuenta (0 = ninguno; -1 = sin tope).
+
+    ⚠️ El tope lo pone el proveedor del buzón: pasarse es la forma más rápida de que corte la
+    cuenta o de que el dominio empiece a puntuar mal. Se cuentan los envíos de radio de la última
+    hora **desde esa dirección**."""
+    tope = int((elegido or {}).get("hourly_cap") or 0)
+    if tope <= 0:
+        return -1
+    try:
+        hechos = (session_db.query(func.count(SongRadioSend.id))
+                  .filter(func.lower(func.coalesce(SongRadioSend.from_email, "")) ==
+                          (elegido.get("email") or "").strip().lower(),
+                          SongRadioSend.sent_at >= (_now_madrid() - timedelta(hours=1))).scalar() or 0)
+    except Exception:
+        app.logger.exception("[radio] no se pudo contar el tope por hora")
+        return -1
+    return max(0, tope - int(hechos))
+
+
 def _radio_sender_options(session_db, user_id) -> dict:
     """DESDE QUÉ DIRECCIÓN puede salir una presentación a radio, para quien la está mandando.
 
@@ -134044,16 +134110,16 @@ def _radio_sender_options(session_db, user_id) -> dict:
     promo = _mail_account_for_email(PRESS_SENDER_PROMO_EMAIL)
     opciones = []
     if propia is not None:
-        opciones.append({
+        opciones.append(dict(_radio_sender_health(propia), **{
             "key": "MINE", "email": (propia.from_email or ""),
             "name": (propia.from_name or "").strip() or (propia.label or ""),
             "label": "Mi correo", "account_id": str(propia.id),
-        })
+        }))
     if promo is not None and (propia is None or (promo.from_email or "").lower() != (propia.from_email or "").lower()):
-        opciones.append({
+        opciones.append(dict(_radio_sender_health(promo), **{
             "key": "PROMO", "email": PRESS_SENDER_PROMO_EMAIL, "name": PRESS_SENDER_PROMO_NAME,
             "label": "Promoción", "account_id": str(promo.id),
-        })
+        }))
     return {
         "options": opciones,
         "mine": (opciones[0] if (opciones and opciones[0]["key"] == "MINE") else None),
@@ -171700,8 +171766,11 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
     # una emisora le presenta el tema **el sello**, y el de la editorial no pinta nada ahí.
     logo_pies = next((u for u, n in (ctx.get("brand_logos") or [])
                       if "PIES" in (n or "").upper() and u), "") or (ctx.get("label_logo") or "")
+    # ⚠️ **EL MISMO TAMAÑO QUE EN LAS DEMÁS COMUNICACIONES DE LA CASA** (`max-height:54px;
+    # max-width:190px`, lo pidió Dani): un logo más pequeño que el de los otros correos se lee como
+    # otra cosa. Es la medida que usan los avisos, las liquidaciones y las comunicaciones.
     logos = (('<img class="rad-logo" src="%s" alt="%s" '
-              'style="height:34px;width:auto;display:inline-block;">'
+              'style="max-height:54px;max-width:190px;display:inline-block;">'
               % (esc(logo_pies), esc(ctx.get("label_name"))))
              if logo_pies
              else ('<span style="font-size:13px;color:#6b7280;">%s</span>' % esc(ctx.get("label_name"))))
@@ -171782,8 +171851,9 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
 
     # ⚠️ SIN GALLETA DE CONTACTO (lo pidió Dani, sep 2026): el correo sale desde el buzón de quien
     # lo manda y se contesta ahí mismo, así que una tarjeta con sus datos al pie solo es ruido.
+    # ⚠️ JUSTIFICADO (lo pidió Dani): es una carta, y así se lee como tal.
     intro = ('<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#374151;'
-             'text-align:left;">%s</p>' % _radio_pitch_intro_html(ctx, intro_text))
+             'text-align:justify;">%s</p>' % _radio_pitch_intro_html(ctx, intro_text))
 
     return (
         # ⚠️ La media query va DENTRO del cuerpo: un correo no admite hojas externas. Por debajo de
@@ -171799,13 +171869,17 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
         '.sync-card .sync-cell--data{padding:12px 14px 14px !important;}'
         '.sync-cover,.sync-cover-ph{width:100%% !important;max-width:260px !important;'
         'height:auto !important;aspect-ratio:1/1;margin:0 auto !important;}'
-        '.rad-logo{height:26px !important;}'
+        '.rad-logo{max-height:42px !important;}'
         '}'
         '</style>'
         '<div class="sync-body" style="max-width:680px;margin:0 auto;padding:22px;'
         'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;'
         'background:#fff;">'
         '<div style="text-align:right;margin-bottom:6px;">%s</div>'
+        # ⚠️ EL TÍTULO, centrado y debajo del logo (lo pidió Dani): quien abre el correo tiene que
+        # saber de qué va antes de leer nada.
+        '<h1 style="margin:8px 0 16px;font-size:23px;line-height:1.25;text-align:center;'
+        'color:#111827;font-weight:800;">%s</h1>'
         '%s'
         '<table class="sync-card" style="width:100%%;border-collapse:collapse;table-layout:fixed;'
         'background:#fff;border:1px solid #e6e9ec;border-radius:14px;"><tr>'
@@ -171819,7 +171893,7 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
         '</td></tr>'
         '%s</table>'
         '</div>'
-        % (logos, intro, portada,
+        % (logos, esc(RADIO_PITCH_SUBJECT), intro, portada,
            esc(ctx.get("title")), etiqueta,
            bloque_artista,
            (dato(ico("calendar-day"), "<strong>%s</strong>" % esc(ctx.get("release_long")))

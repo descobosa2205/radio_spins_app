@@ -66,7 +66,7 @@
         {% if row.due_date %}
           <div class="alert alert-warning">
             <i class="fa fa-calendar-day me-1"></i>Fecha máxima de entrega:
-            <strong>{{ row.due_date.strftime('%d/%m/%Y') }}</strong>
+            <strong>{{ row.due_date|fecha_larga }}</strong>
           </div>
         {% endif %}
         {% if row.jpg_url and row.psd_url %}

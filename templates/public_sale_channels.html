@@ -13,7 +13,7 @@
         <div class="flex-grow-1">
           <h4 class="mb-1">{{ concert.artist.name if concert.artist else 'Actividad' }}</h4>
           <div class="text-muted">
-            {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
+            {% if concert.date %}{{ concert.date|fecha_larga }}{% endif %}
             {% if concert.venue %} · {{ concert.venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
             {% if concert.venue and concert.venue.municipality %} · {{ concert.venue.municipality }}{% elif concert.manual_municipality %} · {{ concert.manual_municipality }}{% endif %}
           </div>

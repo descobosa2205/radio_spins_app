@@ -7,6 +7,7 @@
 ## Qué hay aquí
 
 - LOS ICONOS DE UNA COMUNICACIÓN: los sólidos de la casa, nunca emojis
+- LA FECHA DE UNA COMUNICACIÓN LLEVA SU DÍA DE LA SEMANA
 
 - AVISOS · un aviso de algo YA resuelto se cierra solo (_notify_resolve, ago 2026): un aviso es
 - UN AVISO SE VE EN UN POP-UP, no navegando a otra pantalla
@@ -24,6 +25,39 @@
 - MIS AVISOS se lee IGUAL que MIS TAREAS PENDIENTES: el módulo de
 - CORREO · CUENTAS DE ENVÍO PROPIAS (promocion@ desde SU buzón) y el hueco en blanco de Integraci
 - CUENTAS DE ENVÍO · el catálogo de las que la app ESPERA (sep 2026,
+
+---
+
+## LA FECHA DE UNA COMUNICACIÓN LLEVA SU DÍA DE LA SEMANA
+
+⚠️⚠️ **«Lunes 11 de Abril de 2026», no «11/04/2026»** (sep 2026, lo pidió Dani: «en la cabecera, en
+la fecha, pon el día de la semana que es… en todas las comunicaciones, artistas, terceros y demás
+externos, y en el envío de invitaciones en todo»). Quien recibe la comunicación lo primero que mira
+es **qué día cae**, y una fecha en números no se lo dice: obliga a ir al calendario.
+
+**Punto único `format_date_long_es(valor)`**, que además es el filtro **`|fecha_larga`** de las
+plantillas. Admite `date`, `datetime` y texto ISO, y lo que no sepa leer lo devuelve tal cual (una
+fecha rara es mejor que perder el correo por formatear).
+
+Por dónde entra —todo son puntos únicos que ya existían, así que no hay dos formatos sueltos—:
+
+| dónde | qué lo pinta |
+|---|---|
+| la **cabecera de la actividad**: ficha, aviso al artista, formulario del promotor, hoja de ruta (tarjeta y PDF/Excel) | `_contract_sheet_hero_rows` (Fecha · Hasta · Salida a la venta · Anuncio) |
+| los **correos de una actividad** (cartelería, Sold Out, lo que se le manda a un tercero) | `_concert_email_header_html` |
+| **las invitaciones, TODAS** (la pantalla, los correos, los PDF, la lista de invitados, las páginas públicas) | `_invitation_display_date` → `_invitation_event_payload` |
+| las **páginas públicas que se comparten** por WhatsApp/SMS | `_public_share_card` |
+| el aviso de **salida a la venta** | `_sale_notice_context` |
+| las **páginas públicas** con cabecera de actividad (subir factura, PRL, canales de venta, cartelería) y la bandeja de **externos** | el filtro `|fecha_larga` |
+| los **plazos** que se le dan a alguien de fuera (entrega de cartelería y de creatividades) | el filtro `|fecha_larga` |
+
+⚠️ El **texto del SMS y del «compartir»** (`_activity_notice_share_text`) sale de esa misma cabecera,
+así que también lleva el día de la semana: son ~14 caracteres más, y es justo el dato que se mira.
+⚠️ **El ASUNTO de un correo NO** (`_concert_title_for_notice`): ahí manda que se lea entero en la
+bandeja, y el día de la semana está dentro, en la cabecera.
+⚠️ **En minúscula cuando va DENTRO de una frase** («…del lunes 3 de junio de 2026 todavía no se ha
+anunciado»): eso es `_long_date_es` / `_vacation_long_date`, que ahora salen de **las mismas listas
+de nombres** (`MONTHS_ES` / `WEEKDAYS_ES`). Estaban duplicadas palabra por palabra.
 
 ---
 

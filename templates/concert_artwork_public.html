@@ -13,7 +13,7 @@
         <div class="flex-grow-1">
           <h4 class="mb-1">{{ concert.artist.name if concert.artist else 'Concierto' }}</h4>
           <div class="text-muted">
-            {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
+            {% if concert.date %}{{ concert.date|fecha_larga }}{% endif %}
             {% if concert.venue %} · {{ concert.venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
             {% if concert.venue and concert.venue.municipality %} · {{ concert.venue.municipality }}{% elif concert.manual_municipality %} · {{ concert.manual_municipality }}{% endif %}
             {% if concert.venue and concert.venue.province %} · {{ concert.venue.province }}{% elif concert.manual_province %} · {{ concert.manual_province }}{% endif %}
@@ -48,7 +48,7 @@
             <h5 class="mb-3">Brief</h5>
             <table class="table table-sm mb-0">
               <tbody>
-                <tr><th style="width:170px;">Entrega máxima</th><td>{{ artwork_request.delivery_deadline.strftime('%d/%m/%Y') if artwork_request.delivery_deadline else '—' }}</td></tr>
+                <tr><th style="width:170px;">Entrega máxima</th><td>{{ artwork_request.delivery_deadline|fecha_larga if artwork_request.delivery_deadline else '—' }}</td></tr>
                 <tr><th>Solicitado el</th><td>{{ artwork_request.requested_at.strftime('%d/%m/%Y %H:%M') if artwork_request.requested_at else '—' }}</td></tr>
                 <tr><th>Última subida</th><td>{{ artwork_request.uploaded_at.strftime('%d/%m/%Y %H:%M') if artwork_request.uploaded_at else '—' }}</td></tr>
               </tbody>

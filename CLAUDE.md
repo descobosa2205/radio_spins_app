@@ -209,6 +209,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   escuchan `submit` en `document`) → `stopImmediatePropagation`.
 - Iconos: comprobar que existen en esta versión de Font Awesome antes de usarlos (salen **vacíos**),
   y los de **marca** van en `fa-brands`, no en la familia sólida. → comando abajo.
+- ⚠️ **La FECHA de algo que sale de casa lleva su DÍA DE LA SEMANA**: «Lunes 11 de Abril de 2026»
+  (`format_date_long_es`, filtro `|fecha_larga`). Es lo primero que mira quien lo recibe.
+  → `docs/app/avisos-correo-sms.md`
 - ⚠️⚠️ **EN UN CORREO, EL ICONO VA COMO IMAGEN, NUNCA UN EMOJI NI `<i class="fa">`**: punto único
   **`_brand_icon`** (PNG del sólido de la casa en el color de marca). Y el `<img>` necesita
   `max-width:none`, o el `img{max-width:100%}` de la app lo deja en **0 px** dentro de una celda

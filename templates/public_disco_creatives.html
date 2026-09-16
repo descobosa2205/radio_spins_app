@@ -40,7 +40,7 @@
       {% if req.due_date %}
         <div class="alert alert-warning">
           <i class="fa fa-calendar-day me-1"></i>Fecha máxima de entrega:
-          <strong>{{ req.due_date.strftime('%d/%m/%Y') }}</strong>
+          <strong>{{ req.due_date|fecha_larga }}</strong>
         </div>
       {% endif %}
       {% if req.note %}

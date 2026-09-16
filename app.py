@@ -1507,6 +1507,41 @@ def format_eur(n):
         app.logger.exception("Importe que no se pudo formatear: %r", n)
         return "0,00 €"
     
+# ⚠️⚠️ LOS NOMBRES DE LOS MESES Y DE LOS DÍAS, EN UN SOLO SITIO. Estaban duplicados (`MONTHS_ES`
+# y `VACATION_MONTH_NAMES`, palabra por palabra y a 85.000 líneas de distancia): dos listas de lo
+# mismo es justo lo que acaba desparejado.
+MONTHS_ES = [
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+]
+WEEKDAYS_ES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+
+
+@app.template_filter("fecha_larga")
+def format_date_long_es(value) -> str:
+    """«Lunes 11 de Abril de 2026» — LA FECHA CON SU DÍA DE LA SEMANA.
+
+    ⚠️⚠️ PUNTO ÚNICO de la fecha en **lo que sale de casa** (sep 2026, lo pidió Dani): la cabecera
+    del aviso al artista, el formulario del promotor, las invitaciones, la hoja de ruta y las
+    páginas públicas. A quien lo recibe lo que le hace falta saber de un vistazo es **qué día de la
+    semana cae**, y un «11/04/2026» no se lo dice.
+    ⚠️ Vale para `date`, `datetime` y texto ISO; lo que no sepa leer lo devuelve tal cual (una
+    fecha rara en una comunicación es mejor que perder el correo entero por formatear)."""
+    if not value:
+        return ""
+    dia = value
+    if isinstance(dia, str):
+        try:
+            dia = date.fromisoformat(dia.strip()[:10])
+        except Exception:
+            return value
+    try:
+        return "%s %d de %s de %d" % (WEEKDAYS_ES[dia.weekday()], dia.day,
+                                      MONTHS_ES[dia.month - 1], dia.year)
+    except Exception:
+        return str(value)
+
+
 @app.template_filter("fecha_corta")
 def _tpl_fecha_corta(v):
     """Una fecha en corto («10/09»), venga como texto ISO o como date. Para las etiquetas donde no
@@ -5685,7 +5720,7 @@ def _concert_email_header_html(concert: Concert, title: str) -> str:
     artist_photo = ''
     if concert.artist and getattr(concert.artist, 'photo_url', None):
         artist_photo = f'<img src="{concert.artist.photo_url}" style="width:70px;height:70px;object-fit:cover;border-radius:50%;">'
-    date_txt = concert.date.strftime('%d/%m/%Y') if concert.date else '—'
+    date_txt = format_date_long_es(concert.date) or '—'
     prov = _concert_province_value(concert)
     return (
         f'{logo_html}'
@@ -82058,10 +82093,6 @@ def concert_contract_sheet_pdf(cid):
 # CUADRANTES
 # =========================
 
-MONTHS_ES = [
-    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-]
 DOW_ES = ["L", "M", "X", "J", "V", "S", "D"]  # lunes..domingo
 
 
@@ -85144,7 +85175,7 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
             # lo que se enseña y puede cambiar.
             pon(icono, etiqueta, valor, "venue" if etiqueta == "Recinto" else "")
         if getattr(row, "end_date", None) and row.end_date != getattr(row, "date", None):
-            pon("fa-calendar-week", "Hasta", row.end_date.strftime("%d/%m/%Y"))
+            pon("fa-calendar-week", "Hasta", format_date_long_es(row.end_date))
         if getattr(row, "show_time_tbc", False) and not getattr(row, "show_time", None):
             pon("fa-clock", "Hora", "Por confirmar")
         if getattr(row, "doors_time", None):
@@ -87985,7 +88016,7 @@ def _roadmap_export_header(kind, row) -> dict:
     if kind == "concert":
         return {
             "title": (row.artist.name if getattr(row, "artist", None) else "Actividad"),
-            "date": row.date.strftime("%d/%m/%Y") if getattr(row, "date", None) else "",
+            "date": format_date_long_es(getattr(row, "date", None)),
             "venue": _concert_venue_name(row) or "",
             "city": _concert_city(row) or "",
             "logo_url": (getattr(getattr(row, "billing_company", None), "logo_url", None) or "") or (getattr(getattr(row, "group_company", None), "logo_url", None) or ""),
@@ -121749,7 +121780,9 @@ def _contract_sheet_hero_rows(concert) -> list:
     formulario del promotor los pintan igual: es la misma cabecera en los tres sitios)."""
     filas = []
     if getattr(concert, "date", None):
-        filas.append(("fa-calendar-day", "Fecha", concert.date.strftime("%d/%m/%Y")))
+        # ⚠️ CON EL DÍA DE LA SEMANA (`format_date_long_es`): esta cabecera es la que ve el artista
+        # en su aviso y el promotor en su formulario, y lo primero que se mira es qué día cae.
+        filas.append(("fa-calendar-day", "Fecha", format_date_long_es(concert.date)))
     sitio = " · ".join([x for x in [
         (getattr(getattr(concert, "venue", None), "name", None) or getattr(concert, "manual_venue_name", None) or ""),
         (getattr(getattr(concert, "venue", None), "municipality", None) or getattr(concert, "manual_municipality", None) or ""),
@@ -121779,16 +121812,16 @@ def _contract_sheet_hero_rows(concert) -> list:
     elif getattr(concert, "doors_time_tbc", False):
         filas.append(("fa-door-open", "Puertas", "Por confirmar"))
     if getattr(concert, "end_date", None) and concert.end_date != getattr(concert, "date", None):
-        filas.append(("fa-calendar-week", "Hasta", concert.end_date.strftime("%d/%m/%Y")))
+        filas.append(("fa-calendar-week", "Hasta", format_date_long_es(concert.end_date)))
     # ⚠️ La SALIDA A LA VENTA no se pinta en lo GRATUITO: ahí no se venden entradas (arriba ya lo
     # dice la fila «Entrada»), y una fecha de venta en algo gratis es justo lo que confunde.
     if not _concert_is_free(concert):
         if getattr(concert, "sale_start_date", None):
-            filas.append(("fa-ticket", "Salida a la venta", concert.sale_start_date.strftime("%d/%m/%Y")))
+            filas.append(("fa-ticket", "Salida a la venta", format_date_long_es(concert.sale_start_date)))
         elif getattr(concert, "sale_start_tbc", False):
             filas.append(("fa-ticket", "Salida a la venta", "Por confirmar"))
     if getattr(concert, "announcement_date", None):
-        _an = concert.announcement_date.strftime("%d/%m/%Y")
+        _an = format_date_long_es(concert.announcement_date)
         if (getattr(concert, "announcement_time", None) or "").strip():
             _an += " · " + str(concert.announcement_time)[:5]
         filas.append(("fa-bullhorn", "Anuncio", _an))
@@ -126793,7 +126826,7 @@ def _sale_notice_context(session_db, concert) -> dict:
         "subject_photo": foto,
         "eyebrow": eyebrow,
         "place_name": lugar,
-        "activity_date_label": (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+        "activity_date_label": format_date_long_es(getattr(concert, "date", None)),
         "hero_rows": [{"icon": i, "label": l, "value": str(v)} for i, l, v in _contract_sheet_hero_rows(concert)],
         "sentence": _sale_notice_sentence(concert, state),
         "channels": _sale_notice_channels(session_db, concert),
@@ -143152,8 +143185,7 @@ def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
         card["activity_icon"] = _concert_activity_icon(owner)
         card["event_name"] = (getattr(owner, "festival_name", None) or "").strip()
         card["city"] = _concert_city(owner)
-        d = getattr(owner, "date", None)
-        card["date_label"] = d.strftime("%d/%m/%Y") if d else ""
+        card["date_label"] = format_date_long_es(getattr(owner, "date", None))
     else:
         akey = (getattr(owner, "action_type", None) or "").strip().upper()
         card["activity_label"] = ACTION_TYPE_LABELS.get(akey, akey.replace("_", " ").title() or "Acción")
@@ -143162,8 +143194,7 @@ def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
         _snap = _json_loads_safe(getattr(owner, "location_snapshot", None), {}) or {}
         _venue = getattr(owner, "venue", None)
         card["city"] = (getattr(_venue, "municipality", None) or _snap.get("city") or "").strip()
-        d = getattr(owner, "start_date", None)
-        card["date_label"] = d.strftime("%d/%m/%Y") if d else ""
+        card["date_label"] = format_date_long_es(getattr(owner, "start_date", None))
     art = session_db.get(Artist, artist_id) if artist_id else None
     if art:
         card["artist_name"] = art.name or ""
@@ -144637,12 +144668,11 @@ def _invitation_token() -> str:
 
 
 def _invitation_display_date(value) -> str:
-    if not value:
-        return "Sin fecha"
-    try:
-        return value.strftime("%d/%m/%Y")
-    except Exception:
-        return str(value)
+    """La fecha de un evento en las invitaciones: **con su día de la semana** (lo pidió Dani).
+
+    Es el punto único de TODAS las invitaciones —la pantalla, los correos, los PDF, la lista de
+    invitados y las páginas públicas—, que van todas por `_invitation_event_payload`."""
+    return format_date_long_es(value) or ("Sin fecha" if not value else str(value))
 
 
 def _invitation_display_datetime(value) -> str:
@@ -167238,8 +167268,7 @@ def _vacation_month_matrix(year: int, month: int) -> list[list]:
     return [list(week) for week in cal.monthdatescalendar(year, month)]
 
 
-VACATION_MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+VACATION_MONTH_NAMES = list(MONTHS_ES)   # los mismos nombres, un solo sitio
 
 
 def _vacation_calendar_payload(session_db, year: int, user_ids: list[str] | None = None,
@@ -167323,7 +167352,9 @@ VACATION_NOTICE_TYPES = {
     },
 }
 
-VACATION_WEEKDAY_NAMES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+# ⚠️ En minúscula porque van DENTRO de una frase («…del lunes 3 de junio»); en una cabecera se
+# escriben con mayúscula (`format_date_long_es`).
+VACATION_WEEKDAY_NAMES = [d.lower() for d in WEEKDAYS_ES]
 VACATION_MONTH_LOWER = [m.lower() for m in VACATION_MONTH_NAMES]
 
 

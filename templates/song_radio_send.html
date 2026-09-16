@@ -38,15 +38,34 @@
         contesta a ti.</div>
     {% else %}
       <div class="alert alert-warning py-2 mb-2 small">
-        <i class="fa fa-triangle-exclamation me-1"></i><strong>No tienes tu correo configurado</strong>
-        para enviar desde la app.
+        {# ⚠️ Si SÍ tiene cuenta pero no se puede usar, se dice ESO: «no tienes correo
+           configurado» cuando la tienes delante en Integraciones no ayuda a nadie. #}
+        {% if sender.mine_problem %}
+          <i class="fa fa-triangle-exclamation me-1"></i>Tu cuenta
+          <strong>{{ sender.mine_problem.email }}</strong>
+          {% if sender.mine_problem.reason == 'nopass' %}
+            está dada de alta pero <strong>le falta la contraseña del buzón</strong>, así que la app
+            no puede conectarse a ella.
+          {% else %}
+            está <strong>desactivada</strong>.
+          {% endif %}
+        {% else %}
+          <i class="fa fa-triangle-exclamation me-1"></i><strong>No tienes tu correo configurado</strong>
+          para enviar desde la app.
+        {% endif %}
         {% if sender.promo_ready %}
           Esto saldrá desde <strong>Promoción</strong>
           ({{ (sender.options|selectattr('key', 'equalto', 'PROMO')|first).email }}), así que quien
           lo reciba contestará ahí.
         {% endif %}
-        Para que salga con tu dirección, dirección tiene que darla de alta en
-        <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Integraciones → Correo</a>.
+        {% if sender.mine_problem %}
+          Se arregla en
+          <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Integraciones → Correo</a>.
+        {% else %}
+          Para que salga con tu dirección, dirección tiene que dar de alta tu buzón en
+          <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Integraciones → Correo</a>
+          (con una cuenta que se llame como tu correo, o asignándotela en «Es el correo de…»).
+        {% endif %}
       </div>
     {% endif %}
     {% if sender.options|length > 1 %}

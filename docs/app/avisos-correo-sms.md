@@ -37,6 +37,17 @@
   **`_radio_sender_options`**, que ofrece la salida por **Promoción** a quien no tiene la suya —y
   lo avisa en la pantalla, ANTES de mandar—. ⚠️ Una persona, UNA cuenta: al asignarla se le suelta
   la anterior. El envío, en `docs/app/promocion-prensa.md`.
+  ⚠️⚠️ **LA CUENTA QUE SE LLAMA COMO SU CORREO ES SUYA, SIN ASIGNARLA** (bug real, sep 2026, lo
+  vio Dani: «mi correo sí está configurado» y la app le decía que no y le sacaba los envíos por
+  Promoción). Pedir que alguien asigne a mano una cuenta cuya dirección es EXACTAMENTE su correo
+  es pedirle que repita lo que la app ya sabe. Orden de `_user_mail_account`: **1)** la cuenta
+  asignada (`user_id`) —que manda siempre, y es la que permite usar un buzón que NO se llama como
+  su correo (`radio@`, `promocion@`)—; **2)** la cuenta cuya `from_email` es su `User.email`.
+  · En Integraciones, la tarjeta de una cuenta dice **de quién es aunque no esté asignada**
+  (`owner_guess`), para que se entienda por qué funciona sola.
+  ⚠️ Y si la cuenta existe pero **no se puede usar**, se dice POR QUÉ —le falta la contraseña o
+  está desactivada (`_user_mail_account_problem`)— en vez de «no tienes correo configurado»: un
+  mensaje que no cuadra con lo que la persona está viendo en Integraciones la deja dando vueltas.
 
 ## LA FECHA DE UNA COMUNICACIÓN LLEVA SU DÍA DE LA SEMANA
 

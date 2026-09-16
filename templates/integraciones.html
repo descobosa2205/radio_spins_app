@@ -1729,7 +1729,9 @@
                 </div>
                 <div class="small mt-1">{% for u in a.uses %}<span class="badge text-bg-light border me-1"><i class="fa {{ a.icon or 'fa-newspaper' }} me-1"></i>{{ u }}</span>{% endfor %}
                   {# DE QUIÉN es el buzón: sus presentaciones a radio salen desde aquí. #}
-                  {% if a.user_name %}<span class="badge text-bg-light border me-1"><i class="fa fa-user fa-fw me-1"></i>El correo de {{ a.user_name }}</span>{% endif %}</div>
+                  {% if a.user_name %}<span class="badge text-bg-light border me-1"><i class="fa fa-user fa-fw me-1"></i>El correo de {{ a.user_name }}</span>
+                  {% elif a.owner_guess %}{# Se reconoce SOLA porque la dirección es la suya: se dice, para que se entienda por qué funciona sin asignarla. #}
+                    <span class="badge text-bg-light border me-1" title="Se reconoce por la dirección: no hace falta asignarla"><i class="fa fa-user fa-fw me-1"></i>El correo de {{ a.owner_guess }}</span>{% endif %}</div>
                 {% if a.last_test_ok is sameas false and a.last_test_info %}<div class="small text-danger mt-1"><i class="fa fa-circle-exclamation me-1"></i>{{ a.last_test_info }}</div>{% endif %}
                 {% if not a.aligned %}
                   <div class="small text-warning-emphasis mt-1"><i class="fa fa-triangle-exclamation me-1"></i>El usuario ({{ a.smtp_username }}) no es del dominio del remitente ({{ a.domain }}): el correo puede salir como falsificado. Lo normal es que el usuario sea la propia dirección.</div>

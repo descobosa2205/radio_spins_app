@@ -134038,17 +134038,32 @@ def _user_mail_account(session_db, user_id):
 
     ⚠️⚠️ Punto ÚNICO de «¿desde qué dirección manda esta persona?». Lo que se escribe de tú a tú
     —la presentación de un tema a una emisora— tiene que salir **desde el correo de quien lo
-    manda**: quien lo recibe contesta a esa persona, no a un buzón de la app. Se da de alta en
-    Integraciones → Correo y se le asigna ahí.
+    manda**: quien lo recibe contesta a esa persona, no a un buzón de la app.
+    ⚠️⚠️ **SE RECONOCE SOLA LA CUENTA QUE ES SU PROPIA DIRECCIÓN** (bug real, sep 2026, lo vio
+    Dani: «mi correo sí está configurado» y la app decía que no). Pedir que alguien asigne a mano
+    una cuenta que se llama EXACTAMENTE como su correo es pedirle que repita lo que la app ya sabe
+    —y mientras no lo hiciera, sus correos salían por Promoción sin que él lo entendiera—. Se mira
+    en este orden:
+      1. la cuenta **asignada** a esa persona (`user_id`), que manda siempre: es la que permite
+         usar un buzón cuyo nombre NO es su correo (`promocion@`, `radio@`…);
+      2. y si no hay ninguna, la cuenta cuya **dirección es la suya** (`User.email`).
     ⚠️ Tiene que estar ACTIVA y con contraseña: sin credenciales no se puede conectar a su buzón,
     y decir que sale desde su correo sin que sea verdad es justo lo que no puede pasar."""
     uid = _safe_uuid(user_id)
     if not uid:
         return None
     try:
-        return (session_db.query(MailAccount)
-                .filter(MailAccount.user_id == uid, MailAccount.is_active.is_(True),
-                        func.coalesce(MailAccount.smtp_password, "") != "")
+        base = (session_db.query(MailAccount)
+                .filter(MailAccount.is_active.is_(True),
+                        func.coalesce(MailAccount.smtp_password, "") != ""))
+        acc = base.filter(MailAccount.user_id == uid).order_by(MailAccount.created_at.asc()).first()
+        if acc is not None:
+            return acc
+        u = session_db.get(User, uid)
+        correo = ((getattr(u, "email", "") or "").strip().lower() if u is not None else "")
+        if not correo or "@" not in correo:
+            return None
+        return (base.filter(func.lower(func.coalesce(MailAccount.from_email, "")) == correo)
                 .order_by(MailAccount.created_at.asc()).first())
     except Exception:
         app.logger.exception("[correo] no se pudo leer la cuenta de la persona")
@@ -134126,7 +134141,38 @@ def _radio_sender_options(session_db, user_id) -> dict:
         "promo_ready": any(o["key"] == "PROMO" for o in opciones),
         "default": (opciones[0]["key"] if opciones else ""),
         "can_send": bool(opciones),
+        # ⚠️ Si SÍ tiene cuenta pero no se puede usar (sin contraseña o desactivada), se dice ESO y
+        # no «no tienes correo configurado»: un mensaje que no cuadra con lo que la persona ve en
+        # Integraciones la deja dando vueltas (lo vio Dani).
+        "mine_problem": (None if propia is not None else _user_mail_account_problem(session_db, user_id)),
     }
+
+
+def _user_mail_account_problem(session_db, user_id) -> dict | None:
+    """Por qué la cuenta de esa persona NO se puede usar, si es que tiene una dada de alta.
+
+    → {"email", "reason"} · `reason`: «inactive» (desactivada) | «nopass» (sin contraseña)."""
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return None
+    try:
+        u = session_db.get(User, uid)
+        correo = ((getattr(u, "email", "") or "").strip().lower() if u is not None else "")
+        q = session_db.query(MailAccount).filter(
+            or_(MailAccount.user_id == uid,
+                func.lower(func.coalesce(MailAccount.from_email, "")) == correo)
+            if correo else (MailAccount.user_id == uid))
+        acc = q.order_by(MailAccount.created_at.asc()).first()
+    except Exception:
+        app.logger.exception("[correo] no se pudo mirar por qué no vale su cuenta")
+        return None
+    if acc is None:
+        return None
+    if not bool(getattr(acc, "is_active", True)):
+        return {"email": (acc.from_email or ""), "reason": "inactive"}
+    if not (getattr(acc, "smtp_password", None) or "").strip():
+        return {"email": (acc.from_email or ""), "reason": "nopass"}
+    return None
 
 
 def _mail_account_row(acc) -> dict:
@@ -134186,8 +134232,21 @@ def _mail_accounts_context(session_db) -> dict:
         personas.sort(key=lambda x: _norm_text_key(x["name"]))
     except Exception:
         app.logger.exception("[correo] no se pudo leer el personal para las cuentas")
+    # De quién es cada buzón: el asignado y, si no, **el dueño que se deduce de la dirección**
+    # (una cuenta que se llama como el correo de alguien es suya, y así se reconoce sola).
+    por_correo = {}
+    try:
+        for u2, prof2 in (session_db.query(User, UserProfile)
+                          .outerjoin(UserProfile, UserProfile.user_id == User.id).all()):
+            correo2 = (u2.email or "").strip().lower()
+            if correo2:
+                por_correo[correo2] = ((getattr(prof2, "nick", "") or "").strip() or correo2)
+    except Exception:
+        app.logger.exception("[correo] no se pudo mirar de quién es cada buzón")
     for f in filas:
         f["user_name"] = nombres.get(f.get("user_id") or "", "")
+        f["owner_guess"] = ("" if f["user_name"]
+                            else por_correo.get((f.get("from_email") or "").strip().lower(), ""))
     dadas = {(f["from_email"] or "").lower() for f in filas}
     esperadas = [dict(e, missing=(e["email"].lower() not in dadas)) for e in MAIL_EXPECTED_ACCOUNTS]
     return {"rows": filas, "companies": empresas, "cycles": ciclos, "people": personas,

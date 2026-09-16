@@ -146,6 +146,7 @@ from models import (
     ensure_person_documents_schema,
     ensure_distributors_schema,
     ensure_artist_calendar_schema,
+    ensure_manuals_schema,
     ensure_performance_indexes,
     SessionLocal,
     User,
@@ -158,7 +159,7 @@ from models import (
     ArtistPerson,
     ArtistAgendaItem,
     ArtistCalendarImport,
-    ArtistCalendarLink, ArtistCalendarAccount,
+    ArtistCalendarLink, ArtistCalendarAccount, AppManual,
     ArtistEmail,
     ArtistNotificationContact,
     ConcertArtistNotification,
@@ -83327,6 +83328,7 @@ def _bootstrap_schema_bg():
         (ensure_person_documents_schema, "ensure_person_documents_schema"),
         (ensure_distributors_schema, "ensure_distributors_schema"),
         (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
+        (ensure_manuals_schema, "ensure_manuals_schema"),
         # OJO: ensure_personnel_and_operations_schema NO va aquí. Lo ejecuta (serializado, con lock) el
         # before_request `ensure_personnel_bootstrap` -> _bootstrap_access_and_personnel. Ejecutarlo
         # TAMBIÉN aquí, a la vez, provocaba un interbloqueo (deadlock) con las peticiones -> la web se
@@ -95076,7 +95078,12 @@ def _access_exempt_endpoints() -> set:
                "personnel_bulk_access",
                # CONFIGURAR NOTIFICACIONES: es de dirección por naturaleza (lo comprueban los
                # propios endpoints con `is_master()`), no una sección que se conceda.
-               "notification_settings_view", "notification_settings_save"})
+               "notification_settings_view", "notification_settings_save",
+               # INSTRUCCIONES (los manuales de la app): leerlos es AYUDA para cualquier sesión y
+               # subirlos, editarlos y borrarlos es de dirección (`_manual_can_edit`). Ni lo uno ni lo
+               # otro es una sección que se conceda en Accesos.
+               "manuals_view", "manual_file", "manual_download",
+               "manual_create", "manual_update", "manual_delete"})
 
 
 def _build_access_resources_from_app() -> list[dict]:
@@ -96594,6 +96601,7 @@ SECTION_ICONS = {
     "vacaciones": "fa-umbrella-beach",
     "integraciones": "fa-plug",
     "databases": "fa-database",
+    "instrucciones": "fa-circle-question",
     "otros": "fa-shapes",
 }
 
@@ -96712,6 +96720,14 @@ def _build_nav_menu() -> list[dict]:
         if session.get("user_id"):
             items.append({"type": "link", "key": "mis_gastos", "label": "Mis gastos",
                           "url": url_for("my_expenses_view")})
+    except Exception:
+        pass
+    # «Instrucciones» son los MANUALES de la app: es AYUDA, así que la ve cualquiera con sesión y no
+    # es una sección que se conceda en Accesos (subirlos sí es solo de dirección).
+    try:
+        if session.get("user_id"):
+            items.append({"type": "link", "key": "instrucciones", "label": "Instrucciones",
+                          "url": url_for("manuals_view")})
     except Exception:
         pass
     return _sort_nav_menu_for_user(items)
@@ -156747,6 +156763,325 @@ if CALDAV_ONLY:
     # que le pedía el iPhone y un fallo de sincronización no se podía diagnosticar (15-sep-2026).
     import logging as _logging
     app.logger.setLevel(_logging.INFO)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# INSTRUCCIONES · los MANUALES de la app (sep 2026, lo pidió Dani)
+#   Una sección donde se van subiendo los manuales de cada funcionalidad de la web (un PDF, un vídeo,
+#   una imagen, un Word… o un enlace) por si alguien tiene dudas. La ve CUALQUIERA con sesión (es
+#   ayuda, no una sección que se conceda en Accesos); los sube, edita y borra DIRECCIÓN. Las guías que
+#   GENERA la propia app (la del calendario en el móvil) salen ahí también, siempre al día, sin
+#   subirlas a mano (`MANUAL_BUILTINS`).
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+MANUAL_CATEGORIES = [
+    ("general", "General", "fa-circle-question"),
+    ("inicio", "Inicio y avisos", "fa-house"),
+    ("agenda", "Agenda y calendario", "fa-calendar-days"),
+    ("contratacion", "Contratación y actividades", "fa-file-signature"),
+    ("produccion", "Producción y hoja de ruta", "fa-screwdriver-wrench"),
+    ("ventas", "Ventas y ticketing", "fa-ticket"),
+    ("invitaciones", "Invitaciones", "fa-envelope-open-text"),
+    ("discografica", "Discográfica", "fa-compact-disc"),
+    ("promocion", "Promoción y marketing", "fa-bullhorn"),
+    ("administracion", "Administración y contabilidad", "fa-file-invoice-dollar"),
+    ("registros", "Registros", "fa-clipboard-list"),
+    ("personal", "Personal y vacaciones", "fa-users-gear"),
+    ("bases", "Bases de datos", "fa-database"),
+    ("integraciones", "Integraciones", "fa-plug"),
+]
+MANUAL_CATEGORY_LABELS = {k: lbl for k, lbl, _ic in MANUAL_CATEGORIES}
+# Lo que se admite subir: documentos, imágenes y vídeos (un manual puede ser una grabación de pantalla).
+MANUAL_FILE_EXTS = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg",
+                    ".gif", ".webp", ".mp4", ".mov", ".m4v", ".txt", ".md", ".zip"}
+_MANUAL_KIND_BY_EXT = {".pdf": "PDF", ".png": "IMAGE", ".jpg": "IMAGE", ".jpeg": "IMAGE", ".gif": "IMAGE",
+                       ".webp": "IMAGE", ".mp4": "VIDEO", ".mov": "VIDEO", ".m4v": "VIDEO"}
+_MANUAL_ICON_BY_EXT = {".pdf": "fa-file-pdf", ".doc": "fa-file-word", ".docx": "fa-file-word",
+                       ".ppt": "fa-file-powerpoint", ".pptx": "fa-file-powerpoint", ".xls": "fa-file-excel",
+                       ".xlsx": "fa-file-excel", ".mp4": "fa-file-video", ".mov": "fa-file-video",
+                       ".m4v": "fa-file-video", ".png": "fa-file-image", ".jpg": "fa-file-image",
+                       ".jpeg": "fa-file-image", ".gif": "fa-file-image", ".webp": "fa-file-image",
+                       ".zip": "fa-file-zipper", ".txt": "fa-file-lines", ".md": "fa-file-lines"}
+
+# Las guías que GENERA la app: siempre al día, no hay que subirlas. `pdf` y `html` son ENDPOINTS.
+MANUAL_BUILTINS = [
+    {"key": "caldav", "category": "agenda", "title": "Tu calendario en el móvil",
+     "description": "Cómo añadir la cuenta de calendario en el iPhone, el Mac o Android, qué se puede "
+                    "apuntar desde el móvil (notas, bloqueos y reservas por palabra clave) y cómo darle "
+                    "su propia cuenta de calendario a un artista.",
+     "pdf": "public_caldav_guide_pdf", "html": "public_caldav_guide"},
+]
+
+
+def _manual_can_edit() -> bool:
+    """Quién sube, edita y borra manuales: DIRECCIÓN (decide qué se documenta y cómo)."""
+    return is_master()
+
+
+def _manual_ext(name: str) -> str:
+    return Path((name or "").split("?")[0]).suffix.lower()
+
+
+def _manual_row(m) -> dict:
+    """Lo que la pantalla necesita de un manual subido: qué es, con qué icono, y sus tres URL (ver,
+    descargar y —si es un enlace— abrir)."""
+    ext = _manual_ext(m.file_name or m.file_url or "")
+    kind = (m.file_kind or "").upper()
+    if not kind:
+        kind = "LINK" if (m.link_url and not m.file_url) else _MANUAL_KIND_BY_EXT.get(ext, "FILE")
+    es_enlace = kind == "LINK" or not (m.file_url or "").strip()
+    mid = str(m.id)
+    # Un VÍDEO o una IMAGEN se ven directamente desde el almacenamiento (Range, caché); un PDF va por
+    # nuestro dominio (misma procedencia para el visor); descargar va SIEMPRE por nuestro dominio, que
+    # es lo que permite darle su nombre (el `download` de un <a> se ignora en otro dominio).
+    if es_enlace:
+        viewer_src, view_url, download_url = "", (m.link_url or ""), ""
+    else:
+        view_url = url_for("manual_file", manual_id=mid)
+        viewer_src = (m.file_url if kind in ("VIDEO", "IMAGE") else view_url)
+        download_url = url_for("manual_download", manual_id=mid)
+    return {
+        "id": mid, "uid": mid.replace("-", ""), "title": m.title or "", "description": m.description or "",
+        "category": (m.category or "general") if (m.category or "") in MANUAL_CATEGORY_LABELS else "general",
+        "kind": kind, "is_link": es_enlace,
+        "icon": ("fa-link" if es_enlace else _MANUAL_ICON_BY_EXT.get(ext, "fa-file-lines")),
+        "file_url": m.file_url or "", "file_name": m.file_name or "", "link_url": m.link_url or "",
+        "view_url": view_url, "viewer_src": viewer_src, "download_url": download_url, "html_url": "",
+        "sort_order": int(m.sort_order or 0),
+        "created_at": m.created_at, "updated_at": m.updated_at, "created_by_nick": m.created_by_nick or "",
+        "builtin": False,
+    }
+
+
+def _manual_builtin_rows() -> list[dict]:
+    """Las guías que genera la app, como si fueran manuales más (sin tres puntitos: no se editan)."""
+    filas = []
+    for b in MANUAL_BUILTINS:
+        try:
+            pdf = url_for(b["pdf"]) if b.get("pdf") else ""
+            html_url = url_for(b["html"]) if b.get("html") else ""
+        except Exception:
+            continue
+        filas.append({
+            "id": "app-" + b["key"], "uid": "app" + b["key"], "title": b["title"],
+            "description": b.get("description", ""), "category": b.get("category", "general"),
+            "kind": "PDF", "is_link": False, "icon": "fa-file-pdf", "file_url": "", "file_name": "",
+            "link_url": "", "view_url": html_url or pdf, "viewer_src": pdf, "download_url": pdf,
+            "html_url": html_url, "sort_order": -1, "created_at": None, "updated_at": None,
+            "created_by_nick": "", "builtin": True,
+        })
+    return filas
+
+
+def _manual_groups(session_db) -> list[dict]:
+    """Los manuales AGRUPADOS por categoría, en el orden del catálogo. Una categoría vacía no se pinta."""
+    filas = [_manual_row(m) for m in (session_db.query(AppManual)
+                                       .order_by(AppManual.sort_order, AppManual.title).all())]
+    filas += _manual_builtin_rows()
+    por_cat: dict = {}
+    for f in filas:
+        por_cat.setdefault(f["category"], []).append(f)
+    grupos = []
+    for key, label, icon in MANUAL_CATEGORIES:
+        lst = por_cat.get(key) or []
+        if lst:
+            lst.sort(key=lambda f: (f["sort_order"], _norm_text_key(f["title"])))
+            grupos.append({"key": key, "label": label, "icon": icon, "manuals": lst})
+    return grupos
+
+
+def _manual_apply_form(m, *, is_new: bool) -> str | None:
+    """Vuelca el formulario en el manual (y sube el fichero si viene). Devuelve el motivo del rechazo,
+    en español y para una persona, o None si todo está bien."""
+    from supabase_utils import delete_object_by_url as _borrar_objeto
+    title = (request.form.get("title") or "").strip()
+    if not title:
+        return "Ponle un nombre al manual."
+    cat = (request.form.get("category") or "general").strip().lower()
+    if cat not in MANUAL_CATEGORY_LABELS:
+        cat = "general"
+    link = (request.form.get("link_url") or "").strip()
+    if link and not re.match(r"^https?://", link, re.I):
+        link = "https://" + link
+    fs = request.files.get("file")
+    trae_fichero = bool(fs and getattr(fs, "filename", ""))
+    if trae_fichero:
+        ext = _manual_ext(fs.filename)
+        if ext not in MANUAL_FILE_EXTS:
+            return "Ese tipo de archivo no se admite: sube un PDF, un documento, una imagen o un vídeo."
+        url = upload_file(fs, "manuales", allowed_extensions=MANUAL_FILE_EXTS)
+        if not url:
+            return "No se pudo subir el archivo."
+        if m.file_url and m.file_url != url:
+            try:
+                _borrar_objeto(m.file_url)   # el que había se reemplaza: no se deja huérfano en Storage
+            except Exception:
+                pass
+        m.file_url, m.file_name = url, (fs.filename or "").strip()[:200]
+        m.file_kind = _MANUAL_KIND_BY_EXT.get(ext, "FILE")
+    if not (m.file_url or "").strip() and not link:
+        return "Sube un archivo o pon un enlace." if is_new else "El manual tiene que tener un archivo o un enlace."
+    m.title = title[:200]
+    m.description = (request.form.get("description") or "").strip()[:2000] or None
+    m.category = cat
+    m.link_url = link or None
+    if not (m.file_url or "").strip():
+        m.file_kind = "LINK"
+    try:
+        m.sort_order = int((request.form.get("sort_order") or "").strip() or (m.sort_order or 0))
+    except ValueError:
+        pass
+    return None
+
+
+def _manual_or_404(session_db, manual_id):
+    m = session_db.get(AppManual, _safe_uuid(manual_id)) if _safe_uuid(manual_id) else None
+    if m is None:
+        abort(404)
+    return m
+
+
+@app.get("/instrucciones", endpoint="manuals_view")
+@admin_required
+def manuals_view():
+    session_db = db()
+    try:
+        grupos = _manual_groups(session_db)
+        return render_template("instrucciones.html", manual_groups=grupos, manual_categories=MANUAL_CATEGORIES,
+                               manual_total=sum(len(g["manuals"]) for g in grupos),
+                               CAN_EDIT_MANUALS=_manual_can_edit(),
+                               manual_accept=",".join(sorted(MANUAL_FILE_EXTS)))
+    finally:
+        session_db.close()
+
+
+def _manual_save(session_db, m, *, is_new: bool, abrir: str):
+    """Lo común de crear y editar: volcar el formulario, decir qué falta (reabriendo el pop-up) y guardar."""
+    try:
+        motivo = _manual_apply_form(m, is_new=is_new)
+    except StorageObjectTooLargeError as exc:
+        motivo = str(exc) or "El archivo es demasiado grande."
+    except ValueError as exc:
+        motivo = str(exc) or "No se pudo subir el archivo."
+    if motivo:
+        session_db.rollback()
+        _flash_form_error(motivo, ["title", "file", "link_url"], abrir)
+        return False
+    if is_new:
+        session_db.add(m)
+    session_db.commit()
+    return True
+
+
+@app.post("/instrucciones/nuevo", endpoint="manual_create")
+@admin_required
+def manual_create():
+    if not _manual_can_edit():
+        return forbid("Los manuales los sube dirección.")
+    session_db = db()
+    try:
+        estado = _current_user_state() or {}
+        m = AppManual(created_by_user_id=_safe_uuid(estado.get("user_id")),
+                      created_by_nick=((estado.get("nick") or "").strip()[:120] or None))
+        if _manual_save(session_db, m, is_new=True, abrir="manualCreateModal"):
+            flash("Manual añadido a Instrucciones.", "success")
+            return redirect(url_for("manuals_view", _anchor="manual-" + str(m.id)))
+        return redirect(url_for("manuals_view"))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("manual_create")
+        flash("No se pudo guardar el manual.", "danger")
+        return redirect(url_for("manuals_view"))
+    finally:
+        session_db.close()
+
+
+@app.post("/instrucciones/<manual_id>/editar", endpoint="manual_update")
+@admin_required
+def manual_update(manual_id):
+    if not _manual_can_edit():
+        return forbid("Los manuales los edita dirección.")
+    session_db = db()
+    try:
+        m = _manual_or_404(session_db, manual_id)
+        if _manual_save(session_db, m, is_new=False, abrir="manualEdit" + str(m.id).replace("-", "")):
+            flash("Manual actualizado.", "success")
+        return redirect(url_for("manuals_view", _anchor="manual-" + str(m.id)))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("manual_update")
+        flash("No se pudo guardar el manual.", "danger")
+        return redirect(url_for("manuals_view"))
+    finally:
+        session_db.close()
+
+
+@app.post("/instrucciones/<manual_id>/eliminar", endpoint="manual_delete")
+@admin_required
+def manual_delete(manual_id):
+    if not _manual_can_edit():
+        return forbid("Los manuales los borra dirección.")
+    from supabase_utils import delete_object_by_url as _borrar_objeto
+    session_db = db()
+    try:
+        m = _manual_or_404(session_db, manual_id)
+        url, titulo = (m.file_url or ""), (m.title or "manual")
+        session_db.delete(m)
+        session_db.commit()
+        if url:
+            try:
+                _borrar_objeto(url)   # best-effort: un fichero que no se pueda borrar no impide quitar el manual
+            except Exception:
+                pass
+        flash(f"«{titulo}» eliminado de Instrucciones.", "success")
+        return redirect(url_for("manuals_view"))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("manual_delete")
+        flash("No se pudo eliminar el manual.", "danger")
+        return redirect(url_for("manuals_view"))
+    finally:
+        session_db.close()
+
+
+def _manual_serve(manual_id, *, attachment: bool):
+    """Sirve el fichero de un manual desde NUESTRO dominio: para verlo en el visor (misma procedencia)
+    y para descargarlo con su nombre. Un vídeo o una imagen que solo se quieren VER se redirigen al
+    almacenamiento (soporta Range y caché; pasarlos por aquí entero sería lento)."""
+    session_db = db()
+    try:
+        m = _manual_or_404(session_db, manual_id)
+        if not (m.file_url or "").strip():
+            if (m.link_url or "").strip():
+                return redirect(m.link_url)
+            abort(404)
+        if not attachment and (m.file_kind or "").upper() in ("VIDEO", "IMAGE"):
+            return redirect(m.file_url)
+        try:
+            datos, ctype = _download_remote_content(m.file_url, timeout=60)
+        except Exception:
+            app.logger.exception("manual_file")
+            abort(404)
+        ext = _manual_ext(m.file_name or m.file_url or "")
+        nombre = _safe_download_filename(m.file_name or ((m.title or "manual") + ext), "manual" + ext)
+        resp = send_file(BytesIO(datos), mimetype=(ctype or "application/octet-stream"),
+                         as_attachment=attachment, download_name=nombre)
+        resp.headers["Cache-Control"] = "private, max-age=300"
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.get("/instrucciones/<manual_id>/archivo", endpoint="manual_file")
+@admin_required
+def manual_file(manual_id):
+    return _manual_serve(manual_id, attachment=False)
+
+
+@app.get("/instrucciones/<manual_id>/descargar", endpoint="manual_download")
+@admin_required
+def manual_download(manual_id):
+    return _manual_serve(manual_id, attachment=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════

@@ -7580,6 +7580,56 @@ def ensure_short_links_schema():
 
 
 # ---------------------------------------------------------------------------
+# INSTRUCCIONES · los MANUALES de la app (sección «Instrucciones», sep 2026)
+# ---------------------------------------------------------------------------
+class AppManual(Base):
+    """Un manual de una funcionalidad de la web: un FICHERO subido (PDF, vídeo, imagen, Word…) o un
+    ENLACE, con su categoría (las áreas de la app). Lo ve cualquiera con sesión; lo sube dirección.
+    Las guías que GENERA la propia app (la del calendario en el móvil) no viven aquí: se listan al
+    vuelo (`MANUAL_BUILTINS` en app.py), para que estén siempre al día."""
+
+    __tablename__ = "app_manuals"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    title = Column(Text, nullable=False)
+    description = Column(Text)
+    category = Column(Text, nullable=False, server_default=text("'general'"))
+    file_url = Column(Text)              # el fichero en Storage (carpeta manuales/)
+    file_name = Column(Text)             # el nombre con el que se subió (es el que se descarga)
+    file_kind = Column(Text)             # PDF · VIDEO · IMAGE · FILE · LINK
+    link_url = Column(Text)              # un manual puede ser solo un enlace (un vídeo, un doc)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_user_id = Column(PGUUID(as_uuid=True))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+def ensure_manuals_schema():
+    """La tabla de los manuales de la sección Instrucciones (idempotente, sin Alembic)."""
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS app_manuals (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            title text NOT NULL,
+            description text,
+            category text NOT NULL DEFAULT 'general',
+            file_url text,
+            file_name text,
+            file_kind text,
+            link_url text,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_by_user_id uuid,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_app_manuals_category ON app_manuals(category, sort_order);",
+    ], "app_manuals")
+
+
+# ---------------------------------------------------------------------------
 # VERSIÓN WEB de un vídeo (la copia con la que se REPRODUCE)
 # ---------------------------------------------------------------------------
 class VideoWebVersion(Base):

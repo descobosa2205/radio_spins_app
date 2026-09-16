@@ -37,6 +37,7 @@
         <a href="{{ request.referrer or '#' }}" class="btn btn-outline-secondary btn-sm btn-volver" onclick="if(window.history.length>1){history.back();return false;}" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
         <span class="badge text-bg-light border"><i class="fa fa-mobile-screen-button me-1 text-primary"></i>Guía de configuración</span>
         {% if guide_pdf_url %}<a class="btn btn-sm btn-outline-primary" href="{{ guide_pdf_url }}"><i class="fa fa-file-pdf me-1"></i>Descargar en PDF</a>{% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('manuals_view') }}" title="Todos los manuales de la app"><i class="fa fa-circle-question me-1"></i>Instrucciones</a>
       </span>
       <span class="d-flex gap-2 align-items-center">
         <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones" style="height:30px;object-fit:contain;">

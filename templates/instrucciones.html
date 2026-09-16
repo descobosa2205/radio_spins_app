@@ -1,0 +1,179 @@
+{% extends "layout.html" %}
+{% block content %}
+{# INSTRUCCIONES · los manuales de la app, agrupados por área. Los ve cualquiera con sesión; los sube,
+   edita y borra dirección (CAN_EDIT_MANUALS). Las guías que genera la app salen con su etiqueta y sin
+   tres puntitos (no se editan: están siempre al día). #}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h3 class="m-0"><i class="fa fa-circle-question me-2 text-danger"></i>Instrucciones</h3>
+    <div class="text-muted small">Los manuales de las funcionalidades de la web, por si tienes dudas de algo.{% if manual_total %} {{ manual_total }} manual{{ '' if manual_total == 1 else 'es' }}.{% endif %}</div>
+  </div>
+  {% if CAN_EDIT_MANUALS %}
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#manualCreateModal"><i class="fa fa-plus me-1"></i>Subir manual</button>
+  {% endif %}
+</div>
+
+{# ---- Los campos del formulario (los mismos al crear y al editar) ---- #}
+{% macro campos(m, uid) %}
+  <div class="mb-2">
+    <label class="form-label" for="manualTitle{{ uid }}">Nombre *</label>
+    <input class="form-control" id="manualTitle{{ uid }}" name="title" required maxlength="200" value="{{ m.title if m else '' }}" placeholder="Cómo actualizar las ventas, Cómo pedir invitaciones…">
+  </div>
+  <div class="row g-2">
+    <div class="col-12 col-md-7 mb-2">
+      <label class="form-label" for="manualCat{{ uid }}">Área de la web</label>
+      <select class="form-select" id="manualCat{{ uid }}" name="category">
+        {% for key, label, icon in manual_categories %}
+          <option value="{{ key }}" {% if (m.category if m else 'general') == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-md-5 mb-2">
+      <label class="form-label" for="manualOrder{{ uid }}">Orden dentro del área</label>
+      <input class="form-control" id="manualOrder{{ uid }}" name="sort_order" type="number" min="0" step="1" value="{{ m.sort_order if m else 0 }}">
+      <div class="form-text">De menor a mayor. Si da igual, déjalo a 0.</div>
+    </div>
+  </div>
+  <div class="mb-2">
+    <label class="form-label" for="manualDesc{{ uid }}">Qué explica</label>
+    <textarea class="form-control" id="manualDesc{{ uid }}" name="description" rows="2" maxlength="2000" placeholder="Una o dos frases: para qué sirve y a quién le interesa.">{{ m.description if m else '' }}</textarea>
+  </div>
+  <div class="mb-2">
+    <label class="form-label">El manual</label>
+    <div class="manual-drop" data-file-drop-for="#manualFile{{ uid }}">
+      <i class="fa fa-cloud-arrow-up me-1"></i>
+      Arrastra aquí el archivo o <label for="manualFile{{ uid }}" class="manual-drop__pick">elígelo</label>.
+      <span class="d-block text-muted small mt-1">PDF, Word, PowerPoint, Excel, una imagen o un vídeo.</span>
+      <input class="d-none" type="file" id="manualFile{{ uid }}" name="file" accept="{{ manual_accept }}" data-manual-file>
+      <div class="small mt-2 fw-semibold d-none" data-manual-file-name></div>
+    </div>
+    {% if m and m.file_name %}
+      <div class="form-text"><i class="fa {{ m.icon }} me-1"></i>Ahora: <strong>{{ m.file_name }}</strong>. Si subes otro, lo reemplaza.</div>
+    {% endif %}
+  </div>
+  <div class="mb-1">
+    <label class="form-label" for="manualLink{{ uid }}">O un enlace</label>
+    <input class="form-control" id="manualLink{{ uid }}" name="link_url" type="url" inputmode="url" value="{{ m.link_url if m else '' }}" placeholder="https://… (un vídeo, un documento compartido)">
+    <div class="form-text">Vale con una de las dos cosas: el archivo o el enlace.</div>
+  </div>
+{% endmacro %}
+
+{# ---- La tarjeta de un manual ---- #}
+{% macro tarjeta(m) %}
+<div class="col-12 col-md-6 col-xl-4" id="manual-{{ m.id }}">
+  <div class="card h-100 manual-card">
+    <div class="card-body d-flex gap-3">
+      <div class="manual-card__ico {{ 'is-pdf' if m.kind == 'PDF' else '' }}"><i class="fa {{ m.icon }}"></i></div>
+      <div class="flex-grow-1 min-w-0">
+        <div class="fw-semibold">{{ m.title }}</div>
+        {% if m.builtin %}<span class="badge text-bg-light border mt-1" title="La genera la propia app, así que está siempre al día">Generada por la app</span>{% endif %}
+        {% if m.description %}<div class="small text-muted mt-1">{{ m.description }}</div>{% endif %}
+        <div class="small text-muted mt-1">
+          {% if m.builtin %}Guía de la app{% elif m.is_link %}Enlace{% else %}{{ m.file_name or m.kind }}{% endif %}
+          {% if m.updated_at %} · {{ m.updated_at.strftime('%d/%m/%Y') }}{% endif %}
+          {% if m.created_by_nick %} · {{ m.created_by_nick }}{% endif %}
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          {% if m.is_link %}
+            <a class="btn btn-sm btn-outline-primary" href="{{ m.view_url }}" target="_blank" rel="noopener"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir</a>
+          {% else %}
+            <button type="button" class="btn btn-sm btn-outline-primary"
+                    data-viewer-src="{{ m.viewer_src }}" data-viewer-kind="{{ m.kind }}"
+                    data-viewer-name="{{ m.title }}" data-viewer-download="{{ m.download_url }}"
+                    data-viewer-set="manuales"><i class="fa fa-eye me-1"></i>Ver</button>
+            {% if m.builtin and m.html_url %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ m.html_url }}" target="_blank" rel="noopener"><i class="fa fa-book-open me-1"></i>Guía en la web</a>
+            {% endif %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ m.download_url }}" data-dl-bar><i class="fa fa-download me-1"></i>Descargar</a>
+          {% endif %}
+        </div>
+      </div>
+      {% if CAN_EDIT_MANUALS and not m.builtin %}
+        <div class="dropdown flex-shrink-0">
+          <button class="btn btn-sm btn-light" type="button" data-bs-toggle="dropdown" aria-label="Más opciones"><i class="fa fa-ellipsis-vertical"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#manualEdit{{ m.uid }}"><i class="fa fa-pen me-2"></i>Editar</button></li>
+            <li>
+              <form method="post" action="{{ url_for('manual_delete', manual_id=m.id) }}" class="m-0" data-confirm="¿Eliminar este manual de Instrucciones? El archivo se borra también.">
+                <button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash me-2"></i>Eliminar</button>
+              </form>
+            </li>
+          </ul>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% if manual_total %}
+  {% for g in manual_groups %}
+    <div class="mb-4" data-viewer-group>
+      <h5 class="d-flex align-items-center gap-2 mb-2">
+        <span class="manual-cat__ico"><i class="fa {{ g.icon }}"></i></span>{{ g.label }}
+        <span class="text-muted small fw-normal">· {{ g.manuals|length }}</span>
+      </h5>
+      <div class="row g-3">
+        {% for m in g.manuals %}{{ tarjeta(m) }}{% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="card"><div class="card-body text-muted">
+    Todavía no hay manuales. {% if CAN_EDIT_MANUALS %}Sube el primero con «Subir manual».{% else %}Dirección los irá subiendo aquí.{% endif %}
+  </div></div>
+{% endif %}
+
+{% if CAN_EDIT_MANUALS %}
+  {# ---- Subir un manual ---- #}
+  <div class="modal fade" id="manualCreateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+      <form method="post" action="{{ url_for('manual_create') }}" enctype="multipart/form-data"
+            data-autosave="manual_create" data-autosave-title="Nuevo manual">
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-file-arrow-up me-2"></i>Subir manual</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">{{ campos(none, 'New') }}</div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Añadir a Instrucciones</button>
+        </div>
+      </form>
+    </div></div>
+  </div>
+
+  {# ---- Editar cada manual (uno por manual: los ids llevan su sufijo) ---- #}
+  {% for g in manual_groups %}{% for m in g.manuals if not m.builtin %}
+    <div class="modal fade" id="manualEdit{{ m.uid }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+        <form method="post" action="{{ url_for('manual_update', manual_id=m.id) }}" enctype="multipart/form-data">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-pen me-2"></i>{{ m.title }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">{{ campos(m, m.uid) }}</div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary">Guardar</button>
+          </div>
+        </form>
+      </div></div>
+    </div>
+  {% endfor %}{% endfor %}
+{% endif %}
+
+<script>
+  // El nombre del archivo elegido (o soltado: file_drop.js dispara `change`) debajo de la zona.
+  document.addEventListener('change', function (ev) {
+    var inp = ev.target && ev.target.closest ? ev.target.closest('[data-manual-file]') : null;
+    if (!inp) return;
+    var zona = inp.closest('.manual-drop');
+    var out = zona ? zona.querySelector('[data-manual-file-name]') : null;
+    if (!out) return;
+    var f = inp.files && inp.files[0];
+    out.textContent = f ? f.name : '';
+    out.classList.toggle('d-none', !f);
+  });
+</script>
+{% endblock %}

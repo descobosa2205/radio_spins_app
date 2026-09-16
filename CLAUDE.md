@@ -482,6 +482,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 - **`agenda-calendarios.md`** — agenda, calendarios (Inicio, artista, oficina), iCal y CalDAV.
 - **`permisos.md`** — el catálogo, los grants, el enforcement y cómo no dejar a nadie con un 403.
   ⚠️ *Retirar un recurso se lleva sus grants en cascada: hay que trasladarlos.*
+- **`instrucciones.md`** — la sección Instrucciones: los manuales de la app (los sube dirección, los ve
+  cualquiera con sesión) y las guías que genera la propia app (`MANUAL_BUILTINS`). ⚠️ *Es ayuda: no es
+  un recurso de Accesos; sus endpoints van en `_access_exempt_endpoints`.*
 - **`ui-plantillas.md`** — patrones de UI: fichas y edición inline, modales y asistentes, formularios
   (lo tecleado no se pierde, lo que falta en rojo), buscadores, tablas, PDF, móvil, visor e Inicio.
 - **`integraciones.md`** — Pleo, Cabify, el cron único, Storage, despliegue y los errores del servidor.

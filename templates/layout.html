@@ -190,6 +190,9 @@
               <li><a class="dropdown-item" href="{{ url_for('my_expenses_view') }}"><i class="fa fa-receipt me-2"></i> Mis gastos</a></li>
               {# MIS VACACIONES: son días propios, lo tiene cualquiera con sesión. #}
               <li><a class="dropdown-item" href="{{ url_for('mis_vacaciones_view') }}"><i class="fa fa-umbrella-beach me-2"></i> Mis vacaciones</a></li>
+              {# INSTRUCCIONES: los manuales de la app. Ayuda para cualquiera con sesión, también aquí
+                 para que se encuentre siempre (en el menú de secciones puede caer en «más»). #}
+              <li><a class="dropdown-item" href="{{ url_for('manuals_view') }}"><i class="fa fa-circle-question me-2"></i> Instrucciones</a></li>
               {# ORDENAR MI MENÚ: cada uno se coloca sus secciones arrastrándolas. #}
 
               {# ORDENAR MI INICIO: lo mismo con los MÓDULOS de la portada. Solo se ordena lo que esa

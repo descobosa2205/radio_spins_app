@@ -723,7 +723,10 @@
             ev.preventDefault(); ev.stopPropagation();
             if (!window.confirm('¿Eliminar de la agenda?')) return;
             var fd = new FormData(); fd.append('next', location.pathname + location.search);
-            fetch('/agenda/' + a.item_id + '/eliminar', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            // ⚠️ `redirect: 'manual'`: el endpoint responde con un redirect y su aviso («Eliminado de la
+            // agenda», o el motivo si no se pudo) viaja en la sesión. Si el fetch SIGUIERA el redirect se
+            // comería ese aviso y la recarga saldría muda: parecía que «no se eliminaba bien» sin decir nada.
+            fetch('/agenda/' + a.item_id + '/eliminar', { method: 'POST', body: fd, redirect: 'manual', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
               .then(function () { location.reload(); });
           });
           side.appendChild(row);
@@ -884,8 +887,8 @@
           if (!id) return;
           if (!window.confirm('¿Eliminar esto de la agenda?')) return;
           fetch('/agenda/' + id + '/eliminar', {
-            method: 'POST', body: cuerpoForm({}), headers: { 'X-Requested-With': 'XMLHttpRequest' }
-          }).then(function () { location.reload(); });
+            method: 'POST', body: cuerpoForm({}), redirect: 'manual', headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          }).then(function () { location.reload(); });  // sin seguir el redirect, para que el aviso se vea al recargar
           return;
         }
         var avisar = ev.target.closest('[data-an-send]');

@@ -154562,16 +154562,47 @@ def public_caldav_guide():
                            guide_pdf_url=url_for("public_caldav_guide_pdf"))
 
 
+_CALDAV_HOST_DNS_CACHE: dict = {}
+
+
+def _caldav_host_resolves(host: str) -> bool:
+    """¿Existe ese nombre en el DNS? Cacheado 5 min: se pregunta al pintar la guía o un PDF, no en cada
+    evento. Ante la duda (un fallo raro al resolver) se da por bueno el nombre configurado."""
+    import socket
+    h = (host or "").split(":")[0].strip().lower()
+    if not h or h in ("localhost", "127.0.0.1") or h.replace(".", "").isdigit():
+        return True
+    now = time.monotonic()
+    hit = _CALDAV_HOST_DNS_CACHE.get(h)
+    if hit and (now - hit[0]) < 300:
+        return hit[1]
+    try:
+        socket.getaddrinfo(h, 443, proto=socket.IPPROTO_TCP)
+        ok = True
+    except socket.gaierror:
+        ok = False
+    except Exception:
+        ok = True
+    _CALDAV_HOST_DNS_CACHE[h] = (now, ok)
+    return ok
+
+
 def _caldav_public_server() -> str:
     """El HOST del servidor CalDAV que se le dice a la gente (sin «https://»).
 
     Manda **`CALDAV_PUBLIC_HOST`** (el host de Fly, p. ej. `calendario.33producciones.es`): el servidor
     CalDAV vive en un host SIN Cloudflare (ver DEPLOY_CALDAV.md) y Render NO lo sirve. Sin esa
     variable se cae a `EXTERNAL_BASE_URL` o al host de la petición, que en el propio host de Fly es
-    el bueno y en Render **no**."""
+    el bueno y en Render **no**.
+    ⚠️ Si el nombre configurado **no existe todavía en el DNS** (el CNAME sin crear, 15-sep-2026), la
+    guía y el PDF no pueden mandar a la gente a un servidor que no responde: mientras tanto se enseña
+    el host de respaldo (`CALDAV_FALLBACK_HOST`, por defecto el de Fly) y, en cuanto el nombre exista,
+    sale solo (se comprueba cada 5 min)."""
     host = (os.getenv("CALDAV_PUBLIC_HOST") or "").strip().rstrip("/").split("//")[-1]
     if host:
-        return host
+        if _caldav_host_resolves(host):
+            return host
+        return (os.getenv("CALDAV_FALLBACK_HOST") or "radio-spins-caldav.fly.dev").strip()
     try:
         base = (os.getenv("EXTERNAL_BASE_URL") or request.url_root or "").strip()
     except Exception:
@@ -155500,26 +155531,55 @@ def _caldav_events_invalidate(artist_id) -> None:
             _CALDAV_EVENTS_CACHE.pop(k, None)
 
 
+def _caldav_items_fingerprint(session_db, artist_id) -> str:
+    """HUELLA de las notas y bloqueos del artista tal como están en la BD: UNA consulta pequeña
+    (~1 ms en Fly) que dice si LA WEB ha creado, editado o borrado algo desde que se construyó la caché.
+
+    ⚠️⚠️ El servidor CalDAV corre en OTRO host (Fly) que el back office (Render): lo que se borra o
+    se edita en la web no puede invalidar esta caché, así que sin la huella el móvil seguía viendo la
+    nota borrada hasta 90 s después —y si en ese rato la tocaba, la RESUCITABA (bug real,
+    15-sep-2026)—. Las actividades (conciertos, promociones…) siguen con el TTL: lo que se borra y se
+    mueve desde el calendario de la web son las notas y los bloqueos."""
+    try:
+        # ⚠️ `string_agg` lleva DOS argumentos (la expresión y el separador): sin el separador Postgres
+        # rechaza la consulta, la huella sale vacía y la caché vuelve al TTL sin dar ningún error
+        # (pasó en la primera prueba: el borrado seguía tardando 90 s en verse).
+        row = session_db.execute(text(
+            "SELECT count(*), coalesce(md5(string_agg(concat_ws('|', id::text, kind, title, coalesce(note, ''), "
+            "start_date::text, end_date::text, coalesce(start_time, ''), coalesce(end_time, '')), ';' "
+            "ORDER BY id::text)), '') FROM artist_agenda_items WHERE artist_id = :aid"),
+            {"aid": str(artist_id)}).first()
+        return "%s:%s" % (row[0], row[1]) if row else ""
+    except Exception:
+        app.logger.exception("[caldav] no se pudo calcular la huella de la agenda del artista %s", artist_id)
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+        return ""  # sin huella se vuelve al TTL de siempre
+
+
 def _caldav_artist_events(session_db, artist, full_details: bool = False):
-    """Eventos CalDAV del artista, con CACHÉ de 90 s por artista.
+    """Eventos CalDAV del artista, con CACHÉ de 90 s por artista **validada con la huella de la BD**.
 
     ⚠️ Un refresco del iPhone es una RÁFAGA: PROPFIND del hogar (que pide el ctag de CADA
     calendario), y PROPFIND y REPORT de cada uno; a dirección le salen 45 calendarios. Sin caché,
     cada ráfaga recorría la agenda entera (`_agenda_build`) 45 veces. Lo que se escribe desde el
-    móvil invalida la del artista (`_caldav_events_invalidate`); lo que se escribe desde la web
-    tarda como mucho 90 s en verse desde el móvil, mucho menos de lo que tarda el propio iPhone en
-    volver a preguntar.
+    móvil invalida la del artista (`_caldav_events_invalidate`); lo que se escribe desde la WEB lo
+    detecta la huella (`_caldav_items_fingerprint`): en cuanto el móvil vuelve a preguntar ve la nota
+    borrada, sin esperar a los 90 s. El resto de la agenda (actividades) tarda como mucho esos 90 s.
     ⚠️ `full_details` forma parte de la CLAVE: contratación y dirección ven también lo que está SIN
     CONFIRMAR (las reservas), el resto —y la cuenta del artista— no; son dos listas distintas."""
     key = (str(artist.id), bool(full_details))
     now = time.monotonic()
     with _CALDAV_EVENTS_LOCK:
         hit = _CALDAV_EVENTS_CACHE.get(key)
-    if hit and (now - hit[0]) < _CALDAV_EVENTS_TTL:
+    fp = _caldav_items_fingerprint(session_db, artist.id)
+    if hit and (now - hit[0]) < _CALDAV_EVENTS_TTL and (not fp or hit[2] == fp):
         return hit[1]
     events = _caldav_artist_events_build(session_db, artist, full_details=bool(full_details))
     with _CALDAV_EVENTS_LOCK:
-        _CALDAV_EVENTS_CACHE[key] = (now, events)
+        _CALDAV_EVENTS_CACHE[key] = (now, events, fp)
     return events
 
 
@@ -156255,6 +156315,12 @@ def public_caldav_resource(artist_id, resource):
                 # guardar solo la primera fecha sin avisar sería peor (nadie se enteraría).
                 return Response("Recurring events are not supported", status=403)
             item = _caldav_find_item(session_db, artist, resource, parsed.get("uid"))
+            if item is None and (request.headers.get("If-Match") or "").strip():
+                # El móvil manda `If-Match` cuando REENVÍA algo que ya tenía (una edición, una
+                # resincronización) y aquí ya no está: lo borró la web. Con un 201 la nota RESUCITABA y
+                # volvía a avisar a todo el mundo (bug real, 15-sep-2026). El 412 (precondición fallida)
+                # es lo que espera un cliente CalDAV: vuelve a preguntar, ve que no existe y la quita.
+                return Response("Precondition Failed", status=412)
             # ¿Una ACTIVIDAD por PALABRA CLAVE («Concierto: Sevilla», «Ensayo: Local»)? Solo para quien
             # puede crearlas en la web, y solo al CREAR: una nota que ya existe no se convierte al
             # editarla. La actividad nace RESERVADA y el evento del móvil desaparece de su calendario
@@ -156312,21 +156378,35 @@ def public_caldav_resource(artist_id, resource):
                     session_db.commit()
                 _caldav_events_invalidate(artist.id)
                 return Response("", status=204)
-            return Response("Forbidden", status=403)  # actividad (solo lectura) o inexistente
+            if _caldav_is_activity(resource):
+                return Response("Read-only", status=403)  # una ACTIVIDAD se borra en la app, no desde el móvil
+            # Ya no existe (lo borró la web antes): para el móvil es «hecho». Con un 403 lo tomaba por
+            # PROHIBIDO y restauraba el evento en su pantalla (bug real, 15-sep-2026).
+            return Response("Not found", status=404)
         return Response("", status=405)
     finally:
         session_db.close()
 
 
 def _caldav_logged(fn):
-    """Envoltorio que registra cada petición CalDAV (para depurar la conexión desde el iPhone)."""
+    """Envoltorio que registra cada petición CalDAV **con su respuesta** (método, ruta, código, ms,
+    Depth, precondiciones y cliente): es lo único que dice qué hace de verdad un iPhone.
+
+    ⚠️ `app.logger.info` no salía en `fly logs` (el nivel por defecto de Flask es WARNING), así que
+    hasta el 15-sep-2026 esta línea no se veía nunca: en el host «solo CalDAV» se sube el nivel a
+    INFO (abajo). Se pinta DESPUÉS de responder, para poder decir el código."""
     def _w(*a, **k):
+        t0 = time.monotonic()
+        resp = fn(*a, **k)
         try:
-            app.logger.info("CALDAV %s %s depth=%s ua=%s", request.method, request.path,
-                            request.headers.get("Depth"), (request.headers.get("User-Agent") or "")[:50])
+            pre = " ".join(h for h in ("If-Match", "If-None-Match") if request.headers.get(h))
+            app.logger.info("CALDAV %s %s -> %s %dms depth=%s%s ua=%s", request.method, request.path,
+                            getattr(resp, "status_code", "?"), int((time.monotonic() - t0) * 1000),
+                            request.headers.get("Depth"), (" " + pre) if pre else "",
+                            (request.headers.get("User-Agent") or "")[:60])
         except Exception:
             pass
-        return fn(*a, **k)
+        return resp
     return _w
 
 
@@ -156341,6 +156421,12 @@ for _cd_path, _cd_ep, _cd_view, _cd_methods in [
     ("/caldav/calendars/<artist_id>/<resource>", "public_caldav_resource", public_caldav_resource, ["GET", "HEAD", "PROPFIND", "PUT", "DELETE", "OPTIONS"]),
 ]:
     app.add_url_rule(_cd_path, endpoint=_cd_ep, view_func=_caldav_logged(_cd_view), methods=_cd_methods, provide_automatic_options=False)
+
+if CALDAV_ONLY:
+    # Que las líneas «CALDAV …» de arriba salgan en `fly logs`: sin esto el host no dejaba rastro de lo
+    # que le pedía el iPhone y un fallo de sincronización no se podía diagnosticar (15-sep-2026).
+    import logging as _logging
+    app.logger.setLevel(_logging.INFO)
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════

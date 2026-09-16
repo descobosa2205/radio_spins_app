@@ -912,8 +912,10 @@
   refresco del iPhone es una RÁFAGA (PROPFIND del hogar con el ctag de CADA calendario + PROPFIND y
   REPORT de cada uno) y a dirección le salen 45 calendarios: sin caché, 45 `_agenda_build` por
   ráfaga. Lo que se escribe desde el móvil la **invalida** (`_caldav_events_invalidate`); lo que se
-  escribe en la web tarda como mucho 90 s en verse en el móvil (menos de lo que tarda en volver a
-  preguntar). ⚠️ La clave lleva **`full_details`**: contratación y dirección ven también lo SIN
+  escribe en la WEB lo detecta la **HUELLA de la BD** (`_caldav_items_fingerprint`, una consulta de
+  ~1 ms por artista: cuenta y md5 de sus notas y bloqueos) que se compara en cada acierto de caché —
+  ver «LO QUE SE BORRA EN LA WEB VOLVÍA», más abajo—; el resto de la agenda (actividades) tarda como
+  mucho 90 s. ⚠️ La clave lleva **`full_details`**: contratación y dirección ven también lo SIN
   CONFIRMAR y los demás no, así que son dos listas.
 
 - ⚠️⚠️ **CalDAV · EL TIPO SE ELIGE CON LA PRIMERA PALABRA, Y EL ARTISTA TIENE SU PROPIA CUENTA**
@@ -967,6 +969,52 @@
   (quién puede, reserva completa con lugar y hora, reenvío sin duplicar, dirección la ve tentativa
   y el artista no, reunión de dos días, palabra sola, sin separador → nota, tipo de varias palabras,
   una nota que ya existe no se convierte) y los dos PDF.
+
+- ⚠️⚠️ **CalDAV · LO QUE SE BORRA EN LA WEB VOLVÍA** (bug real, 15-sep-2026: «lo elimino en la web,
+  no se elimina bien y tampoco se va del móvil»). La BD lo contó: la nota borrada en la web fue
+  RE-SUBIDA por el iPhone dos veces (dos avisos «Nuevo en la agenda» seguidos, mismo UID). Tres piezas,
+  las tres del servidor:
+  · **La caché de 90 s no sabe lo que borra la web**: el CalDAV corre en Fly y el back office en
+    Render, así que `_caldav_events_invalidate` (que solo llama el propio host al escribir desde el
+    móvil) **no se ejecuta nunca** para un borrado de la web. El listado, el ctag y el GET del recurso
+    seguían sirviendo la nota borrada hasta 90 s → el móvil «no se enteraba». Ahora la caché se valida
+    con la **huella de la BD** (`_caldav_items_fingerprint`: `count` + `md5(string_agg(...))` de las
+    notas y bloqueos del artista, ~1 ms) en cada acierto; si cambia, se reconstruye al momento. Lo
+    que NO es nota (actividades) sigue con el TTL.
+    ⚠️ **`string_agg` lleva DOS argumentos** (expresión Y separador): sin el separador Postgres rechaza
+    la consulta, la huella sale vacía y se vuelve al TTL **sin ningún error** (pasó en la primera
+    prueba). Por eso el `except` deja rastro en el log.
+  · **Borrar en el móvil algo que la web ya borró respondía 403** («actividad o inexistente» iban
+    juntos): para iOS un 403 es «prohibido» y **restaura el evento en pantalla**. Ahora **404** si no
+    existe (para el móvil es «hecho») y 403 solo si es una ACTIVIDAD (`_caldav_is_activity`).
+  · **Reenviar con `If-Match` algo que ya no existe se daba por NUEVO** (201): el iPhone manda
+    `If-Match` cuando reenvía lo que ya tenía (una edición, una resincronización), el servidor no
+    encontraba la nota, la creaba otra vez y **volvía a avisar a todo el mundo**: la nota
+    «resucitaba». Ahora **412** (precondición fallida, lo que espera un cliente CalDAV: vuelve a
+    preguntar, ve que no está y la quita). Crear una nota NUEVA a mano (sin `If-Match`) sigue igual.
+  ⚠️ Con la caché fresca, un borrado en la web llega al móvil **en su siguiente consulta**: iOS
+  pregunta cada X minutos (lo que tenga en «Obtener datos») o al abrir Calendario y **tirar hacia
+  abajo** en la lista de calendarios. Eso no lo decide el servidor.
+  · **Las líneas `CALDAV …` NUNCA salían en `fly logs`**: `app.logger.info` con el nivel por defecto
+    de Flask (WARNING) se descarta, así que el host no dejaba rastro de lo que le pedía el iPhone y
+    esto no se pudo ver en directo. En `CALDAV_ONLY` el logger va a INFO y `_caldav_logged` pinta la
+    línea **después** de responder: método, ruta, **código**, ms, Depth, `If-Match`/`If-None-Match` y
+    el cliente. Para reproducir algo: `fly logs --app radio-spins-caldav` (sin `--no-tail`).
+  · **La guía y el PDF no pueden apuntar a un nombre que no existe**: `CALDAV_PUBLIC_HOST` llevaba
+    `calendario.33producciones.es` sin su CNAME (ver DEPLOY_CALDAV.md), y la guía en producción lo
+    enseñaba. `_caldav_public_server()` comprueba ahora que el nombre resuelva (`_caldav_host_resolves`,
+    cacheado 5 min) y si no, enseña `CALDAV_FALLBACK_HOST` (por defecto el host de Fly). Cuando el CNAME
+    exista, sale solo.
+  · **El borrado en la web era MUDO**: `agenda_calendar.js` borraba con un `fetch` que SEGUÍA el
+    redirect del endpoint, así que el flash («Eliminado de la agenda», o «No tienes permiso…») se
+    consumía dentro del fetch y la recarga salía sin ningún mensaje. Con **`redirect: 'manual'`** el
+    aviso queda en la sesión y se ve al recargar. Regla: un `fetch` a un endpoint que responde
+    POST→flash→redirect y luego recarga la página **no debe seguir el redirect**.
+  Probado con la app real (`test_caldav3.py`, scratchpad de la sesión): ETag del PUT = ETag del listado
+  = ETag del REPORT; borrado en BD → el listado, el ctag y el GET cambian al momento; DELETE de lo
+  borrado → 404; PUT con `If-Match` → 412 sin fila nueva ni aviso nuevo; PUT nuevo → 201; editar
+  título u hora en la web cambia el ctag y el móvil se baja la versión editada; sin cambios, el ctag no
+  cambia; y las dos baterías anteriores (53 + 31) siguen en verde.
 
 - **CONTABILIDAD · el filtro de empresa: SOLO EL LOGO** (ago 2026), y el nombre únicamente en las que
   no lo tienen (la misma regla que la columna «Empresa» de la tabla); en los dos casos, el nombre al

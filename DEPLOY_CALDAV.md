@@ -162,6 +162,11 @@ CALDAV_PUBLIC_HOST = calendario.33producciones.es
 
 (o `radio-spins-caldav.fly.dev` mientras no haya dominio). Redespliega solo. Sin la variable, la guía
 enseña el dominio de Render, que **no** sirve CalDAV.
+⚠️ **Si el nombre configurado todavía no existe en el DNS** (el CNAME sin crear), la guía y los PDF
+**no lo enseñan**: `_caldav_public_server()` comprueba que el nombre resuelva (cacheado 5 min) y, si
+no, enseña el de respaldo (`CALDAV_FALLBACK_HOST`, por defecto `radio-spins-caldav.fly.dev`). En
+cuanto el CNAME exista, el nombre propio sale solo. Así nadie sigue un PDF que apunta a un servidor
+que no responde (pasó el 15-sep-2026: Render llevaba `calendario.33producciones.es` sin CNAME).
 
 ---
 
@@ -200,8 +205,18 @@ esté, acordarse del `fly deploy` después de cada push que toque `app.py`.
 
 ## Si algo falla
 
-- `fly logs --app radio-spins-caldav --no-tail` — cada petición CalDAV deja una línea `CALDAV <método>
-  <ruta> …`, y los errores de arranque (BD, OOM) salen ahí.
+- `fly logs --app radio-spins-caldav --no-tail` — cada petición CalDAV deja una línea
+  `CALDAV <método> <ruta> -> <código> <ms> depth=… [If-Match/If-None-Match] ua=<cliente>`, y los
+  errores de arranque (BD, OOM) salen ahí. ⚠️ Hasta el 15-sep-2026 esas líneas **no salían** (el
+  nivel de `app.logger` era WARNING): el host no dejaba rastro de lo que le pedía el iPhone. Para ver
+  qué hace un móvil en directo: `fly logs --app radio-spins-caldav` (sin `--no-tail`) mientras se
+  reproduce el problema. El `--no-tail` devuelve solo el último lote (~100 líneas).
+- **Un evento borrado en la web que «vuelve»** (bug real, 15-sep-2026): la web (Render) borra la fila
+  pero la caché de este host (90 s) seguía sirviéndola; si el móvil la tocaba en ese rato, el DELETE
+  recibía un 403 (lo tomaba por prohibido y la restauraba) y el reenvío con `If-Match` un 201 (la
+  resucitaba y volvía a avisar). Arreglado: la caché se valida con una **huella de la BD**
+  (`_caldav_items_fingerprint`), el DELETE de lo que ya no existe es **404** y el PUT con `If-Match`
+  sobre lo borrado es **412**. Batería: `test_caldav3.py` (scratchpad de la sesión).
 - `fly checks list --app radio-spins-caldav` — si el check está `critical`, el proxy no enruta.
 - `fly ssh console --app radio-spins-caldav -C "sh -c 'ps -o pid,rss,args -A; free -m'"` — procesos y
   memoria dentro de la máquina.

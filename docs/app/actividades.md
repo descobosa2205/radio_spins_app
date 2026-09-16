@@ -86,6 +86,7 @@
 - QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR. A CUATRO SEMANAS
 - LA FECHA DE ANUNCIO PUEDE LLEVAR HORA, Y LA CONFIRMA EL PROMOTOR (sep 2026)
 - EL DÍA DEL ANUNCIO, AL ARTISTA LE LLEGA UN SMS CON SUS CARTELES (sep 2026)
+- EL CUADRANTE · EL CACHÉ FIJO Y EL VARIABLE, EN DOS COLUMNAS (sep 2026)
 
 ---
 
@@ -1968,3 +1969,31 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   lo usaba nadie. Su única API viva (`app33ActivityContacts.set`, que usa el comisionista marcado
   como producción local) es ahora `app33ActivityPicks.add`.
   ⚠️ Prueba de regresión: **`tools/check_contactos.py`** (20 comprobaciones con la app real).
+
+- **EL CUADRANTE · EL CACHÉ FIJO Y EL VARIABLE VAN EN DOS COLUMNAS** (sep 2026, lo pidió Dani).
+  Antes había **una sola** columna «Caché» con todo pegado («12.000€ · 70%»): ni se podía leer de un
+  vistazo ni sumar, y un **«70 %» suelto no dice nada** —¿de qué?, ¿desde cuándo?—.
+  · **Caché** = lo que se cobra SEGURO: la suma de las líneas cerradas (`_cache_fixed_text`). Un
+  «Otros» con importe cerrado también entra, porque se cobra igual.
+  · **Caché variable** = cada línea que **depende de algo**, con su condición entera
+  (`_cache_variable_text`): «70% · Bruto · % de taquilla desde 10.000 € de recaudación», «2,00 € ·
+  Importe fijo por entrada vendida (desde la entrada 300)».
+  ⚠️ **La condición NO se escribe en el cuadrante**: sale de **`_cache_row_readable`**, el punto
+  único del que ya comían la ficha y lo que se le comunica al artista
+  (`_concert_cache_readable_rows` → `CACHE_VARIABLE_OPTION_LABELS`, espejadas en
+  `static/js/concert_form.js`). Escrita aparte, el cuadrante y la ficha acabarían diciendo cosas
+  distintas del mismo caché.
+  ⚠️ **Qué es «variable» lo decide `is_variable`**: el tipo VARIABLE **o cualquier línea con
+  porcentaje**. No vale mirar solo `kind`, porque un «Otros» con un 15 % tampoco está cerrado.
+  ⚠️ El **«Caché total»** de la cabecera del artista sale ahora del MISMO criterio
+  (`_cache_amount_total`): antes sumaba también el importe de un caché variable —2 € por entrada
+  vendida sumaban 2 € al total— y el total **no cuadraba con su propia columna**.
+  ⚠️ **`variable_basis` no lo rellena nadie** (el formulario guarda siempre `None`): lo que describe
+  de verdad un caché variable es su **`config`** (`mode` FIXED/PERCENT + `option` + los mínimos).
+  · **Cada columna tiene SU interruptor** en los filtros (`show_cache` · `show_cache_var`), que es lo
+  que pidió Dani «por si quiere que se muestre o no». Se apagan al instante en el navegador
+  (`data-toggle-col` = el nombre del flag sin `show_`) y viajan en la URL para el PDF.
+  ⚠️ Es la **única columna de la tabla que envuelve** (el resto va a una línea): lleva
+  `white-space:normal` **con `min-width`**, porque sin suelo de ancho la columna se encoge hasta
+  quedar en una palabra por línea. En el PDF ese suelo se quita (`@media print`), que ahí manda el
+  papel.

@@ -36,6 +36,7 @@
   ('show_venue','fa-location-pin','Recinto', show_venue),
   ('show_capacity','fa-users','Aforo', show_capacity),
   ('show_cache','fa-euro-sign','Caché', show_cache),
+  ('show_cache_var','fa-percent','Caché variable', show_cache_var),
   ('show_format','fa-guitar','Formato', show_format),
   ('show_schedule','fa-clock','Horario', show_schedule),
   ('show_equipment','fa-toolbox','Equipamiento', show_equipment),
@@ -107,6 +108,13 @@
   .quad-promoter-logo{ width:26px; height:26px; object-fit:contain; border-radius:7px; background:#fff; border:1px solid #eee; }
   .quad-hash{ color:var(--brand-accent,#007CA2); font-weight:600; }
   .quad-fmt{ font-weight:600; }
+  /* ⚠️ EL CACHÉ VARIABLE es la ÚNICA columna con texto largo (lleva su condición entera: «70% ·
+     Bruto · % de taquilla desde 10.000 € de recaudación»). El resto de la tabla va a una línea
+     (`white-space:nowrap`), así que aquí se deja envolver — pero CON ANCHO MÍNIMO: sin él la
+     columna se encoge hasta quedar en una tira de una palabra por línea. */
+  table.quad-table th[data-col="cache_var"], table.quad-table td[data-col="cache_var"]{
+    white-space:normal; min-width:190px; max-width:260px; }
+  .quad-cachevar{ font-weight:600; color:#42505f; line-height:1.25; }
   .quad-check{ width:1.05rem; height:1.05rem; cursor:pointer; }
   tr.quad-row.is-excluded td{ opacity:.32; }
   tr.quad-row.is-excluded td .quad-check{ opacity:1; }
@@ -230,6 +238,8 @@
     table.quad-table{ font-size:9.5px !important; white-space:normal !important; }
     table.quad-table thead th{ font-size:8px !important; padding:.2rem .28rem !important; background:#f1f3f5 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     table.quad-table tbody td{ padding:.16rem .28rem !important; }
+    table.quad-table th[data-col="cache_var"], table.quad-table td[data-col="cache_var"]{
+      min-width:0 !important; max-width:none !important; }
     .quad-num{ width:22px !important; height:22px !important; border-radius:6px !important; font-size:8px !important; }
     .quad-status-badge, .quad-type-badge{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     /* Ocultar columna de selección y filas excluidas al imprimir */
@@ -520,6 +530,7 @@
                 <th data-col="venue">Recinto</th>
                 <th data-col="capacity" class="num-cell">Aforo</th>
                 <th data-col="cache">Caché</th>
+                <th data-col="cache_var">Caché variable</th>
                 <th data-col="format">Formato</th>
                 <th data-col="schedule">Horario</th>
                 <th data-col="equipment">Equip.</th>
@@ -566,7 +577,13 @@
                   <td data-col="capacity" class="num-cell">
                     {% if e.capacity_label == 'Sin aforo' %}<span class="text-muted">Sin aforo</span>{% else %}{{ e.capacity_label|k }}{% endif %}
                   </td>
-                  <td data-col="cache">{{ e.cache|eur if e.cache else "" }}</td>
+                  {# ⚠️ EL FIJO Y EL VARIABLE, EN COLUMNAS DISTINTAS (lo pidió Dani): mezclados no
+                     se podían leer ni sumar. Y el variable va SIEMPRE con su condición («70 % de la
+                     taquilla (bruto)»), que sin ella un porcentaje no dice nada. #}
+                  <td data-col="cache">{{ e.cache_fixed or '—' }}</td>
+                  <td data-col="cache_var">
+                    {% if e.cache_variable %}<span class="quad-cachevar">{{ e.cache_variable }}</span>{% else %}—{% endif %}
+                  </td>
                   <td data-col="format">{% if e.show_format %}<span class="quad-fmt">{{ e.show_format }}</span>{% else %}—{% endif %}</td>
                   <td data-col="schedule">{{ e.schedule_label or '—' }}</td>
                   <td data-col="equipment">{% if e.has_equipment %}<i class="fa fa-circle-check text-success"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>

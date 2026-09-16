@@ -54667,32 +54667,44 @@ def _cache_variable_condition_label(config) -> str:
     ).strip()
 
 
+def _cache_row_readable(ch) -> dict:
+    """UNA línea de caché en legible: qué es, cuánto y **con qué condición**.
+
+    ⚠️⚠️ PUNTO ÚNICO: de aquí comen la ficha y lo que se le comunica al artista
+    (`_concert_cache_readable_rows`) **y las dos columnas del cuadrante**. Escrita dos veces, la
+    misma línea de caché acabaría diciendo cosas distintas en cada pantalla.
+    ⚠️ `is_variable` es **«esto no está cerrado»**: el tipo VARIABLE o cualquier línea con
+    porcentaje. Es lo que decide en qué columna del cuadrante cae."""
+    kind = (getattr(ch, "kind", None) or "").strip().upper()
+    etiqueta = {"FIXED": "Caché fijo", "VARIABLE": "Caché variable"}.get(
+        kind, (getattr(ch, "concept", None) or "Otros"))
+    pct = getattr(ch, "pct", None)
+    amount = getattr(ch, "amount", None)
+    if pct is not None:
+        base = "Bruto" if (getattr(ch, "pct_base", None) or "GROSS").upper() == "GROSS" else "Neto"
+        valor = "%s%% · %s" % (_fmt_pct_es(pct), base)
+    elif amount is not None:
+        valor = format_eur(amount)
+    else:
+        valor = "—"
+    return {
+        "kind": kind,
+        "label": etiqueta,
+        "value": valor,
+        "note": _cache_variable_condition_label(getattr(ch, "config", None)),
+        "is_variable": bool(kind == "VARIABLE" or pct is not None),
+    }
+
+
 def _concert_cache_readable_rows(session_db, concert) -> list[dict]:
     """Los cachés de una actividad en filas legibles: [{'label', 'value', 'note'}].
 
     Es lo que se le puede enseñar al artista: qué caché es, cuánto y con qué condición."""
     if concert is None:
         return []
-    filas = []
-    for ch in (session_db.query(ConcertCache)
-               .filter(ConcertCache.concert_id == concert.id)
-               .order_by(ConcertCache.created_at.asc()).all()):
-        kind = (getattr(ch, "kind", None) or "").strip().upper()
-        etiqueta = {"FIXED": "Caché fijo", "VARIABLE": "Caché variable"}.get(
-            kind, (getattr(ch, "concept", None) or "Otros"))
-        if ch.pct is not None:
-            base = "Bruto" if (ch.pct_base or "GROSS").upper() == "GROSS" else "Neto"
-            valor = f"{(('%g' % float(ch.pct)).replace('.', ','))}% · {base}"
-        elif ch.amount is not None:
-            valor = format_eur(ch.amount)
-        else:
-            valor = "—"
-        filas.append({
-            "label": etiqueta,
-            "value": valor,
-            "note": _cache_variable_condition_label(getattr(ch, "config", None)),
-        })
-    return filas
+    return [_cache_row_readable(ch) for ch in (session_db.query(ConcertCache)
+                                               .filter(ConcertCache.concert_id == concert.id)
+                                               .order_by(ConcertCache.created_at.asc()).all())]
 
 
 def _concert_has_cache(session_db, concert) -> bool:
@@ -82077,50 +82089,61 @@ def _table_exists(session_db, full_name: str) -> bool:
         return False
 
 
-def _cache_summary(cache_rows: list) -> str:
-    """
-    Devuelve un resumen cortito de cachés para el cuadrante.
-    Si no hay tabla cachés o no hay datos: '—'
-    """
-    if not cache_rows:
-        return "—"
+# ⚠️⚠️ EN EL CUADRANTE, EL CACHÉ FIJO Y EL VARIABLE VAN EN COLUMNAS DISTINTAS (sep 2026, lo pidió
+# Dani). Mezclados en una sola («12.000€ · 70%») no se podían ni leer ni sumar, y un «70 %» suelto
+# **no dice nada**: lo que hace falta saber es de qué y desde cuándo. Cada columna lleva además su
+# propio interruptor en los filtros (`show_cache` / `show_cache_var`), porque no siempre interesan
+# las dos.
+# ⚠️ La condición NO se escribe aquí: sale de `_cache_row_readable`, que es de donde la lee también
+# la ficha. Si se escribiera aparte, el cuadrante y la ficha dirían cosas distintas del mismo caché.
 
-    parts = []
-    for r in cache_rows:
-        # amount
-        if getattr(r, "amount", None) not in (None, ""):
-            try:
-                parts.append(f"{float(r.amount):g}€")
-            except Exception:
-                parts.append(f"{r.amount}€")
+
+def _cache_fixed_text(cache_rows: list) -> str:
+    """EL CACHÉ FIJO de una actividad: lo que se cobra SEGURO, sumado si hay varias líneas.
+
+    ⚠️ Un «Otros» con importe cerrado también entra (se cobra igual); lo que lleva porcentaje o
+    condición se va a la otra columna, que para eso está."""
+    total = Decimal("0")
+    hay = False
+    for r in (cache_rows or []):
+        if _cache_row_readable(r)["is_variable"]:
             continue
+        importe = _money_or_zero(getattr(r, "amount", None))
+        if importe:
+            total += importe
+            hay = True
+    return format_eur(total) if hay else ""
 
-        # pct
-        if getattr(r, "pct", None) not in (None, ""):
-            try:
-                parts.append(f"{float(r.pct):g}%")
-            except Exception:
-                parts.append(f"{r.pct}%")
+
+def _cache_variable_text(cache_rows: list) -> str:
+    """EL CACHÉ VARIABLE **con su condición**: «70% · Bruto · % de taquilla desde 500 entradas»."""
+    partes = []
+    for r in (cache_rows or []):
+        fila = _cache_row_readable(r)
+        if not fila["is_variable"]:
             continue
-
-        # concept / kind
-        if getattr(r, "concept", None):
-            parts.append(str(r.concept))
-        elif getattr(r, "kind", None):
-            parts.append(str(r.kind))
-
-    if not parts:
-        return "—"
-
-    if len(parts) > 3:
-        return " + ".join(parts[:3]) + f" (+{len(parts) - 3})"
-    return " + ".join(parts)
+        texto = "" if fila["value"] == "—" else fila["value"]
+        if fila["note"]:
+            texto = (texto + " · " + fila["note"]) if texto else fila["note"]
+        if fila["kind"] not in ("FIXED", "VARIABLE") and fila["label"]:
+            # Un «Otros» con porcentaje: sin su concepto no se sabe de qué habla.
+            texto = ("%s: %s" % (fila["label"], texto)) if texto else fila["label"]
+        if texto:
+            partes.append(texto)
+    return " | ".join(partes)
 
 
 def _cache_amount_total(cache_rows: list) -> float:
-    """Suma de los importes fijos de caché de una actividad (para 'Caché total')."""
+    """Suma del caché FIJO de una actividad (el «Caché total» del artista en el cuadrante).
+
+    ⚠️ Sale del MISMO criterio que la columna «Caché» (`is_variable`): antes entraba también el
+    importe de un caché variable —2 € por entrada vendida sumaban 2 € al total— y el total no
+    cuadraba con su propia columna. Un importe que depende de la taquilla no se puede sumar a lo
+    que se cobra seguro."""
     total = 0.0
     for r in (cache_rows or []):
+        if _cache_row_readable(r)["is_variable"]:
+            continue
         amt = getattr(r, "amount", None)
         if amt in (None, ""):
             continue
@@ -82600,6 +82623,9 @@ def quadrantes_view():
         show_venue = _flag("show_venue", True)
         show_capacity = _flag("show_capacity", True)
         show_cache = _flag("show_cache", True)
+        # ⚠️ El caché VARIABLE tiene su propio interruptor: son dos columnas distintas y no siempre
+        # interesan las dos (lo pidió Dani).
+        show_cache_var = _flag("show_cache_var", True)
         show_format = _flag("show_format", True)
         show_schedule = _flag("show_schedule", False)
         show_equipment = _flag("show_equipment", True)
@@ -82730,8 +82756,11 @@ def quadrantes_view():
                 has_equip = (c.id in equip_ids)
                 cap = int(c.capacity or 0)
                 dstr = c.date.isoformat()
-                cache_txt = _cache_summary(caches_map.get(c.id, []))
                 cache_amt = _cache_amount_total(caches_map.get(c.id, []))
+                # ⚠️ Separados: el FIJO (un importe que se puede sumar) y el VARIABLE con su
+                # condición. Cada uno va en su columna del cuadrante y tiene su filtro.
+                cache_fijo = _cache_fixed_text(caches_map.get(c.id, []))
+                cache_var = _cache_variable_text(caches_map.get(c.id, []))
                 show_format_txt = _concert_show_format(c)
                 schedule_txt = _concert_schedule_label(c)
                 activity_concept = _concert_activity_concept(c)
@@ -82768,7 +82797,8 @@ def quadrantes_view():
                         "venue_id": str(c.venue_id) if getattr(c, "venue_id", None) else "",
                         "capacity": cap,
                         "capacity_label": "Sin aforo" if getattr(c, "no_capacity", False) else cap,
-                        "cache": cache_txt,
+                        "cache_fixed": cache_fijo,
+                        "cache_variable": cache_var,
                         "cache_amount": cache_amt,
                         "has_cache": has_cache,
                         "show_format": show_format_txt,
@@ -82879,6 +82909,7 @@ def quadrantes_view():
             show_venue=show_venue,
             show_capacity=show_capacity,
             show_cache=show_cache,
+            show_cache_var=show_cache_var,
             show_format=show_format,
             show_schedule=show_schedule,
             show_equipment=show_equipment,

@@ -87,6 +87,7 @@
 - LA FECHA DE ANUNCIO PUEDE LLEVAR HORA, Y LA CONFIRMA EL PROMOTOR (sep 2026)
 - EL DÍA DEL ANUNCIO, AL ARTISTA LE LLEGA UN SMS CON SUS CARTELES (sep 2026)
 - EL CUADRANTE · EL CACHÉ FIJO Y EL VARIABLE, EN DOS COLUMNAS (sep 2026)
+- EL PROCESO DE UNA ACTIVIDAD · los pasos, en orden, y lo bloqueado RAYADO (sep 2026)
 
 ---
 
@@ -1997,3 +1998,47 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   `white-space:normal` **con `min-width`**, porque sin suelo de ancho la columna se encoge hasta
   quedar en una palabra por línea. En el PDF ese suelo se quita (`@media print`), que ahí manda el
   papel.
+
+- **EL PROCESO DE UNA ACTIVIDAD · LOS PASOS, EN ORDEN, Y LO BLOQUEADO RAYADO** (sep 2026, lo pidió
+  Dani). La pestaña **Inicio** (`_concert_task_board`) enseña el proceso ENTERO, no solo lo que
+  falta: lo hecho sale tachado con quién y cuándo, lo pendiente con su botón y **lo bloqueado con el
+  FONDO RAYADO** de la casa (`.act-step.is-blocked`, la misma señal que un lanzamiento provisional),
+  para verlo de un vistazo sin leer el motivo.
+
+  | nº | paso | cuándo sale |
+  |---|---|---|
+  | 1 | **Conformidad de contratación** | si viene de una petición: **siempre HECHA** — la dio al aprobarla |
+  | 2 | Configurar el evento | idem |
+  | 3 | **Confirmar con el artista** | **en TODAS**, no solo en las de petición |
+  | 4 | Confirmar al promotor | petición · bloqueada hasta que confirme el artista |
+  | 5 | Activar producción · Informar al artista | todas |
+  | 6 | Pendiente de confirmar | mientras no esté CONFIRMADA |
+  | 7 | Sin contrato · forma de pago del caché | confirmadas |
+  | 8 | **Confirmar fecha de anuncio y pedir carteles** | `_announce_ask_state` (hay promotor y falta algo) |
+  | 9 | **Confirmar fecha de anuncio y compartir carteles al artista** | mientras no esté anunciada |
+  | 10 | Activar la venta | |
+  | 11 | Quién va con el artista · ticketing · repertorio | según el tipo de actividad |
+
+  ⚠️⚠️ **LA 1 YA VIENE DADA** («la primera tarea es pedir conformidad a contratación, eso se hace
+  con la petición, por lo que cuando se configura el evento sería la tarea 2, ya con el ok de
+  contratación»): nunca está pendiente —si hay petición aceptada, contratación ya dijo que sí— y
+  está para que el proceso se lea desde el principio en vez de arrancar en «Configurar».
+  ⚠️⚠️ **EL ANUNCIO SON DOS PASOS**: pedírselo al **promotor** (la fecha y los carteles, **en un solo
+  correo** si los hace él: `_announce_ask_state`) y comunicárselo al **ARTISTA** con sus carteles.
+  El segundo va **detrás y bloqueado mientras no haya carteles** (`_announce_share_blocker`): se le
+  avisa para que lo PUBLIQUE, y sin cartel no hay nada que publicar.
+  ⚠️ Ese bloqueo solo salta si los carteles **se esperan de alguien** (los debe el promotor, están
+  pedidos, o están subidos sin visto bueno). Si no los debe nadie —una tele, una acción de marca—
+  no hay nada que esperar y el paso sale libre: un bloqueo del que no se puede salir es peor que no
+  tenerlo.
+  ⚠️ **Anunciada = los dos pasos HECHOS solos** («si ya está anunciado ya no haría falta, porque
+  automáticamente se marcaría como hecha»). Para poder enseñarlos hechos hizo falta separar
+  **`_announce_scope`** («¿le toca anunciarse?») de `_announce_alert_applies` («¿se le reclama?»),
+  que antes era lo mismo y por eso el paso no podía salir nunca en verde.
+  ⚠️⚠️ **«INFORMAR AL ARTISTA» NO HACE FALTA SI EL ARTISTA HA CONFIRMADO LA ACTIVIDAD**: su «sí» ES
+  la comunicación (`_concert_notice_mark_from_confirmation`), así que ese paso desaparece solo. Es
+  la regla de la casa: se mira el DATO, no una marca aparte.
+  ⚠️ **La clase de la fila es `act-step`, NO `ctask`**: `.ctask` ya era la fila de «Tareas
+  pendientes» de Contratación (con su marco, su fondo alterno y su `display:block`), y reutilizar el
+  nombre le colaba a estas filas los estilos de aquella — y su `background` en atajo **se comía el
+  rayado**. Una cosa, un nombre.

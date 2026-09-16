@@ -5549,6 +5549,12 @@ tr.is-provisional > td,
    provisional: es la señal de la casa de «esto todavía no va». En cuanto se puede empezar, el fondo
    se quita; al terminarla, la fila se queda con su check verde. */
 .dp-task.is-blocked,
+/* Y un PASO del proceso de una actividad que espera a otro (los carteles, que confirme el artista):
+   se ve rayado de un vistazo, sin tener que leer el motivo (lo pidió Dani).
+   ⚠️ La clase es `act-step`, NO `ctask`: `.ctask` ya es la fila de «Tareas pendientes» de
+   Contratación (con su marco, su fondo alterno y su `display:block`), y reutilizar el nombre le
+   colaba a estas filas los estilos de aquella —y su `background` en atajo se comía el rayado—. */
+.act-step.is-blocked,
 /* Un CONTENIDO del plan que todavía no está subido (lo estamos preparando o se lo hemos pedido a
    diseño): mismo rayado, misma señal de «esto todavía no va». Se puede programar igual. */
 .dp-content.is-pending,

@@ -55948,14 +55948,21 @@ def booking_request_rejection_send(rid):
 # sí**; y el aviso formal al artista va al final, cuando ya está todo comprometido.
 # ⚠️ Al activar la producción el evento sigue su curso en las tareas de PRODUCCIÓN, y deja de estar
 # en las de quien lo pidió (la fase desaparece sola en cuanto hay responsable).
+# ⚠️⚠️ LA PRIMERA TAREA DE UNA ACTIVIDAD ES LA CONFORMIDAD DE CONTRATACIÓN, Y CUANDO SE CONFIGURA
+# YA ESTÁ DADA (sep 2026, lo dijo Dani con estas palabras: «la primera tarea es pedir conformidad a
+# contratación, eso se hace con la petición, por lo que cuando se configura el evento sería la
+# tarea 2, ya con el ok de contratación»). Sale en el tablero **hecha**, con quién la dio y cuándo:
+# el proceso empieza ahí y así se lee entero, en vez de arrancar en «Configurar» como si nadie
+# hubiera dicho que sí.
 PETICION_ACCEPT_PHASES = (
-    # clave        nº  etiqueta                        icono            de quién es
-    ("configurar",  1, "Configurar el evento",         "fa-sliders",     "REQUESTER"),
-    ("artista_ok",  2, "Confirmar con el artista",     "fa-user-check",  "REQUESTER"),
-    ("promotor",    3, "Confirmar al promotor",        "fa-handshake",   "REQUESTER"),
+    # clave         nº  etiqueta                        icono                de quién es
+    ("contratacion", 1, "Conformidad de contratación",  "fa-clipboard-check", "CONTRATACION"),
+    ("configurar",   2, "Configurar el evento",         "fa-sliders",         "REQUESTER"),
+    ("artista_ok",   3, "Confirmar con el artista",     "fa-user-check",      "REQUESTER"),
+    ("promotor",     4, "Confirmar al promotor",        "fa-handshake",       "REQUESTER"),
     # Las dos ÚLTIMAS van a la par: se abren juntas al confirmar al promotor.
-    ("produccion",  4, "Activar producción",           "fa-user-gear",   "REQUESTER"),
-    ("informar",    4, "Informar al artista",          "fa-bell",        "REQUESTER"),
+    ("produccion",   5, "Activar producción",           "fa-user-gear",       "REQUESTER"),
+    ("informar",     5, "Informar al artista",          "fa-bell",            "REQUESTER"),
 )
 
 def _peticion_accept_contact(session_db, r, concert=None) -> dict:
@@ -56585,7 +56592,13 @@ def _concert_task_board(session_db, concert) -> dict:
         if r is None or not getattr(r, "accepted_at", None):
             continue                      # la actividad no viene de una petición: no hay fases
         # No está pendiente: o ya está hecha, o no aplica a esta actividad.
-        if key == "configurar":
+        if key == "contratacion":
+            # ⚠️ Nunca está pendiente: si hay petición aceptada, contratación ya dijo que sí (es lo
+            # que se resuelve al aprobarla). Se enseña para que el proceso se lea desde el principio.
+            filas.append(_hecha(key, n, label, icon, at=r.accepted_at,
+                                by=(r.reviewed_by_nick or ""),
+                                nota="La dio al aprobar la petición"))
+        elif key == "configurar":
             filas.append(_hecha(key, n, label, icon, at=r.accepted_at))
         elif key == "artista_ok":
             filas.append(_hecha(key, n, label, icon, at=r.artist_agreed_at,
@@ -56635,6 +56648,16 @@ def _concert_task_board(session_db, concert) -> dict:
                       "action_label": action_label, "hint": hint, "generic": True,
                       "do": do, "perm": perm})
 
+    def ya_esta(key, n, label, icon, *, at=None, by="", nota=""):
+        """Una tarea del departamento que YA ESTÁ HECHA: se enseña igual, tachada.
+
+        ⚠️ El proceso se lee entero (lo pidió Dani): una tarea que desaparece al hacerse deja un
+        hueco y obliga a recordar qué había ahí. Lo que cuenta como pendiente sigue siendo lo que
+        no está hecho."""
+        if key in hechas:
+            return
+        extra.append(_hecha(key, n, label, icon, at=at, by=by, nota=nota))
+
     try:
         _estado_actual = (getattr(concert, "status", None) or "BORRADOR").upper()
         confirmada = _estado_actual == "CONFIRMADO"
@@ -56642,43 +56665,49 @@ def _concert_task_board(session_db, concert) -> dict:
         # sacarla a la venta. Lo único que queda son las tareas de la propia cancelación.
         if _estado_actual == "CANCELADO":
             raise _CancelledActivity
+        # ⚠️⚠️ «EL ARTISTA HA CONFIRMADO LA ACTIVIDAD» SALE EN TODAS, no solo en las que vienen de
+        # una petición (sep 2026, lo pidió Dani). Es el paso que va antes que nada: si el artista no
+        # ha dicho que sí, lo demás no se sostiene.
+        # ⚠️ Y su «sí» ES la comunicación: en cuanto confirma, «Informar al artista» ya no hace falta
+        # y desaparece sola (`_concert_notice_mark_from_confirmation`). Por eso van seguidas.
+        if _artist_confirm_applies(session_db, concert):
+            _conf = _artist_confirmation_state(session_db, concert)
+            if _conf["ok"]:
+                ya_esta("artista_ok", 3, "Confirmar con el artista", "fa-user-check",
+                        at=_conf["at"], by="el artista",
+                        nota="El artista ha confirmado la actividad")
+            else:
+                suelta("artista_ok", 3, "Confirmar con el artista", "fa-user-check",
+                       url=url_for("concert_artist_notice_view", cid=concert.id, kind="CONFIRMAR"),
+                       action_label=("Volver a pedírsela" if _conf["asked"]
+                                     else "Pedirle la confirmación"),
+                       hint=(("Se le pidió el %s · esperando su respuesta" % _conf["asked_label"])
+                             if (_conf["asked"] and not _conf["answered"]) else
+                             ("Dijo que NO: %s" % _conf["note"]) if (_conf["answered"] and _conf["note"])
+                             else "La fecha y que lo quiere hacer"))
         if not confirmada:
             # Se confirma AQUÍ MISMO (el mismo camino que la etiqueta de estado, con su compuerta
             # del aviso al artista).
-            suelta("confirmar", 5, "Pendiente de confirmar", "fa-circle-question",
+            suelta("confirmar", 6, "Pendiente de confirmar", "fa-circle-question",
                    do="confirmar", action_label="Confirmar")
         else:
             if not session_db.query(ConcertContract.id).filter(
                     ConcertContract.concert_id == concert.id).first():
-                suelta("contrato", 6, "Sin contrato", "fa-file-signature",
+                suelta("contrato", 7, "Sin contrato", "fa-file-signature",
                        url=(url_for("concert_detail_view", cid=concert.id, tab="general")
                             + "#contratos-actividad"),
                        action_label="Adjuntar el contrato")
             # FORMA DE PAGO del caché: sin ella no se puede facturar ni cobrar. Mismo punto único
             # que el aviso de la ficha (`_concert_cache_payment_state`), así que no hay dos verdades.
             if _concert_cache_payment_state(session_db, concert)["unset"]:
-                suelta("forma_pago", 6, "Pendiente de configurar la forma de pago del caché",
+                suelta("forma_pago", 7, "Pendiente de configurar la forma de pago del caché",
                        "fa-money-bill-transfer",
                        url=(url_for("concert_detail_view", cid=concert.id, tab="general")
                             + "#plan-facturacion"),
                        action_label="Configurarla",
                        hint="Reparte el caché en pagos (concepto, importe y fecha límite).")
-            # ⚠️⚠️ EL ANUNCIO NO PUEDE OLVIDARSE: a partir de las cuatro semanas la tarea dice
-            # cuántos días faltan y lleva a ANUNCIARLA Y COMUNICÁRSELO al artista (que es lo que
-            # hay que hacer). Antes de eso basta con la etiqueta de siempre, que pone la fecha sin
-            # salir de aquí. Mismo punto único que el aviso automático, así que no hay dos verdades.
-            _anun = _announce_alert_state(session_db, concert)
-            if _anun["pending"] and (_anun["urgent"] or not getattr(concert, "announcement_date", None)):
-                _falta = ("" if not _anun["urgent"] else
-                          (" · es hoy" if (_anun["days"] or 0) <= 0 else
-                           " · falta %d día%s" % (_anun["days"], "" if _anun["days"] == 1 else "s")))
-                suelta("anuncio", 7, "Pendiente de anunciar" + _falta, "fa-bullhorn",
-                       do=("" if _anun["urgent"] else "anuncio"),
-                       url=(_anun["url"] if _anun["urgent"] else ""),
-                       action_label="Anunciar y avisar al artista",
-                       hint=(_anun["situation"] if _anun["urgent"] else ""))
             if _concert_sale_state(session_db, concert)["needs_activation"]:
-                suelta("venta", 8, "Sin activar la venta", "fa-ticket", do="venta",
+                suelta("venta", 10, "Sin activar la venta", "fa-ticket", do="venta",
                        action_label="Activar la venta")
             # Las entradas las vende un TERCERO: hay que decir A QUIÉN se le piden las ventas.
             # ⚠️ Salta SIEMPRE que no se haya configurado, aunque el promotor tenga correo en su
@@ -56691,7 +56720,7 @@ def _concert_task_board(session_db, concert) -> dict:
                 _esc = _escort_state(session_db, concert)
                 if not _esc["done"]:
                     _sin_prod = not getattr(concert, "production_owner_user_id", None)
-                    suelta("acompanante", 9, "Confirmar quién va con el artista", "fa-user-group",
+                    suelta("acompanante", 11, "Confirmar quién va con el artista", "fa-user-group",
                            modal=("" if _sin_prod else "#escortModal"),
                            area=CONCERT_TASK_AREA_PRODUCCION, perm="escort",
                            action_label="Confirmarlo",
@@ -56702,13 +56731,57 @@ def _concert_task_board(session_db, concert) -> dict:
                                  else "Alguien de la empresa o un tercero, y se le avisa"))
             if _concert_ticketing_contact_unset(session_db, concert):
                 _hay_correo = bool((_concert_ticketing_contact(session_db, concert) or {}).get("email"))
-                suelta("contacto_ticketing", 9, "Configurar el responsable de ticketing",
+                suelta("contacto_ticketing", 11, "Configurar el responsable de ticketing",
                        "fa-address-book", modal="#ticketingContactModal", perm="onsale",
                        area=CONCERT_TASK_AREA_TICKETING,
                        action_label="Configurarlo",
                        hint=("Mientras no esté, las ventas se le piden al correo del promotor"
                              if _hay_correo else
                              "Sin un correo no se le puede pedir la actualización de ventas"))
+        # ⚠️⚠️ EL ANUNCIO SON DOS TAREAS Y EN ESTE ORDEN (sep 2026, lo pidió Dani):
+        #   8 · pedirle al PROMOTOR la fecha de anuncio y los carteles —las dos cosas en UN SOLO
+        #       correo si los carteles los hace él (`_announce_ask_state`)—, y
+        #   9 · comunicarle al ARTISTA la fecha de anuncio y compartirle los carteles, que es lo que
+        #       necesita para publicarlo.
+        # ⚠️ La 9 va DETRÁS y **bloqueada mientras no haya carteles**: «el avisar al artista antes
+        # tiene que tener carteles subidos». Y en cuanto la actividad está anunciada, las dos se dan
+        # por hechas solas: no queda nada que pedir ni que comunicar.
+        _ask = _announce_ask_state(session_db, concert)
+        _anun = _announce_alert_state(session_db, concert)
+        _toca_anuncio = _announce_scope(concert)
+        if _ask["applies"]:
+            # ⚠️ La tarea dice lo que FALTA de verdad: si los carteles ya están, pedirlos otra vez
+            # no es lo que hay que hacer (mismo punto único que el botón de la barra).
+            _lbl_pedir = {"BOTH": "Confirmar fecha de anuncio y pedir carteles",
+                          "ANNOUNCE": "Confirmar la fecha de anuncio con el promotor",
+                          "ARTWORK": "Pedirle los carteles al promotor",
+                          }.get(_ask["kind"], "Confirmar fecha de anuncio y pedir carteles")
+            suelta("anuncio_pedir", 8, _lbl_pedir,
+                   "fa-calendar-check", modal="#announceAskModal",
+                   action_label=(_ask["label"] or "Pedírselo al promotor"),
+                   hint=(("Se le pidió el %s · esperando su respuesta" % _ask["asked_label"])
+                         if _ask["asked_label"] else "Al promotor, en un solo correo"))
+        elif _toca_anuncio and getattr(concert, "announcement_date", None):
+            ya_esta("anuncio_pedir", 8, "Confirmar fecha de anuncio y pedir carteles",
+                    "fa-calendar-check",
+                    nota=(("La confirmó el promotor el %s" % _ask["confirmed_label"])
+                          if _ask["confirmed_label"] else "La fecha está puesta"))
+        if _toca_anuncio and _anun["pending"]:
+            _falta = ("" if not _anun["urgent"] else
+                      (" · es hoy" if (_anun["days"] or 0) <= 0 else
+                       " · falta %d día%s" % (_anun["days"], "" if _anun["days"] == 1 else "s")))
+            _sin_cartel = _announce_share_blocker(session_db, concert)
+            suelta("anuncio", 9,
+                   "Confirmar fecha de anuncio y compartir carteles al artista" + _falta,
+                   "fa-bullhorn",
+                   blocked=bool(_sin_cartel), blocked_reason=_sin_cartel,
+                   do=("" if (_anun["urgent"] or _sin_cartel) else "anuncio"),
+                   url=("" if _sin_cartel else (_anun["url"] if _anun["urgent"] else "")),
+                   action_label="Anunciar y avisar al artista",
+                   hint=(_anun["situation"] if _anun["urgent"] else ""))
+        elif _toca_anuncio:
+            ya_esta("anuncio", 9, "Confirmar fecha de anuncio y compartir carteles al artista",
+                    "fa-bullhorn", nota="Ya está anunciada")
         # EL REPERTORIO de la hoja de ruta: un punto de los horarios en el que SE CANTA y todavía no
         # tiene canciones es trabajo de PRODUCCIÓN (se configura en la pestaña Repertorio de la hoja
         # de ruta). Mismo punto único que su módulo de Inicio (`_roadmap_repertoire_pending`).
@@ -56721,7 +56794,7 @@ def _concert_task_board(session_db, concert) -> dict:
             _nombres = " · ".join([((it.get("title") or "").strip()
                                     or (_cat.get(it.get("kind") or "", {}) or {}).get("label") or "un punto")
                                    for it in _rep[:3]])
-            suelta("repertorio", 9, "Configurar el repertorio de la hoja de ruta", "fa-music",
+            suelta("repertorio", 11, "Configurar el repertorio de la hoja de ruta", "fa-music",
                    url=(url_for("concert_detail_view", cid=concert.id, tab="produccion") + "#roadmapPanel"),
                    area=CONCERT_TASK_AREA_PRODUCCION, action_label="Configurarlo",
                    hint=("Se canta en %s y todavía no tiene canciones" % _nombres))
@@ -56731,13 +56804,13 @@ def _concert_task_board(session_db, concert) -> dict:
                 # ⚠️ Activar la producción es de QUIEN CREÓ la actividad (además de producción y
                 # dirección): a esa persona se le enseña aunque no sea de ninguno de los dos.
                 _creador = str(getattr(concert, "created_by_user_id", "") or "")
-                suelta("produccion", 4, "Activar producción", "fa-user-gear",
+                suelta("produccion", 5, "Activar producción", "fa-user-gear",
                        modal="#prodOwnerModal", action_label="Activar producción",
                        area=CONCERT_TASK_AREA_PRODUCCION,
                        ver_siempre=bool(_creador and _creador == yo),
                        hint="Di quién de producción se encarga")
             if _peticion_artist_notice_pending(session_db, concert):
-                suelta("informar", 4, "Informar al artista", "fa-bell",
+                suelta("informar", 5, "Informar al artista", "fa-bell",
                        url=url_for("concert_artist_notice_view", cid=concert.id),
                        action_label="Avisar al artista")
     except _CancelledActivity:
@@ -123033,12 +123106,14 @@ def _announce_pending(concert) -> bool:
     return _announcement_state(concert) != "ANNOUNCED"
 
 
-def _announce_alert_applies(concert, today=None) -> bool:
-    """¿A esta actividad se le reclama el anuncio?
+def _announce_scope(concert, today=None) -> bool:
+    """¿A esta actividad LE TOCA ANUNCIARSE? (aunque ya esté anunciada).
 
     Lo que tiene PÚBLICO, no cancelado ni aplazado, ni del histórico, y que todavía no ha pasado.
     ⚠️ Un BORRADOR no: es un apunte a medias. Una RESERVA sí — a un mes vista, una fecha sin cerrar
-    es justo lo que hay que mirar (y el aviso lo dice)."""
+    es justo lo que hay que mirar (y el aviso lo dice).
+    ⚠️ Esto es «le toca», no «está pendiente»: el tablero de tareas necesita las dos cosas para
+    poder enseñar el paso **ya hecho** en vez de que desaparezca."""
     if concert is None:
         return False
     hoy = today or today_local()
@@ -123055,7 +123130,12 @@ def _announce_alert_applies(concert, today=None) -> bool:
             return False
     except Exception:
         pass
-    return _announce_pending(concert)
+    return True
+
+
+def _announce_alert_applies(concert, today=None) -> bool:
+    """¿Se le RECLAMA el anuncio? Le toca anunciarse **y** todavía no está anunciada."""
+    return _announce_scope(concert, today) and _announce_pending(concert)
 
 
 def _announce_situation(concert) -> str:
@@ -123266,6 +123346,31 @@ def _announce_alert_state(session_db, concert) -> dict:
         "situation": _announce_situation(concert),
         "url": _safe_url_for("concert_artist_notice_view", cid=str(concert.id), kind="ANUNCIO"),
     }
+
+
+def _announce_share_blocker(session_db, concert) -> str:
+    """POR QUÉ todavía no se le puede comunicar el anuncio al artista: LOS CARTELES.
+
+    Lo pidió Dani: «el avisar al artista antes tiene que tener carteles subidos» — se le avisa para
+    que lo PUBLIQUE, y sin cartel no hay nada que publicar. Devuelve el motivo (o "" si se puede).
+
+    ⚠️ Solo bloquea si los carteles se ESPERAN de alguien: si no los debe nadie (una tele, una
+    acción de marca, una fecha sin cartelería), no hay nada que esperar y la tarea sale libre — un
+    bloqueo del que nadie puede salir sería peor que no tenerlo."""
+    try:
+        if _concert_artwork_share_assets(session_db, concert):
+            return ""
+        fila = getattr(concert, "artwork_request", None)
+        if _announce_ask_artwork_assets(fila)["waiting"]:
+            return "Los carteles están subidos, pero les falta el visto bueno"
+        if _announce_ask_state(session_db, concert).get("want_artwork"):
+            return "Antes tienen que estar los carteles: los tiene que mandar el promotor"
+        if fila is not None and getattr(fila, "requested_at", None):
+            return "Antes tienen que estar los carteles: están pedidos y sin entregar"
+        return ""
+    except Exception:
+        app.logger.exception("[anuncio] no se pudo mirar si hay carteles para compartir")
+        return ""
 
 
 def _activity_notice_artwork(session_db, concert, *, category: str = "POSTER") -> dict:
@@ -124885,6 +124990,28 @@ def public_activity_notice_respond(token):
     finally:
         session_db.close()
     return redirect(url_for("public_activity_notice_view", token=token))
+
+
+def _artist_confirm_applies(session_db, concert) -> bool:
+    """¿Tiene sentido pedirle al ARTISTA que confirme esta actividad?
+
+    Las mismas excepciones de siempre (`_peticion_artist_notice_pending`): un EVENTO no es de ningún
+    artista —su «artista» es el espejo del evento—, el histórico no genera trabajo y una actividad
+    CANCELADA no reclama nada. Y una que YA PASÓ tampoco: pedirle ahora que confirme algo que ya
+    tocó no tiene sentido (es el mismo criterio que `_concert_notice_ack_reason`)."""
+    if concert is None:
+        return False
+    try:
+        if not getattr(concert, "artist_id", None) or getattr(concert, "event_id", None):
+            return False
+        if (getattr(concert, "status", None) or "").strip().upper() in ("CANCELADO", "APLAZADO"):
+            return False
+        if _concert_is_legacy(concert):
+            return False
+        return not _concert_notice_ack_reason(concert)
+    except Exception:
+        app.logger.exception("[tareas] no se pudo mirar si aplica la confirmación del artista")
+        return False
 
 
 def _artist_confirmation_state(session_db, concert) -> dict:
@@ -169417,7 +169544,13 @@ def _brand_icon(nombre: str, *, email: bool, size: int = 16, color: str = "007CA
     esto, el icono es EL MISMO y del MISMO color en la app, en el correo y en la página pública.
     """
     if email:
-        url = _external_url_for("brand_icon_png", nombre=nombre, c=color, s=max(32, size * 2))
+        # ⚠️⚠️ UN ICONO NO PUEDE TUMBAR UN CORREO: `url_for` revienta FUERA de una petición (un cron,
+        # un hilo, una prueba), y sin esta red el aviso entero se perdía por una imagen (es la misma
+        # trampa que ya documentaba `_notice_icon_img`). Sin URL, el módulo sale sin icono y ya está.
+        try:
+            url = _external_url_for("brand_icon_png", nombre=nombre, c=color, s=max(32, size * 2))
+        except Exception:
+            return ""
         # ⚠️⚠️ `max-width:none` Y `flex:0 0 auto`: el CSS de la app pone `img{max-width:100%}` y,
         # dentro de una celda estrecha (la del icono es `width:1%`), el ancho computado salía **0px**
         # — el icono no se veía y la celda se encogía con él (bug real, sep 2026). Es la trampa de

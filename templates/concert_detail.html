@@ -502,7 +502,10 @@
       </div>
       <div class="list-group list-group-flush">
         {% for t in (task_board.rows if task_board else []) %}
-          <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+          {# ⚠️ BLOQUEADA = RAYADA: la misma señal de la casa que un lanzamiento provisional o una
+             tarea bloqueada de un proyecto. Se ve de un vistazo que esa todavía no va, sin tener
+             que leer el motivo (lo pidió Dani). #}
+          <div class="list-group-item act-step d-flex align-items-center gap-3 flex-wrap{{ ' is-blocked' if t.state == 'blocked' }}">
             <span class="oa-row__icon {{ 'text-success' if t.state == 'done' else ('text-muted' if t.state == 'blocked' else '') }}">
               <i class="fa {{ 'fa-circle-check' if t.state == 'done' else ('fa-lock' if t.state == 'blocked' else t.icon) }}"></i>
             </span>

@@ -139,7 +139,9 @@ def main() -> int:
               "Subir carteles" in previa and "Confirmar fecha de anuncio" in previa)
     comprueba("el logo de la empresa va arriba a la derecha",
               "text-align:right" in previa and "logo.png" in previa)
-    comprueba("la cabecera lleva los datos de la actividad", fecha.strftime("%d/%m/%Y") in previa)
+    # ⚠️ La fecha de una comunicación va con su DÍA DE LA SEMANA («Sábado 11 de Abril de 2026»,
+    # `format_date_long_es`): es lo primero que mira quien la recibe.
+    comprueba("la cabecera lleva los datos de la actividad", A.format_date_long_es(fecha) in previa)
     comprueba("el intro NO sale con etiquetas a la vista", "&lt;p&gt;" not in previa)
 
     correos.clear()

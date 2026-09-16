@@ -326,7 +326,8 @@
                 return '<button type="button" class="invitation-search-result" data-inv-receiver-hit=\''
                   + JSON.stringify(item).replace(/'/g, '&#39;') + '\'>'
                   + (foto ? '<img src="' + foto + '" alt="">' : '')
-                  + '<span><strong>' + (item.label || 'Sin nombre') + '</strong><small>'
+                  + '<span><strong>' + (item.label || 'Sin nombre') + '</strong>'
+                  + (item.sub ? '<small>' + item.sub + '</small>' : '') + '<small>'
                   + (item.contact_email || '') + ' ' + (item.contact_phone || '') + '</small></span></button>';
               }).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>';
             }).catch(function(){});

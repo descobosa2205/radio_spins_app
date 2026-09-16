@@ -95,7 +95,11 @@
           else {
             results.innerHTML = list.slice(0, 12).map(function (r) {
               var name = r.label || r.text || r.nick || '';
-              return '<a class="dropdown-item d-flex align-items-center gap-2" href="#" data-id="' + esc(r.id) + '" data-name="' + esc(name) + '" data-logo="' + esc(r.logo_url || '') + '">' + avatar(r.logo_url) + '<span class="text-truncate">' + esc(name) + '</span></a>';
+              // Segunda fila: con qué se distingue de otro que se llame igual (lo manda el servidor).
+              var sub = (r.sub || '').trim();
+              return '<a class="dropdown-item d-flex align-items-center gap-2" href="#" data-id="' + esc(r.id) + '" data-name="' + esc(name) + '" data-logo="' + esc(r.logo_url || '') + '">' + avatar(r.logo_url) +
+                '<span class="min-w-0"><span class="d-block text-truncate">' + esc(name) + '</span>' +
+                (sub ? '<small class="d-block text-muted text-truncate">' + esc(sub) + '</small>' : '') + '</span></a>';
             }).join('');
           }
           results.classList.add('show');

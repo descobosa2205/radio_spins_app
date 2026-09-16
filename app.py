@@ -14021,9 +14021,11 @@ def _promoter_pick_disambiguate(rows: list | None, *, label_key: str = "label",
 
     Punto ÚNICO: lo usan el buscador de terceros de toda la app, el aviso de «ya existe algo
     parecido» del alta rápida y el buscador de la fusión, así que los tres enseñan lo mismo.
-    ⚠️ Solo cuando NO hay ya algo que los distinga: si esa ficha lleva su VINCULACIÓN o sus
-    SOCIEDADES, eso es lo que se ve debajo del nick y añadir el nombre sería ruido.
-    ⚠️ Y si no tiene nombre completo (una empresa, una ficha a medias) se cae a lo que sí tenga
+    ⚠️ **Manda lo que ya se enseña de esa ficha**: si tiene VINCULACIÓN o SOCIEDADES, esa es su
+    segunda fila (es lo que pidió Dani) y el nombre completo entra solo cuando no hay ninguna de las
+    dos. Repetir debajo lo que ya está arriba sería ruido; y como en esa fila va SIEMPRE una de las
+    dos cosas, no quedan dos filas idénticas en la lista.
+    ⚠️ Y si no tiene ni nombre completo (una empresa, una ficha a medias) se cae a lo que sí tenga
     —razón social, correo, teléfono, CIF—: una fila que no se puede distinguir de la de al lado no
     se puede elegir, y quedarse callado sería dejar el problema como estaba.
     ⚠️ Solo mira lo que sale EN ESA LISTA (no la base entera): si de dos tocayos solo aparece uno,
@@ -14040,9 +14042,13 @@ def _promoter_pick_disambiguate(rows: list | None, *, label_key: str = "label",
             continue
         if str(fila.get(sub_key) or "").strip():
             continue                                   # esa fila ya dice algo debajo del nombre
-        if str(fila.get("link_summary_text") or "").strip() or (fila.get("companies") or []):
-            continue                                   # su vinculación / sus sociedades ya lo dicen
-        for candidato in (fila.get("full_name"), fila.get("legal_name"), fila.get("contact_email"),
+        sociedad = ""
+        for soc in (fila.get("companies") or []):
+            sociedad = str((soc or {}).get("legal_name") or (soc or {}).get("name") or "").strip()
+            if sociedad:
+                break
+        for candidato in (fila.get("link_summary_text"), sociedad, fila.get("full_name"),
+                          fila.get("legal_name"), fila.get("contact_email"),
                           fila.get("contact_phone"), fila.get("tax_id")):
             texto = str(candidato or "").strip()
             if texto and _norm_text_key(texto) != clave:
@@ -53891,7 +53897,18 @@ def promoter_update(pid):
         flash("Promotor no encontrado.", "warning")
         session.close()
         return redirect(next_url)
+    # ⚠️ EL NICK SE PUEDE REPETIR (sep 2026, lo pidió Dani): dos personas pueden llamarse igual, y
+    # antes esto reventaba con un «Error actualizando: duplicate key value…». Si al cambiarlo queda
+    # como el de otra ficha SE DICE —para que no parezca que no se ha guardado—, pero se guarda.
+    _nick_antes = (p.nick or "").strip()
     p.nick = request.form.get("nick", p.nick).strip()
+    _nick_repetido = ""
+    if (p.nick or "").strip() and _norm_text_key(p.nick) != _norm_text_key(_nick_antes):
+        _otro = (session.query(Promoter)
+                 .filter(func.lower(Promoter.nick) == p.nick.strip().lower(), Promoter.id != p.id)
+                 .first())
+        if _otro is not None:
+            _nick_repetido = _promoter_display_name(_otro) or p.nick
     # NOMBRE Y APELLIDOS (una persona los tiene además del nick: el nick es como la llamamos).
     if "first_name" in request.form:
         p.first_name = (request.form.get("first_name") or "").strip() or None
@@ -53981,6 +53998,9 @@ def promoter_update(pid):
         _invitation_sync_contact_for_entity(session, promoter_id=p.id, email=p.contact_email, phone=p.contact_phone)
         session.commit()
         flash("Tercero actualizado.", "success")
+        if _nick_repetido:
+            flash("Ojo: ya hay otra ficha que se llama igual (%s). Se distinguen por su nombre "
+                  "completo, que sale debajo del nick al elegir." % _nick_repetido, "warning")
         if linked_embargos:
             flash(f"Se han vinculado {linked_embargos} orden(es) de embargo pendientes a este tercero.", "warning")
     except Exception as e:
@@ -58876,10 +58896,13 @@ PROMOTER_MANUAL_ROLES = [
     ("PROMOTER", "Promotores", "fa-handshake"),
     ("AUTHOR", "Autores / compositores", "fa-pen-nib"),
     ("BENEFICIARY", "Beneficiarios de royalties", "fa-coins"),
-    # ⚠️ Estas dos NO se deducen de nada (no hay actividad ni obra de la que sacarlas): se marcan a
+    # ⚠️ Estas NO se deducen de nada (no hay actividad ni obra de la que sacarlas): se marcan a
     # mano en la ficha o al crear el tercero, y de ahí salen su etiqueta y su filtro en el listado.
     ("MUSICIAN", "Músicos", "fa-guitar"),
     ("TECH", "Técnicos / Operadores", "fa-sliders"),
+    # PROVEEDORES: a quien le compramos algo (sep 2026, lo pidió Dani). No se deduce de los gastos
+    # a propósito —que alguien nos haya facturado una vez no lo convierte en proveedor nuestro—.
+    ("PROVIDER", "Proveedores", "fa-truck"),
 ]
 PROMOTER_ROLE_LABELS = {k: v for k, v, _i in PROMOTER_MANUAL_ROLES}
 

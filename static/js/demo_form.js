@@ -24,6 +24,13 @@
     return (v == null ? '' : String(v)).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  /* La SEGUNDA FILA de un resultado para elegir: con qué se distingue de otro que se llame igual
+     (su nombre completo). La compone el SERVIDOR (`sub`) y solo viene cuando en esa misma lista
+     salen varios homónimos — el nick se puede repetir. */
+  function sub(o) {
+    var t = ((o && o.sub) || '').trim();
+    return t ? '<small class="d-block text-muted">' + esc(t) + '</small>' : '';
+  }
   function csrf() {
     var t = document.querySelector('meta[name="csrf-token"]');
     return t ? (t.getAttribute('content') || '') : '';
@@ -302,7 +309,7 @@
                   + ' data-name="' + esc(o.name) + '">'
                   + (o.photo_url ? '<img src="' + esc(o.photo_url) + '" alt="" data-avatar="1">'
                                  : '<i class="fa fa-user"></i>')
-                  + '<span>' + esc(o.name) + '</span>'
+                  + '<span>' + esc(o.name) + sub(o) + '</span>'
                   + '<span class="badge text-bg-light border ms-auto">' + esc(o.kind_label) + '</span>'
                   + '</button>';
               }).join('');
@@ -416,7 +423,7 @@
                     + ' data-id="' + esc(o.id) + '" data-name="' + esc(o.label) + '">'
                     + (o.logo_url ? '<img src="' + esc(o.logo_url) + '" alt="" data-avatar="1">'
                                   : '<i class="fa fa-user"></i>')
-                    + '<span>' + esc(o.label) + '</span></button>';
+                    + '<span>' + esc(o.label) + sub(o) + '</span></button>';
                 }).join('')
                 + '<button class="demo-author__opt" type="button" data-demo-producer-force>'
                 + '<i class="fa fa-plus text-success"></i><span>Crear «' + esc(nombre)
@@ -483,7 +490,7 @@
                 return '<button class="demo-author__opt" type="button" data-demo-producer-pick'
                   + ' data-id="' + esc(o.id) + '" data-name="' + esc(nombre) + '">'
                   + (foto ? '<img src="' + esc(foto) + '" alt="" data-avatar="1">' : '<i class="fa fa-user"></i>')
-                  + '<span>' + esc(nombre) + '</span></button>';
+                  + '<span>' + esc(nombre) + sub(o) + '</span></button>';
               }).join('');
               lista.classList.remove('d-none');
               flota(campo, lista);
@@ -570,7 +577,7 @@
                   + ' data-publisher="' + esc(o.publishing_company_name || o.publisher || '') + '"'
                   + ' data-ipi="' + esc(o.ipi || '') + '">'
                   + (foto ? '<img src="' + esc(foto) + '" alt="" data-avatar="1">' : '<i class="fa fa-user"></i>')
-                  + '<span>' + esc(nombre) + '</span></button>';
+                  + '<span>' + esc(nombre) + sub(o) + '</span></button>';
               }).join('');
               lista.classList.remove('d-none');
               flota(campo, lista);

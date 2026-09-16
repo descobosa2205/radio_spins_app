@@ -8,6 +8,7 @@
 
 - UNA EMISORA DE RADIO ES UN MEDIO (las del reporte de radios se volcaron a Medios)
 - LAS ETIQUETAS DE UN TERCERO al crearlo (el clic que no marcaba nada)
+- EL NICK SE PUEDE REPETIR, y quien salga dos veces se distingue por su NOMBRE COMPLETO
 
 - Vinculaciones entre entidades (ThirdPartyLink + templates/_entity_links_panel.html +
 - TELÉFONOS · EL PREFIJO DEL PAÍS SE PONE AL GUARDAR. Un teléfono escrito
@@ -46,6 +47,60 @@ handler exige `button[data-qc-more-open]`. → el detalle, en `CLAUDE.md`.
 ⚠️ Comprobado de punta a punta: se marcan y **viajan en el formulario** (`assoc_tags[]`,
 `roles_manual[]`, con su centinela `assoc_present`).
 
+
+## EL NICK SE PUEDE REPETIR, y quien salga dos veces se distingue por su NOMBRE COMPLETO
+
+⚠️⚠️ **DOS PERSONAS PUEDEN LLAMARSE IGUAL** (sep 2026, lo pidió Dani). `Promoter.nick` nació
+**UNIQUE**, y eso no es lo que es un nick: es **como llamamos nosotros** a esa persona o empresa, no
+un identificador. Con la restricción puesta:
+· ponerle a una ficha el nombre que ya tenía otra reventaba al guardar —en la ficha salía un
+  **«Error actualizando: duplicate key value violates unique constraint "promoters_nick_key"»**—;
+· y las altas automáticas (un fichero, un enlace público, un espejo) tenían que inventarse un
+  **«Juan Pérez (2)»** que ensucia el nombre y no aclara nada.
+
+· **Se suelta el UNIQUE** en el modelo y, en la base que ya existe, en
+  `ensure_third_party_and_contract_sheet_schema`: un `DO $$` que **busca la restricción por el
+  catálogo** (`pg_constraint` / `pg_index` por la COLUMNA, no por el nombre `promoters_nick_key`,
+  que es solo el que pone Postgres por defecto) y la suelta. Se ejecuta en cada arranque y no hace
+  nada cuando ya no queda ninguna (⚠️ `_ddl_already_applied` no da nunca por hecho un `DO $$`).
+  ⚠️⚠️ **NI UN `%` EN ESE SQL** (lo cazó la prueba): las sentencias van por `exec_driver_sql`, así
+  que psycopg2 lee cualquier `%` como un parámetro SUYO —un `format('%I', …)` o un `LIKE '%(nick)%'`
+  hacen que la sentencia entera falle con «immutabledict is not a sequence»—. Y eso sale como un
+  **aviso en el log y a otra cosa**: el UNIQUE se habría quedado puesto sin que nadie se enterara.
+  Por eso `quote_ident(...)` y las columnas miradas por catálogo.
+· **`_intake_promoter_nick`** (antes `_intake_unique_nick`) deja el nick **tal cual**. Solo numera
+  los nicks GENÉRICOS que pone la propia app cuando la ficha entra sin nombre
+  (`PROMOTER_PLACEHOLDER_NICKS`: «Tercero sin nombre», «Contacto»…): esos no dicen quién es nadie y
+  cinco iguales no se distinguirían ni en su propia ficha.
+· **Avisar sigue estando**: el alta rápida no ha dejado de proponer las fichas que ya existen
+  (mismo nick, nombre parecido, mismo DNI / correo / teléfono) — lo que cambia es que ahora
+  **«Crear igualmente» funciona** en vez de reventar. Y al **editar**, si el nick queda como el de
+  otra ficha se dice en un aviso, pero **se guarda**.
+  ⚠️ El alta rápida ofrece **TODOS** los que ya se llaman así, no solo el primero: quedarse con uno
+  escondía justo la ficha que se estaba buscando.
+
+⚠️⚠️ **Y QUIEN SALGA DOS VECES SE DISTINGUE POR SU NOMBRE COMPLETO**: en una lista para ELEGIR, dos
+filas idénticas no se pueden elegir. Punto único **`_promoter_pick_disambiguate(rows)`**: cuenta los
+nicks de ESA lista (no de la base entera: si de dos tocayos solo sale uno, no hay nada que aclarar)
+y a los repetidos les pone una **segunda fila** (`sub`). Manda **lo que ya se enseña de esa ficha**:
+su **vinculación** → su **sociedad** → y, si no tiene ninguna de las dos, su **nombre completo**
+(y de ahí a razón social / correo / teléfono / CIF, porque callarse dejaría el problema como estaba).
+Lo usan el **buscador de terceros de toda la app** (`api_search_promoters`), el **aviso de «ya existe
+algo parecido»** del alta rápida y el **buscador de la fusión** —donde elegir mal no se puede
+deshacer—, así que los tres enseñan lo mismo.
+· En el navegador, la segunda fila la pinta ya la lista propia de `initTypeahead` (`.ta-item__s`), y
+  para los **select2** está el punto único **`window.app33Select2Option(d)`** (en `typeahead.js`).
+  ⚠️⚠️ Y el typeahead **usa la lista propia en cuanto alguna fila trae `sub`**, aunque nadie tenga
+  foto: un `<datalist>` nativo solo pinta UNA línea por opción, así que ahí los dos «Antonio» salían
+  como dos opciones idénticas —exactamente lo que la segunda fila viene a resolver—. Es la misma
+  razón por la que la imagen obliga a la lista propia.
+· ⚠️ Donde ya se pintaba la vinculación (invitaciones, contactos de medios, integrantes) el `sub`
+  **no se repite**: `sub` PUEDE SER esa misma vinculación.
+
+⚠️ Probado con la app real, reproduciendo el UNIQUE viejo: antes, guardar el segundo «Juan» falla
+con `UniqueViolation`; después de pasar el `ensure_*`, los dos entran. Y en el navegador: el buscador
+pone el nombre completo **solo** en los homónimos, el alta ofrece los tres «Antonio» con su nombre
+debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado guarda y avisa.
 
 - **Vinculaciones entre entidades** (`ThirdPartyLink` + `templates/_entity_links_panel.html` +
   `static/js/entity_links.js`): relacionan un tercero/artista/medio/recinto/ticketera/editorial con
@@ -102,8 +157,9 @@ handler exige `button[data-qc-more-open]`. → el detalle, en `CLAUDE.md`.
   `promoters_import_create` / `promoters_import_merge`), así no hay que volver a subirlo.
   · **Quién ya está** (`_promoter_import_match`): manda el **DNI/NIF** (también el de sus sociedades,
   `PromoterCompany.tax_id`), luego el nick exacto y por último nombre y apellidos. El nick de alta
-  sale del fichero, del nombre completo o del DNI (`_promoter_import_nick` + `_intake_unique_nick`,
-  que `Promoter.nick` es UNIQUE). Cada alta va en su **savepoint**: una que falle no tumba las demás.
+  sale del fichero, del nombre completo o del DNI (`_promoter_import_nick` + `_intake_promoter_nick`;
+  el nick **se puede repetir**, ver abajo). Cada alta va en su **savepoint**: una que falle no tumba
+  las demás.
   · **CONSERVAR LOS DOS** (el caso de Dani: una persona con dos direcciones): modelo nuevo
   **`PromoterAltValue`** (`field`, `label`, `value`) — uno se queda en la ficha y el otro se guarda
   con su **nombre** («casa de Madrid» / «casa de Cádiz»), y se puede nombrar también el de la ficha
@@ -135,9 +191,11 @@ handler exige `button[data-qc-more-open]`. → el detalle, en `CLAUDE.md`.
   juan» encuentra a «Juan Pérez Gómez». Antes se exigía que TODO lo escrito apareciera seguido.
   ⚠️ El **IBAN no se pone** a propósito: en un listado no hace falta y no tiene por qué viajar al HTML.
 
-- **ETIQUETAS «MÚSICOS» y «TÉCNICOS / OPERADORES» en Terceros** (sep 2026): dos categorías más de
-  `PROMOTER_MANUAL_ROLES`, que se marcan **a mano** en la ficha (o al crear el tercero) y de ahí
-  salen su **etiqueta** en el listado y su **filtro**.
+- **ETIQUETAS «MÚSICOS», «TÉCNICOS / OPERADORES» y «PROVEEDORES» en Terceros** (sep 2026): tres
+  categorías más de `PROMOTER_MANUAL_ROLES`, que se marcan **a mano** en la ficha (o al crear el
+  tercero) y de ahí salen su **etiqueta** en el listado y su **filtro**.
+  ⚠️ **Proveedores NO se deduce de los gastos** a propósito: que alguien nos haya facturado una vez
+  no lo convierte en proveedor nuestro — eso lo dice una persona.
   ⚠️ Estas dos **no se deducen de nada** (no hay actividad ni obra de la que sacarlas), al contrario
   que Promotores / Autores / Beneficiarios.
   ⚠️ El listado pinta ya **cualquier** categoría marcada a mano con la etiqueta de su catálogo
@@ -269,7 +327,7 @@ handler exige `button[data-qc-more-open]`. → el detalle, en `CLAUDE.md`.
   `PersonComplianceDoc` `CERT_BANK`). Reutiliza los campos que ya existían de la landing de
   facturación (`fiscal_address`, `bank_account`, `data_consent_at`) y crea `PromoterCompany`,
   `PromoterContact` (función = texto libre), `PersonDocument` DNI/PASSPORT/LICENSE/LOYALTY y los
-  `travel_departure_*`. ⚠️ `Promoter.nick` es UNIQUE: `_intake_unique_nick` añade sufijo.
+  `travel_departure_*`. ⚠️ El nick se queda tal cual (`_intake_promoter_nick`): se puede repetir.
   ⚠️ **Los colores de marca los inyectaba solo `layout.html`**: ahora `styles.css` los declara como
   suelo en `:root` (sin eso, cualquier página pública standalone tenía los botones transparentes).
 - ⚠️⚠️ **`PromoterCompany` NO TIENE COLUMNA `name`** (bug real, sep 2026): su nombre es **`legal_name`**

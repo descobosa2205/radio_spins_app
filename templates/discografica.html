@@ -723,9 +723,9 @@
               if(!q){ box.style.display='none'; box.innerHTML=''; return; }
               timer = setTimeout(function(){
                 fetch('/api/search/promoters?q='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(rows){
-                  box.innerHTML = (rows||[]).slice(0,8).map(function(it){ return '<button type="button" class="list-group-item list-group-item-action" data-id="'+esc(it.id)+'">'+esc(it.label||'Sin nombre')+'</button>'; }).join('') || '<div class="list-group-item text-muted small">Sin coincidencias</div>';
+                  box.innerHTML = (rows||[]).slice(0,8).map(function(it){ return '<button type="button" class="list-group-item list-group-item-action" data-id="'+esc(it.id)+'" data-label="'+esc(it.label||'')+'"><span class="d-block">'+esc(it.label||'Sin nombre')+'</span>'+(it.sub ? '<small class="d-block text-muted">'+esc(it.sub)+'</small>' : '')+'</button>'; }).join('') || '<div class="list-group-item text-muted small">Sin coincidencias</div>';
                   box.style.display='';
-                  box.querySelectorAll('[data-id]').forEach(function(b){ b.addEventListener('click', function(){ hiddenId.value=b.getAttribute('data-id'); search.value=b.textContent; box.style.display='none'; }); });
+                  box.querySelectorAll('[data-id]').forEach(function(b){ b.addEventListener('click', function(){ hiddenId.value=b.getAttribute('data-id'); search.value=b.getAttribute('data-label') || b.textContent; box.style.display='none'; }); });
                 }).catch(function(){});
               }, 200);
             });

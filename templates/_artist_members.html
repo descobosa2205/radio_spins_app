@@ -85,7 +85,8 @@
       function pintar(rows, q) {
         var html = rows.slice(0, 12).map(function (r) {
           var nombre = r.label || r.nick || r.text || 'Sin nombre';
-          var sub = [r.sub, r.contact_email, r.contact_phone, r.link_summary_text].filter(Boolean).join(' · ');
+          var sub = [r.sub, r.contact_email, r.contact_phone, r.link_summary_text]
+            .filter(Boolean).filter(function (t, i, a) { return a.indexOf(t) === i; }).join(' · ');
           var puesto = yaEstan.indexOf(String(r.id)) >= 0;
           return '<a class="dropdown-item d-flex align-items-center gap-2' + (puesto ? ' disabled' : '') + '" href="#"'
             + ' data-id="' + esc(r.id) + '" data-first="' + esc(r.first_name || '') + '" data-last="' + esc(r.last_name || '') + '">'

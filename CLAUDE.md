@@ -156,6 +156,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   ejecutarse nunca** y la app revienta al leerla. → detalle abajo.
 - Un **estado nuevo** hay que añadirlo también al **CHECK de la BD** (`CONCERT_STATUS_VALUES`), o
   guardar ese estado es un `CheckViolation`. → detalle abajo.
+- ⚠️ **Ni un `%` en el DDL de un `ensure_*`**: va por `exec_driver_sql` y psycopg2 lee cualquier `%`
+  como un parámetro suyo → la sentencia **entera** falla con «immutabledict is not a sequence», y eso
+  es solo un aviso en el log: parece aplicada y no lo está. → detalle abajo.
 - **JSONB**: leer-copiar-reasignar **no escribe la segunda vez en la misma petición** (el valor sale
   «unchanged» y no da ningún error) → `flag_modified(obj, "campo")`.
 - Nombres de campo que se confunden: `Promoter` es **`contact_email`/`contact_phone`** (no
@@ -367,6 +370,20 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   estados se guardan, un estado inventado **se sigue rechazando** (el CHECK protege), y el proceso
   entero de cancelar y de aplazar llega hasta el final («La actividad queda CANCELADA. Producción ya
   tiene sus tareas»).
+
+- ⚠️⚠️ **UN `%` EN EL DDL DE UN `ensure_*` TUMBA LA SENTENCIA ENTERA, Y EN SILENCIO** (sep 2026,
+  lo cazó la prueba al soltar el UNIQUE del nick de un tercero). `_exec_ddl_statements` ejecuta cada
+  sentencia con **`exec_driver_sql`**, así que **psycopg2 interpreta los `%`** como marcadores de
+  SUS parámetros: un `format('ALTER TABLE x DROP CONSTRAINT %I', …)` o un `LIKE '%(nick)%'` dentro
+  de un `DO $$` hacen que falle con **«immutabledict is not a sequence»**… que se imprime como un
+  `[schema:<label>] Aviso en sentencia N` y se sigue arrancando. Es decir: **el cambio de esquema no
+  se aplica y nadie se entera** (aquí el UNIQUE se habría quedado puesto y la épica entera no
+  funcionaría en producción, aunque en local —con la tabla recién creada— todo pareciera bien).
+  · En SQL, `quote_ident(x)` en vez de `format('%I', x)`, y las columnas se miran por el **catálogo**
+  (`pg_attribute` + `conkey`/`indkey`) en vez de con un `LIKE` con comodines.
+  · Si hiciera falta un `%` de verdad, va **duplicado** (`%%`).
+  ⚠️ Comprobación: `grep -n "%" ` sobre el bloque nuevo **y** ejecutar su `ensure_*` contra una base
+  de prueba mirando que el cambio esté de verdad (un aviso en el log no es un error visible).
 
 - ⚠️⚠️⚠️ **UN `<a>` DENTRO DE OTRO `<a>`: EL NAVEGADOR PARTE EL ÁRBOL Y LO DE DENTRO SE QUEDA
   FUERA** (bug real, sep 2026: «desde el listado de actividades, al pinchar en cambiar el estado se

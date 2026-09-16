@@ -101,9 +101,13 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
     const js = await r.json();
     /* ⚠️ Con `alwaysList` se usa SIEMPRE la lista propia, traiga imagen o no: hay buscadores en los
        que el desplegable nativo no vale (el promotor del asistente de actividad, que se pidió como
-       barra de búsqueda con resultados a la vista). Quien no tenga foto sale con su hueco. */
+       barra de búsqueda con resultados a la vista). Quien no tenga foto sale con su hueco.
+       ⚠️⚠️ Y TAMBIÉN cuando algún resultado trae SEGUNDA FILA (`sub`): un `<datalist>` nativo solo
+       pinta una línea por opción, así que dos terceros que se llaman igual salían ahí como dos
+       opciones IDÉNTICAS —justo lo que la segunda fila viene a resolver— y encima no se podía
+       elegir cuál. Es la misma razón por la que la imagen obliga a la lista propia. */
     const conImagen = ((opciones || {}).alwaysList === true)
-      || (js || []).some(it => it && (it.logo_url || it.photo_url));
+      || (js || []).some(it => it && (it.logo_url || it.photo_url || it.sub));
     if (!conImagen){
       cerrar();
       dl.innerHTML = "";
@@ -174,3 +178,29 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
     if (hidden) hidden.value = elegido;
   };
 }
+
+/* ============================================================================
+   LA SEGUNDA FILA DE UN RESULTADO PARA ELEGIR (`sub`), EN UN SELECT2.
+   ⚠️⚠️ Dos personas pueden llamarse igual: el nick es como las llamamos nosotros, no un
+   identificador (sep 2026). Cuando en la lista salen varias con el MISMO nombre, el SERVIDOR manda
+   en `sub` lo que las distingue (su nombre completo) y aquí se pinta debajo, en pequeño. Es el
+   mismo sitio que ya usa la lista propia de `initTypeahead` (`.ta-item__s`).
+   Punto único del navegador para los select2 de entidades: así todos enseñan lo mismo.
+   ⚠️ Devuelve un objeto jQuery (no HTML en texto): select2 lo inserta tal cual y el nombre va con
+   `.text()`, así que no hace falta tocar su `escapeMarkup` ni hay nada que escapar a mano.
+   ⚠️ La foto lleva `flex:0 0 auto` y el texto `min-w-0`: en un flex, lo de tamaño fijo tiene que
+   decir que no se encoge y lo que debe recortarse tiene que poder hacerlo. */
+window.app33Select2Option = function (d) {
+  if (!d || !d.id || !window.jQuery) return (d && d.text) || '';
+  var $ = window.jQuery;
+  var caja = $('<span class="d-inline-flex align-items-center gap-2 min-w-0"></span>');
+  var foto = d.photo || d.logo_url || d.logo || '';
+  if (foto) {
+    caja.append($('<img alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex:0 0 auto;">').attr('src', foto));
+  } else {
+    caja.append($('<span class="me-1 text-muted" style="flex:0 0 auto;"><i class="fa fa-circle-user"></i></span>'));
+  }
+  var texto = $('<span class="min-w-0"></span>').append($('<span class="d-block text-truncate"></span>').text(d.text || ''));
+  if (d.sub) texto.append($('<small class="d-block text-muted text-truncate"></small>').text(d.sub));
+  return caja.append(texto);
+};

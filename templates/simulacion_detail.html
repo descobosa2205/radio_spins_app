@@ -2112,8 +2112,11 @@ function numv(x){
       $(promSel).select2({
         width:'100%', dropdownParent:$(ed.closest('.modal') || document.body), placeholder:'Buscar tercero…', allowClear:true, minimumInputLength:1,
         ajax:{ url:"{{ url_for('api_search_promoters') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
-          processResults:function(data){ return { results:(data||[]).map(function(it){ return {id:it.id, text:it.label||it.name||it.text, photo:it.photo_url||it.logo_url||''}; }) }; } },
-        templateResult:function(d){ if(!d.id) return d.text; var img=d.photo?'<img class="thumb" src="'+d.photo+'">':'<span class="me-2"><i class="fa fa-circle-user"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); },
+          processResults:function(data){ return { results:(data||[]).map(function(it){ return {id:it.id, text:it.label||it.name||it.text, sub:it.sub||'', photo:it.photo_url||it.logo_url||''}; }) }; } },
+        templateResult:function(d){ if(!d.id) return d.text;
+          // Debajo del nick, lo que lo distingue de otro que se llame igual (helper común).
+          if (window.app33Select2Option) return window.app33Select2Option(d);
+          var img=d.photo?'<img class="thumb" src="'+d.photo+'">':'<span class="me-2"><i class="fa fa-circle-user"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); },
         templateSelection:function(d){ return d.text||''; }, escapeMarkup:function(m){return m;}
       });
       $(promSel).on('change', function(){

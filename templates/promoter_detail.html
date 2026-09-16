@@ -958,10 +958,13 @@
           data: function (params) { return { q: params.term }; },
           processResults: function (data) {
             return { results: (data.results || data || []).map(function (r) {
-              return { id: r.id, text: r.nick || r.name || r.text || '', photo: r.logo_url || r.photo_url || '' };
+              // `sub`: lo que distingue a esta ficha de otra que se llame igual (el servidor solo
+              // lo manda cuando en esa misma lista salen varios con el mismo nick).
+              return { id: r.id, text: r.nick || r.name || r.text || '', sub: r.sub || '', photo: r.logo_url || r.photo_url || '' };
             }) };
           }
-        }
+        },
+        templateResult: function (d) { return window.app33Select2Option ? window.app33Select2Option(d) : d.text; }
       });
     });
   }

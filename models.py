@@ -10241,6 +10241,12 @@ def ensure_third_party_and_contract_sheet_schema():
         # solo el que pone Postgres por defecto), y se mira también un índice único suelto.
         # ⚠️ Va en un `DO $$`, que `_ddl_already_applied` no da nunca por hecho: se ejecuta en cada
         # arranque y no hace nada cuando ya no queda ninguna.
+        # ⚠️⚠️ NI UN SOLO `%` EN ESTE SQL (lo cazó la prueba): las sentencias van por
+        # `exec_driver_sql`, así que psycopg2 lee cualquier `%` como un parámetro suyo y la
+        # sentencia entera falla con «immutabledict is not a sequence» —un aviso en el log y a
+        # otra cosa, así que el UNIQUE se habría quedado puesto sin que nadie se enterara—. Por eso
+        # `quote_ident(...)` en vez de `format('%I', ...)` y las columnas se miran por el catálogo
+        # en vez de con un `LIKE '%(nick)%'`.
         """
         DO $$
         DECLARE fila record;
@@ -10249,20 +10255,24 @@ def ensure_third_party_and_contract_sheet_schema():
                 RETURN;
             END IF;
             FOR fila IN
-                SELECT conname FROM pg_constraint
-                WHERE conrelid = 'public.promoters'::regclass AND contype = 'u'
-                  AND pg_get_constraintdef(oid) ILIKE 'UNIQUE (nick)'
+                SELECT c.conname FROM pg_constraint c
+                WHERE c.conrelid = 'public.promoters'::regclass AND c.contype = 'u'
+                  AND array_length(c.conkey, 1) = 1
+                  AND (SELECT a.attname FROM pg_attribute a
+                       WHERE a.attrelid = c.conrelid AND a.attnum = c.conkey[1]) = 'nick'
             LOOP
-                EXECUTE format('ALTER TABLE promoters DROP CONSTRAINT %I', fila.conname);
+                EXECUTE 'ALTER TABLE promoters DROP CONSTRAINT ' || quote_ident(fila.conname);
             END LOOP;
             FOR fila IN
                 SELECT i.relname AS conname
                 FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid
                 WHERE x.indrelid = 'public.promoters'::regclass
-                  AND x.indisunique AND NOT x.indisprimary
-                  AND pg_get_indexdef(x.indexrelid) ILIKE '%(nick)%'
+                  AND x.indisunique AND NOT x.indisprimary AND x.indnatts = 1
+                  AND (SELECT a.attname FROM pg_attribute a
+                       WHERE a.attrelid = x.indrelid AND a.attnum = x.indkey[0]) = 'nick'
+                  AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = x.indexrelid)
             LOOP
-                EXECUTE format('DROP INDEX IF EXISTS %I', fila.conname);
+                EXECUTE 'DROP INDEX IF EXISTS ' || quote_ident(fila.conname);
             END LOOP;
         END $$;
         """,

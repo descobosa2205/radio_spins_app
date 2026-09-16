@@ -432,6 +432,9 @@
   function entityFmt(d){
     if(!d.id) return d.text;
     var photo = d.photo || (d.element && $(d.element).data('photo')) || '';
+    // La SEGUNDA FILA (`sub`, lo que distingue a dos que se llaman igual) la pinta el helper común
+    // de la casa; sin él (una pantalla que no cargue typeahead.js) se pinta como toda la vida.
+    if (window.app33Select2Option) return window.app33Select2Option({id:d.id, text:d.text, sub:d.sub, photo:photo});
     var img = photo ? '<img class="thumb" src="'+photo+'">' : '<span class="me-2"><i class="fa fa-circle-user"></i></span>';
     return $('<span>'+img+(d.text||'')+'</span>');
   }
@@ -440,7 +443,7 @@
       width:'100%', dropdownParent: $(modalEl), placeholder: placeholder, allowClear:true, minimumInputLength:1,
       ajax:{ url:endpoint, dataType:'json', delay:200,
         data:function(p){ return { q: p.term || '' }; },
-        processResults:function(data){ return { results:(data||[]).map(function(it){ return { id: it.id, text: it.label || it.name || it.text, photo: it.photo_url || it.logo_url || '' }; }) }; }
+        processResults:function(data){ return { results:(data||[]).map(function(it){ return { id: it.id, text: it.label || it.name || it.text, sub: it.sub || '', photo: it.photo_url || it.logo_url || '' }; }) }; }
       },
       templateResult: entityFmt, templateSelection: entityFmt, escapeMarkup:function(m){ return m; }
     });

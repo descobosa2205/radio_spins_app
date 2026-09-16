@@ -219,7 +219,8 @@
           var filas = Array.isArray(d) ? d : ((d && (d.results || d.items)) || []);
           var def = document.body.getAttribute('data-default-avatar-url') || '';
           caja.innerHTML = filas.slice(0, 12).map(function (p) {
-            var meta = [p.sub, p.contact_email, p.contact_phone, p.link_summary_text].filter(Boolean).join(' · ');
+            var meta = [p.sub, p.contact_email, p.contact_phone, p.link_summary_text]
+              .filter(Boolean).filter(function (t, i, a) { return a.indexOf(t) === i; }).join(' · ');
             return '<button type="button" class="mc-opt" data-mc-promoter=\'' + esc(JSON.stringify(p)) + '\'>' +
               '<img class="mc-opt__ava" src="' + esc(p.logo_url || def) + '" alt="" data-avatar="1">' +
               '<span class="mc-opt__body"><span class="mc-opt__name">' + esc(p.label || p.nick || '') + '</span>' +

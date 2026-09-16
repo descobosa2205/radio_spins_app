@@ -2672,7 +2672,8 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
             return '<button type="button" class="invitation-search-result" data-prod-promoter-hit=\''
               + JSON.stringify(it).replace(/'/g, '&#39;') + '\'>'
               + (it.logo_url ? '<img src="' + esc(it.logo_url) + '" alt="">' : '')
-              + '<span><strong>' + esc(it.label || 'Sin nombre') + '</strong><small>'
+              + '<span><strong>' + esc(it.label || 'Sin nombre') + '</strong>'
+              + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '<small>'
               + esc(it.contact_email || '') + ' ' + esc(it.contact_phone || '') + '</small></span></button>';
           }).join('') || '<div class="text-muted small p-2">Sin coincidencias. Créalo con el +.</div>';
         }).catch(function () {});

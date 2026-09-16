@@ -364,9 +364,12 @@
                     ajax: {
                       url: '/api/search/promoters', dataType: 'json', delay: 250,
                       data: function(p){ return { q: p.term }; },
-                      processResults: function(d){ return { results: (d || []).map(function(r){ return { id: r.id, text: r.label, logo: r.logo_url }; }) }; }
+                      processResults: function(d){ return { results: (d || []).map(function(r){ return { id: r.id, text: r.label, sub: r.sub || '', logo: r.logo_url }; }) }; }
                     },
-                    templateResult: function(o){ if (!o.id) return o.text; var img = o.logo ? '<img src="' + o.logo + '" style="width:24px;height:24px;border-radius:50%;object-fit:cover;margin-right:6px;vertical-align:middle;">' : ''; return jQuery('<span>' + img + jQuery('<span>').text(o.text).html() + '</span>'); }
+                    // Debajo del nick, lo que distingue a dos terceros que se llaman igual (helper común).
+                    templateResult: function(o){ if (!o.id) return o.text;
+                      if (window.app33Select2Option) return window.app33Select2Option(o);
+                      var img = o.logo ? '<img src="' + o.logo + '" style="width:24px;height:24px;border-radius:50%;object-fit:cover;margin-right:6px;vertical-align:middle;">' : ''; return jQuery('<span>' + img + jQuery('<span>').text(o.text).html() + '</span>'); }
                   }).on('select2:select', function(e){
                     var pid = e.params.data.id;
                     var list = document.getElementById('deliveryEmailList');

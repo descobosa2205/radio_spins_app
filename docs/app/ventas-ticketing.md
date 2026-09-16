@@ -514,8 +514,8 @@ el cartel dependía de ese número, cuando lo que decía era cómo iba la venta 
   Un listado puede venir sin nick, sin nombre o sin correo; lo que no trae no puede impedir la
   importación. **Lo único que se descarta es una fila sin NADA de la persona.**
   · **Terceros**: `_promoter_import_nick` cae en cascada nick → nombre completo → DNI/NIF → correo →
-    teléfono → **«Tercero sin nombre»** (numerado por `_intake_unique_nick`; `Promoter.nick` es NOT
-    NULL y UNIQUE). Y `_promoter_import_match` reconoce también **por TELÉFONO**
+    teléfono → **«Tercero sin nombre»** (numerado por `_intake_promoter_nick`: el nick es NOT NULL y
+    los genéricos SÍ se numeran, aunque el nick ya se pueda repetir). Y `_promoter_import_match` reconoce también **por TELÉFONO**
     (`_norm_phone_key`, de la ficha y de `PromoterPhone`): una fila con solo teléfono no se duplica al
     reimportar.
   · **Contactos de medios**: `contact_rows` acepta la fila con solo correo o solo teléfono, y donde se

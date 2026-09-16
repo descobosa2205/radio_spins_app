@@ -732,8 +732,9 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   · **El NICK pasa a ser el nombre del ARTISTA solo si tiene UN único integrante**
   (`_artist_solo_name`): con varios, el nombre del artista no identifica a ninguno. El nombre, los
   apellidos y el DNI son SIEMPRE los oficiales de la persona (es quien firma y quien factura).
-  ⚠️ Si ese nick ya lo tiene otro tercero **no se toca nada**: `Promoter.nick` es único y renombrarlo
-  a «X (2)» sería peor.
+  ⚠️ Si ese nick ya lo tiene otro tercero **no se toca nada**: el nick se puede repetir (ver
+  `docs/app/terceros-medios.md`), pero ponerlo a mano es una cosa y que la app renombre una ficha
+  sola por detrás para que se llame como otra, otra muy distinta.
   ⚠️ **Solo se une lo que es la MISMA persona sin lugar a dudas** (`_promoter_duplicates_of`): mismo
   DNI, o mismo nombre completo **sin un DNI que lo desmienta**. Dos personas distintas pueden
   llamarse igual, y fundirlas sería mucho peor que dejar el duplicado.

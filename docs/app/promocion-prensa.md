@@ -188,6 +188,14 @@
   pidió Dani). El mismo módulo en la **ficha de la canción** y en el **proyecto discográfico**
   (`templates/_song_radio_module.html`, contexto único **`_song_radio_module`**): la presentación
   vive en la CANCIÓN y el proyecto solo la enseña.
+  ⚠️⚠️ **EN LA CANCIÓN, EL MÓDULO VA EN LA PESTAÑA «RADIO»** —arriba, antes de las tocadas: primero
+  lo que hay que hacer y después lo que ya ha pasado— y en **Información** solo queda **el AVISO**
+  de que un focus single está sin presentar, como **una nota más** de «Falta por cumplimentar»
+  (`_song_missing_required(..., radio=...)`), con su botón a la pestaña. Un single que **no** es
+  focus no avisa de nada, y el aviso **desaparece solo** cuando no queda ninguna por presentar.
+  ⚠️ **La pestaña «Radio» de la canción la ve también el SELLO** (`discografica.canciones`), no solo
+  quien tiene la sección Radio: ahí vive la presentación, que la configura Discográfica. Abrirla ya
+  lo permitía el gate (`RELEASE_READ_ACCESS_KEYS`); lo que faltaba era **pintar la pestaña**.
   · **El OBJETIVO**: a qué emisoras se va a presentar (`SongRadioPitch`, una fila por emisora, las
   emisoras son los medios de tipo Radio). Se marcan en su pop-up (`song_radio_plan_save`) y
   ⚠️ **solo se puede quitar lo que todavía no se ha presentado**: lo mandado es historia.

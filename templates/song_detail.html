@@ -308,7 +308,12 @@
     ('radio','Radio','radio.reportes'),
     ('playlisting','Playlisting','discografica.canciones')
   ] %}
-  {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
+  {# ⚠️⚠️ LA PESTAÑA «RADIO» ES TAMBIÉN DEL SELLO (sep 2026): ahí vive la PRESENTACIÓN A RADIOS, que
+     la configura Discográfica —y quien lleva el sello no tiene por qué tener la sección Radio, que
+     son las tocadas—. Sin esta excepción, el módulo quedaba en una pestaña que el sello no ve.
+     Abrirla ya lo permitía el gate (`RELEASE_READ_ACCESS_KEYS`): lo que faltaba era PINTARLA. #}
+  {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True)
+        or (k == 'radio' and has_access_key('discografica.canciones', include_descendants=True)) %}
     <li class="nav-item">
       {# ⚠️ Se arrastra el listado de origen (`nav`): sin eso, al cambiar de pestaña se perderían las flechas. #}
       <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab=k, **(ficha_nav_args or {})) }}">{{ label }}</a>
@@ -428,11 +433,9 @@
 <div class="ficha-tabpane">
 
   {% if tab == 'informacion' %}
-    {# PRESENTACIÓN A RADIOS · el MISMO módulo que en el proyecto discográfico (la presentación
-       vive en la canción; el proyecto solo la enseña). Se elige a qué emisoras, se presenta, y en
-       cuanto suena en una se ve desde cuándo. #}
-    {% include '_song_radio_module.html' %}
-
+    {# ⚠️ LA PRESENTACIÓN A RADIOS VIVE EN LA PESTAÑA «RADIO» (lo pidió Dani, sep 2026). Aquí solo
+       queda el AVISO de que un focus single está sin presentar, y va con los demás avisos de
+       «Falta por cumplimentar» —una nota, no un módulo—. #}
     {# ⚠️ LO QUE FALTA POR CUMPLIMENTAR, ARRIBA Y CON SU BOTÓN. Un dato que hay que decir siempre
        —la calificación de contenido, el género, el pitch— se avisa aquí y se resuelve sin salir:
        así se ve al entrar en vez de tener que ir a buscarlo. #}
@@ -465,6 +468,11 @@
                     <i class="fa fa-pen me-1"></i>Poner el género</button>
                 {% elif m.key == 'pitch' %}
                   <a class="btn btn-sm btn-outline-primary" href="#pitch-zone"><i class="fa fa-pen me-1"></i>Escribir el pitch</a>
+                {% elif m.key == 'radio' %}
+                  {# Se resuelve en su pestaña: ahí está el módulo entero (elegir emisoras y presentar). #}
+                  <a class="btn btn-sm btn-outline-primary"
+                     href="{{ url_for('discografica_song_detail', song_id=song.id, tab='radio', **(ficha_nav_args or {})) }}">
+                    <i class="fa fa-tower-broadcast me-1"></i>Presentarla a radio</a>
                 {% elif m.key == 'tiktok' %}
                   {# Lo da por configurado quien es Registros y Sello (y dirección). #}
                   <div class="d-flex gap-2 flex-wrap">
@@ -3410,9 +3418,14 @@
 
   {% elif tab == 'radio' %}
 
+    {# PRESENTACIÓN A RADIOS · el MISMO módulo que en el proyecto discográfico (la presentación vive
+       en la canción; el proyecto solo la enseña). Va ARRIBA, antes de las tocadas: primero lo que
+       hay que hacer y después lo que ya ha pasado. #}
+    {% include '_song_radio_module.html' %}
+
     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
       <div>
-        <h5 class="m-0">Radio</h5>
+        <h5 class="m-0">Tocadas</h5>
       </div>
       <button type="button" class="btn btn-outline-primary" onclick="openChart('{{ song.id }}')">
         <i class="fa fa-chart-line"></i> Ver evolución total

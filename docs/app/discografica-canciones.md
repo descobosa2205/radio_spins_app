@@ -39,11 +39,15 @@
 
 ---
 
-- ⚠️⚠️ **LA FICHA DE LA CANCIÓN LLEVA EL MÓDULO DE PRESENTACIÓN A RADIOS** (sep 2026): a qué
+- ⚠️⚠️ **LA PESTAÑA «RADIO» DE LA CANCIÓN LLEVA EL MÓDULO DE PRESENTACIÓN A RADIOS** (sep 2026,
+  lo pidió Dani: el módulo en su pestaña y en Información solo el aviso): a qué
   emisoras se presenta, quién la presentó (su **foto** y su **nick**) y cuándo, la previsión de
   entrada en rotación y —en cuanto tiene tocadas— **desde cuándo suena** (y entonces desaparecen
   «presentada» y la previsión). Es el MISMO módulo del proyecto discográfico
-  (`_song_radio_module`). Detalle completo en `docs/app/promocion-prensa.md`.
+  (`_song_radio_module`). En **Información** solo sale **la nota amarilla** de «Falta por
+  cumplimentar» cuando es focus single y queda algo sin presentar. Detalle completo en
+  `docs/app/promocion-prensa.md`.
+  ⚠️ Esa pestaña la ve también el SELLO (`discografica.canciones`), no solo quien tiene Radio.
   ⚠️ Sus endpoints se llaman **`song_radio_*`** y se mapean por PREFIJO a `discografica.canciones`;
   **presentar** lo pueden hacer también promoción (`_can_present_radio`).
 

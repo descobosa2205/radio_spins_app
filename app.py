@@ -7894,11 +7894,33 @@ EXPLICIT_CHOICES = (
 # ARRIBA de su ficha, con el botón para resolverlo ahí mismo: así se ve al entrar en vez de tener
 # que buscarlo. Es el mismo patrón que ya tenía «¿contenido explícito?», ahora para todos.
 # ══════════════════════════════════════════════════════════════════════════════════════════════
-def _song_missing_required(song, *, genres=None) -> list[dict]:
-    """Los campos OBLIGATORIOS que esta canción tiene sin cumplimentar, listos para avisar."""
+def _song_missing_required(song, *, genres=None, radio=None) -> list[dict]:
+    """Los campos OBLIGATORIOS que esta canción tiene sin cumplimentar, listos para avisar.
+
+    ⚠️ `radio` es el módulo de presentación a radios (`_song_radio_module`): un **focus single**
+    que todavía no se ha presentado sale aquí como un aviso más —no como un módulo— y el botón
+    lleva a su pestaña (lo pidió Dani, sep 2026)."""
     faltan = []
     if song is None:
         return faltan
+    # ⚠️⚠️ SOLO UN FOCUS SINGLE SE PRESENTA A RADIO: en los demás no falta nada que avisar.
+    if radio and bool((radio.get("focus") or {}).get("yes")):
+        sin_presentar = len(radio.get("planned") or [])
+        if not (radio.get("rows") or []):
+            faltan.append({
+                "key": "radio",
+                "label": "Presentación a radio",
+                "icon": "fa-tower-broadcast",
+                "hint": "Es un focus single y todavía no se ha presentado a ninguna emisora.",
+            })
+        elif sin_presentar:
+            faltan.append({
+                "key": "radio",
+                "label": "Presentación a radio",
+                "icon": "fa-tower-broadcast",
+                "hint": ("Quedan %d emisora%s del objetivo por presentar."
+                         % (sin_presentar, "s" if sin_presentar != 1 else "")),
+            })
     if not _song_explicit_decided(song):
         faltan.append({
             "key": "explicit",
@@ -24717,6 +24739,11 @@ def discografica_song_detail(song_id):
                        "ficha_nav_args", "one_stop", "release"):
                 _song_bag_panel.pop(_c, None)
 
+    # PRESENTACIÓN A RADIOS: el MÓDULO vive en la pestaña «Radio» y en «Información» solo queda su
+    # AVISO, así que en las demás pestañas no hace falta calcularlo (son cuatro consultas).
+    radio_module = (_song_radio_module(session_db, s)
+                    if tab in ("informacion", "radio") else None)
+
     response = render_template(
         "song_detail.html",
         song=s,
@@ -24736,7 +24763,7 @@ def discografica_song_detail(song_id):
         song_genre_catalog=(_song_genre_catalog(session_db) if tab == "informacion" else []),
         explicit_choices=EXPLICIT_CHOICES,
         # LO QUE FALTA POR CUMPLIMENTAR (se avisa arriba, con su botón para resolverlo ahí mismo).
-        song_missing=_song_missing_required(s, genres=song_genres),
+        song_missing=_song_missing_required(s, genres=song_genres, radio=radio_module),
         # LA CALIFICACIÓN DE CONTENIDO: un campo más del Label Copy, que dice las DOS cosas.
         content_rating_field_label=CONTENT_RATING_FIELD_LABEL,
         content_rating_label=_content_rating_label(s),
@@ -24790,9 +24817,11 @@ def discografica_song_detail(song_id):
         # PRESENTACIÓN A RADIOS: es de la CANCIÓN (el proyecto solo la enseña), así que el módulo
         # entero —el objetivo, quién la presentó, la previsión de rotación y lo que ya suena— se ve
         # aquí con el MISMO contexto que en el proyecto (`_song_radio_module`).
-        radio_module=_song_radio_module(session_db, s),
+        # ⚠️ El MÓDULO vive en la pestaña **Radio** (lo pidió Dani); en Información solo queda el
+        # AVISO de «falta por presentar», que es una fila más de «Falta por cumplimentar».
+        radio_module=radio_module,
         rm_can_edit=can_edit_discografica(),
-        radio_media=_disco_radio_media_options(session_db),
+        radio_media=(_disco_radio_media_options(session_db) if tab == "radio" else []),
         radio_rows=_disco_radio_rows(session_db, s),
         isrc_audio=isrc_audio,
         isrc_video=isrc_video,

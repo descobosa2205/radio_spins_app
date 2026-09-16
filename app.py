@@ -69179,6 +69179,9 @@ def concert_detail_view(cid):
             current_artwork_assets=current_artwork_assets,
             archived_artwork_assets=archived_artwork_assets,
             soldout=soldout,
+            # EL PROCESO del Sold Out (declarado · carteles · comunicado al artista), que es lo que
+            # pinta la etiqueta de la cabecera. `soldout` es la CARTELERÍA; esto es el proceso.
+            soldout_flow=_soldout_state(session, c),
             soldout_trigger_pct=SOLDOUT_TRIGGER_PCT,
             artwork_companies=artwork_companies,
             artwork_ticketers=artwork_ticketers,
@@ -74745,7 +74748,19 @@ def sales_toggle_soldout(cid):
         # Alterna el flag manual (independiente del aforo lleno)
         c.sold_out = not bool(c.sold_out)
         session.commit()
-        flash("Estado SOLD OUT actualizado.", "success")
+        # ⚠️⚠️ DECLARAR EL SOLD OUT ES UN PROCESO, no marcar una casilla (`_soldout_declare`): se
+        # avisa en casa (contratación, el jefe de producto del sello y quien la produce), se
+        # reclaman los carteles si faltan y queda pendiente comunicárselo al artista.
+        if c.sold_out:
+            estado = _current_user_state() or {}
+            info = _soldout_declare(session, c, (estado.get("nick") or ""))
+            partes = ["¡SOLD OUT! Avisada la oficina"]
+            if info.get("carteles_pedidos"):
+                partes.append("y pedidos los carteles a diseño como urgente")
+            flash("%s. Ahora falta comunicárselo al artista para que pueda publicarlo."
+                  % " ".join(partes), "success")
+        else:
+            flash("Estado SOLD OUT actualizado.", "success")
     except Exception as e:
         session.rollback()
         flash(f"Error cambiando SOLD OUT: {e}", "danger")
@@ -121874,6 +121889,9 @@ ACTIVITY_NOTICE_KINDS = {
     # los DOS vistos buenos (diseño y contratación), con la fecha en la que se anuncia. NO marca la
     # actividad como anunciada: eso lo hace ANUNCIO, que es otra comunicación.
     "CARTELERIA": "Ya tienes los carteles",
+    # ⚠️ SOLD OUT: «está agotado y ya se puede publicar». Lleva los carteles de Sold Out para
+    # descargarlos, y al mandarlo la actividad queda con el proceso cerrado (`soldout_notified_at`).
+    "SOLDOUT": "¡Sold Out! Ya se puede publicar",
     "CAMBIOS": "Cambios en la actividad",
     "CANCELACION": "Actividad cancelada",
     "APLAZAMIENTO": "Actividad aplazada",
@@ -123186,13 +123204,21 @@ def _announce_alert_state(session_db, concert) -> dict:
     }
 
 
-def _activity_notice_artwork(session_db, concert) -> dict:
-    """LA CARTELERÍA con la que se anuncia: las piezas aprobadas y el enlace público para bajarlas.
+def _activity_notice_artwork(session_db, concert, *, category: str = "POSTER") -> dict:
+    """LA CARTELERÍA del aviso: las piezas aprobadas y el enlace público para bajarlas.
 
+    Con `category="SOLDOUT"` son los carteles de **Sold Out**, que es lo que se le manda al artista
+    cuando se agota para que pueda publicarlo (y que a propósito NO se mezclan con los normales).
     ⚠️ Lo que se manda es SIEMPRE la PÁGINA de cartelería (`_concert_artwork_share_url`), nunca la
     URL de Storage: quien lo recibe no tiene usuario y un enlace directo no se previsualiza."""
     try:
-        piezas = _concert_artwork_share_assets(session_db, concert) or []
+        if (category or "").upper() == "SOLDOUT":
+            req = getattr(concert, "artwork_request", None)
+            piezas = [a for a in ((getattr(req, "assets", None) or []) if req else [])
+                      if not bool(getattr(a, "is_archived", False))
+                      and (getattr(a, "category", "") or "").upper() == "SOLDOUT"]
+        else:
+            piezas = _concert_artwork_share_assets(session_db, concert) or []
     except Exception:
         app.logger.exception("[anuncio] no se pudieron leer los carteles")
         piezas = []
@@ -123209,7 +123235,11 @@ def _activity_notice_artwork(session_db, concert) -> dict:
     url = ""
     if piezas:
         try:
-            url = _concert_artwork_share_url(session_db, concert)
+            # ⚠️ MISMA FORMA SIEMPRE (`rows`/`count`/`url`): lo único que cambia es a qué carteles
+            # lleva el enlace. Devolver otra cosa para el Sold Out rompería a quien lo pinta.
+            url = _concert_artwork_share_url(
+                session_db, concert,
+                category=("SOLDOUT" if (category or "").upper() == "SOLDOUT" else ""))
         except Exception:
             url = ""
     return {"rows": filas, "count": len(piezas), "url": url}
@@ -123297,8 +123327,12 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         "conditions": _activity_notice_conditions(session_db, concert),
         # ⚠️ Solo en el aviso de ANUNCIO: la CARTELERÍA con la que se anuncia y los detalles del
         # anuncio. En los demás tipos van vacíos y sus módulos no se pintan.
-        "artwork": (_activity_notice_artwork(session_db, concert)
-                    if kind in ("ANUNCIO", "CARTELERIA") else {}),
+        # ⚠️ En el SOLD OUT van SUS carteles (los de Sold Out), no los de siempre: es lo que el
+        # artista necesita para publicarlo.
+        "artwork": (_activity_notice_artwork(
+            session_db, concert,
+            category=("SOLDOUT" if kind == "SOLDOUT" else "POSTER"))
+            if kind in ("ANUNCIO", "CARTELERIA", "SOLDOUT") else {}),
         "announcement": (_activity_notice_announcement(concert)
                          if kind in ("ANUNCIO", "CARTELERIA") else {}),
         "has_cache": _concert_has_cache(session_db, concert),
@@ -124267,6 +124301,26 @@ def concert_artist_notice_send(cid):
                 flash(error, "warning")
             return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
 
+        # ⚠️⚠️ SOLD OUT: comunicárselo al artista es lo que CIERRA el proceso («ya se puede
+        # publicar»). Hasta aquí la actividad estaba agotada pero él no lo sabía, así que su
+        # cabecera lo decía como «pendiente de comunicar».
+        # ⚠️ Como el ANUNCIO, esto **NO** marca el aviso formal de la actividad
+        # (`artist_notified_at`): son comunicaciones distintas.
+        if kind == "SOLDOUT":
+            concert.soldout_notified_at = _now_madrid()
+            concert.updated_at = _now_madrid()
+            session_db.commit()
+            texto = _activity_notice_share_text(ctx)
+            if es_json:
+                return jsonify({"ok": True, "channel": canal, "url": enlace, "share_text": texto,
+                                "sms_text": texto_corto, "sent": enviado, "warning": (error or ""),
+                                "recipients": destinos, "soldout": True})
+            flash(("Sold Out comunicado al artista: ya lo puede publicar." if enviado
+                   else "Sold Out: el aviso queda registrado."), "success")
+            if enviado and error:
+                flash(error, "warning")
+            return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+
         # ⚠️⚠️ PEDIR LA CONFIRMACIÓN **NO ES** EL AVISO FORMAL DE LA ACTIVIDAD: son dos
         # comunicaciones distintas (la fase 2 de la petición y la 4). Si CONFIRMAR marcara
         # «avisado», la fase «Informar al artista» desaparecería sola sin haberse hecho y la
@@ -125158,6 +125212,186 @@ def _soldout_app_context():
         yield
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  EL SOLD OUT · declararlo no es marcar una casilla, es un PROCESO
+#
+#  Lo pidió Dani: cuando una actividad se agota, **eso hay que moverlo**. Al declararlo:
+#    1) se avisa EN CASA a quien tiene que saberlo —**contratación**, el **jefe de producto del
+#       sello** de ese artista y **quien la produce**—;
+#    2) si los **carteles de Sold Out no están subidos** se le piden a **DISEÑO como URGENTE**
+#       (aviso en la app **y** correo), porque sin cartel no se publica;
+#    3) y se ofrece **comunicárselo al artista** con la misma pantalla de vista previa que el resto
+#       de avisos, para que pueda publicarlo. El correo lleva el botón de **descargar los carteles**.
+#  Hasta que no se le comunica al artista, la actividad está agotada pero **el proceso no está
+#  cerrado**: eso es lo que marca `soldout_notified_at` y lo que dice la etiqueta de su cabecera.
+#
+#  ⚠️ Esto NO sustituye a la petición del 90 % (`_soldout_artwork_check`), que se sigue haciendo
+#  sola y con antelación: aquí se reclama lo que YA debería estar y no está.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# Cuántos días se le dan a diseño cuando el cartel se pide con la actividad YA agotada.
+SOLDOUT_URGENT_DEADLINE_DAYS = 1
+
+
+def _soldout_state(session_db, concert) -> dict:
+    """EN QUÉ PUNTO está el Sold Out de una actividad. Punto único de la ficha y de los avisos."""
+    req = getattr(concert, "artwork_request", None)
+    carteles = []
+    if req is not None:
+        carteles = [a for a in (getattr(req, "assets", None) or [])
+                    if not getattr(a, "is_archived", False)
+                    and (getattr(a, "category", "") or "").upper() == "SOLDOUT"]
+    declarado = getattr(concert, "soldout_declared_at", None)
+    avisado = getattr(concert, "soldout_notified_at", None)
+    return {
+        "is_sold_out": bool(getattr(concert, "sold_out", False)),
+        "declared_at": declarado,
+        "declared_label": (declarado.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                           if declarado else ""),
+        "declared_by": (getattr(concert, "soldout_declared_by_nick", "") or ""),
+        "notified_at": avisado,
+        "notified_label": (avisado.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if avisado else ""),
+        "has_posters": bool(carteles),
+        "posters": carteles,
+        # El proceso está CERRADO cuando está agotada y el artista ya lo sabe.
+        "done": bool(getattr(concert, "sold_out", False) and avisado),
+    }
+
+
+def _soldout_house_user_ids(session_db, concert) -> list[str]:
+    """A QUIÉN SE AVISA EN CASA de que una actividad se ha agotado.
+
+    **Contratación** (es su actividad), el **jefe de producto del sello** de ese artista
+    (`_artist_sello_user_ids`, el punto único de «de quién es este artista en el sello») y **quien
+    la produce**. Sin repetidos y sin gente de baja."""
+    ids = []
+    try:
+        ids += [str(x) for x in _department_user_ids(session_db, "Contratación")]
+    except Exception:
+        app.logger.exception("[soldout] no se pudo leer contratación")
+    try:
+        if getattr(concert, "artist_id", None):
+            ids += [str(x) for x in _artist_sello_user_ids(session_db, concert.artist_id)]
+    except Exception:
+        app.logger.exception("[soldout] no se pudo leer el jefe de producto")
+    try:
+        dueño = getattr(concert, "production_owner_user_id", None)
+        if dueño:
+            ids.append(str(dueño))
+        else:
+            ids += [str(x) for x in _department_user_ids(session_db, "Producción")]
+    except Exception:
+        app.logger.exception("[soldout] no se pudo leer producción")
+    fuera = {str(x) for x in (_inactive_user_ids(session_db) or [])}
+    return [x for x in dict.fromkeys(ids) if x and x not in fuera]
+
+
+def _soldout_declare(session_db, concert, by_nick: str = "") -> dict:
+    """SE HA AGOTADO: avisa en casa, reclama los carteles si faltan y deja el proceso abierto.
+
+    Devuelve lo que hay que decirle a quien lo ha marcado. ⚠️ Es **idempotente**
+    (`soldout_declared_at`): marcar y desmarcar no vuelve a dar la murga a media oficina.
+    ⚠️ Y es **best-effort**: si un aviso falla, no puede tumbar el marcado del Sold Out."""
+    salida = {"avisados": 0, "carteles_pedidos": False, "ya_estaba": False}
+    if not bool(getattr(concert, "sold_out", False)):
+        return salida
+    if getattr(concert, "soldout_declared_at", None):
+        salida["ya_estaba"] = True
+        return salida
+
+    ahora = _now_madrid()
+    concert.soldout_declared_at = ahora
+    concert.soldout_declared_by_nick = (by_nick or "").strip() or None
+    session_db.commit()
+
+    estado = _soldout_state(session_db, concert)
+    # ⚠️ `_concert_title_for_notice` YA trae la fecha: añadirla otra vez la repetía.
+    titulo = _concert_title_for_notice(concert)
+    enlace = _soldout_artwork_link(concert)
+
+    # ── 1) EN CASA: contratación, el jefe de producto del sello y quien la produce ─────────────
+    try:
+        with _soldout_app_context():
+            cuerpo = "%s · ya se puede comunicar al artista para que lo publique." % titulo
+            if not estado["has_posters"]:
+                cuerpo += " ⚠️ Faltan los carteles de Sold Out: se le han pedido a diseño."
+            salida["avisados"] = _notify_users(
+                session_db, _soldout_house_user_ids(session_db, concert), "CONTRATACION",
+                "¡Sold Out! %s" % titulo, cuerpo, enlace,
+                ref_type="SOLDOUT_DONE", ref_id=str(concert.id), commit=True) or 0
+    except Exception:
+        app.logger.exception("[soldout] no se pudo avisar en casa del Sold Out")
+
+    # ── 2) LOS CARTELES, si faltan: a diseño y URGENTE ────────────────────────────────────────
+    if not estado["has_posters"]:
+        try:
+            salida["carteles_pedidos"] = _soldout_artwork_urgent(session_db, concert, by_nick)
+        except Exception:
+            app.logger.exception("[soldout] no se pudieron pedir los carteles urgentes")
+    return salida
+
+
+def _soldout_artwork_urgent(session_db, concert, by_nick: str = "") -> bool:
+    """LOS CARTELES DE SOLD OUT, YA: la actividad está agotada y no hay con qué publicarlo.
+
+    Si nunca se pidieron, se piden; si estaban pedidos, se **adelanta el plazo** y se vuelve a
+    avisar (esta vez diciendo que es urgente). Aviso en la app **y** correo, que es lo que pidió
+    Dani. ⚠️ El plazo pasa a `SOLDOUT_URGENT_DEADLINE_DAYS` día: ya no hay margen."""
+    row = _artwork_ensure_request(session_db, concert)
+    ahora = _now_madrid()
+    nuevo = not getattr(row, "soldout_requested_at", None)
+    if nuevo:
+        row.soldout_requested_at = ahora
+        row.soldout_requested_by_nick = (by_nick or "").strip() or None
+        row.soldout_formats = list(SOLDOUT_ARTWORK_FORMATS)
+    row.soldout_deadline = today_local() + timedelta(days=SOLDOUT_URGENT_DEADLINE_DAYS)
+    row.updated_at = ahora
+    session_db.commit()
+    try:
+        session_db.expire(concert, ["artwork_request"])
+    except Exception:
+        pass
+
+    enlace = _soldout_artwork_link(concert)
+    titulo = _concert_title_for_notice(concert)
+    cuerpo = ("%s está AGOTADA y no hay carteles de Sold Out: hacen falta para poder publicarlo."
+              % titulo)
+    try:
+        with _soldout_app_context():
+            _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                          "URGENTE · cartel de Sold Out", cuerpo, enlace,
+                          ref_type="SOLDOUT", ref_id=str(row.id), commit=True,
+                          email=_soldout_urgent_email(concert, row, enlace))
+    except Exception:
+        app.logger.exception("[soldout] no se pudo avisar a diseño del cartel urgente")
+    return True
+
+
+def _soldout_urgent_email(concert, row, enlace: str) -> dict | None:
+    """El correo a diseño cuando el cartel se pide con la actividad YA agotada."""
+    try:
+        formatos = "".join("<li>%s</li>" % escape(ARTWORK_FORMAT_LABELS.get(k, k))
+                           for k in (list(getattr(row, "soldout_formats", None) or [])
+                                     or list(SOLDOUT_ARTWORK_FORMATS)))
+        plazo = (row.soldout_deadline.strftime("%d/%m/%Y")
+                 if getattr(row, "soldout_deadline", None) else "")
+        cuerpo = (
+            '<div style="font-family:Arial,sans-serif;color:#1f2937;max-width:640px;">'
+            + _concert_email_header_html(concert, "URGENTE · cartel de Sold Out")
+            + "<p>Esta actividad está <strong>AGOTADA</strong> y todavía no tiene carteles de "
+              "<strong>Sold Out</strong>. Hacen falta para poder publicarlo:</p>"
+            + "<ul>" + formatos + "</ul>"
+            + (("<p>Fecha máxima de entrega: <strong>%s</strong></p>" % plazo) if plazo else "")
+            + '<p><a href="%s" style="display:inline-block;background:#E33D48;color:#fff;padding:12px 18px;'
+              'border-radius:8px;text-decoration:none;font-weight:700;">Subir los carteles</a></p></div>' % enlace
+        )
+        return {"subject": "URGENTE · cartel de Sold Out · %s" % _concert_title_for_notice(concert),
+                "html": cuerpo}
+    except Exception:
+        app.logger.exception("[soldout] no se pudo componer el correo urgente")
+        return None
+
+
 def _soldout_artwork_request(session_db, concert, pct=None, by_nick: str = "") -> bool:
     """Le PIDE a diseño el cartel de Sold Out (aviso en la app + correo al buzón de diseño).
 
@@ -125815,7 +126049,8 @@ def _ensure_concert_artwork_share_token(session_db, concert) -> str:
     return token
 
 
-def _concert_artwork_share_url(session_db, concert, *, asset_id=None) -> str:
+def _concert_artwork_share_url(session_db, concert, *, asset_id=None,
+                               category: str = "") -> str:
     """El enlace PÚBLICO de la cartelería de la actividad (lo que se manda al artista).
 
     Con `asset_id` es el enlace de UN cartel concreto: la página lo enseña primero y su nombre y su
@@ -125831,6 +126066,11 @@ def _concert_artwork_share_url(session_db, concert, *, asset_id=None) -> str:
     except Exception:
         app.logger.exception("[carteleria] no se pudo construir el enlace público")
         return ""
+    # ⚠️ `?cat=SOLDOUT` enseña los carteles de SOLD OUT, que viven en la misma solicitud pero en su
+    # propia categoría (la página pública ya lo entiende). Sin esto, el aviso de Sold Out mandaría
+    # al artista a los carteles NORMALES.
+    if url and (category or "").upper() not in ("", "POSTER"):
+        url += ("&" if "?" in url else "?") + "cat=" + (category or "").upper()
     if url and asset_id:
         url += ("&" if "?" in url else "?") + "f=" + str(asset_id)
     return url

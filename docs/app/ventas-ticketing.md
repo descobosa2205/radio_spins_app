@@ -13,6 +13,7 @@
 - SALIDA A LA VENTA · activar la venta y COMUNICARLA. Sacar una actividad a la venta
 - UN BUSCADOR TIENE QUE NORMALIZAR LOS DOS LADOS (bug real, ago 2026): en el reporte de ventas
 - EL A4 Y EL CORREO DEL REPORTE DE VENTAS SIGUEN MANDANDO EL DÍA COMPLETO, no lo que se está
+- EL PROCESO DEL SOLD OUT · avisar en casa, los carteles y el artista
 - AL 90% DE VENTA SE PIDE SOLO EL CARTEL DE SOLD OUT. Cuando una actividad que
 - ENVÍOS A COMPRADORES · el correo SE DISEÑA, por la COMPRA o PUBLICITARIO, a VARIAS bases y
 - IMPORTAR TERCEROS, CONTACTOS DE MEDIOS Y COMPRADORES: NINGÚN CAMPO ES OBLIGATORIO.
@@ -356,6 +357,43 @@
   el de artistas es un botón de Bootstrap: se cambió solo el que se pidió. Si se homogeneizan, ahí sí
   se podría retirar `.sales-chip` del CSS (hoy lo necesitan esos dos grupos **y** `wireSingle`, que
   selecciona por esa clase).
+
+## EL PROCESO DEL SOLD OUT · avisar en casa, los carteles y el artista
+
+⚠️⚠️ **DECLARAR EL SOLD OUT NO ES MARCAR UNA CASILLA** (sep 2026, lo pidió Dani): cuando una
+actividad se agota, **eso hay que moverlo**. Punto único **`_soldout_declare`**, que se dispara al
+marcarla agotada y hace tres cosas:
+
+1. **AVISA EN CASA** a quien tiene que saberlo: **contratación**, el **jefe de producto del sello**
+   de ese artista (`_artist_sello_user_ids`, el punto único de «de quién es este artista en el
+   sello») y **quien la produce** (y si no hay nadie apuntado, todo Producción).
+2. **RECLAMA LOS CARTELES si faltan** (`_soldout_artwork_urgent`): aviso en la app **y correo** a
+   diseño, con el plazo adelantado a **un día**. Sin cartel no se publica, así que no se puede
+   esperar al plazo normal. Si nunca se pidieron, se piden; si estaban pedidos, se adelanta el
+   plazo y se vuelve a avisar diciendo que es urgente.
+3. Y queda **pendiente comunicárselo al artista**, que es lo que cierra el proceso.
+
+⚠️ Es **idempotente** (`Concert.soldout_declared_at`): marcar y desmarcar no vuelve a dar la murga
+a media oficina. Y es **best-effort**: si un aviso falla, no tumba el marcado del Sold Out.
+
+**EL AVISO AL ARTISTA** es el de siempre (misma pantalla, misma vista previa, mismos canales) con
+un tipo nuevo: **`SOLDOUT` · «¡Sold Out! Ya se puede publicar»**. Lleva **los carteles de SOLD
+OUT** con su botón de descarga — no los normales: `_activity_notice_artwork(..., category="SOLDOUT")`
+y `_concert_artwork_share_url(..., category="SOLDOUT")`, que es lo que hace que el enlace público
+enseñe los suyos (`?cat=SOLDOUT`, que esa página ya entendía).
+⚠️ **Mandarlo es lo que CIERRA el proceso** (`Concert.soldout_notified_at`): hasta entonces la
+actividad está agotada pero el artista no lo sabe.
+
+**EN LA CABECERA de la actividad** se ve el estado de un vistazo: **«Sold Out»** en rojo cuando ya
+se le ha comunicado, y **«Sold Out · falta avisar al artista»** en ámbar mientras no —y esa se
+**PINCHA** para comunicárselo—. Punto único **`_soldout_state`**.
+
+⚠️ Esto **no sustituye** a la petición del 90 % (`_soldout_artwork_check`), que se sigue haciendo
+sola y con antelación: aquí se reclama lo que YA debería estar y no está.
+
+⚠️ **EN LA CARTELERÍA DE SOLD OUT NO SALE EL % DE VENTA** (lo pidió Dani): esa sección es de los
+CARTELES —se piden, se suben y se descargan— y el porcentaje se mira en Ticketing. Ahí parecía que
+el cartel dependía de ese número, cuando lo que decía era cómo iba la venta el día que se pidió.
 
 - ⚠️⚠️ **AL 90% DE VENTA SE PIDE SOLO EL CARTEL DE SOLD OUT** (sep 2026). Cuando una actividad que
   vende entradas llega al **90%** (`SOLDOUT_TRIGGER_PCT`) se le pide **sola** a **DISEÑO** la

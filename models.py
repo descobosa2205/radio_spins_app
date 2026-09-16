@@ -3030,6 +3030,14 @@ class Concert(Base):
     break_even_ticket = Column(Integer, nullable=True)
 
     sold_out = Column(Boolean, nullable=False, default=False)
+    # ⚠️ EL PROCESO DEL SOLD OUT (sep 2026). Declararlo no es solo marcar la casilla: hay que avisar
+    # en casa (contratación, el jefe de producto del sello y quien la produce), tener los carteles y
+    # **comunicárselo al artista** para que pueda publicarlo. Estas tres marcas dicen en qué punto
+    # está: cuándo se declaró, quién, y cuándo se le comunicó al artista — que es lo que lo deja
+    # «en estado Sold Out» de verdad.
+    soldout_declared_at = Column(DateTime(timezone=True))
+    soldout_declared_by_nick = Column(Text)
+    soldout_notified_at = Column(DateTime(timezone=True))
 
     # FORMATO del recinto que se usa en ESTA actividad (un recinto puede tener varios: «Formato 360»,
     # «Escenario central»…). Si está vacío se usa el principal del recinto. Lo miran las invitaciones
@@ -10786,6 +10794,11 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS soldout_formats jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS soldout_uploaded_at timestamptz;
         """,
+        # EL PROCESO del Sold Out en la propia actividad (ver `Concert.soldout_declared_at`).
+        # ⚠️ Cada columna en SU sentencia: metidas en un `DO $$` con guarda podrían no ejecutarse.
+        'ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS soldout_declared_at timestamptz;',
+        'ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS soldout_declared_by_nick text;',
+        'ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS soldout_notified_at timestamptz;',
         # Estados nuevos del flujo de validación (REVIEW/CORRECTIONS): rehacer el CHECK.
         """
         DO $$

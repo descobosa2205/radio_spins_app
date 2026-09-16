@@ -22,6 +22,21 @@
          para cambiarlos. La de la venta solo si la actividad vende entradas. #}
       {% include '_concert_announcement_badge.html' %}
       {% include '_concert_onsale_badge.html' %}
+      {# ⚠️ SOLD OUT en la cabecera (lo pidió Dani): agotado se ve de un vistazo. Y mientras no se
+         le haya comunicado al artista se DICE, porque el proceso no está cerrado — se pincha para
+         comunicárselo (que es lo que falta). #}
+      {% if soldout_flow and soldout_flow.is_sold_out %}
+        {% if soldout_flow.notified_at %}
+          <span class="badge text-bg-danger" data-bs-toggle="tooltip"
+                title="Agotado · comunicado al artista el {{ soldout_flow.notified_label }}">
+            <i class="fa fa-fire me-1"></i>Sold Out</span>
+        {% else %}
+          <a class="badge text-bg-warning text-dark text-decoration-none" data-bs-toggle="tooltip"
+             href="{{ url_for('concert_artist_notice_view', cid=concert.id, kind='SOLDOUT') }}"
+             title="Está agotado pero el artista todavía no lo sabe · pincha para comunicárselo">
+            <i class="fa fa-fire me-1"></i>Sold Out · falta avisar al artista</a>
+        {% endif %}
+      {% endif %}
     </div>
     {# ⚠️ AQUÍ NO VAN LAS PERSONAS VINCULADAS AL ARTISTA (su hermano, su asistente…): eso es de la
        ficha del ARTISTA, no de la actividad — en su cabecera solo hacía ruido. Misma regla que la
@@ -2268,7 +2283,10 @@
                     <i class="fa fa-clock me-1"></i>Pedido a diseño{% if soldout.deadline_label %} · para el {{ soldout.deadline_label }}{% endif %}
                   </span>
                 {% endif %}
-                {% if soldout.pct_label %}<span class="badge text-bg-light border" title="Venta en el momento de pedirlo">{{ soldout.pct_label }} de venta</span>{% endif %}
+                {# ⚠️ AQUÍ NO VA EL % DE VENTA (lo pidió Dani, sep 2026): esto es la CARTELERÍA de
+                   Sold Out —que se pide, se sube y se descarga—, y el porcentaje de venta se mira
+                   en Ticketing. Ponerlo aquí confundía: parecía que el cartel dependía de ese
+                   número, cuando lo que dice es cómo iba la venta el día que se pidió. #}
                 {% if soldout.requested and CAN_EDIT_CONCERTS %}
                   <button class="btn btn-outline-danger btn-sm" type="button" data-art-open="SOLDOUT"
                           data-bs-toggle="modal" data-bs-target="#artworkUploadModal">

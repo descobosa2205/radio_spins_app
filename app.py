@@ -55024,11 +55024,11 @@ def contracting_view():
     if section == "festivales-ciclos":
         return _render_cycle_festivals()
     if section == "eventos":
-        # Por defecto, las ACTIVIDADES agrupadas por evento (como la pestaña de conciertos). Con
-        # `?contenedores=1`, la lista de contenedores de evento (para crearlos y ver su ficha).
-        if _truthy(request.args.get("contenedores")):
-            return _render_cycle_festivals(only_events=True)
-        return _render_event_activities()
+        # ⚠️⚠️ AQUÍ ESTÁN LOS EVENTOS QUE PROMOVEMOS NOSOTROS (sep 2026, lo pidió Dani), es decir los
+        # CONTENEDORES: la gira propia de un evento, su ciclo o su festival. Las ACTIVIDADES de un
+        # evento —los conciertos, que la app espeja como si el evento fuera un artista— salen en
+        # **Conciertos**, con el evento como sujeto de la rejilla, que es donde se buscan.
+        return _render_cycle_festivals(only_events=True)
     session_db = db()
     try:
         show_past_activities = _truthy(request.args.get("pasadas"))
@@ -63965,68 +63965,6 @@ CYCLE_FESTIVAL_KIND_LABELS = {"FESTIVAL": "Festival", "CICLO": "Ciclo", "EVENTO"
 CYCLE_FESTIVAL_EVENT_KINDS = ("EVENTO", "GIRA")
 
 
-def _render_event_activities():
-    """Pestaña EVENTOS: como la de Conciertos, pero agrupada por EVENTO (un evento no tiene artista).
-    Sus actividades salen SOLO aquí (en Conciertos se filtran). Rejilla de eventos → actividades."""
-    s = db()
-    try:
-        hoy = today_local()
-        show_past = _truthy(request.args.get("pasadas"))
-        drill_id = to_uuid(request.args.get("event") or "")
-        q = (s.query(Concert)
-             .options(joinedload(Concert.venue), joinedload(Concert.artist))
-             .filter(Concert.event_id.isnot(None)))
-        if not show_past:
-            q = q.filter(or_(Concert.date.is_(None), Concert.date >= hoy))
-        actividades = q.order_by(Concert.date.asc().nullslast(), Concert.created_at.desc()).all()
-
-        eventos = {str(e.id): e for e in s.query(AppEvent).all()}
-        grupos = {}
-        for c in actividades:
-            key = str(c.event_id)
-            g = grupos.setdefault(key, {"id": key, "name": "", "logo_url": "", "count": 0, "dates": []})
-            g["count"] += 1
-            if c.date:
-                g["dates"].append(c.date)
-        for key, g in grupos.items():
-            ev = eventos.get(key)
-            g["name"] = (getattr(ev, "name", "") or "Evento")
-            g["logo_url"] = (getattr(ev, "logo_url", "") or "")
-            g["date_range"] = _date_range_label(min(g["dates"]), max(g["dates"])) if g["dates"] else ""
-        event_groups = sorted(grupos.values(), key=lambda g: (g["name"] or "").lower())
-
-        rows, drill_event, drill_group_id = [], None, None
-        if drill_id:
-            drill_event = eventos.get(str(drill_id))
-            # La FILA es la misma de siempre (parcial único): aquí ya se sabe de qué evento son.
-            _hoy_ev = today_local()
-            rows = [_concert_row(c, show_subject=False, today=_hoy_ev)
-                    for c in actividades if str(c.event_id) == str(drill_id)]
-            for fila in rows:
-                # Un evento no tiene artista: el título es el del evento cuando la fecha no lo trae.
-                if not (fila.get("title") or "").strip():
-                    fila["title"] = (getattr(drill_event, "name", "") or "Actividad")
-            grupo = (s.query(CycleFestival)
-                     .filter(CycleFestival.event_id == drill_id)
-                     .order_by(CycleFestival.created_at.desc()).first())
-            drill_group_id = str(grupo.id) if grupo else None
-        return render_template(
-            "eventos.html",
-            section="eventos",
-            event_groups=event_groups,
-            rows=rows,
-            drill_event=drill_event,
-            drill_group_id=drill_group_id,
-            show_past=show_past,
-            CAN_EDIT_CONCERTS=can_edit_concerts(),
-            # Sin `wizard_available` (que pone el punto único) `eventos.html` no incluye el
-            # asistente y el botón «+ Actividad» no abría nada: el modal no llegaba al HTML.
-            **_with_concert_wizard(s, {}),
-        )
-    finally:
-        s.close()
-
-
 def _render_cycle_festivals(only_events: bool = False):
     """Listado de contenedores: «Festivales / Ciclos» o «Eventos» (misma pantalla, mismo trato)."""
     s = db()
@@ -64320,7 +64258,7 @@ def cycle_festival_delete(cfid):
         flash(f"No se pudo eliminar: {exc}", "danger")
     finally:
         s.close()
-    return redirect(url_for("contracting_view", section=seccion, contenedores=(1 if seccion == "eventos" else None)))
+    return redirect(url_for("contracting_view", section=seccion))
 
 
 @app.post("/contratacion/simulaciones/<sid>/convertir", endpoint="simulation_convert")
@@ -68558,6 +68496,13 @@ def concerts_page():
         f_concert_tags = _f["tags"]
         f_years = _f["years"]
 
+        # ⚠️ El SUJETO de la rejilla puede ser un artista o un EVENTO: el evento va por su propio
+        # parámetro (`?event=`), no por `artist`, porque su artista es un espejo que no se enseña.
+        f_event_id = None
+        try:
+            f_event_id = to_uuid((request.args.get("event") or "").strip() or "")
+        except Exception:
+            f_event_id = None
         f_artist_ids_raw = request.args.getlist("artist") or []
         f_artist_ids = []
         for x in f_artist_ids_raw:
@@ -68716,11 +68661,17 @@ def concerts_page():
                 # `CycleFestival` y vive en su pestaña; sus fechas se enganchan por
                 # `cycle_festival_id`, no por el tipo de actividad.
                 ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
-                # Las actividades de un EVENTO viven en su propia pestaña, no aquí.
-                Concert.event_id.is_(None),
+                # ⚠️⚠️ LOS CONCIERTOS DE UN EVENTO TAMBIÉN SALEN AQUÍ (sep 2026, lo pidió Dani: «los
+                # conciertos de eventos, como si fueran artistas, también se tienen que ver»). Antes
+                # se filtraban (`Concert.event_id.is_(None)`) porque vivían en la pestaña Eventos, y
+                # esa pestaña es ahora la de los eventos que promovemos NOSOTROS: si no salieran
+                # aquí, un concierto de un evento no estaría en ninguna parte.
             )
         if f_artist_ids:
             q = q.filter(Concert.artist_id.in_(f_artist_ids))
+        # El EVENTO se filtra por sí mismo (su artista es un espejo interno que no se enseña).
+        if f_event_id:
+            q = q.filter(Concert.event_id == f_event_id)
 
         today = today_local()
         q = _concert_filters_apply_sql(q, _f, today)
@@ -68798,17 +68749,16 @@ def concerts_page():
 
         # --- Vista rediseñada: rejilla de artistas (con nº de conciertos) → detalle por artista/todos ---
         vista_mode = "list"
-        artist_groups = []
-        drill_artist = None
+        artist_groups, subject_groups = [], []
+        drill_artist, drill_subject = None, None
         show_all = request.args.get("all") == "1"
         if active_tab == "vista":
             count_q = (
-                s.query(Concert.artist_id, func.count(Concert.id))
+                s.query(Concert.artist_id, Concert.event_id, func.count(Concert.id))
                 .filter(
                     ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
                     # Mismo criterio que el listado: las de FESTIVAL son conciertos (ver arriba).
                     ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
-                    Concert.event_id.is_(None),      # los eventos tienen su pestaña
                 )
             )
             # ⚠️ EL NÚMERO DE CADA ARTISTA ES EL DE LO QUE VA A VER AL ENTRAR: se le aplica el MISMO
@@ -68817,8 +68767,13 @@ def concerts_page():
             count_q = _concert_filters_apply_sql(count_q, {"when": _f["when"]}, today)
             if f_years:
                 count_q = count_q.filter(func.extract("year", Concert.date).in_(sorted(f_years)))
-            count_rows = count_q.group_by(Concert.artist_id).all()
-            count_map = {aid: int(n) for aid, n in count_rows}
+            count_rows = count_q.group_by(Concert.artist_id, Concert.event_id).all()
+            count_map, event_count = {}, {}
+            for aid, eid, n in count_rows:
+                if eid:
+                    event_count[str(eid)] = event_count.get(str(eid), 0) + int(n)
+                else:
+                    count_map[aid] = count_map.get(aid, 0) + int(n)
             for a in artists:
                 n = count_map.get(a.id, 0)
                 if n <= 0:
@@ -68827,11 +68782,43 @@ def concerts_page():
                     continue
                 artist_groups.append({"artist": a, "count": n})
             artist_groups.sort(key=lambda x: (x["artist"].name or "").lower())
+            # ⚠️⚠️ UN EVENTO ES UN SUJETO MÁS DE LA REJILLA, como un artista (lo pidió Dani). Se
+            # enseña **el evento** —su nombre y su logo—, nunca su artista espejo, y se entra en él
+            # por `?event=`, así que desde aquí no se llega a la ficha del espejo.
+            subject_groups = [{"kind": "artist", "id": str(g["artist"].id), "name": (g["artist"].name or ""),
+                               "photo_url": (g["artist"].photo_url or ""), "count": g["count"],
+                               "url": url_for("concerts_view", tab="vista", artist=g["artist"].id)}
+                              for g in artist_groups]
+            if event_count:
+                for ev in s.query(AppEvent).filter(AppEvent.id.in_([to_uuid(k) for k in event_count])).all():
+                    subject_groups.append({
+                        "kind": "event", "id": str(ev.id), "name": (ev.name or "Evento"),
+                        "photo_url": (ev.logo_url or ""), "count": event_count.get(str(ev.id), 0),
+                        "url": url_for("concerts_view", tab="vista", event=ev.id)})
+            subject_groups.sort(key=lambda g: (g["name"] or "").lower())
             if len(f_artist_ids) == 1:
                 drill_artist = next((a for a in artists if a.id == f_artist_ids[0]), None)
+            if drill_artist is not None:
+                drill_subject = {"kind": "artist", "id": str(drill_artist.id),
+                                 "name": (drill_artist.name or ""),
+                                 "photo_url": (drill_artist.photo_url or ""),
+                                 "url": url_for("artist_detail_view", artist_id=drill_artist.id)}
+            elif f_event_id:
+                _ev = s.get(AppEvent, f_event_id)
+                if _ev is not None:
+                    drill_subject = {"kind": "event", "id": str(_ev.id), "name": (_ev.name or "Evento"),
+                                     "photo_url": (_ev.logo_url or ""),
+                                     "url": url_for("event_detail_view", eid=_ev.id)}
             filters_active = bool(f_sale_types or f_statuses or f_concert_tags or f_announcements
-                                  or f_years or drill_artist or show_all)
+                                  or f_years or drill_artist or drill_subject or show_all)
             vista_mode = "list" if filters_active else "grid"
+
+        # ⚠️ DE QUIÉN ES CADA FILA: en una actividad de EVENTO manda el evento, y `Concert` no tiene
+        # relación `event`, así que hay que darle el mapa (`_concert_row` lo pide). Sin él la fila
+        # enseñaba el ARTISTA ESPEJO —«Evento X (evento)»—, que es un apaño interno.
+        _ev_ids = {c.event_id for c in concerts if getattr(c, "event_id", None)}
+        _event_map = ({str(e.id): e for e in s.query(AppEvent).filter(AppEvent.id.in_(_ev_ids)).all()}
+                      if _ev_ids else {})
 
         # Las peticiones pendientes ya NO se listan aquí: viven en su propia pestaña (la primera de
         # Contratación) y lo que abre esta es el módulo de TAREAS pendientes (`CONTRACTING_TASKS`).
@@ -68844,7 +68831,10 @@ def concerts_page():
             booking_status_meta=BOOKING_STATUS_META,
             vista_mode=vista_mode,
             artist_groups=artist_groups,
+            # La rejilla es de SUJETOS: artistas y eventos (el evento, con su nombre y su logo).
+            subject_groups=subject_groups,
             drill_artist=drill_artist,
+            drill_subject=drill_subject,
             show_all=show_all,
             type_counts=type_counts,
             # FILTROS y FILAS: los dos parciales únicos (los mismos que la ficha del artista).
@@ -68852,16 +68842,21 @@ def concerts_page():
                 _f,
                 action_url=url_for('concerts_view'),
                 hidden=([('tab', 'vista')]
-                        + ([('artist', str(drill_artist.id))] if drill_artist else [('all', '1')])),
+                        + ([('artist', str(drill_artist.id))] if drill_artist
+                           else ([('event', str(f_event_id))] if f_event_id else [('all', '1')]))),
                 reset_url=url_for('concerts_view', **({'tab': 'vista', 'artist': str(drill_artist.id)}
-                                                      if drill_artist else {'tab': 'vista', 'all': '1'})),
+                                                      if drill_artist else
+                                                      ({'tab': 'vista', 'event': str(f_event_id)} if f_event_id
+                                                       else {'tab': 'vista', 'all': '1'}))),
                 modal_id='concertsFiltersModal',
                 type_choices=type_choices,
                 type_counts=type_counts,
                 all_tags=all_concert_tags,
                 year_chips=year_chips,
             ),
-            concert_rows=[_concert_row(c, show_subject=not drill_artist, today=today) for c in concerts],
+            concert_rows=[_concert_row(c, show_subject=not (drill_artist or f_event_id), today=today,
+                                       event_map=_event_map)
+                          for c in concerts],
             # `artists` y `venues` son los de ESTA pantalla (su rejilla y sus filtros); el resto de
             # las listas del asistente las pone el punto único.
             artists=artists,
@@ -95377,7 +95372,9 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "actividades.todas", "label": "Todas las actividades", "section_key": "actividades", "parent_key": "actividades", "level": "TAB", "economic_capable": True, "sort_order": 166, "description": "Listado unificado de actividades de todos los artistas, filtrable por tipo/estado."},
 
     {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 170, "description": "Contratación de actividades en vivo: conciertos, giras, festivales y otras."},
-    {"key": "contratacion.peticiones", "label": "Peticiones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Buzón de peticiones de contratación entrantes: se registran y se tramitan hasta convertirse en concierto o descartarse."},
+    # ⚠️ La CLAVE se queda en `peticiones` (cambiarla dejaría sin pestaña a quien ya la tiene): lo
+    # que cambia es lo que se lee, que es el INICIO de Contratación.
+    {"key": "contratacion.peticiones", "label": "Inicio", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Inicio de Contratación: sus tareas pendientes, el buzón de peticiones (se registran y se tramitan hasta convertirse en concierto) y lo que está pendiente de cobrar."},
     {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 172, "description": "Pestaña «Conciertos»: listado y ficha de concierto (importes)."},
     {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 173, "description": "Pestaña «Giras compradas» (importes)."},
     {"key": "contratacion.giras.onesheet", "label": "One-sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 174, "description": "One-sheet de giras: dossier público de la gira."},
@@ -97731,7 +97728,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "actividades", "label": "Actividades", "url": _resource_default_url("actividades")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
             {"key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
-            {"key": "contratacion.peticiones", "label": "Peticiones", "url": _resource_default_url("contratacion.peticiones")},
+            {"key": "contratacion.peticiones", "label": "Inicio", "url": _resource_default_url("contratacion.peticiones")},
             {"key": "contratacion.giras", "label": "Giras compradas", "url": _resource_default_url("contratacion.giras")},
             {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "url": _resource_default_url("contratacion.festivales")},
             {"key": "contratacion.eventos", "label": "Eventos", "url": _resource_default_url("contratacion.eventos")},
@@ -98246,8 +98243,12 @@ CONTRACTING_TAB_ENDPOINTS = {"contracting_view", "concerts_view", "quadrantes_vi
 # esa persona puede abrir**) y la caída a la primera visible cuando se pide una que no se tiene.
 # La regla: **la barra ofrece exactamente lo que el gate deja pasar**; si no, se pinta una pestaña
 # que al pincharla echa de la pantalla, que es el 403 más molesto que había.
+# ⚠️ «Peticiones» es ahora el **INICIO** de Contratación (sep 2026, lo pidió Dani): ahí están las
+# tareas pendientes del departamento, las peticiones y las facturas por cobrar. La CLAVE y el
+# PERMISO siguen siendo los de siempre (`contratacion.peticiones`): cambiarlos dejaría sin pestaña a
+# quien ya la tiene concedida.
 CONTRACTING_TAB_DEFS = (
-    ("peticiones",        "contratacion.peticiones",   "fa-inbox",                 "Peticiones"),
+    ("peticiones",        "contratacion.peticiones",   "fa-house",                 "Inicio"),
     ("conciertos",        "contratacion.conciertos",   "fa-guitar",                "Conciertos"),
     ("giras-compradas",   "contratacion.giras",        "fa-route",                 "Giras compradas"),
     ("festivales-ciclos", "contratacion.festivales",   "fa-star",                  "Festivales / Ciclos"),
@@ -98327,8 +98328,8 @@ def _contracting_activity_tabs(c) -> list[str]:
     Una actividad puede salir en dos (p. ej. un concierto dentro de un ciclo): su tarea aparece
     en las dos, porque en cada pestaña sigue siendo trabajo por hacer.
     """
-    if getattr(c, "event_id", None):
-        return ["eventos"]          # las de un evento salen SOLO en su pestaña
+    # ⚠️ Las de un EVENTO ya NO son un caso aparte: salen en la pestaña que les toque por lo que
+    # son (un concierto de un evento, en Conciertos), igual que sus listados.
     sale = (getattr(c, "sale_type", None) or "").upper()
     act = (getattr(c, "activity_type", None) or "CONCIERTO").upper()
     tabs = []
@@ -98520,6 +98521,10 @@ def _contracting_tasks_data() -> dict:
             row["tasks"] = [_contracting_task_badge(k) for k in kinds]
             for t in tabs:
                 by_tab.setdefault(t, []).append(row)
+            # ⚠️ Y en el INICIO de Contratación, TODAS juntas y una sola vez: es el cajón del
+            # departamento, no el de una pestaña (las peticiones y las facturas van en sus propios
+            # módulos, debajo, así que aquí no se repiten).
+            by_tab.setdefault("inicio", []).append(row)
 
         # ---- Facturación: pagos por facturar y por cobrar (también de fechas pasadas) ----
         try:

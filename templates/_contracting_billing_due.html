@@ -1,0 +1,58 @@
+{# ============================================================================
+   FACTURAS PENDIENTES DE COBRAR · módulo del INICIO de Contratación.
+
+   Sale de `CONTRACTING_TASKS['facturacion']` —el MISMO motor que la pestaña de Facturación y que
+   los números de las pestañas (`_contracting_tasks_data`)—, quedándose con lo que está **por
+   cobrar** (`COLLECT`). Así no hay dos verdades: lo que aquí se ve pendiente es exactamente lo que
+   la pestaña de Facturación dice que falta por cobrar.
+
+   Cada fila lleva a la ficha de SU actividad, al plan de facturación y cobro, que es donde se hace.
+   ============================================================================ #}
+{% set _cobros = ((CONTRACTING_TASKS or {}).get('facturacion') or [])|selectattr('kind', 'equalto', 'COLLECT')|list %}
+{% set _cobros_top = _cobros[:6] %}
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-hourglass-half text-danger me-2"></i>Facturas pendientes de cobrar
+      {% if _cobros %}<span class="badge text-bg-danger ms-1">{{ _cobros|length }}</span>{% endif %}
+    </span>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concerts_view', tab='facturacion') }}">
+      <i class="fa fa-file-invoice-dollar me-1"></i>Facturación</a>
+  </div>
+  {% if _cobros %}
+  <div class="list-group list-group-flush">
+    {% for t in _cobros_top %}
+      <a class="list-group-item ctask" href="{{ t.url }}">
+        <div class="ctask__head">
+          {% if t.subject_photo or t.subject_name %}
+            {{ artist_avatar(t.subject_photo, t.subject_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-file-invoice-dollar text-muted"></i></span>
+          {% endif %}
+          <span class="ctask__subject text-truncate">{{ t.subject_name or t.activity_label }}</span>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa {{ t.activity_icon or 'fa-guitar' }}"></i>{{ t.activity_label }}</span>
+            {% if t.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ t.date_label }}</span>{% endif %}
+            {% if t.place_label or t.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ t.place_label or t.municipality }}</span>{% endif %}
+            {% if t.extra %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ t.extra }}</span>{% endif %}
+          </span>
+          <span class="ctask__go"><i class="fa fa-chevron-right"></i></span>
+        </div>
+        <div class="ctask__tasks">
+          {% for b in (t.tasks or []) %}<span class="badge {{ b.badge }}"><i class="fa {{ b.icon }} me-1"></i>{{ b.label }}</span>{% endfor %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+  {% if _cobros|length > _cobros_top|length %}
+  <div class="card-body py-2">
+    <a class="small" href="{{ url_for('concerts_view', tab='facturacion') }}">
+      Ver las {{ _cobros|length }} en Facturación <i class="fa fa-arrow-right ms-1"></i></a>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="card-body py-2 text-muted small">
+    <i class="fa fa-circle-check text-success me-1"></i>No hay nada pendiente de cobrar.
+  </div>
+  {% endif %}
+</div>

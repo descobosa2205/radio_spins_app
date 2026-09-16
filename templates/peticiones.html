@@ -4,8 +4,8 @@
 
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
-    <h4 class="mb-1">Contratación · Peticiones</h4>
-    <div class="text-muted">Buzón de peticiones que llegan a la oficina. Regístralas y tramítalas hasta convertirlas en concierto.</div>
+    <h4 class="mb-1">Contratación · Inicio</h4>
+    <div class="text-muted">Lo que tiene el departamento por delante: sus tareas, las peticiones que llegan y lo que está pendiente de cobrar.</div>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     {# Pedir PROMOCIÓN (prensa) lo puede hacer cualquiera de la empresa, y es un asistente corto
@@ -18,6 +18,11 @@
 </div>
 {% include '_promo_peticion_modal.html' %}
 {% include '_marketing_peticion_modal.html' %}
+
+{# ⚠️ LAS TAREAS PENDIENTES DE CONTRATACIÓN VIVEN AQUÍ (lo pidió Dani): en el INICIO del
+   departamento y TODAS juntas (el cajón «inicio» de `_contracting_tasks_data`), no repartidas por
+   pestañas. Debajo van las peticiones y, al final, lo que está pendiente de cobrar. #}
+{% with contracting_tab = 'inicio' %}{% include '_contracting_tasks.html' %}{% endwith %}
 
 {# Filtros: por defecto Pendientes; Archivadas = aprobadas/descartadas #}
 <div class="d-flex gap-2 flex-wrap mb-3">
@@ -114,6 +119,9 @@
     </div>
   {% endif %}
 </div>
+
+{# ===== Facturas pendientes de COBRAR ===== #}
+{% include '_contracting_billing_due.html' %}
 
 {# ===== Modal crear / editar petición ===== #}
 <div class="modal fade" id="bookingModal" tabindex="-1" aria-hidden="true">

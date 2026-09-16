@@ -6,28 +6,31 @@
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-1">Contratación · Conciertos</h4>
-    <div class="text-muted">{% if vista_mode == 'grid' %}Elige un artista para ver sus conciertos, o míralos todos juntos.{% else %}Conciertos por fecha.{% endif %}</div>
+    <div class="text-muted">{% if vista_mode == 'grid' %}Elige un artista o un evento para ver sus conciertos, o míralos todos juntos.{% else %}Conciertos por fecha.{% endif %}</div>
   </div>
   <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
 </div>
 
-{# Primero lo que hay que hacer; debajo, el filtro por artista con su número. #}
-{% include '_contracting_tasks.html' %}
 
 {% if vista_mode == 'grid' %}
   {# ---- Rejilla de artistas con nº de conciertos ---- #}
   <div class="d-flex justify-content-end mb-3">
     <a class="btn btn-outline-danger" href="{{ url_for('concerts_view', tab='vista', all='1') }}"><i class="fa fa-layer-group me-1"></i>Ver todos los conciertos</a>
   </div>
-  {% if artist_groups %}
+  {# ⚠️ De quién es: ARTISTAS **Y EVENTOS** (lo pidió Dani). El evento se enseña con su nombre y su
+     logo —nunca su artista espejo— y se entra en él por `?event=`, igual que en «Otras actividades». #}
+  {% if subject_groups %}
   <div class="row g-3">
-    {% for g in artist_groups %}
+    {% for g in subject_groups %}
     <div class="col-6 col-md-4 col-lg-3 col-xl-2">
-      <a href="{{ url_for('concerts_view', tab='vista', artist=g.artist.id) }}" class="card h-100 text-decoration-none text-reset text-center">
+      <a href="{{ g.url }}" class="card h-100 text-decoration-none text-reset text-center">
         <div class="card-body">
-          <img src="{{ g.artist.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
-          <div class="fw-semibold text-truncate">{{ g.artist.name }}</div>
-          <div class="small text-muted"><span class="badge text-bg-light border"><i class="fa fa-guitar me-1"></i>{{ g.count }} concierto{{ '' if g.count == 1 else 's' }}</span></div>
+          <img src="{{ g.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+          <div class="fw-semibold text-truncate">{{ g.name }}</div>
+          <div class="small text-muted">
+            <span class="badge text-bg-light border"><i class="fa fa-guitar me-1"></i>{{ g.count }} concierto{{ '' if g.count == 1 else 's' }}</span>
+            {% if g.kind == 'event' %}<div class="mt-1"><span class="badge text-bg-light border"><i class="fa fa-masks-theater me-1"></i>Evento</span></div>{% endif %}
+          </div>
         </div>
       </a>
     </div>
@@ -41,8 +44,13 @@
   {# ---- Detalle: conciertos por fecha (de un artista o de todos) ---- #}
   <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}"><i class="fa fa-arrow-left me-1"></i>Artistas</a>
-    <h5 class="mb-0 me-2">
-      {% if drill_artist %}{{ artist_avatar(drill_artist.photo_url, drill_artist.name, artist_id=drill_artist.id) }} {{ drill_artist.name }}{% else %}Todos los conciertos{% endif %}
+    <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
+      {% if drill_subject %}
+        <img src="{{ drill_subject.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"
+             style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
+        <a href="{{ drill_subject.url }}" class="text-reset text-decoration-none">{{ drill_subject.name }}</a>
+        {% if drill_subject.kind == 'event' %}<span class="badge text-bg-light border align-self-center">Evento</span>{% endif %}
+      {% else %}Todos los conciertos{% endif %}
     </h5>
     <span class="badge text-bg-light border">{{ concerts|length }}</span>
   </div>

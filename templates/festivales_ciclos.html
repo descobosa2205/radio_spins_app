@@ -9,7 +9,9 @@
   </div>
   <div class="d-flex gap-2 flex-wrap">
     {% if only_events %}
-      <a class="btn btn-outline-secondary" href="{{ url_for('contracting_view', section='eventos') }}"><i class="fa fa-calendar-day me-1"></i>Ver actividades</a>
+      {# Las actividades de un evento viven en CONCIERTOS (con el evento como sujeto de la rejilla):
+         esta pestaña es la de los eventos que promovemos nosotros. #}
+      <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}"><i class="fa fa-calendar-day me-1"></i>Ver actividades</a>
     {% endif %}
     {% if CAN_EDIT_CONCERTS %}
     <div class="d-flex gap-2 flex-wrap">
@@ -23,8 +25,11 @@
   </div>
 </div>
 
-{# Primero lo que hay que hacer; debajo, el filtro por festival/ciclo con su número de fechas. #}
-{% include '_contracting_tasks.html' %}
+{# Primero lo que hay que hacer; debajo, el filtro por festival/ciclo con su número de fechas.
+   ⚠️ En EVENTOS no: esta pestaña enseña los eventos que promovemos nosotros (contenedores), y las
+   tareas de sus conciertos salen donde salen sus conciertos — en Conciertos y, todas juntas, en el
+   Inicio de Contratación. Un módulo que aquí siempre diría «no hay tareas» engaña. #}
+{% if not only_events %}{% include '_contracting_tasks.html' %}{% endif %}
 
 {% if rows %}
 <div class="row g-3">

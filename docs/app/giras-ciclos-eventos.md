@@ -7,7 +7,7 @@
 ## Qué hay aquí
 
 - Giras compradas y PRODUCCIÓN: en una gira comprada hay fechas que promovemos nosotros y otras
-- Pestaña EVENTOS = actividades agrupadas por evento (_render_event_activities +
+- Pestaña EVENTOS = los eventos que promovemos NOSOTROS (sus conciertos, en Conciertos)
 - LOGOTIPOS E IMAGEN DE MARCA de una gira / ciclo / evento
 - Cartelería de TODA una gira / ciclo / evento
 - REPORTE DE VENTAS · el filtro de artistas y eventos es el MISMO que el del repertorio (ago
@@ -37,12 +37,24 @@
   no va a producción no pide responsable.
   ⚠️ El listado de Producción conserva las que **ya tienen bolsa** aunque ahora no cumplan el
   criterio: la regla vale para el trabajo nuevo, no para esconder el que ya está empezado.
-- **Pestaña EVENTOS = actividades agrupadas por evento** (`_render_event_activities` +
-  `templates/eventos.html`): funciona como la de Conciertos pero por EVENTO (un evento no tiene
-  artista): rejilla de eventos con su nº de actividades → sus actividades, filtro Activas/Todas. Las
-  actividades con `Concert.event_id` se excluyen de la pestaña de Conciertos (query y rejilla de
-  artistas). Los CONTENEDORES de evento (`CycleFestival` kind EVENTO) siguen en
-  `?section=eventos&contenedores=1`.
+- ⚠️⚠️ **PESTAÑA «EVENTOS» = LOS EVENTOS QUE PROMOVEMOS NOSOTROS; SUS CONCIERTOS, EN CONCIERTOS**
+  (sep 2026, lo pidió Dani: «en la pestaña de eventos están los eventos en los que nosotros somos
+  promotores, no los conciertos de eventos como artistas»).
+  · **La pestaña** enseña los **CONTENEDORES** (`_render_cycle_festivals(only_events=True)`): la
+  gira propia de un evento, su ciclo o su festival, con su empresa, sus fechas y su nº de
+  actividades. Ya no hay vista de «actividades agrupadas por evento» (`_render_event_activities` y
+  `templates/eventos.html` se han retirado, y con ellos el `?contenedores=1`).
+  · **Los CONCIERTOS de un evento salen en «Conciertos»**, con el **EVENTO como sujeto** de la
+  rejilla —su nombre, su logo y su etiqueta «Evento»—, igual que un artista; se entra en él con
+  **`?event=`**, no con `?artist=`, así que desde ahí no se llega nunca al artista espejo.
+  ⚠️ Para eso se quitó el filtro `Concert.event_id.is_(None)` de las DOS consultas de esa pantalla
+  (el listado y el recuento de la rejilla): si no salían ahí, un concierto de un evento no estaba
+  en ninguna parte.
+  ⚠️⚠️ **Y HAY QUE PASARLE EL `event_map` A `_concert_row`**: `Concert` **no tiene relación
+  `event`**, así que sin el mapa la fila caía en el artista y enseñaba el ESPEJO («Evento X
+  (evento)»), que es justo lo que no puede verse. Es una consulta en bloque, no una por fila.
+  ⚠️ Sus TAREAS van ahora a la pestaña que les toque por lo que son (`_contracting_activity_tabs`
+  ya no devuelve `["eventos"]` para todo lo que tenga `event_id`).
 - **LOGOTIPOS E IMAGEN DE MARCA de una gira / ciclo / evento** (ago 2026): es la **PRIMERA sección**
   de la cartelería GENERAL del grupo, donde se suben **los formatos del logo** (principal,
   horizontal, negativo, isotipo, cabecera de redes, manual de marca…) y donde se marca **cuál es
@@ -108,8 +120,8 @@
   `Concert.activity_type='EVENTO_PROMOCIONAL'` y vive en **«Otras actividades»**. No cambia nada.
   · **EVENTO como SUJETO** (una sesión DJ, una fiesta, «la ruta del Aguilar»): es un `AppEvent` y
   **funciona como un artista** — puede tener actividades sueltas, una **gira propia**, un ciclo o un
-  festival. Sale **solo** en la pestaña «Eventos» de Contratación (`_contracting_activity_tabs`
-  devuelve `["eventos"]` para todo lo que tenga `Concert.event_id`: es a propósito).
+  festival. Sus actividades salen en **Conciertos** (con el evento como sujeto de la rejilla) y lo
+  que se organiza de él —su gira, su ciclo, su festival— en la pestaña **«Eventos»**.
   **Contenedores de un evento**: `CycleFestival` con `event_id`, `kind` ∈ **GIRA** (nuevo: su gira
   propia, ≠ «gira comprada», que es `PurchasedTour` y se le compra a un promotor) · CICLO ·
   FESTIVAL · EVENTO (el tipo antiguo, se conserva por los ya creados). `CYCLE_FESTIVAL_EVENT_KINDS`

@@ -6,6 +6,7 @@
 
 ## Qué hay aquí
 
+- EL INICIO DE CONTRATACIÓN: tareas, peticiones y facturas por cobrar (sep 2026)
 - INVITACIONES · CAMBIAR EL RECEPTOR al editar una petición
 - INVITACIONES · la foto o el logo, delante del nombre
 - INVITACIONES · una petición de VARIAS categorías se ve en TODAS (corregido ago 2026).
@@ -472,3 +473,20 @@
   ⚠️ Probado con la app real, el ciclo entero: pedida → **sale en los dos** · aprobada → **sale en los
   dos** («falta configurarla») · configurada → **sale de los dos** · rechazada sin comunicar → sale en
   los dos · rechazada del todo → sale de los dos. Y el número de los dos módulos coincide siempre.
+
+- ⚠️⚠️ **EL INICIO DE CONTRATACIÓN: TAREAS, PETICIONES Y FACTURAS POR COBRAR** (sep 2026, lo pidió
+  Dani). La pestaña «Peticiones» es ahora el **INICIO** del departamento y enseña, en este orden:
+  1. **Tareas pendientes de contratación** — TODAS juntas, no las de una pestaña: el motor de
+     siempre (`_contracting_tasks_data`) llena además un cajón **`inicio`** con cada actividad UNA
+     vez. Se pinta con el parcial de siempre: `{% with contracting_tab = 'inicio' %}`.
+  2. **Peticiones** — lo que ya había en esta pantalla (con sus filtros de estado).
+  3. **Facturas pendientes de cobrar** (`templates/_contracting_billing_due.html`) — sale de
+     `CONTRACTING_TASKS['facturacion']` quedándose con las de tipo **COLLECT**, así que es
+     exactamente lo mismo que dice la pestaña de Facturación (mismo motor, sin otra consulta), y
+     cada fila lleva al plan de facturación y cobro de SU actividad.
+  ⚠️ **Y se han quitado de Conciertos** (`concerts_vista.html` y `concerts.html`), que es lo que
+  pidió Dani. Siguen saliendo en Giras compradas, Festivales / Ciclos, Eventos y Otras actividades:
+  ahí son las de ESA pestaña.
+  ⚠️ **La CLAVE y el PERMISO de la pestaña no cambian** (`peticiones` / `contratacion.peticiones`):
+  solo cambian su rótulo y su icono. Renombrar la clave habría dejado sin pestaña a quien ya la
+  tiene concedida, y el número de la pestaña sigue siendo el de las peticiones abiertas.

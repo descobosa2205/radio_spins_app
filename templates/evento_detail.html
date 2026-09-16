@@ -10,7 +10,7 @@
   <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('events_view') }}" title="Volver a Eventos" aria-label="Volver a Eventos"><i class="fa fa-arrow-left"></i></a>
   {% if CAN_EDIT %}
   <div class="d-flex gap-2">
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('contracting_view', section='eventos', contenedores=1) }}"><i class="fa fa-route me-1"></i>Organizar una gira</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('contracting_view', section='eventos') }}"><i class="fa fa-route me-1"></i>Organizar una gira</a>
     <form method="post" action="{{ url_for('event_delete', eid=event.id) }}" onsubmit="return confirm('¿Eliminar este evento? No se puede deshacer.');">
       <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash me-1"></i>Eliminar evento</button>
     </form>
@@ -128,7 +128,7 @@
     <div class="ficha-section">
       <div class="ficha-section__head">
         <h6 class="ficha-section__title"><i class="fa fa-calendar-day"></i>Actividades del evento</h6>
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='eventos', event=event.id) }}"><i class="fa fa-list me-1"></i>Ver en Contratación</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista', event=event.id) }}"><i class="fa fa-list me-1"></i>Ver en Contratación</a>
       </div>
       <div class="ficha-section__body p-0">
         {% if act_rows %}

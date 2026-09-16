@@ -218,8 +218,18 @@
   **sale desde SU dirección** y lleva su firma.
   · **A QUIÉN** (`_song_radio_recipients`): los contactos del medio marcados con **«recibe las
   presentaciones a radio»** (`MediaContact.radio_pitch`, un módulo APARTE en los contactos de la
-  emisora; ⚠️ a veces no es una persona sino el **buzón de la cadena**, así que ahí basta con el
-  correo y el nick sale de la propia dirección).
+  emisora).
+  ⚠️⚠️ **EN ESE MÓDULO —y SOLO en ese— se puede añadir UNA DIRECCIÓN DE CORREO SUELTA**
+  (`media_radio_email_add`, lo pidió Dani): muchas veces quien recibe los temas **no es una
+  persona** sino el buzón de la cadena (`cadenasmusicales@prisaradio.com`, `musicales@…`), y
+  obligar a darle ficha de tercero a un buzón es inventarse a alguien que no existe. En los demás
+  contactos del medio sigue valiendo lo de siempre: **una persona de un medio ES un tercero**.
+  · El correo se guarda en minúsculas, el **nick sale de la parte de antes de la @** (para que la
+  lista se lea) y **no se duplica**: si esa dirección ya es contacto del medio —aunque fuera solo
+  de prensa— se le pone la marca y nada más. Un correo mal escrito se rechaza con
+  `_flash_form_error` sobre **`radio_email`** ⚠️ (el campo se llama así y no `email` porque los
+  campos en rojo se buscan por su `name`, y el pop-up de contacto de esa misma pantalla tiene su
+  propio `email`: se marcarían los dos).
   ⚠️⚠️ **UN CORREO POR DIRECCIÓN, UN ENVÍO POR EMISORA**: si el mismo contacto recibe los temas de
   varias emisoras del grupo se manda **UNO SOLO** nombrándolas todas (en **negrita**, haya una o
   varias) y quedan apuntadas **tantas presentaciones como emisoras** (`SongRadioSend` + el `send_id`

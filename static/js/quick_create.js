@@ -100,7 +100,12 @@
           data.similar.forEach(function (s) {
             var thumb = (s.logo_url || s.photo_url || '').trim();
             var img = thumb ? '<img src="' + esc(thumb) + '" alt="" style="width:20px;height:20px;object-fit:contain;border-radius:4px;background:#fff">' : '';
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1 qc-use d-inline-flex align-items-center gap-1" data-id="' + esc(s.id) + '" data-label="' + esc(s.label || '') + '" data-logo="' + esc(thumb) + '">' + img + '<span>Usar: ' + esc(s.label || '') + '</span></button>';
+            // ⚠️ Con qué se distingue de otro que se llame IGUAL: el nombre completo, en una
+            // segunda fila (lo manda el servidor en `sub`). Dos botones «Usar: Juan» idénticos no
+            // se pueden elegir, y desde que el nick se puede repetir eso pasa de verdad.
+            var sub = (s.sub || '').trim();
+            html += '<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1 qc-use d-inline-flex align-items-center gap-1 text-start" data-id="' + esc(s.id) + '" data-label="' + esc(s.label || '') + '" data-logo="' + esc(thumb) + '">' + img +
+              '<span>Usar: ' + esc(s.label || '') + (sub ? '<small class="d-block text-muted">' + esc(sub) + '</small>' : '') + '</span></button>';
           });
           html += '<button type="button" class="btn btn-sm btn-primary mb-1 qc-force">Crear igualmente</button>';
           feedback(form, html);

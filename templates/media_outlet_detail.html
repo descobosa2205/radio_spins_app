@@ -114,10 +114,31 @@
           <strong>Presentaciones a radio</strong>
           {% if radio_contacts %}<span class="badge text-bg-light border">{{ radio_contacts|length }}</span>{% endif %}
           <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-mc-new data-mc-radio="1">
-            <i class="fa fa-plus me-1"></i>Añadir quien lo recibe</button>
+            <i class="fa fa-user-plus me-1"></i>Añadir una persona</button>
         </div>
         <div class="text-muted small mb-2">A estas direcciones les llega el tema cuando se presenta
-          a esta emisora. Puede ser una persona (su ficha de tercero) o el buzón de la cadena.</div>
+          a esta emisora. Puede ser una <strong>persona</strong> (su ficha de tercero) o
+          <strong>solo un correo</strong>, porque muchas veces quien lo recibe es el buzón de la
+          cadena y no hay ninguna persona detrás.</div>
+
+        {# ⚠️⚠️ UNA DIRECCIÓN SUELTA, SOLO EN ESTE MÓDULO (lo pidió Dani): en los demás contactos
+           del medio sigue valiendo lo de siempre —una persona de un medio ES un tercero—, pero a
+           un buzón de la cadena no se le inventa una ficha de persona. Si el correo ya está en el
+           medio no se duplica: se le pone la marca. #}
+        <form method="post" action="{{ url_for('media_radio_email_add', media_id=outlet.id) }}"
+              class="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <label class="form-label small text-muted m-0" for="radioEmailInput">
+            <i class="fa fa-envelope me-1"></i>O añade solo un correo</label>
+          <input class="form-control form-control-sm" style="max-width:280px" type="email"
+                 id="radioEmailInput" name="radio_email"
+                 placeholder="musicales@laemisora.com" autocomplete="off">
+          <input class="form-control form-control-sm" style="max-width:190px" name="radio_nick"
+                 placeholder="Cómo lo llamamos (opcional)" autocomplete="off">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">
+            <i class="fa fa-plus me-1"></i>Añadir</button>
+        </form>
         {% if radio_contacts %}
           <div class="d-flex flex-wrap gap-2">
             {% for c in radio_contacts %}

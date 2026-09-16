@@ -3802,7 +3802,7 @@ def _ensure_promoter_for_artist_person(session_db, person, link_promoter_id=None
              .filter(func.lower(Promoter.nick) == nombre.lower())
              .first())
     if match is None:
-        match = Promoter(nick=_intake_unique_nick(session_db, nombre),
+        match = Promoter(nick=_intake_promoter_nick(session_db, nombre),
                          first_name=(person.first_name or "").strip() or None,
                          last_name=(person.last_name or "").strip() or None)
         session_db.add(match)
@@ -3971,8 +3971,9 @@ def _artist_member_apply_nick(session_db, person, promoter) -> bool:
     """Si el artista es un SOLISTA, su ficha pasa a llamarse como el artista.
 
     ⚠️ Solo el NICK: el nombre, los apellidos y el DNI son los OFICIALES de la persona (es quien
-    firma y quien factura). Y si ese nick ya lo tiene OTRO tercero no se toca nada: `nick` es
-    único, y renombrarlo a «X (2)» sería peor que dejarlo como está."""
+    firma y quien factura). Y si ese nick ya lo tiene OTRO tercero no se toca nada: renombrar esta
+    ficha para que se llame igual que otra no aclara nada (el nick se puede repetir, pero ponerlo a
+    mano es una cosa y que lo haga la app sola por detrás, otra)."""
     if promoter is None or person is None:
         return False
     nombre = _artist_solo_name(session_db, getattr(person, "artist_id", None))
@@ -14009,6 +14010,45 @@ def _promoter_display_name(promoter: Promoter | None) -> str:
         ]
     ).strip()
     return full_name or (getattr(promoter, "nick", None) or "").strip()
+
+
+def _promoter_pick_disambiguate(rows: list | None, *, label_key: str = "label",
+                                sub_key: str = "sub") -> list:
+    """⚠️⚠️ EN UNA LISTA PARA ELEGIR, DOS QUE SE LLAMAN IGUAL TIENEN QUE PODER DISTINGUIRSE
+    (sep 2026, lo pidió Dani). El nick es como llamamos nosotros a alguien, no un identificador:
+    puede haber DOS personas con el mismo. Cuando en los resultados salen varios con el MISMO nick,
+    debajo de cada uno se pone su NOMBRE COMPLETO en una segunda fila — que es lo que los diferencia.
+
+    Punto ÚNICO: lo usan el buscador de terceros de toda la app, el aviso de «ya existe algo
+    parecido» del alta rápida y el buscador de la fusión, así que los tres enseñan lo mismo.
+    ⚠️ Solo cuando NO hay ya algo que los distinga: si esa ficha lleva su VINCULACIÓN o sus
+    SOCIEDADES, eso es lo que se ve debajo del nick y añadir el nombre sería ruido.
+    ⚠️ Y si no tiene nombre completo (una empresa, una ficha a medias) se cae a lo que sí tenga
+    —razón social, correo, teléfono, CIF—: una fila que no se puede distinguir de la de al lado no
+    se puede elegir, y quedarse callado sería dejar el problema como estaba.
+    ⚠️ Solo mira lo que sale EN ESA LISTA (no la base entera): si de dos tocayos solo aparece uno,
+    no hay nada que aclarar."""
+    filas = [r for r in (rows or []) if isinstance(r, dict)]
+    cuantos: dict[str, int] = {}
+    for fila in filas:
+        clave = _norm_text_key(str(fila.get(label_key) or ""))
+        if clave:
+            cuantos[clave] = cuantos.get(clave, 0) + 1
+    for fila in filas:
+        clave = _norm_text_key(str(fila.get(label_key) or ""))
+        if cuantos.get(clave, 0) < 2:
+            continue
+        if str(fila.get(sub_key) or "").strip():
+            continue                                   # esa fila ya dice algo debajo del nombre
+        if str(fila.get("link_summary_text") or "").strip() or (fila.get("companies") or []):
+            continue                                   # su vinculación / sus sociedades ya lo dicen
+        for candidato in (fila.get("full_name"), fila.get("legal_name"), fila.get("contact_email"),
+                          fila.get("contact_phone"), fila.get("tax_id")):
+            texto = str(candidato or "").strip()
+            if texto and _norm_text_key(texto) != clave:
+                fila[sub_key] = texto
+                break
+    return rows if rows is not None else []
 
 
 def _song_interpreters_label(session_db, song: Song) -> str:
@@ -24879,13 +24919,10 @@ def discografica_song_editorial_share_save(song_id):
             if not first_name and not last_name:
                 flash("Indica Nombre y/o Apellidos para crear el autor/compositor.", "warning")
                 return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
-            nick_base = (f"{first_name} {last_name}".strip() or first_name or last_name).strip()
-            nick = nick_base
-            # garantizar unicidad
-            i = 2
-            while session_db.query(Promoter).filter(func.lower(Promoter.nick) == nick.lower()).first():
-                nick = f"{nick_base} ({i})"
-                i += 1
+            # ⚠️ El nick SE PUEDE REPETIR: dos autores pueden llamarse igual y antes esta ficha
+            # nacía como «Juan Pérez (2)». Donde salgan los dos para elegir, lo que los distingue
+            # es su nombre completo (`_promoter_pick_disambiguate`).
+            nick = (f"{first_name} {last_name}".strip() or first_name or last_name).strip()
             promoter = Promoter(nick=nick)
             session_db.add(promoter)
             session_db.flush()
@@ -43500,7 +43537,7 @@ def public_demo_submit_identify(token):
                     break
             return jsonify({"ok": True, "ready": False, "needs_data": True, "suggested_name": sugerido})
         tercero = Promoter(
-            nick=_intake_unique_nick(session_db, nombre),
+            nick=_intake_promoter_nick(session_db, nombre),
             first_name=nombre.split(" ")[0] if " " in nombre else nombre,
             last_name=" ".join(nombre.split(" ")[1:]) if " " in nombre else None,
             tax_id=numero,
@@ -47577,7 +47614,7 @@ def public_song_delivery_create_author(token):
             pc = _delivery_get_or_create_publishing(session_db, pc_name)
         correo = (request.form.get("email") or "").strip()
         ipi = _clean_ipi(request.form.get("ipi"))
-        pr = Promoter(nick=_intake_unique_nick(session_db, nick), first_name=first or None, last_name=last or None,
+        pr = Promoter(nick=_intake_promoter_nick(session_db, nick), first_name=first or None, last_name=last or None,
                       contact_email=correo or None, ipi=(ipi or None),
                       publishing_company_id=(pc.id if pc else None))
         session_db.add(pr)
@@ -53493,7 +53530,7 @@ def _promoter_import_nick(values: dict) -> str:
     """El nick con el que se da de alta. NINGÚN campo del fichero es obligatorio (un listado puede
     no traer nick), así que se cae en cascada a lo que sí venga: el nick del fichero → el nombre
     completo → el DNI/NIF → el correo → el teléfono → y, si no trae nada con lo que llamarlo,
-    «Tercero sin nombre» (numerado por `_intake_unique_nick`), para que la fila entre igual y se
+    «Tercero sin nombre» (numerado por `_intake_promoter_nick`), para que la fila entre igual y se
     complete después en su ficha."""
     for candidato in (values.get("nick"),
                       " ".join([x for x in [(values.get("first_name") or ""),
@@ -53677,7 +53714,7 @@ def promoters_import_create():
             nick = _promoter_import_nick(values) or PROMOTER_IMPORT_NAMELESS_NICK
             try:
                 with session_db.begin_nested():
-                    p = Promoter(nick=_intake_unique_nick(session_db, nick))
+                    p = Promoter(nick=_intake_promoter_nick(session_db, nick))
                     if asoc:
                         p.assoc_tags = list(asoc)
                     if roles:
@@ -53776,7 +53813,7 @@ def promoters_import_merge(pid):
                 continue
             if eleccion == "incoming":
                 if campo == "nick":
-                    nuevo = _intake_unique_nick(session_db, entra, exclude_id=p.id)
+                    nuevo = _intake_promoter_nick(session_db, entra, exclude_id=p.id)
                     if nuevo != actual:
                         p.nick = nuevo
                         cambios += 1
@@ -53797,7 +53834,7 @@ def promoters_import_merge(pid):
                     et_ficha, et_otro = et_actual, et_nueva
                 if valor_ficha != actual:
                     if campo == "nick":
-                        p.nick = _intake_unique_nick(session_db, valor_ficha, exclude_id=p.id)
+                        p.nick = _intake_promoter_nick(session_db, valor_ficha, exclude_id=p.id)
                     else:
                         setattr(p, campo, valor_ficha)
                     cambios += 1
@@ -73601,7 +73638,7 @@ def _promoter_apply_representative(session_db, empresa, form=None):
             rep.last_name = apellidos or None
             # El nick es como lo llamamos: solo se cambia si era el de un alta automática.
             if not (rep.nick or "").strip() or (rep.nick or "").startswith("Representante de "):
-                rep.nick = _intake_unique_nick(session_db, nombre_completo, exclude_id=rep.id)
+                rep.nick = _intake_promoter_nick(session_db, nombre_completo, exclude_id=rep.id)
         if dni:
             rep.tax_id = dni
         if email:
@@ -73609,10 +73646,10 @@ def _promoter_apply_representative(session_db, empresa, form=None):
         if telefono:
             rep.contact_phone = telefono
         return rep
-    # ⚠️ `Promoter.nick` es UNIQUE: `_intake_unique_nick` le busca uno libre.
+    # Con qué nombre nace la ficha del representante (el nick se puede repetir: ver el helper).
     base = nombre_completo or dni or email or ("Representante de %s" % (empresa.nick or ""))
     rep = Promoter(
-        nick=_intake_unique_nick(session_db, base),
+        nick=_intake_promoter_nick(session_db, base),
         first_name=nombre or None,
         last_name=apellidos or None,
         tax_id=dni or None,
@@ -73653,11 +73690,19 @@ def api_create_promoter():
                 "id": str(row.id),
                 "label": (row.nick or '').strip(),
                 "logo_url": (row.logo_url or '').strip(),
+                # Con qué se distingue de otro que se llame igual (ver `_promoter_pick_disambiguate`).
+                "full_name": _promoter_display_name(row),
+                "legal_name": (getattr(row, "legal_name", None) or '').strip(),
+                "contact_email": (row.contact_email or '').strip(),
+                "contact_phone": (row.contact_phone or '').strip(),
+                "tax_id": (row.tax_id or '').strip(),
             })
         similar = _build_similarity_rows(nick, rows, threshold=0.76)
-        exact = session.query(Promoter).filter(func.lower(Promoter.nick) == nick.lower()).first()
-        if exact and not force_new:
-            similar = [{"id": str(exact.id), "label": (exact.nick or '').strip(), "score": 1.0, "logo_url": (exact.logo_url or '').strip()}]
+        # ⚠️ EXACTOS: TODOS los que ya se llaman así, no solo el primero. El nick se puede repetir
+        # (sep 2026), así que quedarse con uno escondía justo la ficha que se estaba buscando.
+        exactos = [r for r in rows if _norm_text_key(r.get("label") or "") == _norm_text_key(nick)]
+        if exactos and not force_new:
+            similar = [dict(r, score=1.0) for r in exactos[:5]]
         # ⚠️⚠️ Y LOS QUE SON EL MISMO SIN DISCUSIÓN: mismo DNI/CIF, mismo correo o mismo teléfono.
         # Por el NOMBRE no saltaba nada cuando la misma empresa se escribe de otra forma, que es
         # justo como se cuelan los duplicados. LA BASE ES ÚNICA: se reutiliza la ficha que ya hay.
@@ -73669,6 +73714,8 @@ def api_create_promoter():
             return jsonify({"error": "Ya está en la base de datos con %s." % porque,
                             "similar": mismos}), 409
         if similar and not force_new:
+            # Si se ofrecen varios que se llaman IGUAL, cada uno con su nombre completo debajo.
+            _promoter_pick_disambiguate(similar)
             return jsonify({"error": "Ya existe un tercero similar.", "similar": similar}), 409
 
         logo = request.files.get("logo") or request.files.get("photo")
@@ -78387,6 +78434,11 @@ def api_search_promoters():
                 "nick": nick,
                 "first_name": first_name,
                 "last_name": last_name,
+                # Su NOMBRE COMPLETO: es lo que se pinta debajo del nick cuando salen varios que se
+                # llaman igual (`_promoter_pick_disambiguate`, que lo lee de aquí).
+                "full_name": full_name,
+                "legal_name": (getattr(p, "legal_name", None) or "").strip(),
+                "tax_id": (p.tax_id or "").strip(),
                 "contact_email": (p.contact_email or "").strip(),
                 "contact_phone": (p.contact_phone or "").strip(),
                 "publishing_company_id": str(pub.id) if pub else "",
@@ -78396,6 +78448,8 @@ def api_search_promoters():
                 "link_summary_text": _promoter_link_summary_text(_promoter_link_summary(session, p)),
                 "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
             })
+        # Los que se llaman IGUAL se distinguen con su nombre completo (`sub`, la segunda fila).
+        _promoter_pick_disambiguate(out)
         return jsonify(out)
     finally:
         session.close()
@@ -78574,7 +78628,7 @@ def _lc_apply_authors(session_db, song, autores: list):
             promoter = _artist_person_unify(session_db, person, create=True) if person else None
         elif (a.get("create_name") or "").strip():
             nombre = a["create_name"].strip()
-            promoter = Promoter(nick=_intake_unique_nick(session_db, nombre))
+            promoter = Promoter(nick=_intake_promoter_nick(session_db, nombre))
             partes = nombre.split(" ", 1)
             promoter.first_name = partes[0]
             promoter.last_name = partes[1] if len(partes) > 1 else None
@@ -86851,7 +86905,7 @@ def _roadmap_new_contact_person(session_db, row, nombre: str, telefono, correo, 
                     .first())
     if promoter is None:
         promoter = Promoter(
-            nick=_intake_unique_nick(session_db, nombre or correo or telefono or "Contacto"),
+            nick=_intake_promoter_nick(session_db, nombre or correo or telefono or "Contacto"),
             first_name=(nombre_pila or None), last_name=(apellidos or None),
             contact_email=(correo or None), contact_phone=(telefono or None))
         session_db.add(promoter)
@@ -115765,7 +115819,7 @@ def _media_contact_promoter(session_db, contact, form, media_id):
         if not (nick or nombre or correo or telefono):
             return None
         promoter = Promoter(
-            nick=_intake_unique_nick(session_db, nick or " ".join([x for x in [nombre, apellidos] if x])
+            nick=_intake_promoter_nick(session_db, nick or " ".join([x for x in [nombre, apellidos] if x])
                                      or correo or telefono or "Contacto"),
             first_name=(nombre or None), last_name=(apellidos or None),
             contact_email=(correo or None), contact_phone=(telefono or None))
@@ -116311,6 +116365,59 @@ def media_contact_press_toggle(media_id, contact_id):
         return jsonify({"ok": False, "error": "No se pudo guardar."}), 400
     finally:
         session_db.close()
+
+
+@app.post("/medios/<media_id>/presentaciones-radio/correo", endpoint="media_radio_email_add")
+@admin_required
+def media_radio_email_add(media_id):
+    """AÑADIR UNA DIRECCIÓN DE CORREO SUELTA a las presentaciones a radio de esta emisora.
+
+    ⚠️⚠️ **Solo en este módulo** (lo pidió Dani, sep 2026): en una emisora, quien recibe los temas
+    muchas veces **no es una persona** sino un buzón de la cadena
+    (`cadenasmusicales@prisaradio.com`, `musica@…`), y obligar a darle ficha de tercero a un buzón
+    es inventarse una persona que no existe. En los demás contactos del medio sigue valiendo lo de
+    siempre: una persona de un medio ES un tercero.
+    ⚠️ Si esa dirección YA está en el medio, no se duplica: se le pone la marca y ya está.
+    ⚠️ El nick sale de la propia dirección (la parte de antes de la @) para que la lista se pueda
+    leer; se le puede poner otro nombre editando el contacto."""
+    session_db = db()
+    destino = url_for("media_outlet_detail_view", media_id=media_id, tab="contactos")
+    try:
+        outlet = session_db.get(MediaOutlet, _safe_uuid(media_id))
+        if outlet is None:
+            flash("Ese medio no existe.", "warning")
+            return redirect(url_for("media_outlets_view"))
+        # ⚠️ Los campos se llaman `radio_*` y no `email`/`nick`: los campos que se marcan en rojo
+        # se buscan por su `name`, y en esta misma pantalla está el pop-up de contacto con un
+        # `email` suyo —se marcarían los dos—.
+        correo = (request.form.get("radio_email") or "").strip().lower()
+        if "@" not in correo or "." not in correo.split("@")[-1]:
+            _flash_form_error("No se ha añadido: escribe una dirección de correo válida.",
+                              campos=["radio_email"])
+            return redirect(safe_next_or(destino))
+        ya = (session_db.query(MediaContact)
+              .filter(MediaContact.media_id == outlet.id,
+                      func.lower(func.coalesce(MediaContact.email, "")) == correo).first())
+        if ya is not None:
+            if ya.radio_pitch:
+                flash("%s ya recibe las presentaciones de esta emisora." % correo, "info")
+            else:
+                ya.radio_pitch = True
+                session_db.commit()
+                flash("%s pasa a recibir las presentaciones de esta emisora." % correo, "success")
+            return redirect(safe_next_or(destino))
+        nombre = (request.form.get("radio_nick") or "").strip() or correo.split("@", 1)[0]
+        session_db.add(MediaContact(media_id=outlet.id, nick=nombre, email=correo,
+                                    radio_pitch=True))
+        session_db.commit()
+        flash("Añadido %s a las presentaciones a radio." % correo, "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo añadir el correo de presentaciones")
+        flash("No se pudo añadir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
 
 
 @app.post("/medios/<media_id>/contactos/<contact_id>/presentaciones-radio",
@@ -117520,7 +117627,7 @@ def _promoter_mirror_by_name(session_db, nombre: str, *, logo: str = "", kind: s
         if tax_id and not (fila.tax_id or "").strip():
             fila.tax_id = tax_id.strip()
         return fila
-    fila = Promoter(nick=_intake_unique_nick(session_db, nombre), logo_url=(logo or None),
+    fila = Promoter(nick=_intake_promoter_nick(session_db, nombre), logo_url=(logo or None),
                     kind=kind, tax_id=(tax_id.strip() or None) if tax_id else None)
     session_db.add(fila)
     session_db.flush()
@@ -131213,7 +131320,7 @@ def _sales_derive_promoter(session_db, promoter, nombre: str, correo: str, telef
     partes = [x for x in (nombre or "").strip().split() if x]
     if persona is None:
         persona = Promoter(
-            nick=_intake_unique_nick(session_db, (nombre or "").strip() or correo or "Ticketing"),
+            nick=_intake_promoter_nick(session_db, (nombre or "").strip() or correo or "Ticketing"),
             first_name=(partes[0] if partes else ""),
             last_name=(" ".join(partes[1:]) if len(partes) > 1 else ""),
             contact_email=correo or None,
@@ -139346,10 +139453,25 @@ def _intake_save_document(session_db, promoter, kind: str, front_url, back_url=N
     return doc
 
 
-def _intake_unique_nick(session_db, base: str, exclude_id=None) -> str:
-    """`Promoter.nick` es ÚNICO y aquí el nombre lo escribe gente de fuera: si ya está cogido se le
-    añade un sufijo en vez de reventar la inserción."""
+# Nicks que NO dicen quién es nadie: los pone la propia app cuando la ficha entra sin nombre (una
+# fila de un fichero que solo traía un teléfono, un contacto suelto…). Son los ÚNICOS que se numeran:
+# un nombre de verdad se repite tal cual, porque dos personas pueden llamarse igual, pero cinco
+# «Tercero sin nombre» idénticos no se podrían distinguir ni en su propia ficha.
+PROMOTER_PLACEHOLDER_NICKS = {
+    "tercero", "tercero sin nombre", "contacto", "beneficiario", "personal evento", "ticketing",
+}
+
+
+def _intake_promoter_nick(session_db, base: str, exclude_id=None) -> str:
+    """El nick con el que se da de alta un tercero desde fuera (un fichero, un enlace público, un
+    espejo). ⚠️⚠️ **EL NICK SE PUEDE REPETIR** (sep 2026, lo pidió Dani): es como llamamos nosotros
+    a esa persona, no un identificador, así que si ya lo tiene otro **se deja igual** —el «(2)» que
+    se le añadía antes ensuciaba el nombre y no aclaraba nada—. Donde salgan los dos para elegir,
+    lo que los distingue es su NOMBRE COMPLETO (`_promoter_pick_disambiguate`).
+    Se numera SOLO el nick genérico de quien entró sin nombre (`PROMOTER_PLACEHOLDER_NICKS`)."""
     base = (base or "Tercero").strip()[:120] or "Tercero"
+    if _norm_text_key(base) not in PROMOTER_PLACEHOLDER_NICKS:
+        return base
     intento, n = base, 1
     while True:
         q = session_db.query(Promoter.id).filter(func.lower(Promoter.nick) == intento.lower())
@@ -139620,7 +139742,7 @@ def public_intake_submit(token):
         if nuevo:
             if not nombre:
                 return jsonify({"ok": False, "error": "Falta el nombre"}), 400
-            promoter = Promoter(nick=_intake_unique_nick(session_db, nombre[:120]),
+            promoter = Promoter(nick=_intake_promoter_nick(session_db, nombre[:120]),
                                kind=("empresa" if es_empresa else None), tax_id=raw_tax)
             session_db.add(promoter)
             session_db.flush()
@@ -139628,13 +139750,13 @@ def public_intake_submit(token):
         if es_empresa:
             promoter.kind = "empresa"
             if nombre:
-                promoter.nick = _intake_unique_nick(session_db, nombre[:120], promoter.id)
+                promoter.nick = _intake_promoter_nick(session_db, nombre[:120], promoter.id)
         elif nombre:
             partes = nombre.split()
             promoter.first_name = partes[0]
             promoter.last_name = " ".join(partes[1:]) or None
             if not (promoter.nick or "").strip():
-                promoter.nick = _intake_unique_nick(session_db, nombre[:120], promoter.id)
+                promoter.nick = _intake_promoter_nick(session_db, nombre[:120], promoter.id)
         for attr, campo in (("contact_email", "email"), ("contact_phone", "phone")):
             valor = (f.get(campo) or "").strip()
             if valor:
@@ -167560,9 +167682,20 @@ def _merge_search_view(kind):
                 "id": str(r.id),
                 "name": _merge_display(cfg, r),
                 "photo": getattr(r, cfg["photo"], None) or "",
+                # ⚠️ CON QUÉ SE DISTINGUE de otro que se llame igual: aquí se elige a cuál de las
+                # dos fichas se le echa encima la otra, y fusionar NO SE PUEDE DESHACER — dos filas
+                # idénticas serían una moneda al aire. Lo rellena `_promoter_pick_disambiguate`.
+                "full_name": " ".join([x for x in [(getattr(r, "first_name", None) or "").strip(),
+                                                   (getattr(r, "last_name", None) or "").strip()] if x]),
+                "legal_name": (getattr(r, "legal_name", None) or "").strip(),
+                "contact_email": (getattr(r, "contact_email", None) or getattr(r, "email", None) or "").strip(),
+                "contact_phone": (getattr(r, "contact_phone", None) or "").strip(),
+                "tax_id": (getattr(r, "tax_id", None) or "").strip(),
             })
         out.sort(key=lambda x: (x["name"] or "").lower())
-        return jsonify(out[:20])
+        out = out[:20]
+        _promoter_pick_disambiguate(out, label_key="name")
+        return jsonify(out)
     finally:
         s.close()
 
@@ -173206,7 +173339,7 @@ def sync_supervisor_save():
             if not nombre:
                 flash("Elige un tercero o escribe el nombre del nuevo.", "warning")
                 return redirect(url_for("syncros_view"))
-            promoter = Promoter(nick=_intake_unique_nick(session_db, nombre))
+            promoter = Promoter(nick=_intake_promoter_nick(session_db, nombre))
             correo = (request.form.get("new_email") or "").strip()
             telefono = (request.form.get("new_phone") or "").strip()
             if correo:
@@ -173441,7 +173574,7 @@ def _sync_find_or_create_promoter(session_db, values: dict):
                 break
     ya_estaba = promoter is not None
     if promoter is None:
-        promoter = Promoter(nick=_intake_unique_nick(session_db, nombre or correo))
+        promoter = Promoter(nick=_intake_promoter_nick(session_db, nombre or correo))
         session_db.add(promoter)
         session_db.flush()
     if correo and not (promoter.contact_email or "").strip():

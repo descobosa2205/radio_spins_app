@@ -79,7 +79,12 @@
           var img = it.photo
             ? '<img src="' + esc(it.photo) + '" alt="" style="width:30px;height:30px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">'
             : '<span style="width:30px;text-align:center;"><i class="fa fa-circle-user text-muted"></i></span>';
-          return '<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-merge-pick="' + esc(it.id) + '">' + img + '<span>' + esc(it.name) + '</span></button>';
+          // Segunda fila: con qué se distingue de otro que se llame igual (el nombre completo de
+          // esa persona). La compone el servidor y solo viene cuando salen varios homónimos.
+          var sub = (it.sub || '').trim();
+          return '<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-merge-pick="' + esc(it.id) + '">' + img +
+            '<span class="min-w-0"><span class="d-block text-truncate">' + esc(it.name) + '</span>' +
+            (sub ? '<small class="d-block text-muted text-truncate">' + esc(sub) + '</small>' : '') + '</span></button>';
         }).join('');
         $q('[data-merge-noresults]').classList.toggle('d-none', !!(list && list.length));
       })

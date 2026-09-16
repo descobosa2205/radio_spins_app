@@ -2112,7 +2112,14 @@ class Promoter(Base):
 
     __tablename__ = "promoters"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    nick = Column(Text, nullable=False, unique=True)
+    # ⚠️⚠️ EL NICK **SE PUEDE REPETIR** (sep 2026, lo pidió Dani). Es como llamamos nosotros a esa
+    # persona o empresa, NO un identificador: puede haber dos «Juan» o dos «Antonio» que no tienen
+    # nada que ver. Mientras fue UNIQUE, poner el mismo nombre a una segunda ficha reventaba con un
+    # `UniqueViolation` (al editar salía como «Error actualizando: duplicate key…») y las altas
+    # automáticas tenían que inventarse un «(2)» que ensuciaba el nombre. Quien los distingue ahora
+    # es la propia app: donde salen varios con el mismo nick para elegir, debajo va su NOMBRE
+    # COMPLETO (`_promoter_pick_disambiguate` en app.py).
+    nick = Column(Text, nullable=False)
     logo_url = Column(Text)
     # ⚠️⚠️ ESTA FICHA ES ESA PERSONA DE LA CASA (sep 2026, lo pidió Dani). Alguien de la oficina
     # acaba teniendo también ficha de tercero (va en el personal de una hoja de ruta, pide entradas,
@@ -10227,6 +10234,38 @@ def ensure_third_party_and_contract_sheet_schema():
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
 
+        # ⚠️⚠️ EL NICK DE UN TERCERO **SE PUEDE REPETIR** (sep 2026, lo pidió Dani): dos personas
+        # pueden llamarse igual. La columna nació UNIQUE, así que hay que soltar esa restricción en
+        # la base que ya existe —si no, poner el mismo nombre a otra ficha sigue reventando con un
+        # `UniqueViolation`—. Se busca POR EL CATÁLOGO y no por el nombre (`promoters_nick_key` es
+        # solo el que pone Postgres por defecto), y se mira también un índice único suelto.
+        # ⚠️ Va en un `DO $$`, que `_ddl_already_applied` no da nunca por hecho: se ejecuta en cada
+        # arranque y no hace nada cuando ya no queda ninguna.
+        """
+        DO $$
+        DECLARE fila record;
+        BEGIN
+            IF to_regclass('public.promoters') IS NULL THEN
+                RETURN;
+            END IF;
+            FOR fila IN
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'public.promoters'::regclass AND contype = 'u'
+                  AND pg_get_constraintdef(oid) ILIKE 'UNIQUE (nick)'
+            LOOP
+                EXECUTE format('ALTER TABLE promoters DROP CONSTRAINT %I', fila.conname);
+            END LOOP;
+            FOR fila IN
+                SELECT i.relname AS conname
+                FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid
+                WHERE x.indrelid = 'public.promoters'::regclass
+                  AND x.indisunique AND NOT x.indisprimary
+                  AND pg_get_indexdef(x.indexrelid) ILIKE '%(nick)%'
+            LOOP
+                EXECUTE format('DROP INDEX IF EXISTS %I', fila.conname);
+            END LOOP;
+        END $$;
+        """,
         # Clasificación del tercero (empresa / institución) para vinculaciones.
         'ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS kind text;',
         # El NOMBRE DE LA EMPRESA (razón social) del tercero: el nick es como la llamamos.

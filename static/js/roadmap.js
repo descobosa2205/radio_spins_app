@@ -179,7 +179,7 @@
     }
     function searchPromoters(q) {
       return getJson('/api/search/promoters?q=' + encodeURIComponent(q)).then(function (list) {
-        return (list || []).map(function (r) { return { id: r.id, label: r.label, logo_url: r.logo_url, sub: r.link_summary_text || '', email: r.contact_email, phone: r.contact_phone }; });
+        return (list || []).map(function (r) { return { id: r.id, label: r.label, logo_url: r.logo_url, sub: r.link_summary_text || r.sub || '', email: r.contact_email, phone: r.contact_phone }; });
       });
     }
     /* Quien puede ir en una hoja de ruta: la oficina (USER), los integrantes de los artistas y los

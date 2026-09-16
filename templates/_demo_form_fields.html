@@ -175,6 +175,10 @@
           </select>
           <input class="form-control form-control-sm demo-author__pct" name="author_pct[]" placeholder="%"
                  inputmode="decimal">
+          {# El IPI del autor (su «DNI» en las sociedades de gestión): opcional, y si el autor ya lo
+             tiene en su ficha se rellena solo al elegirlo. #}
+          <input class="form-control form-control-sm demo-author__ipi" name="author_ipi[]"
+                 placeholder="IPI (opcional)" autocomplete="off">
           <input class="form-control form-control-sm" name="author_publisher_name[]" placeholder="Editorial (opcional)">
           <input type="hidden" name="author_publisher_id[]" value="">
           <button class="btn btn-sm btn-link text-danger" type="button" data-demo-author-del

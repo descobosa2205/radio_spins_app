@@ -6,6 +6,8 @@
 
 ## Qué hay aquí
 
+- LOS ROLES DE AUTORÍA · punto único, el ARREGLISTA y el CHECK de la BD
+- EL CÓDIGO IPI de un autor · su «DNI» en las sociedades de gestión
 - CAMBIAR LA EDITORIAL DE UN AUTOR SE PREGUNTA. La editorial de un autor puede
 - LOS SELECTORES DE EDITORIAL (y de cualquier cosa con logo) SE VEN CON SU LOGO: un
 - REPARTO EDITORIAL en la ficha de la canción
@@ -32,6 +34,74 @@
 - Colaboraciones externas en la liquidación del ARTISTA: _build_royalty_beneficiaries ya NO las
 
 ---
+
+## LOS ROLES DE AUTORÍA · punto único, el ARREGLISTA y el CHECK de la BD
+
+**`app.SONG_AUTHOR_ROLES` es el PUNTO ÚNICO** (sep 2026): `AUTHOR` (Autor · Letra) · `COMPOSER`
+(Compositor · Música) · `AUTHOR_COMPOSER` (Autor y compositor · Letra y música) · **`ARRANGER`
+(Arreglista · Arreglos)**, que es el que pidió Dani.
+
+Los eligen **tres** sitios y los leen **tres** más, y **todos salen de ahí**:
+
+| dónde se ELIGE | dónde se LEE |
+|---|---|
+| la pestaña **Editorial** de la canción (`SONG_AUTHOR_ROLE_LONG_CHOICES`) | el **Label Copy** (enlace, correo y PDF) |
+| la **entrega de masters** del enlace público (`SONG_DELIVERY_AUTHOR_ROLES`) | la hoja de **SGAE** y su correo de «obra registrada» |
+| las **demos** (`DEMO_AUTHOR_ROLES`) | la ficha de **Syncros** (ES y EN) |
+
+Estaban repetidos a mano en los seis, así que añadir uno exigía acordarse de todos. Hoy
+`DEMO_AUTHOR_ROLES` y `SONG_DELIVERY_AUTHOR_ROLES` **son** `SONG_AUTHOR_ROLE_CHOICES`.
+
+⚠️⚠️ **Y LA BD TIENE UN CHECK CON LA LISTA CERRADA** (`chk_ses_role` en `song_editorial_shares`):
+un rol que esté en la app y no en la base revienta al guardar con «violates check constraint» y saca
+la **pantalla de mantenimiento** — la misma trampa que impidió cancelar una actividad durante
+semanas (`CONCERT_STATUS_VALUES`). Por eso:
+· **punto ÚNICO `models.SONG_AUTHOR_ROLE_VALUES`**, y el CHECK **se construye con ella**
+(`ensure_editorial_schema`, que lo dropea y lo recrea en cada arranque: `_ddl_already_applied` no
+salta un `DO $$`), así que un rol nuevo entra solo y no se pueden desparejar;
+· **RED DE SEGURIDAD**: al arrancar se comprueba que todo rol de `SONG_AUTHOR_ROLES` esté en esa
+lista y, si falta, **se dice en el log con su nombre** — igual para las traducciones de Syncros
+(un rol sin texto sale VACÍO en la ficha que ve un supervisor).
+⚠️ Comprobado reproduciendo el CHECK viejo: antes **`CheckViolation`** al guardar un arreglista,
+después se guarda, y **un rol inventado se sigue rechazando** (el CHECK protege).
+⚠️ El rol de un LC que llega de fuera se normaliza con **`_lc_author_role`** (mira «arregl»/«arrang»
+**antes** que el resto) y el de un formulario con **`_song_author_role`**.
+
+⚠️⚠️ **Y LA ETIQUETA LA RESUELVE EL SERVIDOR** (`role_label`, `SONG_AUTHOR_ROLE_LONG`). La ficha
+pintaba el rol con un `{% if %}/{% elif %}/{% else %}` a mano y **el arreglista se leía como «Autor
+y compositor»** (bug visto en pantalla el día que se añadió: se guardaba bien y se leía mal, que es
+lo peor). Una plantilla pinta TEXTO; quién decide qué texto es el punto único.
+
+## EL CÓDIGO IPI de un autor · su «DNI» en las sociedades de gestión
+
+**`Promoter.ipi`** (sep 2026, lo pidió Dani). Es el identificador del autor en las sociedades de
+gestión —lo que piden SGAE y las editoriales para saber quién es quién— y **es SUYO, no de la obra**:
+por eso vive en su **ficha de tercero** y no en cada registro. Se escribe **una vez** y a partir de
+ahí sale solo en todas sus obras.
+
+- **Es OPCIONAL**: un autor nuevo puede no tenerlo todavía, y nada lo exige.
+- **SE PIDE en los cuatro sitios donde se dan de alta autores**: el pop-up de la pestaña
+  **Editorial**, la **entrega de masters** del enlace público, las **demos** y la propia **ficha del
+  tercero** (junto al DNI, con su explicación).
+- ⚠️⚠️ **SI EL AUTOR YA LO TIENE, SE RELLENA SOLO Y NO SE LE PIDE**: los buscadores de autor
+  (`api_get_promoter`, `api_search_authors`, `public_song_delivery_authors`) devuelven ya el `ipi`, y
+  al elegirlo el formulario lo pone —en la ficha, además, el texto de debajo cambia a «Ya lo tiene en
+  su ficha: no hay que volver a escribirlo»—.
+- **Al guardar va a SU ficha** (no al registro), con el **centinela** de siempre: si el formulario no
+  lo trae o viene vacío, **no se borra el que tuviera**. En su propia ficha sí se puede vaciar (ahí
+  el campo se pregunta, así que dejarlo en blanco ES la orden).
+- **DÓNDE SE VE**: la cabecera de su ficha (una chapa «IPI …» al lado del DNI) y, como una columna
+  más de la tabla de autores, el **Label Copy** (el normal y el de reparto editorial: enlace, correo
+  y PDF), la **hoja de SGAE** y la **ficha de Syncros**.
+  ⚠️ **La columna solo se pinta si ALGÚN autor de esa obra lo tiene**: es opcional, y una columna
+  vacía en todo el catálogo antiguo solo estorba. En cuanto uno lo rellena, sale.
+- **No se valida el formato a propósito** (`_clean_ipi` solo quita espacios y pone mayúsculas):
+  circulan DOS formatos —el *IPI Name Number* de 11 dígitos y el *IPI Base Number*, «I-000000229-7»—
+  y rechazar el que no encaje en un patrón nuestro dejaría a un autor sin poder guardar el suyo.
+
+⚠️ **DOS RUTAS IGUALES**: `/api/promoters/<id>` está declarada **dos veces** (`api_get_promoter`, que
+es la que GANA, y `api_promoter_detail`, que no se alcanza nunca por URL). El `ipi` se añadió a las
+dos para que no dependa de cuál responda, pero **la segunda es código muerto** y conviene retirarla.
 
 - ⚠️⚠️ **CAMBIAR LA EDITORIAL DE UN AUTOR SE PREGUNTA** (ago 2026). La editorial de un autor puede
   cambiar **a partir de una fecha o de un tema**, así que al elegir una distinta a la que tiene se

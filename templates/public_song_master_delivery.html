@@ -407,6 +407,9 @@
             row.querySelector('[name="author_promoter_id"]').value = d.id || '';
             row.querySelector('[name="author_editorial"]').value = d.publishing_company_name || '';
             row.querySelector('[name="author_publishing_id"]').value = d.publishing_company_id || '';
+            // EL IPI ES DEL AUTOR: si ya lo tiene, se rellena solo (y no se le pide otra vez).
+            var ipi = row.querySelector('[name="author_ipi"]');
+            if (ipi && (d.ipi || !ipi.value)) ipi.value = d.ipi || '';
           }
           // ---- Autocompletado de editorial (con logo + crear nueva) ----
           function attachEditorialAC(input, box, hidden){
@@ -460,12 +463,15 @@
           function addRow(){
             var div = document.createElement('div');
             div.className = 'border rounded p-2';
+            // ⚠️ El IPI (su «DNI» de las sociedades de gestión) es OPCIONAL y es DEL AUTOR: al
+            // elegir uno que ya lo tiene se rellena solo y no hay que escribirlo.
             div.innerHTML = '<div class="row g-2 align-items-end">'
-              + '<div class="col-12 col-md-4 ac-wrap"><label class="form-label small mb-0">Nombre</label><input class="form-control form-control-sm" name="author_name" autocomplete="off" required><div class="ac-results ac-name-results"></div><input type="hidden" name="author_promoter_id"></div>'
+              + '<div class="col-12 col-md-3 ac-wrap"><label class="form-label small mb-0">Nombre</label><input class="form-control form-control-sm" name="author_name" autocomplete="off" required><div class="ac-results ac-name-results"></div><input type="hidden" name="author_promoter_id"></div>'
+              + '<div class="col-6 col-md-2"><label class="form-label small mb-0">IPI</label><input class="form-control form-control-sm" name="author_ipi" autocomplete="off" placeholder="(opcional)"></div>'
               + '<div class="col-6 col-md-3 ac-wrap"><label class="form-label small mb-0">Editorial</label><input class="form-control form-control-sm" name="author_editorial" autocomplete="off" placeholder="(opcional)"><div class="ac-results ac-ed-results"></div><input type="hidden" name="author_publishing_id"></div>'
-              + '<div class="col-6 col-md-3"><label class="form-label small mb-0">Rol</label><select class="form-select form-select-sm" name="author_role" required>' + roleOptions('') + '</select></div>'
-              + '<div class="col-8 col-md-1"><label class="form-label small mb-0">%</label><input type="number" min="0" max="100" step="0.01" class="form-control form-control-sm" name="author_pct" required></div>'
-              + '<div class="col-4 col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-rm>&times;</button></div>'
+              + '<div class="col-6 col-md-2"><label class="form-label small mb-0">Rol</label><select class="form-select form-select-sm" name="author_role" required>' + roleOptions('') + '</select></div>'
+              + '<div class="col-6 col-md-1"><label class="form-label small mb-0">%</label><input type="number" min="0" max="100" step="0.01" class="form-control form-control-sm" name="author_pct" required></div>'
+              + '<div class="col-12 col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-rm>&times;</button></div>'
               + '</div>';
             rowsWrap.appendChild(div);
             div.querySelector('[data-rm]').addEventListener('click', function(){ div.remove(); recalc(); });
@@ -514,6 +520,7 @@
               fila.querySelector('[name="author_promoter_id"]').value = a.promoter_id || '';
               fila.querySelector('[name="author_editorial"]').value = a.editorial || '';
               fila.querySelector('[name="author_publishing_id"]').value = a.publishing_id || '';
+              fila.querySelector('[name="author_ipi"]').value = a.ipi || '';
               var rol = fila.querySelector('[name="author_role"]');
               if (rol && a.role) rol.value = a.role;
               fila.querySelector('[name="author_pct"]').value = (a.pct || '').replace(',', '.');

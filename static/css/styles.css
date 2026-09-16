@@ -4871,6 +4871,8 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .demo-author__opt:hover{ background:#f3f5f9; }
 .demo-author__opt img{ width:24px; height:24px; border-radius:50%; object-fit:cover; }
 .demo-author__pct{ max-width:5.5rem; }
+/* El IPI del autor: corto, como el porcentaje (es un código, no un texto). */
+.demo-author__ipi{ max-width:9rem; }
 /* ===== PLAYLIST DE SELECCIÓN / VALORACIÓN =====
    La barra del 1 al 10 va del ROJO de la casa (menos) al AZUL (más), que son los dos colores de la
    marca: no hace falta inventar una escala nueva. */

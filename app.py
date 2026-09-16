@@ -11011,6 +11011,61 @@ class _LinkedRLImage(RLImage if REPORTLAB_AVAILABLE else object):
                 pass
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  LOS ROLES DE AUTORÍA DE UNA OBRA · PUNTO ÚNICO
+#
+#  Se eligen en TRES sitios (la pestaña Editorial de la canción, la entrega de masters del enlace
+#  público y las demos) y se leen en otros tantos (el Label Copy, la hoja de SGAE y la ficha de
+#  Syncros). Estaban repetidos a mano en los seis, así que añadir uno —el ARREGLISTA, sep 2026—
+#  exigía acordarse de todos; ahora salen de aquí.
+#  ⚠️⚠️ Y la BD tiene un CHECK con la lista CERRADA (`chk_ses_role`), que se construye con
+#  `models.SONG_AUTHOR_ROLE_VALUES`: un rol que esté aquí y no allí revienta al guardar con
+#  «violates check constraint» y saca la pantalla de mantenimiento. Se avisa al ARRANCAR (abajo),
+#  que es cuando se puede arreglar, no cuando alguien intenta guardar un arreglista.
+#
+#  (clave, etiqueta, qué pone en la obra)
+SONG_AUTHOR_ROLES = (
+    ("AUTHOR", "Autor", "Letra"),
+    ("COMPOSER", "Compositor", "Música"),
+    ("AUTHOR_COMPOSER", "Autor y compositor", "Letra y música"),
+    ("ARRANGER", "Arreglista", "Arreglos"),
+)
+# Para los `<select>` y para las plantillas que ya recibían una lista de pares.
+SONG_AUTHOR_ROLE_CHOICES = [(k, etiqueta) for k, etiqueta, _q in SONG_AUTHOR_ROLES]
+SONG_AUTHOR_ROLE_LABELS = {k: etiqueta for k, etiqueta, _q in SONG_AUTHOR_ROLES}
+# La etiqueta con la aclaración: «Autor (Letra)». Es lo que se lee al ELEGIR el rol.
+SONG_AUTHOR_ROLE_LONG = {k: ("%s (%s)" % (etiqueta, q) if q else etiqueta)
+                         for k, etiqueta, q in SONG_AUTHOR_ROLES}
+SONG_AUTHOR_ROLE_LONG_CHOICES = [(k, SONG_AUTHOR_ROLE_LONG[k]) for k, _e, _q in SONG_AUTHOR_ROLES]
+SONG_AUTHOR_ROLE_KEYS = {k for k, _e, _q in SONG_AUTHOR_ROLES}
+
+# ⚠️⚠️ RED DE SEGURIDAD (la misma que la de los estados de una actividad): si un rol está aquí y no
+# en la lista con la que se construye el CHECK, se dice al ARRANCAR y con su nombre — que es cuando
+# se puede arreglar, no cuando alguien intenta guardar ese autor y se come la pantalla de caída.
+from models import SONG_AUTHOR_ROLE_VALUES as _SONG_AUTHOR_ROLE_VALUES_DB
+_roles_autor_sin_check = SONG_AUTHOR_ROLE_KEYS - set(_SONG_AUTHOR_ROLE_VALUES_DB)
+if _roles_autor_sin_check:
+    app.logger.error(
+        "Roles de autoría que la BD NO admite (falta añadirlos a models.SONG_AUTHOR_ROLE_VALUES): %s",
+        ", ".join(sorted(_roles_autor_sin_check)))
+
+
+def _clean_ipi(v) -> str:
+    """EL CÓDIGO IPI tal y como se guarda: sin espacios y en mayúsculas.
+
+    Es el «DNI» del autor en las sociedades de gestión. ⚠️ **No se valida más allá de eso a
+    propósito**: circulan DOS formatos —el *IPI Name Number* (11 dígitos) y el *IPI Base Number*
+    («I-000000229-7»)— y rechazar el que no encaje en un patrón nuestro dejaría a un autor sin poder
+    guardar el suyo. Es un dato OPCIONAL: quien no lo tenga, lo deja vacío."""
+    return re.sub(r"\s+", "", str(v or "")).upper()[:32]
+
+
+def _song_author_role(v, *, default: str = "AUTHOR") -> str:
+    """El rol que se guarda, sea lo que sea lo que venga (un formulario, un enlace público, un LC)."""
+    clave = (str(v or "").strip().upper())
+    return clave if clave in SONG_AUTHOR_ROLE_KEYS else default
+
+
 def _lc_timecode(seconds) -> str:
     """La duración tal como va en el Label Copy: vacía cuando no hay dato (no «—»)."""
     if seconds in (None, ''):
@@ -11032,11 +11087,7 @@ def _label_copy_author_rows(session_db, song: Song, *, editorial: bool = False) 
         .filter(SongEditorialShare.song_id == song.id)
         .all()
     )
-    role_labels = {
-        'AUTHOR': 'Autor',
-        'COMPOSER': 'Compositor',
-        'AUTHOR_COMPOSER': 'Autor y Compositor',
-    }
+    role_labels = SONG_AUTHOR_ROLE_LABELS
     mapa = {}
     fallo = False
     if editorial and shares:
@@ -11064,6 +11115,9 @@ def _label_copy_author_rows(session_db, song: Song, *, editorial: bool = False) 
         filas.append({
             'name': _promoter_display_name(getattr(share, 'promoter', None)) or '—',
             'role': role_labels.get((getattr(share, 'role', None) or '').strip().upper(), '—'),
+            # EL CÓDIGO IPI del autor: sale de SU ficha (es suyo, no del registro). Vacío si no lo
+            # tiene todavía — es opcional.
+            'ipi': (getattr(getattr(share, 'promoter', None), 'ipi', None) or '').strip(),
             'publisher': (getattr(_share_publisher(share), 'name', None) or '').strip() or '—',
             'pct': pct,
             'pct_label': f"{pct:.2f}%",
@@ -11258,10 +11312,15 @@ def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> 
 
     autores_html = ''
     if ctx.get('author_rows'):
+        # ⚠️ LA COLUMNA DEL IPI solo se pinta si ALGÚN autor lo tiene: es un dato opcional y una
+        # columna vacía en todos los Label Copy del catálogo antiguo solo estorba. En cuanto un
+        # autor lo rellena, sale en el suyo (y en el de todas sus obras).
+        hay_ipi = any((r.get('ipi') or '').strip() for r in ctx['author_rows'])
+        columnas = ('Autor', 'IPI', 'Rol', 'Editorial', '%') if hay_ipi else ('Autor', 'Rol', 'Editorial', '%')
         cab = ('<tr>'
                + ''.join('<td style="background:#f3f4f6;border:1px solid #d1d5db;padding:6px 8px;'
                          f'font-size:12px;font-weight:700;color:#374151;">{t}</td>'
-                         for t in ('Autor', 'Rol', 'Editorial', '%'))
+                         for t in columnas)
                + '</tr>')
         cuerpo = ''
         for row in ctx['author_rows']:
@@ -11280,9 +11339,13 @@ def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> 
                     f'Plataforma {split["platform"]:.2f}%</span>'
                     '</div>'
                 )
+            celda_ipi = (
+                f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;">'
+                f'{esc(row.get("ipi") or "—")}</td>') if hay_ipi else ''
             cuerpo += (
                 '<tr>'
                 f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;">{esc(row.get("name"))}</td>'
+                f'{celda_ipi}'
                 f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;">{esc(row.get("role"))}</td>'
                 f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;">{esc(row.get("publisher"))}</td>'
                 f'<td style="border:1px solid #d1d5db;padding:6px 8px;vertical-align:top;">{pct_cell}</td>'
@@ -11291,7 +11354,7 @@ def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> 
         total = ctx.get('author_total') or 0
         cuerpo += (
             '<tr>'
-            '<td colspan="3" style="border:1px solid #d1d5db;padding:6px 8px;background:#e8f4f9;'
+            f'<td colspan="{4 if hay_ipi else 3}" style="border:1px solid #d1d5db;padding:6px 8px;background:#e8f4f9;'
             'font-size:12.5px;font-weight:700;color:#07607e;">Porcentaje total</td>'
             '<td style="border:1px solid #d1d5db;padding:6px 8px;background:#e8f4f9;'
             f'font-size:12.5px;font-weight:700;color:#07607e;">{total:.2f}%</td>'
@@ -12618,6 +12681,9 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     if author_rows:
         story.append(Spacer(1, 0.3*cm))
         story.append(_lc_pdf_text_block(Paragraph('Reparto autoral', label_style)))
+        # ⚠️ La columna del IPI solo si ALGÚN autor lo tiene (es opcional): una columna vacía en
+        # todos los Label Copy del catálogo antiguo solo estorba. Mismo criterio que en el HTML.
+        hay_ipi = any((r.get('ipi') or '').strip() for r in author_rows)
         cuerpo = []
         for row in author_rows:
             # ⚠️ El % del autor se pinta IGUAL que el de los demás: el reparto va DEBAJO, en dos
@@ -12630,15 +12696,31 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
                     f'<font backColor="#f3f4f6"> Autor {row["split"]["author"]:.2f}% </font><br/>'
                     f'<font backColor="#f3f4f6"> Plataforma {row["split"]["platform"]:.2f}% </font>',
                     split_style))
-            cuerpo.append([
-                Paragraph(html.escape(row['name']), small_style),
+            fila_pdf = [Paragraph(html.escape(row['name']), small_style)]
+            if hay_ipi:
+                fila_pdf.append(Paragraph(html.escape(row.get('ipi') or '—'), small_style))
+            fila_pdf += [
                 Paragraph(html.escape(row['role']), small_style),
                 Paragraph(html.escape(row['publisher']), small_style),
                 pct_cell,
-            ])
-        author_table = Table([
-            [Paragraph('Autor', label_style), Paragraph('Rol', label_style), Paragraph('Editorial', label_style), Paragraph('%', label_style)]
-        ] + cuerpo + [[Paragraph('Porcentaje total', total_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', total_style)]], colWidths=[5.0*cm, 3.4*cm, 6.4*cm, 3.2*cm])
+            ]
+            cuerpo.append(fila_pdf)
+        # La cabecera, el pie y los anchos según lleve o no la columna del IPI (18 cm en los dos).
+        if hay_ipi:
+            cabecera = [Paragraph('Autor', label_style), Paragraph('IPI', label_style),
+                        Paragraph('Rol', label_style), Paragraph('Editorial', label_style),
+                        Paragraph('%', label_style)]
+            pie = [Paragraph('Porcentaje total', total_style), Paragraph('', small_style),
+                   Paragraph('', small_style), Paragraph('', small_style),
+                   Paragraph(f'{author_total:.2f}%', total_style)]
+            anchos = [4.4*cm, 2.8*cm, 2.8*cm, 5.0*cm, 3.0*cm]
+        else:
+            cabecera = [Paragraph('Autor', label_style), Paragraph('Rol', label_style),
+                        Paragraph('Editorial', label_style), Paragraph('%', label_style)]
+            pie = [Paragraph('Porcentaje total', total_style), Paragraph('', small_style),
+                   Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', total_style)]
+            anchos = [5.0*cm, 3.4*cm, 6.4*cm, 3.2*cm]
+        author_table = Table([cabecera] + cuerpo + [pie], colWidths=anchos)
         author_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f3f4f6')),
@@ -13105,11 +13187,7 @@ def _song_sgae_editorial_rows(session_db, song: Song) -> tuple[list[dict], float
         .filter(SongEditorialShare.song_id == song.id)
         .all()
     )
-    role_labels = {
-        'AUTHOR': 'Autor',
-        'COMPOSER': 'Compositor',
-        'AUTHOR_COMPOSER': 'Autor y Compositor',
-    }
+    role_labels = SONG_AUTHOR_ROLE_LABELS
     rows = []
     total_pct = 0.0
     for share in shares or []:
@@ -13124,6 +13202,9 @@ def _song_sgae_editorial_rows(session_db, song: Song) -> tuple[list[dict], float
                 'publisher_name': (getattr(publisher, 'name', None) or '').strip() or '—',
                 'role': (getattr(share, 'role', None) or '').strip().upper(),
                 'role_label': role_labels.get((getattr(share, 'role', None) or '').strip().upper(), '—'),
+                # EL CÓDIGO IPI del autor: es justo lo que la sociedad de gestión necesita para
+                # saber quién es quién. Sale de su ficha (vacío si todavía no lo tiene).
+                'ipi': (getattr(promoter, 'ipi', None) or '').strip(),
                 'pct': pct,
             }
         )
@@ -13284,19 +13365,28 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
     # REPARTO AUTORAL: solo el reparto entre los AUTORES de la canción. El reparto de la parte de cada
     # autor con Plataforma Musical (el editorial) NO va aquí: eso es interno.
     row_html = ''
+    # ⚠️ La columna del IPI solo si ALGÚN autor lo tiene: es opcional, y una columna vacía en
+    # el correo de quien no lo ha dado solo estorba. Mismo criterio que en el Label Copy.
+    hay_ipi = any((r.get('ipi') or '').strip() for r in editorial_rows)
+    _ipi_th = ('<th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;'
+               'text-transform:uppercase;color:#6b7280;">IPI</th>') if hay_ipi else ''
     for row in editorial_rows:
+        _ipi_td = (('<td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;'
+                    'color:#4b5563;white-space:nowrap;">%s</td>')
+                   % html.escape(row.get('ipi') or '—')) if hay_ipi else ''
         row_html += f'''
           <tr>
             <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;">{html.escape(row.get('full_name') or '—')}</td>
+            {_ipi_td}
             <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#4b5563;">{html.escape(row.get('role_label') or '—')}</td>
             <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;text-align:center;white-space:nowrap;">{row.get('pct', 0):.2f}%</td>
           </tr>
         '''
 
     if not row_html:
-        row_html = '''
+        row_html = f'''
           <tr>
-            <td colspan="3" style="padding:14px 10px;color:#6b7280;font-size:14px;text-align:center;">No hay reparto autoral registrado todavía.</td>
+            <td colspan="{4 if hay_ipi else 3}" style="padding:14px 10px;color:#6b7280;font-size:14px;text-align:center;">No hay reparto autoral registrado todavía.</td>
           </tr>
         '''
 
@@ -13322,6 +13412,7 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
               <thead>
                 <tr style="background:#f8fafc;">
                   <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Autor</th>
+                  {_ipi_th}
                   <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Rol</th>
                   <th align="center" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Porcentaje</th>
                 </tr>
@@ -13329,7 +13420,7 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
               <tbody>{row_html}</tbody>
               <tfoot>
                 <tr style="background:#f8fafc;">
-                  <td colspan="2" style="padding:13px 10px;font-size:14px;font-weight:700;color:#111827;">Porcentaje total de la obra</td>
+                  <td colspan="{3 if hay_ipi else 2}" style="padding:13px 10px;font-size:14px;font-weight:700;color:#111827;">Porcentaje total de la obra</td>
                   <td style="padding:13px 10px;font-size:14px;font-weight:700;color:#111827;text-align:center;white-space:nowrap;">{total_pct:.2f}%</td>
                 </tr>
               </tfoot>
@@ -23647,6 +23738,9 @@ def discografica_song_detail(song_id):
                 "contact_email": (p.contact_email or ""),
                 "contact_phone": (p.contact_phone or ""),
                 "role": (sh.role or "").upper(),
+                # La etiqueta la resuelve el SERVIDOR (punto único `SONG_AUTHOR_ROLES`): la
+                # plantilla solo pinta texto, así un rol nuevo no depende de que nadie toque el HTML.
+                "role_label": SONG_AUTHOR_ROLE_LONG.get((sh.role or "").upper(), (sh.role or "—")),
                 "pct": pct_val,
                 "is_platform": _publisher_is_platform(pub),
                 "split": split_map.get(str(sh.id)),
@@ -23833,10 +23927,11 @@ def discografica_song_editorial_share_save(song_id):
         last_name = (request.form.get("last_name") or "").strip()
         contact_email = (request.form.get("contact_email") or "").strip() or None
         contact_phone = (request.form.get("contact_phone") or "").strip() or None
+        ipi = _clean_ipi(request.form.get("ipi"))
 
         role = (request.form.get("role") or "").strip().upper()
-        if role not in ("AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"):
-            flash("Tipo no válido (Autor/Compositor/Autor y compositor).", "warning")
+        if role not in SONG_AUTHOR_ROLE_KEYS:
+            flash("Tipo no válido (%s)." % " / ".join(SONG_AUTHOR_ROLE_LABELS.values()), "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
 
         pct = _parse_pct(request.form.get("pct"))
@@ -23913,6 +24008,11 @@ def discografica_song_editorial_share_save(song_id):
             promoter.contact_email = contact_email
         if contact_phone is not None and contact_phone != "":
             promoter.contact_phone = contact_phone
+        # ⚠️ EL IPI ES DEL AUTOR, no del registro: se guarda en SU ficha y así la próxima obra ya no
+        # lo pide. Si el formulario no lo trae (o viene vacío) NO se borra el que tuviera: es el
+        # centinela de siempre — un guardado que no pregunta por un dato no lo toca.
+        if ipi:
+            promoter.ipi = ipi
         # ⚠️ CAMBIO DE EDITORIAL: solo se toca la ficha del autor si se ha pedido «para todas de
         # aquí en adelante». Por defecto el cambio es PUNTUAL (solo esta canción), que es lo que se
         # guarda igualmente en el snapshot del registro.
@@ -25550,10 +25650,10 @@ def _demo_dt_label(valor) -> str:
         return ""
 
 
-# Roles de un autor (los mismos que en la entrega de masters, para que se hable igual en toda la app).
-DEMO_AUTHOR_ROLES = [("AUTHOR", "Autor"), ("COMPOSER", "Compositor"),
-                     ("AUTHOR_COMPOSER", "Autor y compositor")]
-DEMO_AUTHOR_ROLE_LABELS = dict(DEMO_AUTHOR_ROLES)
+# Roles de un autor: el PUNTO ÚNICO de toda la app (`SONG_AUTHOR_ROLES`), para que se hable igual
+# aquí, en la pestaña Editorial y en la entrega de masters.
+DEMO_AUTHOR_ROLES = SONG_AUTHOR_ROLE_CHOICES
+DEMO_AUTHOR_ROLE_LABELS = SONG_AUTHOR_ROLE_LABELS
 
 
 def _demo_author_rows(demo) -> list[dict]:
@@ -33367,6 +33467,8 @@ def _demo_apply_authors(session_db, row, form) -> None:
     pcts = form.getlist("author_pct[]") if hasattr(form, "getlist") else []
     editoriales = form.getlist("author_publisher_id[]") if hasattr(form, "getlist") else []
     edit_texto = form.getlist("author_publisher_name[]") if hasattr(form, "getlist") else []
+    # El código IPI de cada autor (opcional): es DEL AUTOR, así que va a su ficha de tercero.
+    ipis = form.getlist("author_ipi[]") if hasattr(form, "getlist") else []
 
     def _en(lista, i):
         return (lista[i] if i < len(lista) else "") or ""
@@ -33387,6 +33489,14 @@ def _demo_apply_authors(session_db, row, form) -> None:
                        .filter(func.lower(PublishingCompany.name) == editorial_txt.lower()).first())
             if fila_ed is not None:
                 editorial_id = fila_ed.id
+        # ⚠️ EL IPI VIVE EN LA FICHA DEL AUTOR (no en la maqueta): así se escribe una vez y ya sale
+        # solo en su siguiente obra. Si no lo han escrito, no se toca el que tuviera.
+        ipi = _clean_ipi(_en(ipis, i))
+        if ipi and pid:
+            tercero = session_db.get(Promoter, pid)
+            if tercero is not None:
+                tercero.ipi = ipi
+                session_db.add(tercero)
         nuevas.append(SongDemoAuthor(
             promoter_id=pid,
             name=nombre or None,
@@ -44534,7 +44644,7 @@ SONG_DELIVERY_SECTIONS = [
     ("MASTERS", "Masters / materiales"),
 ]
 SONG_DELIVERY_SECTION_KEYS = {k for k, _ in SONG_DELIVERY_SECTIONS}
-SONG_DELIVERY_AUTHOR_ROLES = [("AUTHOR", "Autor"), ("COMPOSER", "Compositor"), ("AUTHOR_COMPOSER", "Autor y compositor")]
+SONG_DELIVERY_AUTHOR_ROLES = SONG_AUTHOR_ROLE_CHOICES   # punto único: `SONG_AUTHOR_ROLES`
 # Campos de producción: (clave, etiqueta, obligatorio)
 SONG_DELIVERY_PRODUCTION_FIELDS = [
     # ⚠️ LA DURACIÓN NO SE PREGUNTA: sale de la cabecera del master que se sube
@@ -44679,6 +44789,8 @@ def _song_delivery_prefill(session_db, song, conf) -> tuple[dict, dict]:
                     "publishing_id": (str(getattr(ed, "id", "")) if ed is not None else ""),
                     "role": (getattr(sh, "role", "") or ""),
                     "pct": _fmt_pct_es(getattr(sh, "pct", 0)),
+                    # Su IPI, ya relleno: es del autor, así que no se vuelve a pedir.
+                    "ipi": (getattr(getattr(sh, "promoter", None), "ipi", None) or "").strip(),
                 })
         except Exception:
             app.logger.exception("[entrega] no se pudieron leer los autores ya registrados")
@@ -45975,6 +46087,8 @@ def public_song_delivery_authors(token):
                 "name": _delivery_promoter_label(p),
                 "logo_url": (getattr(p, "logo_url", None) or ""),
                 "email": (getattr(p, "contact_email", None) or ""),
+                # Su IPI: si ya lo tiene, la fila se rellena sola y no se le vuelve a pedir.
+                "ipi": (getattr(p, "ipi", None) or "").strip(),
                 "publishing_company_id": str(p.publishing_company_id) if getattr(p, "publishing_company_id", None) else "",
                 "publishing_company_name": (pc.name if pc else ""),
             })
@@ -46039,12 +46153,14 @@ def public_song_delivery_create_author(token):
         if not pc and pc_name:
             pc = _delivery_get_or_create_publishing(session_db, pc_name)
         correo = (request.form.get("email") or "").strip()
+        ipi = _clean_ipi(request.form.get("ipi"))
         pr = Promoter(nick=_intake_unique_nick(session_db, nick), first_name=first or None, last_name=last or None,
-                      contact_email=correo or None, publishing_company_id=(pc.id if pc else None))
+                      contact_email=correo or None, ipi=(ipi or None),
+                      publishing_company_id=(pc.id if pc else None))
         session_db.add(pr)
         session_db.flush()
         result = {
-            "id": str(pr.id), "name": nick, "logo_url": "", "email": correo,
+            "id": str(pr.id), "name": nick, "logo_url": "", "email": correo, "ipi": ipi,
             "publishing_company_id": str(pc.id) if pc else "",
             "publishing_company_name": (pc.name if pc else ""),
         }
@@ -46173,6 +46289,8 @@ def public_song_master_delivery(token):
                 pcts = request.form.getlist("author_pct")
                 promoter_ids = request.form.getlist("author_promoter_id")
                 publishing_ids = request.form.getlist("author_publishing_id")
+                # El código IPI de cada autor (opcional): se guarda en SU ficha, no en el registro.
+                ipis = request.form.getlist("author_ipi")
                 # El ALCANCE del cambio de editorial de cada autor (puntual o de aquí en adelante).
                 scopes = request.form.getlist("author_publisher_scope")
                 authors, total = [], 0.0
@@ -46192,11 +46310,12 @@ def public_song_master_delivery(token):
                         "promoter_id": (promoter_ids[i] if i < len(promoter_ids) else "").strip(),
                         "publishing_company_id": (publishing_ids[i] if i < len(publishing_ids) else "").strip(),
                         "publisher_scope": (scopes[i] if i < len(scopes) else "").strip().upper(),
+                        "ipi": _clean_ipi(ipis[i] if i < len(ipis) else ""),
                     })
                     total += pct
                 if not authors and conf.get("authoral", {}).get("required"):
                     errors.append("Autoral: añade al menos un autor.")
-                elif any(a["role"] not in {"AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"} for a in authors):
+                elif any(a["role"] not in SONG_AUTHOR_ROLE_KEYS for a in authors):
                     errors.append("Autoral: indica el rol de cada autor.")
                 elif abs(total - 100.0) > 0.01:
                     errors.append("Autoral: los porcentajes deben sumar 100%% (actual: %.2f%%)." % total)
@@ -46566,9 +46685,12 @@ def discografica_song_delivery_consolidate(song_id, link_id):
                 # ese autor). Los registros anteriores no se tocan nunca.
                 _publisher_apply_change(session_db, promoter, editorial,
                                         (a.get("publisher_scope") or PUBLISHER_SCOPE_ONE))
-                role = (a.get("role") or "AUTHOR").upper()
-                if role not in {"AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"}:
-                    role = "AUTHOR"
+                # ⚠️ EL IPI ES DEL AUTOR: se guarda en SU ficha (así la próxima obra ya no lo pide).
+                # Si no lo han escrito, NO se borra el que tuviera: el centinela de siempre.
+                if a.get("ipi"):
+                    promoter.ipi = a["ipi"]
+                    session_db.add(promoter)
+                role = _song_author_role(a.get("role"))
                 pct_val = a.get("pct") or 0
                 existing = session_db.query(SongEditorialShare).filter(
                     SongEditorialShare.song_id == song.id,
@@ -48163,6 +48285,9 @@ def api_get_promoter(pid):
                 "last_name": (p.last_name or "").strip(),
                 "contact_email": (p.contact_email or "").strip(),
                 "contact_phone": (p.contact_phone or "").strip(),
+                # El IPI del autor: si ya lo tiene, el formulario lo rellena solo y no se vuelve a
+                # pedir (es suyo, no de la obra).
+                "ipi": (p.ipi or "").strip(),
                 "publishing_company_id": str(pub.id) if pub else "",
                 "publishing_company_name": (pub.name or "") if pub else "",
             }
@@ -52102,6 +52227,11 @@ def promoter_update(pid):
     if "last_name" in request.form:
         p.last_name = (request.form.get("last_name") or "").strip() or None
     p.tax_id = (request.form.get("tax_id") or p.tax_id or "").strip() or None
+    # EL CÓDIGO IPI del autor. ⚠️ Con su CENTINELA: si el formulario no lo trae (otra pantalla que
+    # guarda una parte de la ficha), no se toca; si lo trae vacío, se borra — que es lo que se ha
+    # pedido al dejarlo en blanco.
+    if "ipi" in request.form:
+        p.ipi = _clean_ipi(request.form.get("ipi")) or None
     p.contact_email = (request.form.get("contact_email") or p.contact_email or "").strip() or None
     p.contact_phone = (request.form.get("contact_phone") or p.contact_phone or "").strip() or None
     if "address" in request.form:
@@ -71910,6 +72040,7 @@ def api_promoter_detail(promoter_id):
             "last_name": (p.last_name or ""),
             "contact_email": (p.contact_email or ""),
             "contact_phone": (p.contact_phone or ""),
+            "ipi": (p.ipi or "").strip(),
             "publishing_company_id": str(pub.id) if pub else "",
             "publishing_company_name": (pub.name or "") if pub else "",
             "logo_url": (p.logo_url or ""),
@@ -72001,6 +72132,7 @@ def api_song_editorial_share_detail(share_id):
                 "last_name": (p.last_name or ""),
                 "contact_email": (p.contact_email or ""),
                 "contact_phone": (p.contact_phone or ""),
+                "ipi": (p.ipi or "").strip(),
                 "publishing_company_id": str(pub.id) if pub else "",
                 "publishing_company_name": (pub.name or "") if pub else "",
             },
@@ -76764,10 +76896,13 @@ def _lc_apply_authors(session_db, song, autores: list):
 
 
 def _lc_author_role(v) -> str:
-    """El rol del LC al que guarda la app (AUTHOR · COMPOSER · AUTHOR_COMPOSER)."""
+    """El rol del LC al que guarda la app (`SONG_AUTHOR_ROLES`)."""
     n = _norm_text_key(v or "")
     if not n:
         return "AUTHOR"
+    # ⚠️ El arreglista va PRIMERO: un LC puede decir «arreglista y compositor» y ahí manda el arreglo.
+    if "arregl" in n or "arrang" in n:
+        return "ARRANGER"
     if ("letra" in n and ("musica" in n or "music" in n)) or "autor y compositor" in n:
         return "AUTHOR_COMPOSER"
     if "compositor" in n or "composer" in n or "musica" in n:
@@ -76873,6 +77008,8 @@ def api_search_authors():
                 "label": _promoter_display_name(p) or (p.nick or "Sin nombre"),
                 "first_name": (p.first_name or "").strip(),
                 "last_name": (p.last_name or "").strip(),
+                # Su IPI: si ya lo tiene, el formulario que lo elija lo rellena solo.
+                "ipi": (p.ipi or "").strip(),
                 "publishing_company_id": str(pub.id) if pub else "",
                 "publishing_company_name": (pub.name or "") if pub else "",
                 "logo_url": (p.logo_url or "") or _default_avatar_url(),
@@ -76903,6 +77040,7 @@ def api_search_authors():
                         "label": _artist_person_full_name(person) or "Sin nombre",
                         "first_name": (person.first_name or "").strip(),
                         "last_name": (person.last_name or "").strip(),
+                        "ipi": "",
                         "publishing_company_id": "", "publishing_company_name": "",
                         "logo_url": (getattr(art, "photo_url", "") or "") or _default_avatar_url(),
                         "artist_name": (art.name if art is not None else ""),
@@ -98912,6 +99050,11 @@ def inject_personnel_globals():
         # Constantes en memoria (nunca una consulta: esto corre en cada petición).
         "ADMIN_RESPONSIBILITIES": ADMIN_RESPONSIBILITIES,
         "ADMIN_RESPONSIBILITY_LABELS": ADMIN_RESPONSIBILITY_LABELS,
+        # LOS ROLES DE AUTORÍA (punto único `SONG_AUTHOR_ROLES`): los eligen la pestaña Editorial,
+        # la entrega de masters y las demos, y así ninguna se queda sin el arreglista.
+        "SONG_AUTHOR_ROLE_CHOICES": SONG_AUTHOR_ROLE_CHOICES,
+        "SONG_AUTHOR_ROLE_LONG_CHOICES": SONG_AUTHOR_ROLE_LONG_CHOICES,
+        "SONG_AUTHOR_ROLE_LABELS": SONG_AUTHOR_ROLE_LABELS,
         # Catálogos del asistente de actividad y de la ficha (cartelería / gastos del promotor).
         "ARTWORK_FORMAT_CHOICES": ARTWORK_FORMAT_CHOICES,
         "ARTWORK_VIDEO_FORMAT_CHOICES": ARTWORK_VIDEO_FORMAT_CHOICES,
@@ -167454,8 +167597,9 @@ SYNC_TEXTS = {
         "unsub_done": "Hecho: no volveremos a enviarte temas para sincronización.",
         "unsub_already": "Ya estabas dado de baja: no te enviamos temas para sincronización.",
         "unsub_bad": "Este enlace no vale. Escríbenos y lo hacemos nosotros.",
-        "roles": {"AUTHOR": "Autor (letra)", "COMPOSER": "Compositor (música)",
-                  "AUTHOR_COMPOSER": "Autor y compositor"},
+        # ⚠️ Del PUNTO ÚNICO (`SONG_AUTHOR_ROLES`): un rol nuevo entra solo y no se queda un autor
+        # sin rol en la ficha que ve un supervisor.
+        "roles": dict(SONG_AUTHOR_ROLE_LONG),
     },
     "EN": {
         "title": "New track for Sync Licensing",
@@ -167482,11 +167626,21 @@ SYNC_TEXTS = {
         "unsub_done": "Done: we will not send you any more tracks for sync licensing.",
         "unsub_already": "You were already unsubscribed: we are not sending you tracks for sync licensing.",
         "unsub_bad": "This link is not valid. Just reply to us and we will do it for you.",
+        # ⚠️ Aquí la lista va a mano porque es otra lengua, pero tiene que llevar TODAS las claves
+        # de `SONG_AUTHOR_ROLES`: la que falte sale sin rol (se comprueba al arrancar, abajo).
         "roles": {"AUTHOR": "Lyricist", "COMPOSER": "Composer",
-                  "AUTHOR_COMPOSER": "Writer / Composer"},
+                  "AUTHOR_COMPOSER": "Writer / Composer", "ARRANGER": "Arranger"},
     },
 }
 
+
+# ⚠️ RED DE SEGURIDAD: un rol de autoría sin traducir sale VACÍO en la ficha que ve un supervisor
+# (y eso es justo lo que mira). Se dice al arrancar, con su nombre y su idioma.
+for _idioma, _txt in SYNC_TEXTS.items():
+    _faltan = SONG_AUTHOR_ROLE_KEYS - set(_txt.get("roles") or {})
+    if _faltan:
+        app.logger.error("[syncros] roles de autoría sin texto en %s: %s",
+                         _idioma, ", ".join(sorted(_faltan)))
 
 # Las empresas del grupo cuyo logo va en la cabecera de todo lo de Syncros, en este orden.
 SYNC_BRAND_COMPANIES = ("PIES", "PLATAFORMA")
@@ -167576,6 +167730,8 @@ def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
             "role": t["roles"].get(rol, rol.title() if rol else "—"),
             "pct": _fmt_pct_es(getattr(sh, "pct", 0)),
             "publisher": (getattr(_share_publisher(sh), "name", "") or "").strip() or "—",
+            # Su IPI: para un supervisor es con lo que identifica al autor en su sociedad.
+            "ipi": (getattr(getattr(sh, "promoter", None), "ipi", None) or "").strip(),
         })
     sello = _pies_group_company(session_db)
     # ⚠️ Los DOS logos (PIES y Plataforma Musical) salen de la ficha de la EMPRESA DEL GRUPO, que es
@@ -167682,14 +167838,21 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
                     'font-weight:700;margin:0 6px 4px 0;">%s&nbsp; %s</span>'
                     % (_sync_icon("e", email=email, size=11, color="ffffff"), esc(EXPLICIT_LABEL)))
 
+    # ⚠️ LA COLUMNA DEL IPI solo si ALGÚN autor lo tiene (es opcional): una columna vacía en la
+    # ficha que ve un supervisor solo quita sitio a lo que sí importa.
+    _hay_ipi = any((a.get("ipi") or "").strip() for a in (ctx.get("authors") or []))
+    _celda = '<td style="padding:5px 8px;border-bottom:1px solid #eef1f4;font-size:12px;color:#6b7280;">%s</td>'
     filas_autores = "".join(
         '<tr>'
         '<td style="padding:5px 8px;border-bottom:1px solid #eef1f4;font-size:12px;">%s</td>'
+        '%s'
         '<td style="padding:5px 8px;border-bottom:1px solid #eef1f4;font-size:12px;color:#6b7280;">%s</td>'
         '<td style="padding:5px 8px;border-bottom:1px solid #eef1f4;font-size:12px;text-align:right;'
         'white-space:nowrap;">%s%%</td>'
         '<td style="padding:5px 8px;border-bottom:1px solid #eef1f4;font-size:12px;color:#6b7280;">%s</td>'
-        '</tr>' % (esc(a["name"]), esc(a["role"]), esc(a["pct"]), esc(a["publisher"]))
+        '</tr>' % (esc(a["name"]),
+                   ((_celda % esc(a.get("ipi") or "—")) if _hay_ipi else ""),
+                   esc(a["role"]), esc(a["pct"]), esc(a["publisher"]))
         for a in (ctx.get("authors") or []))
     tabla_autores = ""
     if filas_autores:
@@ -167699,9 +167862,11 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
             '<div class="sync-authors" style="margin-top:12px;">'
             '<div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:4px;">%s&nbsp; %s</div>'
             '<table class="sync-authors__table" style="width:100%%;border-collapse:collapse;">'
-            '<tr>%s%s%s%s</tr>%s</table></div>'
+            '<tr>%s%s%s%s%s</tr>%s</table></div>'
             % (ico("pen-nib", 13), esc(t["authors"]),
-               cab % ("left", esc(t["author"])), cab % ("left", esc(t["role"])),
+               cab % ("left", esc(t["author"])),
+               ((cab % ("left", "IPI")) if _hay_ipi else ""),
+               cab % ("left", esc(t["role"])),
                cab % ("right", esc(t["pct"])), cab % ("left", esc(t["publisher"])), filas_autores))
 
     # ── La etiqueta ONE-STOP: pastilla del azul de marca con su icono sólido (sin emojis) ──

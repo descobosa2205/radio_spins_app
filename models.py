@@ -2183,6 +2183,11 @@ class Promoter(Base):
         PGUUID(as_uuid=True),
         ForeignKey("publishing_companies.id", ondelete="SET NULL"),
     )
+    # CÓDIGO IPI (Interested Party Information): el identificador del autor en las sociedades de
+    # gestión, que es lo que piden SGAE y las editoriales para saber quién es quién. Es SUYO (como
+    # su DNI), así que vive aquí y no en cada registro: se pide una vez y se arrastra a todas sus
+    # obras. Opcional: un autor nuevo puede no tenerlo todavía.
+    ipi = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -2498,6 +2503,15 @@ class PublishingCompany(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+# ⚠️⚠️ LOS ROLES DE AUTORÍA VÁLIDOS · PUNTO ÚNICO, y el CHECK de la BD SE CONSTRUYE CON ESTA LISTA
+# (`ensure_editorial_schema`). La tabla tiene un CHECK con la lista CERRADA, así que un rol que esté
+# en la app y no aquí revienta al guardar con «violates check constraint chk_ses_role» y saca la
+# pantalla de mantenimiento — la misma trampa que costó no poder cancelar una actividad
+# (`CONCERT_STATUS_VALUES`). Sus etiquetas viven en `app.SONG_AUTHOR_ROLES`, que se comprueba
+# contra esta lista al arrancar.
+SONG_AUTHOR_ROLE_VALUES = ("AUTHOR", "COMPOSER", "AUTHOR_COMPOSER", "ARRANGER")
+
+
 class SongEditorialShare(Base):
     """Autores/compositores por canción (derechos de autor)."""
 
@@ -2515,7 +2529,9 @@ class SongEditorialShare(Base):
         nullable=False,
     )
 
-    # AUTHOR (letra) | COMPOSER (música) | AUTHOR_COMPOSER (letra y música)
+    # AUTHOR (letra) | COMPOSER (música) | AUTHOR_COMPOSER (letra y música) | ARRANGER (arreglos).
+    # ⚠️ La lista válida es `SONG_AUTHOR_ROLE_VALUES` (arriba), que es con la que se construye el
+    # CHECK de la BD: uno nuevo se añade AHÍ y en `app.SONG_AUTHOR_ROLES`, en ningún sitio más.
     role = Column(Text, nullable=False)
     pct = Column(Numeric, nullable=False, server_default=text("0"))
 
@@ -9276,6 +9292,13 @@ def ensure_editorial_schema():
     - declaración de obra (PDF) en songs
     """
 
+    # ⚠️⚠️ EL CHECK DEL ROL SE CONSTRUYE CON `SONG_AUTHOR_ROLE_VALUES`: así un rol nuevo (el
+    # ARREGLISTA, sep 2026) entra solo y no se pueden desparejar la app y la base — guardar un rol
+    # que la base no conoce revienta con «violates check constraint» y saca la pantalla de
+    # mantenimiento. El bloque `DO $$` dropea el constraint antes de recrearlo, así que se aplica en
+    # cada arranque (⚠️ `_ddl_already_applied` no salta un `DO $$`).
+    roles_sql = ", ".join("'%s'" % r for r in SONG_AUTHOR_ROLE_VALUES)
+
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
 
@@ -9318,8 +9341,14 @@ def ensure_editorial_schema():
         END $$;
         """,
 
+        # ⚠️ EL CÓDIGO IPI del autor (su «DNI» en las sociedades de gestión). Va en la ficha del
+        # TERCERO porque es suyo, no de una obra: se rellena una vez y se arrastra a cada registro.
+        # ⚠️ En su PROPIA sentencia (regla de la casa): metida en un `DO $$ … IF NOT EXISTS(…)` con
+        # una guarda de rendimiento podría no ejecutarse nunca y la app reventaría al leerla.
+        'ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS ipi text;',
+
         # Tabla de shares editoriales por canción
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS song_editorial_shares (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
             song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
@@ -9329,7 +9358,7 @@ def ensure_editorial_schema():
             created_at timestamptz DEFAULT now(),
             updated_at timestamptz DEFAULT now(),
             CONSTRAINT chk_ses_pct CHECK (pct >= 0 AND pct <= 100),
-            CONSTRAINT chk_ses_role CHECK (role IN ('AUTHOR','COMPOSER','AUTHOR_COMPOSER')),
+            CONSTRAINT chk_ses_role CHECK (role IN ({roles_sql})),
             CONSTRAINT uq_song_editorial_share UNIQUE (song_id, promoter_id, role)
         );
         """,
@@ -9356,7 +9385,7 @@ def ensure_editorial_schema():
             END IF;
         END $$;
         """,
-        """
+        f"""
         DO $$
         BEGIN
             IF EXISTS (
@@ -9366,7 +9395,7 @@ def ensure_editorial_schema():
             ) THEN
                 ALTER TABLE song_editorial_shares DROP CONSTRAINT IF EXISTS chk_ses_role;
                 ALTER TABLE song_editorial_shares
-                    ADD CONSTRAINT chk_ses_role CHECK (role IN ('AUTHOR','COMPOSER','AUTHOR_COMPOSER'));
+                    ADD CONSTRAINT chk_ses_role CHECK (role IN ({roles_sql}));
             END IF;
         EXCEPTION
             WHEN duplicate_object THEN NULL;

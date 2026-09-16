@@ -532,6 +532,9 @@
           fila2.querySelector('[data-demo-author-id]').value = op.getAttribute('data-id') || '';
           var pub = fila2.querySelector('input[name="author_publisher_name[]"]');
           if (pub && !pub.value) pub.value = op.getAttribute('data-publisher') || '';
+          // EL IPI ES DEL AUTOR: si ya lo tiene en su ficha, se rellena solo.
+          var ipi = fila2.querySelector('input[name="author_ipi[]"]');
+          if (ipi && !ipi.value) ipi.value = op.getAttribute('data-ipi') || '';
           (caja || fila2.querySelector('[data-demo-author-list]')).classList.add('d-none');
         }
       }
@@ -564,7 +567,8 @@
                 var foto = o.logo_url || o.photo_url || '';
                 return '<button class="demo-author__opt" type="button" data-demo-author-pick'
                   + ' data-id="' + esc(o.id) + '" data-name="' + esc(nombre) + '"'
-                  + ' data-publisher="' + esc(o.publishing_company_name || o.publisher || '') + '">'
+                  + ' data-publisher="' + esc(o.publishing_company_name || o.publisher || '') + '"'
+                  + ' data-ipi="' + esc(o.ipi || '') + '">'
                   + (foto ? '<img src="' + esc(foto) + '" alt="" data-avatar="1">' : '<i class="fa fa-user"></i>')
                   + '<span>' + esc(nombre) + '</span></button>';
               }).join('');

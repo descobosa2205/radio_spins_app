@@ -517,6 +517,8 @@ function initEditorialTab(){
   const lastNameEl = document.getElementById('editorialLastName');
   const emailEl = document.getElementById('editorialEmail');
   const phoneEl = document.getElementById('editorialPhone');
+  const ipiEl = document.getElementById('editorialIpi');
+  const ipiHelpEl = document.getElementById('editorialIpiHelp');
   const publisherInputEl = document.getElementById('editorialPublisherInput');
   const publisherIdEl = document.getElementById('editorialPublisherId');
   const roleEl = document.getElementById('editorialRole');
@@ -554,6 +556,16 @@ function initEditorialTab(){
     showPublisherError('');
   }
 
+  // El IPI, en un solo sitio: el valor y el texto de debajo (de dónde sale) van juntos.
+  function setIpi(valor){
+    if (ipiEl) ipiEl.value = valor || '';
+    if (ipiHelpEl) {
+      ipiHelpEl.textContent = valor
+        ? 'Ya lo tiene en su ficha: no hay que volver a escribirlo.'
+        : 'Si el autor ya lo tiene, se rellena solo.';
+    }
+  }
+
   function updatePctHelp(currentPct){
     if (!pctHelpEl) return;
     const cur = parseFloat(currentPct || '0') || 0;
@@ -571,6 +583,7 @@ function initEditorialTab(){
     if (lastNameEl) lastNameEl.value = '';
     if (emailEl) emailEl.value = '';
     if (phoneEl) phoneEl.value = '';
+    setIpi('');
     if (publisherInputEl) publisherInputEl.value = '';
     if (publisherIdEl) publisherIdEl.value = '';
     if (roleEl) roleEl.value = 'AUTHOR';
@@ -591,6 +604,8 @@ function initEditorialTab(){
       if (lastNameEl) lastNameEl.value = js.last_name || '';
       if (emailEl) emailEl.value = js.contact_email || '';
       if (phoneEl) phoneEl.value = js.contact_phone || '';
+      // EL IPI ES DEL AUTOR: si ya lo tiene, se rellena solo y no hay que volver a escribirlo.
+      setIpi(js.ipi || '');
 
       if (publisherInputEl) publisherInputEl.value = js.publishing_company_name || '';
       if (publisherIdEl) publisherIdEl.value = js.publishing_company_id || '';
@@ -604,6 +619,7 @@ function initEditorialTab(){
     if (lastNameEl) lastNameEl.value = '';
     if (emailEl) emailEl.value = '';
     if (phoneEl) phoneEl.value = '';
+    setIpi('');
     if (firstNameEl) firstNameEl.focus();
   }
 
@@ -651,6 +667,7 @@ function initEditorialTab(){
         if (lastNameEl) lastNameEl.value = (js.promoter && js.promoter.last_name) ? js.promoter.last_name : '';
         if (emailEl) emailEl.value = (js.promoter && js.promoter.contact_email) ? js.promoter.contact_email : '';
         if (phoneEl) phoneEl.value = (js.promoter && js.promoter.contact_phone) ? js.promoter.contact_phone : '';
+        setIpi((js.promoter && js.promoter.ipi) ? js.promoter.ipi : '');
 
         if (publisherIdEl) publisherIdEl.value = (js.promoter && js.promoter.publishing_company_id) ? js.promoter.publishing_company_id : '';
         if (publisherInputEl) publisherInputEl.value = (js.promoter && js.promoter.publishing_company_name) ? js.promoter.publishing_company_name : '';

@@ -11,6 +11,8 @@
       <div class="d-flex flex-wrap gap-3 align-items-center">
         <h3 class="mb-0">{{ promoter.nick }}</h3>
         {% if promoter.tax_id %}<span class="badge text-bg-light border">{{ promoter.tax_id }}</span>{% endif %}
+        {# El IPI se ve en la cabecera, al lado del DNI: para un autor es su otro documento. #}
+        {% if promoter.ipi %}<span class="badge text-bg-light border" title="Su identificador en las sociedades de gestión"><i class="fa fa-pen-nib me-1"></i>IPI {{ promoter.ipi }}</span>{% endif %}
         {{ promoter_assoc_badges(promoter, 'badge badge-assoc') }}
       </div>
       {% set _legal = ((promoter.first_name or '') ~ ' ' ~ (promoter.last_name or ''))|trim %}
@@ -608,6 +610,13 @@
                   <div class="col-12 col-md-6">
                     <label class="form-label">Foto o logo</label>
                     <input type="file" class="form-control" name="logo" accept="image/*">
+                  </div>
+                  {# EL CÓDIGO IPI: el «DNI» de un autor en las sociedades de gestión. Se escribe una
+                     vez aquí y a partir de ahí sale solo en cada obra suya (y en su Label Copy). #}
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Código IPI <span class="text-muted small fw-normal">(solo autores y compositores)</span></label>
+                    <input class="form-control" name="ipi" value="{{ promoter.ipi or '' }}" placeholder="Ej.: 00123456789">
+                    <div class="form-text">Su identificador en las sociedades de gestión (SGAE…). Es opcional.</div>
                   </div>
                   {# COMPAÑÍA MATRIZ: el grupo al que pertenece (otro tercero), para ver junto todo
                      lo que tenemos con «Sony Music» aunque cada sello sea una ficha distinta. #}

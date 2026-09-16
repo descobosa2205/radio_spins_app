@@ -2902,13 +2902,10 @@
                       {% if sh.publisher_id %}{{ linked_mini('publishing', sh.publisher_id) }}{% endif %}
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                      {% if sh.role == 'AUTHOR' %}
-                        <span class="badge text-bg-info">Autor (Letra)</span>
-                      {% elif sh.role == 'COMPOSER' %}
-                        <span class="badge text-bg-info">Compositor (Música)</span>
-                      {% else %}
-                        <span class="badge text-bg-info">Autor y compositor (Letra y música)</span>
-                      {% endif %}
+                      {# ⚠️ Del PUNTO ÚNICO de roles: con un `if/elif/else` a mano, un rol nuevo caía
+                         en el «else» y un ARREGLISTA se leía como «Autor y compositor» (bug real,
+                         visto en pantalla al añadir el rol). #}
+                      <span class="badge text-bg-info">{{ sh.role_label or sh.role or '—' }}</span>
                       <span class="badge text-bg-dark">{{ sh.pct }}%</span>
 
                       {% if CAN_EDIT_DISCOGRAFICA %}
@@ -3165,12 +3162,23 @@
                   <input class="form-control" name="contact_phone" id="editorialPhone" placeholder="+34 ...">
                 </div>
 
+                {# EL CÓDIGO IPI del autor (su «DNI» en las sociedades de gestión). Es SUYO, así que
+                   se guarda en su ficha: si el autor elegido ya lo tiene, esto se rellena solo y no
+                   hay que volver a escribirlo nunca. #}
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Código IPI <small class="text-muted">(opcional)</small></label>
+                  <input class="form-control" name="ipi" id="editorialIpi" placeholder="Ej.: 00123456789">
+                  <div class="form-text" id="editorialIpiHelp">Si el autor ya lo tiene, se rellena solo.</div>
+                </div>
+
                 <div class="col-12 col-md-6">
                   <label class="form-label">Tipo</label>
+                  {# ⚠️ Del PUNTO ÚNICO de roles (`SONG_AUTHOR_ROLES`), no a mano: así el arreglista
+                     —y cualquier rol nuevo— sale aquí, en la entrega de masters y en las demos. #}
                   <select class="form-select" name="role" id="editorialRole" required>
-                    <option value="AUTHOR">Autor (Letra)</option>
-                    <option value="COMPOSER">Compositor (Música)</option>
-                    <option value="AUTHOR_COMPOSER">Autor y compositor (Letra y música)</option>
+                    {% for clave, etiqueta in SONG_AUTHOR_ROLE_LONG_CHOICES %}
+                      <option value="{{ clave }}">{{ etiqueta }}</option>
+                    {% endfor %}
                   </select>
                 </div>
                 <div class="col-12 col-md-6">

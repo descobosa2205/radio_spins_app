@@ -334,9 +334,16 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   · **RED DE SEGURIDAD**: al arrancar se comprueba que todo estado de `CONCERT_STATUS_META` esté en
   esa lista y, si falta alguno, se avisa en el log **con el nombre** — que es cuando se puede
   arreglar, no cuando alguien intenta cancelar.
-  ⚠️ Comprobación: `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE contype='c'
-  AND pg_get_constraintdef(oid) LIKE '%= ANY (ARRAY[%'` — hoy **solo hay UNO** en toda la base (este),
-  así que no hay más catálogos que se puedan quedar atrás por este camino.
+  ⚠️ Comprobación: `SELECT conrelid::regclass, conname, pg_get_constraintdef(oid) FROM pg_constraint
+  WHERE contype='c' AND pg_get_constraintdef(oid) LIKE '%= ANY (ARRAY[%'` — hoy hay **DOS** en toda
+  la base y los dos se construyen ya con su lista de Python, así que no se pueden quedar atrás:
+  `concerts.concerts_status_check` (con `models.CONCERT_STATUS_VALUES`) y
+  **`song_editorial_shares.chk_ses_role`** (con `models.SONG_AUTHOR_ROLE_VALUES`: los roles de
+  autoría — ahí se descubrió al añadir el ARREGLISTA, sep 2026).
+  ⚠️⚠️ Aquí ponía que **solo había uno**, y no era verdad: el de los roles estaba escrito como
+  `role IN (…)` —que Postgres normaliza a `= ANY (ARRAY[…])` igualmente— y se le pasó a esa
+  comprobación por mirarla por encima. **Antes de dar por bueno que no hay más, se ejecuta la
+  consulta**: es de una línea.
   ⚠️ Probado reproduciendo el CHECK viejo: antes falla con `CheckViolation` y después los SEIS
   estados se guardan, un estado inventado **se sigue rechazando** (el CHECK protege), y el proceso
   entero de cancelar y de aplazar llega hasta el final («La actividad queda CANCELADA. Producción ya

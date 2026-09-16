@@ -253,6 +253,28 @@
   lo es, el **ISRC** (el principal de audio) y la **fecha de publicación** con su día de la semana.
   **Tres botones y solo tres**: Descargar audio · Descargar instrumental · la nota de prensa si ya
   está subida, justo debajo del bocadillo de la canción.
+  ⚠️ **ARRIBA A LA DERECHA VA SOLO EL LOGO DE PIES** (no los dos del grupo como en Syncros, lo
+  pidió Dani): a una emisora le presenta el tema **el sello**, y el de la editorial no pinta nada.
+  Se busca **por su nombre** entre los logos del grupo, no por su posición en la lista.
+  ⚠️ **SIN galleta de contacto al pie** (también lo pidió Dani): el correo sale desde el buzón de
+  quien lo manda y se contesta ahí mismo, así que una tarjeta con sus datos solo es ruido.
+
+- ⚠️⚠️ **PRESENTAR A RADIO · TODOS A LA VEZ, Y EL DE PRISA APARTE** (sep 2026, lo pidió Dani).
+  Revisar uno a uno veinte correos que dicen lo mismo es trabajo tonto, así que la pantalla sale
+  **AGRUPADA**: un bloque con **todos los correos sin adjunto** (sus destinatarios, una vista previa
+  de ejemplo y **«Enviar los N»**, `song_radio_send_all`) y, debajo, **el de Prisa como un segundo
+  correo**, porque ese **lleva su DPC adjunto** y conviene mirarlo antes de mandarlo.
+  · **«Ver y personalizar uno a uno»** (`?detalle=1`) abre cada correo con su asunto y su texto,
+  para retocar el que haga falta. Se vuelve con «Verlos agrupados».
+  ⚠️ **Cada correo sigue siendo SUYO**: uno por dirección y con SUS emisoras en el texto —nunca uno
+  con todos en el «Para»—, aunque salgan de una tacada.
+  ⚠️ El envío es un **punto único** (`_song_radio_send_one`), que usan «Enviar» y «Enviar todos»:
+  si estuviera escrito dos veces, el correo de uno y el de todos acabarían siendo distintos.
+  ⚠️ «Enviar todos» **recalcula los destinatarios** en el momento (no se fía del formulario: entre
+  que se pintó la pantalla y se pulsa puede haberse presentado algo), **se salta lo que ya esté
+  presentado** y lleva **tope de tiempo** (`RADIO_SEND_BUDGET_SECONDS`, 45 s) guardando por el
+  camino y diciendo **cuántos quedan** — la regla de la casa para las acciones en bloque.
+  ⚠️ Lo que NO sale se dice **con nombre y apellidos**: esas emisoras siguen pendientes.
   ⚠️ Las descargas van por **`public_radio_download`** con el token del ENVÍO (al otro lado no hay
   sesión) y sirven el archivo **tal cual**: a una emisora no se le manda un MP3 recomprimido.
   · **DESDE QUÉ CORREO** (`_radio_sender_options`, `MailAccount.user_id`): el buzón de esa persona,

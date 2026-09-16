@@ -87,66 +87,147 @@
   </div>
 {% endif %}
 
-{% if previews %}
-  <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-    <h5 class="m-0">{{ previews|length }} correo{{ 's' if previews|length != 1 else '' }} por enviar</h5>
-    <span class="text-muted small">Se revisa y se manda uno a uno.</span>
-  </div>
+{% macro correo_card(p, indice, total, con_boton_propio=True) %}
+  <form class="card mb-3" method="post" action="{{ url_for('song_radio_send', song_id=song.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="to_email" value="{{ p.to.email }}">
+    <input type="hidden" name="to_name" value="{{ p.to.name }}">
+    {% for pid in p.to.pitch_ids %}<input type="hidden" name="pitch_ids" value="{{ pid }}">{% endfor %}
+    {# El remitente elegido arriba vale para todos: se copia en cada formulario. #}
+    <input type="hidden" name="sender" value="{{ sender.default }}" data-radio-sender-field>
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+        {% if total > 1 %}
+          <span class="badge text-bg-light border"><i class="fa fa-envelope me-1"></i>{{ indice }}
+            de {{ total }}</span>
+        {% endif %}
+        <strong>{{ p.to.name or p.to.email }}</strong>
+        <span class="text-muted small">{{ p.to.email }}</span>
+        {% for m in p.to.media %}
+          <span class="badge text-bg-light border"><i class="fa fa-tower-broadcast me-1"></i>{{ m.name }}</span>
+        {% endfor %}
+        {% if p.to.media|length > 1 %}
+          <span class="badge text-bg-info-subtle text-info-emphasis border" title="Reciben los temas de varias emisoras: se manda un solo correo y se apunta un envío por cada una">
+            <i class="fa fa-layer-group me-1"></i>{{ p.to.media|length }} emisoras, un solo correo</span>
+        {% endif %}
+        {% if p.prisa %}
+          <span class="badge text-bg-warning text-dark" title="A este buzón se le adjunta el DPC de Prisa cumplimentado">
+            <i class="fa fa-file-pdf me-1"></i>Lleva el DPC de Prisa</span>
+        {% endif %}
+      </div>
 
-  {% for p in previews %}
-    <form class="card mb-3" method="post" action="{{ url_for('song_radio_send', song_id=song.id) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="to_email" value="{{ p.to.email }}">
-      <input type="hidden" name="to_name" value="{{ p.to.name }}">
-      {% for pid in p.to.pitch_ids %}<input type="hidden" name="pitch_ids" value="{{ pid }}">{% endfor %}
-      {# El remitente elegido arriba viaja en cada formulario (son formularios independientes). #}
-      <input type="hidden" name="sender" value="{{ sender.default }}" data-radio-sender-field>
-      <div class="card-body">
-        <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
-          <span class="badge text-bg-light border"><i class="fa fa-envelope me-1"></i>{{ loop.index }}
-            de {{ previews|length }}</span>
-          <strong>{{ p.to.name or p.to.email }}</strong>
-          <span class="text-muted small">{{ p.to.email }}</span>
-          {% for m in p.to.media %}
-            <span class="badge text-bg-light border"><i class="fa fa-tower-broadcast me-1"></i>{{ m.name }}</span>
-          {% endfor %}
-          {% if p.to.media|length > 1 %}
-            <span class="badge text-bg-info-subtle text-info-emphasis border" title="Reciben los temas de varias emisoras: se manda un solo correo y se apunta un envío por cada una">
-              <i class="fa fa-layer-group me-1"></i>{{ p.to.media|length }} emisoras, un solo correo</span>
-          {% endif %}
-          {% if p.prisa %}
-            <span class="badge text-bg-warning text-dark" title="A este buzón se le adjunta el DPC de Prisa cumplimentado">
-              <i class="fa fa-file-pdf me-1"></i>Lleva el DPC de Prisa</span>
-          {% endif %}
-        </div>
-
-        <div class="row g-3">
-          <div class="col-12 col-lg-5">
-            <label class="form-label small mb-1">Asunto</label>
-            <input class="form-control form-control-sm" name="subject" value="{{ p.subject }}">
-            <label class="form-label small mb-1 mt-3">Texto de la presentación
-              <span class="text-muted fw-normal">(se puede cambiar o añadir lo que haga falta)</span></label>
-            {# ⚠️ El texto se manda TAL CUAL se deje aquí: lo que escriba la persona es suyo. Debajo
-               van siempre el cierre («Por supuesto, como siempre…») y la ficha del tema. #}
-            <textarea class="form-control form-control-sm" name="intro_text" rows="7">{{ p.intro }}</textarea>
-            <div class="form-text">Debajo del texto va siempre la ficha del tema con sus botones de
-              descarga.</div>
+      <div class="row g-3">
+        <div class="col-12 col-lg-5">
+          <label class="form-label small mb-1">Asunto</label>
+          <input class="form-control form-control-sm" name="subject" value="{{ p.subject }}">
+          <label class="form-label small mb-1 mt-3">Texto de la presentación
+            <span class="text-muted fw-normal">(se puede cambiar o añadir lo que haga falta)</span></label>
+          {# ⚠️ El texto se manda TAL CUAL se deje aquí: lo que escriba la persona es suyo. Debajo
+             van siempre el cierre («Por supuesto, como siempre…») y la ficha del tema. #}
+          <textarea class="form-control form-control-sm" name="intro_text" rows="7">{{ p.intro }}</textarea>
+          <div class="form-text">Debajo del texto va siempre la ficha del tema con sus botones de
+            descarga.</div>
+          {% if con_boton_propio %}
             <div class="mt-3 d-flex gap-2 flex-wrap">
               <button class="btn btn-danger" {% if not ready or not sender.can_send %}disabled{% endif %}>
                 <i class="fa fa-paper-plane me-1"></i>Enviar a {{ p.to.name or p.to.email }}</button>
             </div>
+          {% endif %}
+        </div>
+        <div class="col-12 col-lg-7">
+          <label class="form-label small mb-1">Vista previa del correo</label>
+          {# La vista previa ES el correo (el mismo motor), así que lo que se ve es lo que sale. #}
+          <div class="border rounded-3 p-2 bg-white" style="max-height:520px;overflow:auto;">
+            {{ p.html|safe }}
           </div>
-          <div class="col-12 col-lg-7">
-            <label class="form-label small mb-1">Vista previa del correo</label>
-            {# La vista previa ES el correo (el mismo motor), así que lo que se ve es lo que sale. #}
-            <div class="border rounded-3 p-2 bg-white" style="max-height:520px;overflow:auto;">
-              {{ p.html|safe }}
+        </div>
+      </div>
+    </div>
+  </form>
+{% endmacro %}
+
+{% if previews %}
+  {# ⚠️⚠️ POR DEFECTO, TODOS A LA VEZ (lo pidió Dani): los correos normales se mandan de una tacada
+     —cada uno es SUYO, con sus emisoras en el texto— y el de Prisa va aparte porque lleva su DPC
+     adjunto. Quien quiera retocar alguno tiene «Ver y personalizar uno a uno». #}
+  <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <h5 class="m-0">{{ previews|length }} correo{{ 's' if previews|length != 1 else '' }} por enviar</h5>
+    {% if detalle %}
+      <a class="btn btn-sm btn-outline-secondary ms-auto"
+         href="{{ url_for('song_radio_send_view', song_id=song.id) }}">
+        <i class="fa fa-layer-group me-1"></i>Verlos agrupados</a>
+    {% elif normales|length > 1 %}
+      <a class="btn btn-sm btn-outline-secondary ms-auto"
+         href="{{ url_for('song_radio_send_view', song_id=song.id, detalle=1) }}">
+        <i class="fa fa-sliders me-1"></i>Ver y personalizar uno a uno</a>
+    {% endif %}
+  </div>
+
+  {% if detalle %}
+    {# UNO A UNO: cada correo con su asunto, su texto y su botón. #}
+    {% for p in previews %}{{ correo_card(p, loop.index, previews|length) }}{% endfor %}
+  {% else %}
+    {# 1 · LOS NORMALES, todos de una vez. #}
+    {% if normales %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+            <i class="fa fa-paper-plane text-danger"></i>
+            <strong>{{ normales|length }} correo{{ 's' if normales|length != 1 else '' }} sin adjunto</strong>
+            <span class="text-muted small">Sale uno por destinatario, con sus emisoras en el texto.</span>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            {% for p in normales %}
+              <span class="d-inline-flex align-items-center gap-2 border rounded-pill px-3 py-1 bg-white">
+                <span class="min-w-0">
+                  <span class="d-block small fw-semibold">{{ p.to.name or p.to.email }}</span>
+                  <span class="d-block text-muted" style="font-size:.75rem">{{ p.to.media_label }}</span>
+                </span>
+              </span>
+            {% endfor %}
+          </div>
+          <div class="row g-3">
+            <div class="col-12 col-lg-7">
+              <label class="form-label small mb-1">Así es el correo
+                {% if normales|length > 1 %}<span class="text-muted fw-normal">(el de
+                  {{ normales[0].to.name or normales[0].to.email }}; a cada uno le llega el suyo con
+                  sus emisoras)</span>{% endif %}</label>
+              <div class="border rounded-3 p-2 bg-white" style="max-height:460px;overflow:auto;">
+                {{ normales[0].html|safe }}
+              </div>
+            </div>
+            {# ⚠️ El botón va ARRIBA de esta columna, no al fondo: la vista previa mide 460 px y
+               con `justify-content-between` el botón se iba tan abajo que había que buscarlo. #}
+            <div class="col-12 col-lg-5">
+              <form method="post" action="{{ url_for('song_radio_send_all', song_id=song.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="sender" value="{{ sender.default }}" data-radio-sender-field>
+                <button class="btn btn-danger w-100" {% if not ready or not sender.can_send %}disabled{% endif %}>
+                  <i class="fa fa-paper-plane me-1"></i>Enviar {{ 'los ' ~ normales|length ~ ' correos' if normales|length != 1 else 'el correo' }}</button>
+              </form>
+              <div class="text-muted small mt-3">
+                <div class="mb-2"><i class="fa fa-circle-info me-1"></i>Se manda <strong>un correo
+                  por dirección</strong>, nunca uno con todos en el «Para».</div>
+                {% if normales|length > 1 %}
+                  <div><i class="fa fa-sliders me-1"></i>Si quieres cambiarle el texto a alguno,
+                    <a href="{{ url_for('song_radio_send_view', song_id=song.id, detalle=1) }}">ábrelos
+                    uno a uno</a>.</div>
+                {% endif %}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </form>
-  {% endfor %}
+    {% endif %}
+
+    {# 2 · EL DE PRISA, aparte: lleva su DPC adjunto, así que se mira y se manda a conciencia. #}
+    {% for p in con_adjunto %}
+      <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+        <h6 class="m-0"><i class="fa fa-file-pdf text-warning me-1"></i>Y el de Prisa, con su documento adjunto</h6>
+      </div>
+      {{ correo_card(p, loop.index, 1) }}
+    {% endfor %}
+  {% endif %}
 {% else %}
   <div class="alert alert-light border">
     {% if radio_module.planned %}

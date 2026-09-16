@@ -40847,8 +40847,7 @@ def song_radio_send_view(song_id):
         prev_instr = (url_for("discografica_song_material_download", song_id=str(cancion.id),
                               material_id=str(instr.id), format="wav") if instr is not None else "")
         for d in destinatarios:
-            ctx = _radio_pitch_context(session_db, cancion, medios=d["media"],
-                                       sender=_radio_sender_card(session_db, yo, remitente))
+            ctx = _radio_pitch_context(session_db, cancion, medios=d["media"])
             ctx["press_url"] = _song_radio_press_url(session_db, cancion)
             vistas.append({
                 "to": d,
@@ -40860,6 +40859,11 @@ def song_radio_send_view(song_id):
                                           audio_url=prev_audio, instrumental_url=prev_instr),
                 "prisa": d["prisa"],
             })
+        # ⚠️⚠️ POR DEFECTO SALEN TODOS A LA VEZ (lo pidió Dani, sep 2026): revisar uno a uno
+        # veinte correos que dicen lo mismo es trabajo tonto. Los NORMALES van en un bloque con su
+        # «Enviar todos» y **el de Prisa aparte**, porque ese lleva su DPC adjunto y conviene
+        # mirarlo. Con `?detalle=1` se abren todos por separado para personalizar el que haga falta.
+        detalle = _truthy(request.args.get("detalle"))
         return render_template(
             "song_radio_send.html",
             song=cancion, radio_module=modulo, previews=vistas, missing=sin_contacto,
@@ -40867,45 +40871,110 @@ def song_radio_send_view(song_id):
             back_url=volver, prisa_email=RADIO_PRISA_EMAIL,
             has_instrumental=bool(_song_radio_instrumental(session_db, cancion)),
             press_url=_song_radio_press_url(session_db, cancion),
+            detalle=detalle,
+            normales=[v for v in vistas if not v["prisa"]],
+            con_adjunto=[v for v in vistas if v["prisa"]],
         )
     finally:
         session_db.close()
 
 
-def _radio_sender_card(session_db, yo, remitente) -> dict:
-    """LA FIRMA del correo: quién lo manda, con su nombre, su correo y su teléfono.
+def _song_radio_send_one(session_db, cancion, correo, nombre, pitches, elegido, yo, *,
+                         texto: str = "", asunto: str = "") -> tuple:
+    """MANDA UN correo de presentación y apunta un envío POR EMISORA. → (ok, aviso, error)
 
-    ⚠️ Es un correo de una persona a otra, así que va firmado por ella —no por «la app»—."""
-    nombre = (yo.get("nick") or "").strip()
-    correo = ((remitente.get("mine") or {}).get("email") or "").strip()
-    telefono = ""
-    try:
-        prof = session_db.get(UserProfile, _safe_uuid(yo.get("user_id")))
-        if prof is not None:
-            nombre = nombre or (prof.nick or "")
-            telefono = (getattr(prof, "phone", None) or "")
-            if not telefono:
-                moviles = getattr(prof, "mobile_phones", None) or []
-                if isinstance(moviles, list) and moviles:
-                    telefono = str(moviles[0] or "")
-    except Exception:
-        app.logger.exception("[radio] no se pudo leer el perfil de quien presenta")
-    if not correo:
-        correo = PRESS_SENDER_PROMO_EMAIL
-    return {"name": nombre, "email": correo, "phone": telefono, "role": "Promoción"}
+    ⚠️⚠️ **Punto ÚNICO del envío**: lo usan «Enviar» (uno) y «Enviar todos». Si estuviera escrito
+    dos veces, el correo de uno y el de todos acabarían siendo distintos.
+    ⚠️⚠️ **Un correo, varios envíos**: si ese contacto recibe los temas de varias emisoras del
+    grupo, sale UN solo correo y se marcan como presentadas TODAS las que cubre.
+    ⚠️ El ENVÍO se crea ANTES de mandar (su token va dentro del correo, en los enlaces de
+    descarga) y **se deshace si el correo no sale**: nunca se da por presentado lo que rebotó.
+    ⚠️ Al buzón de Prisa se le adjunta su DPC; si el PDF no se puede componer **no se manda nada**.
+    """
+    medios = [{"id": str(p.media_id), "name": (getattr(p.media, "name", "") or "La emisora"),
+               "logo_url": (getattr(p.media, "logo_url", "") or "")} for p in pitches]
+    ctx = _radio_pitch_context(session_db, cancion, medios=medios)
+    ctx["press_url"] = _song_radio_press_url(session_db, cancion)
+    asunto = (asunto or "").strip() or _radio_pitch_subject(ctx)
+    texto = (texto or "").strip()
+
+    envio = SongRadioSend(
+        song_id=cancion.id, to_email=correo, to_name=(nombre or None),
+        token=_uuid_token(), subject=asunto, intro_text=(texto or None),
+        media_ids=[m["id"] for m in medios],
+        from_email=elegido["email"], from_name=(elegido.get("name") or ""),
+        sent_by_user_id=_safe_uuid(yo.get("user_id")), sent_by_nick=(yo.get("nick") or ""))
+    session_db.add(envio)
+    session_db.flush()
+
+    audio_url = _external_url_for("public_radio_download", token=envio.token, que="audio")
+    instr = _song_radio_instrumental(session_db, cancion)
+    instrumental_url = (_external_url_for("public_radio_download", token=envio.token,
+                                          que="instrumental") if instr is not None else "")
+    cuerpo = _radio_pitch_html(ctx, email=True, intro_text=texto, audio_url=audio_url,
+                               instrumental_url=instrumental_url, press_url=ctx["press_url"])
+    envio.body_html = cuerpo
+
+    adjuntos = None
+    if correo == RADIO_PRISA_EMAIL:
+        try:
+            datos, nombre_pdf = _radio_prisa_dpc_pdf(session_db, ctx, medios)
+            adjuntos = [{"data": datos, "filename": nombre_pdf, "mimetype": "application/pdf"}]
+            envio.attachment_name = nombre_pdf
+        except Exception:
+            app.logger.exception("[radio] no se pudo componer el DPC de Prisa")
+            session_db.rollback()
+            return False, "", "el documento de Prisa no se ha podido componer"
+
+    cuenta = _mail_account_for_email(elegido["email"])
+    ok, error = _send_optional_email(
+        correo, asunto, cuerpo, attachments=adjuntos,
+        from_name=(elegido.get("name") or ""), from_email=elegido["email"],
+        auto_submitted=False, account=cuenta)
+    # ⚠️ Devuelve (ok, error): tratarlo como booleano daría por enviado lo que rebotó.
+    if not ok:
+        session_db.rollback()
+        return False, "", (error or "el servidor lo rechazó")
+
+    ahora = _now_madrid()
+    for p in pitches:
+        p.status = "SENT"
+        p.presented_at = ahora
+        p.presented_by_user_id = _safe_uuid(yo.get("user_id"))
+        p.presented_by_nick = (yo.get("nick") or "")
+        p.send_id = envio.id
+        p.updated_at = ahora
+        session_db.add(p)
+    session_db.commit()
+    cuantas = len(pitches)
+    aviso = ("Presentada a %d emisora%s (%s)."
+             % (cuantas, "s" if cuantas != 1 else "",
+                _radio_media_label([m["name"] for m in medios], html=False)))
+    return True, aviso, (error or "")
+
+
+def _song_radio_send_pick(session_db, yo, pedido: str = ""):
+    """La cuenta con la que sale el correo: la que se ha elegido y, si no, la primera que haya."""
+    remitente = _radio_sender_options(session_db, yo.get("user_id"))
+    quiere = (pedido or remitente.get("default") or "").strip().upper()
+    return (next((o for o in remitente["options"] if o["key"] == quiere), None)
+            or (remitente["options"][0] if remitente["options"] else None))
+
+
+def _song_radio_pitches_by_ids(session_db, cancion, ids) -> list:
+    """Las presentaciones de esa canción que van en un correo (por sus ids)."""
+    pks = [_safe_uuid(x) for x in (ids or []) if _safe_uuid(x)]
+    if not pks:
+        return []
+    return (session_db.query(SongRadioPitch)
+            .options(joinedload(SongRadioPitch.media))
+            .filter(SongRadioPitch.song_id == cancion.id, SongRadioPitch.id.in_(pks)).all())
 
 
 @app.post("/radio/cancion/<song_id>/presentar/enviar", endpoint="song_radio_send")
 @admin_required
 def song_radio_send(song_id):
-    """MANDA UNA presentación (un correo) y apunta un envío POR EMISORA.
-
-    ⚠️⚠️ **Un correo, varios envíos**: si ese contacto recibe los temas de varias emisoras del
-    grupo, sale UN solo correo y se marcan como presentadas TODAS las emisoras que cubre.
-    ⚠️⚠️ **Sale desde el correo de quien lo manda** y, si no tiene cuenta, desde Promoción —y se
-    dice—: nunca se da por enviado algo que no ha salido.
-    ⚠️ Al buzón de Prisa Radio se le adjunta además su **DPC** cumplimentado, uno solo aunque el
-    correo cubra varias de sus cadenas."""
+    """MANDA UNA presentación (un correo), la que se ha revisado en su vista previa."""
     if not _can_present_radio():
         return forbid("No tienes permisos para presentar a radio.")
     session_db = db()
@@ -40924,101 +40993,111 @@ def song_radio_send(song_id):
         if "@" not in correo:
             flash("Ese destinatario no tiene un correo válido.", "warning")
             return redirect(safe_next_or(destino))
-        ids = [x for x in request.form.getlist("pitch_ids") if (x or "").strip()]
-        pitches = [p for p in (session_db.query(SongRadioPitch)
-                               .options(joinedload(SongRadioPitch.media))
-                               .filter(SongRadioPitch.song_id == cancion.id,
-                                       SongRadioPitch.id.in_([_safe_uuid(x) for x in ids if _safe_uuid(x)]))
-                               .all())]
+        pitches = _song_radio_pitches_by_ids(session_db, cancion, request.form.getlist("pitch_ids"))
         if not pitches:
             flash("No hay ninguna emisora que presentar en ese correo.", "warning")
             return redirect(safe_next_or(destino))
         yo = (_current_user_state() or {})
-        remitente = _radio_sender_options(session_db, yo.get("user_id"))
-        quiere = (request.form.get("sender") or remitente.get("default") or "").strip().upper()
-        elegido = next((o for o in remitente["options"] if o["key"] == quiere), None) or \
-            (remitente["options"][0] if remitente["options"] else None)
+        elegido = _song_radio_send_pick(session_db, yo, request.form.get("sender"))
         if elegido is None:
             flash("No hay ninguna cuenta de correo con la que mandarlo: configúrala en "
                   "Integraciones → Correo.", "warning")
             return redirect(safe_next_or(destino))
-
-        medios = [{"id": str(p.media_id), "name": (getattr(p.media, "name", "") or "La emisora"),
-                   "logo_url": (getattr(p.media, "logo_url", "") or "")} for p in pitches]
-        ctx = _radio_pitch_context(session_db, cancion, medios=medios,
-                                   sender=_radio_sender_card(session_db, yo, remitente))
-        ctx["press_url"] = _song_radio_press_url(session_db, cancion)
-        texto = (request.form.get("intro_text") or "").strip()
-        asunto = (request.form.get("subject") or "").strip() or _radio_pitch_subject(ctx)
-
-        # ⚠️ El ENVÍO SE CREA ANTES de mandar: su token va DENTRO del correo (los enlaces de
-        # descarga), y si el correo no sale se retira (la regla de Syncros).
-        envio = SongRadioSend(
-            song_id=cancion.id, to_email=correo,
-            to_name=(request.form.get("to_name") or "").strip() or None,
-            token=_uuid_token(), subject=asunto, intro_text=(texto or None),
-            media_ids=[m["id"] for m in medios],
-            from_email=elegido["email"], from_name=(elegido.get("name") or ""),
-            sent_by_user_id=_safe_uuid(yo.get("user_id")), sent_by_nick=(yo.get("nick") or ""))
-        session_db.add(envio)
-        session_db.flush()
-
-        audio_url = _external_url_for("public_radio_download", token=envio.token, que="audio")
-        instr = _song_radio_instrumental(session_db, cancion)
-        instrumental_url = (_external_url_for("public_radio_download", token=envio.token,
-                                              que="instrumental") if instr is not None else "")
-        cuerpo = _radio_pitch_html(ctx, email=True, intro_text=texto, audio_url=audio_url,
-                                   instrumental_url=instrumental_url, press_url=ctx["press_url"])
-        envio.body_html = cuerpo
-
-        # EL DPC DE PRISA: solo a su buzón de notificaciones, y UNO aunque cubra varias cadenas.
-        adjuntos = None
-        if correo == RADIO_PRISA_EMAIL:
-            try:
-                datos, nombre_pdf = _radio_prisa_dpc_pdf(session_db, ctx, medios)
-                adjuntos = [{"data": datos, "filename": nombre_pdf, "mimetype": "application/pdf"}]
-                envio.attachment_name = nombre_pdf
-            except Exception:
-                app.logger.exception("[radio] no se pudo componer el DPC de Prisa")
-                session_db.rollback()
-                flash("No se ha mandado nada: el documento de Prisa no se ha podido componer.",
-                      "danger")
-                return redirect(safe_next_or(destino))
-
-        cuenta = _mail_account_for_email(elegido["email"])
-        ok, error = _send_optional_email(
-            correo, asunto, cuerpo, attachments=adjuntos,
-            from_name=(elegido.get("name") or ""), from_email=elegido["email"],
-            auto_submitted=False, account=cuenta)
-        # ⚠️ `_send_optional_email` devuelve (ok, error): tratarlo como booleano daría por enviado
-        # lo que rebotó, y una emisora se quedaría marcada como presentada sin haberlo sido.
+        ok, aviso, error = _song_radio_send_one(
+            session_db, cancion, correo, (request.form.get("to_name") or "").strip(), pitches,
+            elegido, yo, texto=(request.form.get("intro_text") or ""),
+            asunto=(request.form.get("subject") or ""))
         if not ok:
-            session_db.rollback()
-            flash("No se ha podido enviar a %s: %s" % (correo, error or "el servidor lo rechazó"),
-                  "danger")
-            return redirect(safe_next_or(destino))
-
-        ahora = _now_madrid()
-        for p in pitches:
-            p.status = "SENT"
-            p.presented_at = ahora
-            p.presented_by_user_id = _safe_uuid(yo.get("user_id"))
-            p.presented_by_nick = (yo.get("nick") or "")
-            p.send_id = envio.id
-            p.updated_at = ahora
-            session_db.add(p)
-        session_db.commit()
-        cuantas = len(pitches)
-        aviso = ("Presentada a %d emisora%s (%s)." %
-                 (cuantas, "s" if cuantas != 1 else "", _radio_media_label(
-                     [m["name"] for m in medios], html=False)))
-        if error:
-            # Salió, pero no como se pidió (el servidor no admitió el remitente): se DICE.
-            aviso += " " + error
-        flash(aviso, "success")
+            flash("No se ha podido enviar a %s: %s" % (correo, error), "danger")
+        else:
+            flash(aviso + ((" " + error) if error else ""), "success")
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[radio] no se pudo presentar")
+        flash("No se pudo enviar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+# ⚠️ TOPE DE TIEMPO de «Enviar todos» (la regla de la casa para las acciones en bloque): el
+# servidor corta la petición mucho antes de acabar con decenas de correos, así que se manda lo que
+# cabe —guardando por el camino— y se DICE cuántos quedan para volver a pulsar.
+RADIO_SEND_BUDGET_SECONDS = 45.0
+
+
+@app.post("/radio/cancion/<song_id>/presentar/enviar-todos", endpoint="song_radio_send_all")
+@admin_required
+def song_radio_send_all(song_id):
+    """MANDA DE UNA VEZ todos los correos de la presentación (menos los que llevan adjunto).
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026): revisar uno a uno veinte correos que dicen lo mismo es trabajo
+    tonto. Los **normales salen todos juntos** y el de **Prisa se manda aparte**, porque ese lleva
+    su DPC adjunto y conviene mirarlo. Quien quiera personalizar alguno tiene «Ver y personalizar
+    uno a uno».
+    ⚠️ Cada correo es SUYO: uno por dirección, con SUS emisoras en el texto (nunca uno con todos
+    en el «Para»).
+    ⚠️ Con **tope de tiempo** y guardando por el camino: lo que no cabe se dice y se sigue pulsando.
+    """
+    if not _can_present_radio():
+        return forbid("No tienes permisos para presentar a radio.")
+    session_db = db()
+    destino = url_for("song_radio_send_view", song_id=song_id)
+    try:
+        cancion = session_db.get(Song, _safe_uuid(song_id))
+        if cancion is None:
+            flash("Esa canción no existe.", "warning")
+            return redirect(url_for("discografica_view"))
+        listo = _song_radio_send_ready(session_db, cancion)
+        if not listo["ready"]:
+            flash("No se puede presentar: falta %s." % " y ".join(listo["missing"]), "warning")
+            return redirect(safe_next_or(destino))
+        yo = (_current_user_state() or {})
+        elegido = _song_radio_send_pick(session_db, yo, request.form.get("sender"))
+        if elegido is None:
+            flash("No hay ninguna cuenta de correo con la que mandarlo: configúrala en "
+                  "Integraciones → Correo.", "warning")
+            return redirect(safe_next_or(destino))
+        # ⚠️ Los destinatarios se vuelven a calcular AQUÍ, no se cogen del formulario: entre que se
+        # pintó la pantalla y se pulsa puede haberse presentado algo (o haber cambiado un contacto).
+        modulo = _song_radio_module(session_db, cancion)
+        solo = _safe_uuid(request.args.get("media") or request.form.get("media"))
+        pendientes = [r for r in modulo["planned"] if (not solo or r["media_id"] == str(solo))]
+        destinatarios = [d for d in _song_radio_recipients(session_db, cancion, pendientes)
+                         if not d["prisa"]]
+        if not destinatarios:
+            flash("No queda ningún correo que mandar a la vez.", "info")
+            return redirect(safe_next_or(destino))
+        t0 = time.monotonic()
+        mandados, fallos, quedan = 0, [], 0
+        for d in destinatarios:
+            if time.monotonic() - t0 > RADIO_SEND_BUDGET_SECONDS:
+                quedan = len(destinatarios) - mandados - len(fallos)
+                break
+            pitches = _song_radio_pitches_by_ids(session_db, cancion, d["pitch_ids"])
+            # Entre medias se puede haber presentado ya (dos personas a la vez): se salta.
+            pitches = [p for p in pitches if _song_radio_status(p) == "PLANNED"]
+            if not pitches:
+                continue
+            ok, _aviso, error = _song_radio_send_one(
+                session_db, cancion, d["email"], d["name"], pitches, elegido, yo)
+            if ok:
+                mandados += 1
+            else:
+                fallos.append("%s (%s)" % (d["email"], error))
+        if mandados:
+            aviso = "Presentada: %d correo%s enviado%s." % (mandados, "s" if mandados != 1 else "",
+                                                            "s" if mandados != 1 else "")
+            if quedan:
+                aviso += (" Quedan %d por mandar: vuelve a pulsar «Enviar todos»." % quedan)
+            flash(aviso, "success")
+        if fallos:
+            # ⚠️ Lo que NO ha salido se dice con nombre y apellidos: esas emisoras siguen
+            # pendientes, y dar por bueno un envío que rebotó es lo peor que puede pasar aquí.
+            flash("No se ha podido enviar a: %s." % _join_es(fallos), "danger")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[radio] no se pudieron presentar todos")
         flash("No se pudo enviar: %s" % exc, "danger")
     finally:
         session_db.close()
@@ -171520,7 +171599,7 @@ def _radio_media_label(nombres, *, html: bool = True) -> str:
     return _join_es(limpios)
 
 
-def _radio_pitch_context(session_db, song, *, medios=None, sender=None) -> dict:
+def _radio_pitch_context(session_db, song, *, medios=None) -> dict:
     """TODO lo que necesita una presentación a radio: el tema, sus datos y a qué emisoras va.
 
     ⚠️ Punto ÚNICO del correo, de la vista previa y del PDF de Prisa: los tres dicen lo mismo."""
@@ -171548,7 +171627,6 @@ def _radio_pitch_context(session_db, song, *, medios=None, sender=None) -> dict:
         "release_long": (format_date_long_es(fecha) if fecha else ""),
         "media": medios,
         "media_label": _radio_media_label([m.get("name") for m in medios], html=False),
-        "sender": (sender or {}),
     })
     return ctx
 
@@ -171617,15 +171695,15 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
     esc = lambda v: escape(str(v or ""))
     ico = lambda n, size=16: _brand_icon(n, email=email, size=size)
 
-    # ── Los logos del grupo, arriba a la derecha ──
-    celdas = ""
-    for url, nombre in ctx.get("brand_logos") or []:
-        if url:
-            celdas += ('<td style="vertical-align:middle;padding:0 0 0 14px;text-align:center;">'
-                       '<img src="%s" alt="%s" style="height:30px;width:auto;display:block;'
-                       'margin:0 auto;"></td>' % (esc(url), esc(nombre)))
-    logos = (('<table class="sync-logos" style="border-collapse:collapse;margin-left:auto;'
-              'display:inline-table;"><tr>%s</tr></table>' % celdas) if celdas
+    # ── EL LOGO, arriba a la derecha ──
+    # ⚠️⚠️ **SOLO EL DE PIES** (lo pidió Dani, sep 2026), no los dos del grupo como en Syncros: a
+    # una emisora le presenta el tema **el sello**, y el de la editorial no pinta nada ahí.
+    logo_pies = next((u for u, n in (ctx.get("brand_logos") or [])
+                      if "PIES" in (n or "").upper() and u), "") or (ctx.get("label_logo") or "")
+    logos = (('<img class="rad-logo" src="%s" alt="%s" '
+              'style="height:34px;width:auto;display:inline-block;">'
+              % (esc(logo_pies), esc(ctx.get("label_name"))))
+             if logo_pies
              else ('<span style="font-size:13px;color:#6b7280;">%s</span>' % esc(ctx.get("label_name"))))
 
     # ── La portada ──
@@ -171702,26 +171780,8 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
                + boton(instrumental_url, "Descargar instrumental", "sliders")
                + boton(press_url, "Nota de prensa", "newspaper"))
 
-    # ── LA FIRMA: quien lo manda (es un correo de una persona a otra) ──
-    s = ctx.get("sender") or {}
-    firma = ""
-    if s.get("name") or s.get("email"):
-        lineas = '<div style="font-size:15.5px;font-weight:700;color:#111827;">%s</div>' % esc(s.get("name"))
-        if s.get("role"):
-            lineas += ('<div style="font-size:13.5px;color:#6b7280;margin-bottom:8px;">%s</div>'
-                       % esc(s.get("role")))
-        if s.get("email"):
-            lineas += ('<div style="margin-top:6px;"><a href="mailto:%s" style="color:#00637f;'
-                       'text-decoration:none;font-size:14.5px;">%s&nbsp; %s</a></div>'
-                       % (esc(s["email"]), ico("envelope"), esc(s["email"])))
-        if s.get("phone"):
-            lineas += ('<div style="margin-top:6px;"><a href="tel:%s" style="color:#00637f;'
-                       'text-decoration:none;font-size:14.5px;">%s&nbsp; %s</a></div>'
-                       % (esc(s["phone"]), ico("phone"), esc(s["phone"])))
-        firma = ('<table class="sync-contact" style="width:100%%;border-collapse:collapse;'
-                 'background:#fbfcfd;border:1px solid #e6e9ec;border-radius:14px;margin-top:14px;">'
-                 '<tr><td style="padding:16px 18px;">%s</td></tr></table>' % lineas)
-
+    # ⚠️ SIN GALLETA DE CONTACTO (lo pidió Dani, sep 2026): el correo sale desde el buzón de quien
+    # lo manda y se contesta ahí mismo, así que una tarjeta con sus datos al pie solo es ruido.
     intro = ('<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#374151;'
              'text-align:left;">%s</p>' % _radio_pitch_intro_html(ctx, intro_text))
 
@@ -171739,7 +171799,7 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
         '.sync-card .sync-cell--data{padding:12px 14px 14px !important;}'
         '.sync-cover,.sync-cover-ph{width:100%% !important;max-width:260px !important;'
         'height:auto !important;aspect-ratio:1/1;margin:0 auto !important;}'
-        '.sync-logos img{height:24px !important;}'
+        '.rad-logo{height:26px !important;}'
         '}'
         '</style>'
         '<div class="sync-body" style="max-width:680px;margin:0 auto;padding:22px;'
@@ -171758,7 +171818,7 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
         '%s%s%s%s'
         '</td></tr>'
         '%s</table>'
-        '%s</div>'
+        '</div>'
         % (logos, intro, portada,
            esc(ctx.get("title")), etiqueta,
            bloque_artista,
@@ -171767,8 +171827,7 @@ def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
            (dato(ico("barcode"), esc(ctx.get("isrc"))) if ctx.get("isrc") else ""),
            sello,
            # Los botones, DEBAJO del bocadillo de la canción y a todo el ancho de la tarjeta.
-           ('<tr><td colspan="2" style="padding:0 16px 16px;">%s</td></tr>' % botones) if botones else "",
-           firma))
+           ('<tr><td colspan="2" style="padding:0 16px 16px;">%s</td></tr>' % botones) if botones else ""))
 
 
 # ⚠️⚠️ EL BUZÓN DE PRISA RADIO. Su DPC («Documento de Presentación de Canciones») va **como

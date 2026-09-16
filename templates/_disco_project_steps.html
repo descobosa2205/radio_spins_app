@@ -2144,63 +2144,16 @@
   </div>
 </div>
 
-{# ---------------------------------------------------------------- PRESENTACIÓN A RADIO
-   Se marcan las emisoras y contesta PROMOCIÓN (o dirección con función de sello), una por una. #}
-<div class="modal fade" id="dpRadioModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-    <form class="modal-content" method="post" action="{{ url_for('disco_project_radio_request', project_id=project.id) }}">
-      <input type="hidden" name="next" value="{{ request.full_path }}">
-      <div class="modal-header">
-        <div>
-          <h5 class="modal-title"><i class="fa fa-radio me-2 text-danger"></i>Presentar a radio</h5>
-          <div class="text-muted small">
-            Marca las emisoras. Contesta <strong>promoción</strong>: si la cogen, se apunta la fecha de
-            entrada en rotación y entra en el plan de lanzamiento.
-          </div>
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-      </div>
-      <div class="modal-body">
-        {% if not rd.ready %}
-          <div class="alert alert-warning"><i class="fa fa-lock me-1"></i>
-            Todavía no se puede mandar a radio: falta {{ (rd.missing or [])|join(' y ') }}.</div>
-        {% endif %}
-        <div class="row g-2">
-          {% for m in (radio_media or []) %}
-            {% set pedida = (rd.rows or [])|selectattr('media_id', 'equalto', m.id)|list %}
-            <div class="col-12 col-md-6">
-              <label class="d-flex align-items-center gap-2 border rounded p-2 h-100 bg-white{{ ' opacity-50' if pedida else '' }}">
-                <input class="form-check-input m-0" type="checkbox" name="media_ids" value="{{ m.id }}"
-                       {% if pedida %}disabled{% endif %}>
-                {% if m.logo_url %}
-                  <img src="{{ m.logo_url }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
-                {% else %}
-                  <span class="d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-tower-broadcast text-muted"></i></span>
-                {% endif %}
-                <span class="min-w-0">
-                  <span class="d-block fw-semibold small text-truncate">{{ m.name }}</span>
-                  {% if pedida %}<span class="d-block small text-muted">{{ pedida[0].status_label }}</span>{% endif %}
-                </span>
-              </label>
-            </div>
-          {% else %}
-            <div class="col-12">
-              <div class="alert alert-secondary mb-0">
-                No hay emisoras en la base de datos de medios.
-                <a href="{{ url_for('media_outlets_view') }}">Añádelas en Medios</a>.
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-danger" type="submit" {% if not rd.ready %}disabled{% endif %}>
-          <i class="fa fa-paper-plane me-1"></i>Solicitar presentación</button>
-      </div>
-    </form>
-  </div>
-</div>
+{# ---------------------------------------------------------------- PRESENTACIÓN A RADIOS
+   ⚠️⚠️ Es EL MISMO MÓDULO que en la ficha de la canción (`_song_radio_module.html`): la
+   presentación vive en la CANCIÓN y el proyecto solo la enseña, así que no puede haber dos
+   pantallas que digan cosas distintas. El pop-up de elegir emisoras es el suyo
+   (`#songRadioPlanModal`), y por eso el de aquí (`#dpRadioModal`) desapareció. #}
+{% if rd.song %}
+  {% with radio_module = rd, rm_can_edit = CAN_EDIT %}
+    {% include '_song_radio_module.html' %}
+  {% endwith %}
+{% endif %}
 
 {# El motor de los paneles condicionales y de las tarjetas vive en su propio JS: lo usan
    también los pop-ups del plan de lanzamiento. #}

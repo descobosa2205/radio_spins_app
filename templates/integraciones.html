@@ -1473,6 +1473,19 @@
           {% for cf in mail.cycles %}<option value="{{ cf.id }}" {% if a and a.cycle_id == cf.id %}selected{% endif %}>{{ cf.name }}</option>{% endfor %}
         </select>
       </div>
+      {# ⚠️⚠️ EL BUZÓN DE UNA PERSONA DE LA CASA: lo que se escribe de tú a tú —la presentación de
+         un tema a una emisora— sale DESDE SU CORREO, porque quien lo recibe le contesta a ella.
+         Quien no tenga cuenta aquí no puede mandar desde la suya: la app se lo dice y le ofrece
+         mandarlo desde Promoción. ⚠️ Una persona, UNA cuenta (al asignarla se le suelta la otra). #}
+      <input type="hidden" name="user_present" value="1">
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">Es el correo de…
+          <span class="text-muted">(sus presentaciones a radio salen por aquí)</span></label>
+        <select class="form-select form-select-sm" name="user_id">
+          <option value="">— no es de nadie en concreto —</option>
+          {% for u in mail.people %}<option value="{{ u.id }}" {% if a and a.user_id == u.id %}selected{% endif %}>{{ u.name }}</option>{% endfor %}
+        </select>
+      </div>
       <div class="col-4 col-md-2">
         <label class="form-label small mb-0" title="Un respiro entre un correo y el siguiente">Respiro (ms)</label>
         <input class="form-control form-control-sm" name="pause_ms" type="number" min="0" max="60000" value="{{ a.pause_ms if a else 800 }}">
@@ -1714,7 +1727,9 @@
                   {% if a.reply_to %} · <i class="fa fa-reply fa-fw me-1"></i>responde a {{ a.reply_to }}{% endif %}
                   · <i class="fa fa-gauge fa-fw me-1"></i>{{ a.pause_ms }} ms entre correos, conexión nueva cada {{ a.reconnect_every or '∞' }}{% if a.hourly_cap %}, máximo {{ a.hourly_cap }}/hora{% endif %}
                 </div>
-                <div class="small mt-1">{% for u in a.uses %}<span class="badge text-bg-light border me-1"><i class="fa {{ a.icon or 'fa-newspaper' }} me-1"></i>{{ u }}</span>{% endfor %}</div>
+                <div class="small mt-1">{% for u in a.uses %}<span class="badge text-bg-light border me-1"><i class="fa {{ a.icon or 'fa-newspaper' }} me-1"></i>{{ u }}</span>{% endfor %}
+                  {# DE QUIÉN es el buzón: sus presentaciones a radio salen desde aquí. #}
+                  {% if a.user_name %}<span class="badge text-bg-light border me-1"><i class="fa fa-user fa-fw me-1"></i>El correo de {{ a.user_name }}</span>{% endif %}</div>
                 {% if a.last_test_ok is sameas false and a.last_test_info %}<div class="small text-danger mt-1"><i class="fa fa-circle-exclamation me-1"></i>{{ a.last_test_info }}</div>{% endif %}
                 {% if not a.aligned %}
                   <div class="small text-warning-emphasis mt-1"><i class="fa fa-triangle-exclamation me-1"></i>El usuario ({{ a.smtp_username }}) no es del dominio del remitente ({{ a.domain }}): el correo puede salir como falsificado. Lo normal es que el usuario sea la propia dirección.</div>

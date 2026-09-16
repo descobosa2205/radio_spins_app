@@ -9,6 +9,8 @@
 - MARKETING ≠ PROMOCIÓN. Eran la misma pantalla y se confundían
 - PROMOCIÓN de prensa (Promotion.kind='PROMO' + PromotionActivity.activity_kind='PROMOCION';
 - COMPROBAR una factura y PAGARLA no es lo mismo con la retención en medio
+- UNA SOLA BASE DE EMISORAS: la emisora es un MEDIO de tipo Radio (las de tocadas desaparecen)
+- PRESENTACIÓN A RADIOS: planificar, presentar por correo y lo que dicen las tocadas
 - TOCADAS · «ACTUALIZAR POSICIONES», todas de una vez
 - NOTAS DE PRENSA · EL CÓDIGO DE INSERCIÓN (el módulo para cualquier web) y la MINIATURA
 - MARKETING · LAS ACCIONES SON UN MÓDULO DEBAJO DE INFORMACIÓN: la pestaña «Acciones»
@@ -145,6 +147,118 @@
   en PARCIAL para siempre) y `payment_batch_receipt`. En royalties,
   `_payment_batch_add_royalties` manda el total de la factura igual que `_royalty_payment_pending_rows`
   (antes mandaba base + IVA y con retención se pagaba de más).
+
+- ⚠️⚠️ **UNA SOLA BASE DE EMISORAS: LA EMISORA ES UN MEDIO DE TIPO RADIO** (sep 2026, lo pidió
+  Dani). Había **DOS** bases de emisoras y eran la misma cosa: las **`RadioStation`** del reporte de
+  radios (las de las tocadas) y los **`MediaOutlet` de tipo Radio** de las presentaciones. Con eso,
+  la misma emisora estaba dos veces —dos nombres, dos logos, dos fichas— y **no se podía cruzar «se
+  le ha presentado el tema» con «ya suena»**, que es justo lo que hay que saber.
+  · **Todo medio marcado como Radio vale para el reporte de radios**: uno nuevo entra solo, sin
+  darlo de alta en ningún otro sitio. Punto único **`_radio_media_query`** (lo usan las tocadas, el
+  reporte, la importación de Excel y las presentaciones) y **`_radio_media_is_radio`**.
+  · **`Play.media_id`** es la emisora de una tocada. ⚠️ `plays.station_id` se conserva **solo como
+  rastro** de la emisora de la que vino cada fila: no se lee en ninguna parte y las filas nuevas no
+  lo escriben.
+  · **EL VOLCADO** (`_radio_media_migrate`, una vez, marca `radio_stations_to_media_v1`): cada
+  emisora busca su medio de tipo Radio **por el nombre normalizado** y, si no lo hay, se crea con su
+  logo, su país y el color de su logo; las tocadas y los alias aprendidos de los Excel pasan a
+  colgar del medio. Es **idempotente** (el puente `radio_stations.media_id` dice lo que ya está).
+  ⚠️⚠️ **Los PARECIDOS no se casan solos** («Los 40» y «LOS40» no son la misma clave): fusionar no
+  se puede deshacer, así que eso lo **propone** el bloque de fichas repetidas de Medios y lo decide
+  una persona.
+  ⚠️ Si dos emisoras acaban en el MISMO medio, las tocadas de la misma canción y semana **se
+  SUMAN** (antes no podía pasar; ahora sí, y dos filas iguales darían el doble).
+  · **La sección «Emisoras» desaparece**: `/emisoras` y sus dos POST **redirigen** a Medios (un
+  enlace guardado tiene que seguir llevando a alguna parte) y el recurso **`radio.emisoras`** se
+  retira trasladando sus permisos a **`databases.media`** (`LEGACY_REMOVED_ACCESS_KEYS` +
+  `MIGRATED_ACCESS_KEYS`: quien podía dar de alta emisoras sigue pudiendo).
+  · **FICHAS REPETIDAS en Medios** (`_media_duplicate_pairs`, arriba del listado): de dos en dos,
+  diciendo por qué, con **«Fusionarlas»** (el motor de siempre, que re-apunta TODO: **no se pierde
+  ni una tocada**) y **«No son el mismo»** (`MediaNotDuplicate`, con su «Deshacer»).
+  ⚠️⚠️ **El CORREO NO SIRVE COMO CRITERIO EN UN MEDIO** (al revés que en un tercero): las seis
+  emisoras de Prisa comparten `cadenasmusicales@prisaradio.com` y saldrían quince parejas falsas.
+  Se miran solo los NOMBRES (igual normalizado, o uno dentro del otro **del mismo tipo**).
+  · En la ficha de una emisora se ve **lo que ha sonado en ella** (`_media_radio_summary`) con su
+  enlace al reporte: es lo que hace visible que al fusionar **no se pierde el histórico**.
+  ⚠️ Probado con la app real (37 comprobaciones): el volcado, que reutiliza el medio que ya estaba,
+  que no casa los parecidos, que no se pierde ni una tocada, la suma de duplicados, la
+  idempotencia, las seis pantallas, guardar tocadas, la fusión con su histórico y los permisos.
+
+- ⚠️⚠️ **PRESENTACIÓN A RADIOS · planificar, presentar y lo que dicen las tocadas** (sep 2026, lo
+  pidió Dani). El mismo módulo en la **ficha de la canción** y en el **proyecto discográfico**
+  (`templates/_song_radio_module.html`, contexto único **`_song_radio_module`**): la presentación
+  vive en la CANCIÓN y el proyecto solo la enseña.
+  · **El OBJETIVO**: a qué emisoras se va a presentar (`SongRadioPitch`, una fila por emisora, las
+  emisoras son los medios de tipo Radio). Se marcan en su pop-up (`song_radio_plan_save`) y
+  ⚠️ **solo se puede quitar lo que todavía no se ha presentado**: lo mandado es historia.
+  · **LOS ESTADOS** (`SONG_RADIO_STATUS_LABELS`): **PLANNED** (en el objetivo, sin presentar) ·
+  **SENT** (presentada) · **REJECTED** (no la cogen). Los valores viejos se siguen leyendo
+  (`_song_radio_status`: PENDING = PLANNED, ACCEPTED = SENT) y una migración de una vez los pone al
+  día (`song_radio_status_v2`), que es lo que hace que los filtros de SQL vean lo mismo que la
+  pantalla.
+  ⚠️⚠️ **«YA SUENA» NO ES UN ESTADO: SE MIRA EL DATO** (`_song_radio_on_air_map`, las tocadas de esa
+  canción en esa emisora). En cuanto suena, lo que se enseña es **desde cuándo** y **desaparecen**
+  «presentada» y la previsión de entrada; si no llega a sonar, se queda como presentada, que es la
+  verdad. Así no hay ninguna marca que mantener al día ni que se pueda desparejar del reporte.
+  · **QUIÉN LA PRESENTÓ, con su FOTO y su NICK** (nunca su correo, lo pidió Dani) y cuándo, junto a
+  la **fecha prevista de entrada en rotación** —que se conserva porque es la previsión de cuándo va
+  a empezar a sonar— (`song_radio_rotation_save`).
+  · **LA ALERTA**: si hay emisoras marcadas a las que todavía no se ha presentado, se dice arriba
+  del módulo con el botón que lo resuelve. En el proyecto, esa tarea **no se cierra porque una
+  emisora conteste, sino cuando se ha mandado a todas**.
+  · **EL MÓDULO DE INICIO de promoción** (`_home_radio_pitches`) ya no pregunta «¿la cogen?» al
+  pedirla: ahora sale lo **presentado de lo que no se sabe nada** (ni fecha ni tocadas), y **lo que
+  ya suena se cae solo**.
+  ⚠️ **SIN MÁSTER NO SE PRESENTA** (`_song_radio_send_ready`, comprobado también en el servidor): lo
+  que se manda es el tema, y va **el de más bits** (`_song_radio_master` sobre
+  **`_SONG_MASTER_SLOT_ORDER`**, el punto único de «cuál es el mejor máster», que estaba escrito a
+  mano en tres sitios).
+
+- ⚠️⚠️ **PRESENTACIÓN A RADIOS · EL CORREO** (sep 2026). Lo escribe una persona a otra, así que
+  **sale desde SU dirección** y lleva su firma.
+  · **A QUIÉN** (`_song_radio_recipients`): los contactos del medio marcados con **«recibe las
+  presentaciones a radio»** (`MediaContact.radio_pitch`, un módulo APARTE en los contactos de la
+  emisora; ⚠️ a veces no es una persona sino el **buzón de la cadena**, así que ahí basta con el
+  correo y el nick sale de la propia dirección).
+  ⚠️⚠️ **UN CORREO POR DIRECCIÓN, UN ENVÍO POR EMISORA**: si el mismo contacto recibe los temas de
+  varias emisoras del grupo se manda **UNO SOLO** nombrándolas todas (en **negrita**, haya una o
+  varias) y quedan apuntadas **tantas presentaciones como emisoras** (`SongRadioSend` + el `send_id`
+  de cada `SongRadioPitch`). Si además una emisora tiene su propio contacto, ese va en **su correo
+  aparte**: por eso la vista previa los enseña **uno a uno**.
+  ⚠️ Una emisora **sin nadie a quien mandárselo** se dice en la pantalla con el enlace a su ficha:
+  si desapareciera en silencio, alguien daría por presentado lo que no ha salido.
+  · **EL ASUNTO**: «Presentación nuevo single \<artista\> [y \<otros intérpretes\>], \<single\>,
+  \<medio(s)\>» (`_radio_pitch_subject`).
+  · **EL CUERPO** (`_radio_pitch_html`, la maqueta de las comunicaciones de la casa): el texto de
+  presentación —que **se puede retocar antes de mandarlo**— y debajo la ficha del tema. Respecto al
+  de Syncros: **sin one-stop, sin géneros y sin autores**, con la etiqueta **FOCUS SINGLE** cuando
+  lo es, el **ISRC** (el principal de audio) y la **fecha de publicación** con su día de la semana.
+  **Tres botones y solo tres**: Descargar audio · Descargar instrumental · la nota de prensa si ya
+  está subida, justo debajo del bocadillo de la canción.
+  ⚠️ Las descargas van por **`public_radio_download`** con el token del ENVÍO (al otro lado no hay
+  sesión) y sirven el archivo **tal cual**: a una emisora no se le manda un MP3 recomprimido.
+  · **DESDE QUÉ CORREO** (`_radio_sender_options`, `MailAccount.user_id`): el buzón de esa persona,
+  que se le asigna en **Integraciones → Correo**. Quien no lo tenga **lo sabe en la pantalla, antes
+  de mandar**, y se le ofrece salir desde **Promoción**. Y **presentar lo pueden hacer el sello y
+  PROMOCIÓN** (`_can_present_radio`): sus endpoints van en `REQUEST_ANY_ENDPOINTS` y comprueban
+  dentro, como `song_radio_pitch_decide`.
+  ⚠️ `_send_optional_email` devuelve **(ok, error)**: si el correo no sale, **no se marca nada como
+  presentado** y se dice por qué; si sale pero no como se pidió, también se dice.
+
+- ⚠️⚠️ **EL DPC DE PRISA** (sep 2026): el «Documento de Presentación de Canciones» de Prisa Radio va
+  **adjunto en PDF y SOLO al buzón `cadenasmusicales@prisaradio.com`** (`RADIO_PRISA_EMAIL`), que es
+  la dirección que ellos dan para recibirlo todo — el disparador es **a quién se le manda**, no una
+  marca del medio, así que no hace falta ninguna lista de emisoras en el código.
+  ⚠️ **UN SOLO documento aunque el correo cubra varias de sus cadenas**: van todas en «CADENA(S) A
+  LA(S) QUE SE PRESENTA», como pide el propio documento.
+  · `_radio_prisa_dpc_pdf` reproduce **su** documento (su logo y sus campos en su orden), **no el
+  estilo de nuestros PDF**: es de ellos. Compañía siempre **PIES Compañía Discográfica**,
+  categorización **«Prioridad - Focus Single»** (lo último solo si lo es), el ISRC principal de
+  audio, artista + intérpretes, y los enlaces (nota de prensa, Spotify, YouTube) **clicables**.
+  ⚠️⚠️ **Solo se rellena lo que tenemos**: lo que no haya se deja **en blanco** (lo pidió Dani) y lo
+  cumplimentado va en **negrita**. Las reproducciones salen de Chartmetric (`_cm_song_header`).
+  ⚠️ Si el PDF no se puede componer, **no se manda nada** y se dice: mejor eso que un correo a Prisa
+  sin su documento.
 
 - **TOCADAS · «ACTUALIZAR POSICIONES», todas de una vez** (ago 2026): con las tocadas de la semana
   ya subidas aparece el botón **«Actualizar posiciones»** (`plays_view` lo ofrece solo si

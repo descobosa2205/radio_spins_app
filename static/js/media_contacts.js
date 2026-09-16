@@ -33,6 +33,10 @@
     pon('role', d.role); pon('phone', d.phone); pon('email', d.email);
     var press = campo('press');
     if (press) press.checked = !!d.press;
+    /* PRESENTACIONES A RADIO: solo existe el campo en una emisora. Al añadir desde el módulo de
+       presentaciones llega ya marcado (`d.radio`), que es lo que se está haciendo. */
+    var rad = campo('radio');
+    if (rad) rad.checked = !!d.radio;
     var modo = m.querySelector('[data-mc-mode]');
     if (modo) modo.value = editando ? 'update_contact' : 'add_contact';
     var cid = m.querySelector('[data-mc-contact-id]');
@@ -110,7 +114,13 @@
 
   document.addEventListener('click', function (ev) {
     var nuevo = ev.target.closest('[data-mc-new]');
-    if (nuevo) { ev.preventDefault(); abrir(null); return; }
+    if (nuevo) {
+      ev.preventDefault();
+      /* Desde «Añadir quien lo recibe» (el módulo de presentaciones a radio) el contacto nace ya
+         marcado para recibirlas: es a lo que se ha entrado. */
+      abrir(nuevo.getAttribute('data-mc-radio') ? { radio: true } : null);
+      return;
+    }
 
     // «No está: crear una persona nueva» → los campos, en blanco. Se le creará su ficha de tercero.
     if (ev.target.closest('[data-mc-create]')) {
@@ -173,6 +183,7 @@
         phone: editar.getAttribute('data-mc-phone') || '',
         email: editar.getAttribute('data-mc-email') || '',
         press: !!(editar.getAttribute('data-mc-press') || ''),
+        radio: !!(editar.getAttribute('data-mc-radio') || ''),
         promoter_id: editar.getAttribute('data-mc-promoter-id') || ''
       });
       return;
@@ -220,11 +231,15 @@
     }, 280);
   });
 
-  /* ---------- El interruptor de NOTAS DE PRENSA ---------- */
+  /* ---------- Los interruptores de NOTAS DE PRENSA y de PRESENTACIONES A RADIO ----------
+     ⚠️ El MISMO motor para los dos: se guarda al momento y, si falla, el interruptor vuelve a
+     donde estaba (nunca se queda diciendo lo que no es). */
   document.addEventListener('change', function (ev) {
-    var sw = ev.target.closest('[data-mc-press]');
+    var sw = ev.target.closest('[data-mc-press], [data-mc-radio-sw]');
     if (!sw) return;
-    var caja = sw.closest('[data-mc-press-box]');
+    var radio = sw.matches('[data-mc-radio-sw]');
+    var caja = sw.closest(radio ? '[data-mc-radio-box]' : '[data-mc-press-box]');
+    var queEs = radio ? 'las presentaciones a radio' : 'las notas de prensa';
     var url = sw.getAttribute('data-mc-url');
     sw.disabled = true;
     if (caja) caja.classList.toggle('is-on', sw.checked);
@@ -238,7 +253,7 @@
         if (!js || !js.ok) {
           sw.checked = !sw.checked;
           if (caja) caja.classList.toggle('is-on', sw.checked);
-          alert('No se pudo guardar el envío de notas de prensa.');
+          alert('No se pudo guardar el envío de ' + queEs + '.');
         }
       })
       .catch(function () {
@@ -247,6 +262,26 @@
         if (caja) caja.classList.toggle('is-on', sw.checked);
         alert('No se pudo guardar el envío de notas de prensa.');
       });
+  });
+
+  /* La «x» de una cápsula del módulo de presentaciones: esa dirección deja de recibirlas.
+     ⚠️ NO borra el contacto —sigue en la lista del medio—: solo se le quita la marca. */
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-mc-radio-off]');
+    if (!b) return;
+    ev.preventDefault();
+    b.disabled = true;
+    fetch(b.getAttribute('data-mc-url'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: 0 })
+    }).then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (js) {
+        if (js && js.ok) { window.location.reload(); return; }
+        b.disabled = false;
+        alert('No se pudo quitar de las presentaciones a radio.');
+      })
+      .catch(function () { b.disabled = false; alert('No se pudo quitar de las presentaciones a radio.'); });
   });
 
   /* ---------- El PROGRAMA: los que ya existen, y lo que no está se crea ---------- */

@@ -175,6 +175,7 @@ from models import (
     SongMasterDeliveryLink,
     SongDemo,
     SongRadioPitch,
+    SongRadioSend,
     DiscoPromoWindow,
     DiscoForecastReport,
     DiscoApproval,
@@ -369,6 +370,7 @@ from models import (
     ensure_playlists_schema,
     ensure_disco_projects_schema,
     ensure_song_radio_schema,
+    ensure_radio_media_schema,
     ensure_disco_approvals_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
@@ -504,7 +506,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
     "concert_artwork_public_upload",
     # La MINIATURA de un cartel recién subido, por nuestro dominio (la ve quien está subiendo).
     "concert_artwork_public_file", "public_announce_confirm",
@@ -980,7 +982,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -1450,10 +1452,11 @@ def week_label_range(week_start: date) -> str:
     end = week_start + timedelta(days=6)
     return f"{week_start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')}"
 
-def week_with_latest_data(session, station_id: UUID | None = None):
+def week_with_latest_data(session, media_id: UUID | None = None):
+    """La última semana con tocadas (de una EMISORA —un medio de tipo Radio— o de todas)."""
     q = session.query(Play.week_start)
-    if station_id:
-        q = q.filter(Play.station_id == station_id)
+    if media_id:
+        q = q.filter(Play.media_id == media_id)
     row = q.order_by(Play.week_start.desc()).first()
     if row: return row[0]
     return monday_of(date.today())
@@ -7595,85 +7598,51 @@ def artist_commitment_delete(commitment_id):
     finally:
         session_db.close()
 
-# ---------- EMISORAS ----------
+# ---------- EMISORAS (retirada: la emisora es un MEDIO de tipo Radio) ----------
+# ⚠️⚠️ La sección «Emisoras» YA NO EXISTE (sep 2026, lo pidió Dani). Había DOS bases de emisoras
+# —estas y los medios de tipo Radio— y eran la misma cosa. Sus fichas se volcaron a Medios
+# (`_radio_media_migrate`) y las tres rutas se quedan como REDIRECCIÓN: un enlace guardado, un
+# marcador del navegador o un correo antiguo tienen que seguir llevando a alguna parte.
 @app.route("/emisoras", methods=["GET", "POST"])
 @admin_required
 def stations_view():
-    session_db = db()
+    """Lo que era la sección Emisoras: ahora son los medios marcados como Radio."""
+    return redirect(url_for("media_outlets_view", type=RADIO_MEDIA_TYPE))
 
-    # filtros (solo para vista)
-    f_artist_ids = request.args.getlist("artist") or []
-    f_sale_types = request.args.getlist("type") or []
-    f_statuses = request.args.getlist("status") or []
-
-    f_artist_ids = [to_uuid(x) for x in f_artist_ids if (x or "").strip()]
-    f_sale_types = [(x or "").strip().upper() for x in f_sale_types if (x or "").strip()]
-    f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
-
-    # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
-
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        logo = request.files.get("logo")
-        try:
-            logo_url = upload_image(logo, "stations") if logo else None
-            country_code, country_name = _country_payload_from_form(request.form)
-            st = RadioStation(name=name, logo_url=logo_url, country_code=country_code, country_name=country_name)
-            session_db.add(st)
-            session_db.commit()
-            flash("Emisora creada.", "success")
-        except Exception as e:
-            session_db.rollback()
-            flash(f"Error creando emisora: {e}", "danger")
-        finally:
-            session_db.close()
-        return redirect(url_for("stations_view"))
-    stations = session_db.query(RadioStation).order_by(RadioStation.name.asc()).all()
-    session_db.close()
-    return render_template("stations.html", stations=stations, country_options=country_options_es())
 
 @app.post("/emisoras/<station_id>/update")
 @admin_required
 def station_update(station_id):
-    session_db = db()
-    st = session_db.get(RadioStation, to_uuid(station_id))
-    if not st:
-        flash("Emisora no encontrada.", "warning")
-        session_db.close()
-        return redirect(url_for("stations_view"))
-    st.name = request.form.get("name", st.name).strip()
-    st.country_code, st.country_name = _country_payload_from_form(request.form)
-    logo = request.files.get("logo")
-    try:
-        if logo and logo.filename:
-            st.logo_url = upload_image(logo, "stations")
-        session_db.commit()
-        flash("Emisora actualizada.", "success")
-    except Exception as e:
-        session_db.rollback()
-        flash(f"Error actualizando: {e}", "danger")
-    finally:
-        session_db.close()
-    return redirect(url_for("stations_view"))
+    """Una emisora se edita en su ficha de MEDIO."""
+    destino = _radio_station_media_url(station_id)
+    flash("Las emisoras están ahora en Medios: edítala en su ficha.", "info")
+    return redirect(destino)
+
 
 @app.post("/emisoras/<station_id>/delete")
 @admin_required
 def station_delete(station_id):
-    session_db = db()
-    try:
-        st = session_db.get(RadioStation, to_uuid(station_id))
-        if st:
-            session_db.delete(st)
-            session_db.commit()
-            flash("Emisora eliminada.", "success")
-    except Exception as e:
-        session_db.rollback()
-        flash(f"Error eliminando: {e}", "danger")
-    finally:
-        session_db.close()
-    return redirect(url_for("stations_view"))
+    """Una emisora se borra (o se fusiona) desde Medios."""
+    destino = _radio_station_media_url(station_id)
+    flash("Las emisoras están ahora en Medios: bórrala o fusiónala desde su ficha.", "info")
+    return redirect(destino)
+
+
+def _radio_station_media_url(station_id) -> str:
+    """La ficha de MEDIO en la que se convirtió esa emisora vieja (o el listado de emisoras)."""
+    pk = _safe_uuid(station_id)
+    if pk:
+        session_db = db()
+        try:
+            st = session_db.get(RadioStation, pk)
+            if st is not None and getattr(st, "media_id", None):
+                return url_for("media_outlet_detail_view", media_id=str(st.media_id))
+        except Exception:
+            app.logger.exception("[radio] no se pudo resolver la emisora %s", station_id)
+        finally:
+            session_db.close()
+    return url_for("media_outlets_view", type=RADIO_MEDIA_TYPE)
+
 
 # ---------- DISCOGRÁFICA ----------
 
@@ -9592,6 +9561,12 @@ def _save_contract_royalty_rows(session_db, media_kind: str, item_id, rows_paylo
 # un master de 300 MB: con el `data` y el `fmt ` del RIFF sale la duración exacta.
 WAV_HEADER_BYTES = 512 * 1024          # con esto entra la cabecera de cualquier master real
 _SONG_DURATION_SLOT_ORDER = ["MASTER_16", "MASTER_48", "MASTER_24"]
+
+# ⚠️⚠️ EL ORDEN DE CALIDAD DE UN MÁSTER, punto ÚNICO (48 bits antes que 24 y que 16). Estaba
+# escrito a mano en tres sitios —el audio de Syncros, el del listado y el de la presentación a
+# radio—, y tres copias de «cuál es el mejor máster» acaban mandando archivos distintos desde cada
+# pantalla. Lo que no esté en la tabla va al final (un subproducto no es el máster).
+_SONG_MASTER_SLOT_ORDER = {"MASTER_48": 0, "MASTER_24": 1, "MASTER_16": 2}
 
 
 def _wav_duration_from_header(datos: bytes, tamano_total: int | None = None) -> int | None:
@@ -24575,20 +24550,21 @@ def discografica_song_detail(song_id):
             or 0
         )
 
+        # ⚠️ La emisora es un MEDIO de tipo Radio (`_radio_media_query`), no una `RadioStation`.
         rows = (
             session_db.query(
-                RadioStation.id,
-                RadioStation.name,
-                RadioStation.logo_url,
-                RadioStation.country_code,
-                RadioStation.country_name,
+                MediaOutlet.id,
+                MediaOutlet.name,
+                MediaOutlet.logo_url,
+                MediaOutlet.country_code,
+                MediaOutlet.country_name,
                 func.coalesce(func.sum(Play.spins), 0).label("total_spins"),
             )
-            .join(Play, Play.station_id == RadioStation.id)
+            .join(Play, Play.media_id == MediaOutlet.id)
             .filter(Play.song_id == s.id)
-            .group_by(RadioStation.id, RadioStation.name, RadioStation.logo_url, RadioStation.country_code, RadioStation.country_name)
+            .group_by(MediaOutlet.id, MediaOutlet.name, MediaOutlet.logo_url, MediaOutlet.country_code, MediaOutlet.country_name)
             .having(func.coalesce(func.sum(Play.spins), 0) > 0)
-            .order_by(text("total_spins DESC"), RadioStation.name.asc())
+            .order_by(text("total_spins DESC"), MediaOutlet.name.asc())
             .all()
         )
 
@@ -24765,8 +24741,12 @@ def discografica_song_detail(song_id):
         # que se le ha pedido al artista.
         platform_ids=_song_platform_ids(session_db, s.id),
         platform_id_catalog=SONG_PLATFORM_ID_CATALOG,
-        # PRESENTACIÓN A RADIO: se decide en el proyecto pero es de la CANCIÓN, así que se ve
-        # también aquí (en qué emisoras entra y desde cuándo).
+        # PRESENTACIÓN A RADIOS: es de la CANCIÓN (el proyecto solo la enseña), así que el módulo
+        # entero —el objetivo, quién la presentó, la previsión de rotación y lo que ya suena— se ve
+        # aquí con el MISMO contexto que en el proyecto (`_song_radio_module`).
+        radio_module=_song_radio_module(session_db, s),
+        rm_can_edit=can_edit_discografica(),
+        radio_media=_disco_radio_media_options(session_db),
         radio_rows=_disco_radio_rows(session_db, s),
         isrc_audio=isrc_audio,
         isrc_video=isrc_video,
@@ -28146,9 +28126,53 @@ def _disco_logistics_roadmap_add(session_db, project, user_id) -> None:
 # BLOQUEADA (rayada), diciendo qué falta.
 # ═════════════════════════════════════════════════════════════════════════════
 
-SONG_RADIO_STATUS_LABELS = {"PENDING": "Pendiente de contestar",
-                            "ACCEPTED": "Va a entrar en rotación",
+# ⚠️⚠️ EL ESTADO DE UNA PRESENTACIÓN A RADIO, por emisora (sep 2026, rediseño pedido por Dani):
+#   · PLANNED  = está en el OBJETIVO (a esta emisora hay que presentarla) y todavía no se ha hecho.
+#   · SENT     = PRESENTADA: salió el correo. Se ve quién la presentó (su FOTO y su NICK, nunca su
+#                correo) y cuándo, junto con la fecha PREVISTA de entrada en rotación —que es la
+#                previsión de cuándo va a empezar a sonar, y por eso se conserva—.
+#   · REJECTED = la emisora ha dicho que no. Un rechazo deja rastro: no puede ser invisible.
+# ⚠️⚠️ «YA SUENA» NO ES UN ESTADO: se mira el DATO (sus tocadas en esa emisora). En cuanto la
+# canción tiene tocadas ahí, lo que se enseña es **desde cuándo suena** y desaparecen «presentada»
+# y la previsión de entrada — lo que hacía falta saber ya se sabe. Si no llega a sonar nunca, se
+# queda como presentada, que es la verdad.
+# ⚠️ Los valores VIEJOS se siguen leyendo (`_song_radio_status`): PENDING = PLANNED y
+# ACCEPTED = SENT con su fecha prevista.
+SONG_RADIO_STATUS_LABELS = {"PLANNED": "Pendiente de presentar",
+                            "SENT": "Presentada",
                             "REJECTED": "La emisora la ha rechazado"}
+_SONG_RADIO_STATUS_OLD = {"PENDING": "PLANNED", "ACCEPTED": "SENT"}
+
+
+def _song_radio_status(fila) -> str:
+    """El estado de una presentación, leyendo también los valores de antes del rediseño."""
+    estado = (getattr(fila, "status", "") or "PLANNED").strip().upper()
+    return _SONG_RADIO_STATUS_OLD.get(estado, estado)
+
+
+def _song_radio_on_air_map(session_db, song_id, media_ids=None) -> dict:
+    """DESDE CUÁNDO SUENA esa canción en cada emisora: {media_id(str): {"since", "spins"}}.
+
+    ⚠️ Punto ÚNICO de «ya está en rotación», y sale del DATO: las TOCADAS (`Play`) de esa canción
+    en esa emisora. No hay ninguna marca que mantener al día —y por eso no se puede desparejar del
+    reporte de radios—. `since` es la PRIMERA semana en la que sonó.
+    ⚠️ En UNA consulta agrupada: una por emisora dejaría la ficha inservible."""
+    if not song_id:
+        return {}
+    try:
+        q = (session_db.query(Play.media_id,
+                              func.min(Play.week_start),
+                              func.coalesce(func.sum(Play.spins), 0))
+             .filter(Play.song_id == song_id, Play.media_id.isnot(None),
+                     func.coalesce(Play.spins, 0) > 0)
+             .group_by(Play.media_id))
+        if media_ids:
+            q = q.filter(Play.media_id.in_([x for x in media_ids if x]))
+        return {str(mid): {"since": desde, "spins": int(total or 0)}
+                for mid, desde, total in q.all()}
+    except Exception:
+        app.logger.exception("[radio] no se pudieron leer las tocadas de la canción")
+        return {}
 
 
 def _song_focus_state(song) -> dict:
@@ -28202,7 +28226,18 @@ def _disco_radio_ready(session_db, project, release_song=None) -> dict:
 
 
 def _disco_radio_rows(session_db, song) -> list[dict]:
-    """Las emisoras a las que se ha presentado la canción, con su estado."""
+    """LAS EMISORAS A LAS QUE VA ESTA CANCIÓN, con su estado. **Punto único del módulo**.
+
+    Lo usan la ficha de la canción, el proyecto discográfico, el cuadro de Previsiones y el envío,
+    así que los cuatro dicen exactamente lo mismo. De cada emisora:
+      · **pendiente de presentar** (está en el objetivo y aún no se ha hecho) → se pincha y se
+        presenta;
+      · **presentada** → **quién** (su foto y su nick, nunca su correo) y **cuándo**, más la fecha
+        **prevista** de entrada en rotación si se sabe;
+      · **ya suena** → **desde cuándo** (la primera semana con tocadas) y cuántas lleva. Entonces
+        **desaparecen** «presentada» y la previsión: lo que hacía falta saber ya se sabe.
+      · **rechazada** → lo dijo la emisora, con su motivo.
+    """
     if song is None:
         return []
     try:
@@ -28213,10 +28248,25 @@ def _disco_radio_rows(session_db, song) -> list[dict]:
     except Exception:
         app.logger.exception("[radio] no se pudieron leer las presentaciones")
         return []
+    if not filas:
+        return []
+    suena = _song_radio_on_air_map(session_db, song.id, [f.media_id for f in filas])
+    # La FOTO de quien presentó cada una, de UNA consulta (nada de una por fila).
+    uids = {f.presented_by_user_id for f in filas if getattr(f, "presented_by_user_id", None)}
+    fotos = {}
+    if uids:
+        try:
+            for prof in session_db.query(UserProfile).filter(UserProfile.user_id.in_(uids)).all():
+                fotos[str(prof.user_id)] = {"photo": (prof.photo_url or ""), "nick": (prof.nick or "")}
+        except Exception:
+            app.logger.exception("[radio] no se pudieron leer las fotos de quien presentó")
     salida = []
     for r in filas:
-        estado = (r.status or "PENDING").upper()
+        estado = _song_radio_status(r)
         medio = getattr(r, "media", None)
+        quien = fotos.get(str(getattr(r, "presented_by_user_id", "") or ""), {})
+        rot = suena.get(str(r.media_id)) or {}
+        en_rotacion = bool(rot.get("since"))
         salida.append({
             "id": str(r.id),
             "media_id": str(r.media_id),
@@ -28224,38 +28274,118 @@ def _disco_radio_rows(session_db, song) -> list[dict]:
             "logo_url": (getattr(medio, "logo_url", "") or ""),
             "status": estado,
             "status_label": SONG_RADIO_STATUS_LABELS.get(estado, estado),
+            # Está en el objetivo y todavía no se ha presentado.
+            "planned": estado == "PLANNED",
+            "sent": estado == "SENT",
+            "rejected": estado == "REJECTED",
+            # QUIÉN la presentó: su foto y su nick (lo pidió Dani; el correo no se enseña).
+            "by_nick": (quien.get("nick") or (r.presented_by_nick or "")),
+            "by_photo": (quien.get("photo") or ""),
+            "sent_at": r.presented_at,
+            "sent_label": (_format_madrid_datetime_label(r.presented_at) if r.presented_at else ""),
+            # La PREVISIÓN de cuándo empieza a sonar (se deja de enseñar cuando ya suena).
             "start_date": r.start_date,
-            "start_label": (r.start_date.strftime("%d/%m/%Y") if r.start_date else ""),
+            "start_label": (format_date_long_es(r.start_date) if r.start_date else ""),
+            # ⚠️ EL DATO manda: si ya tiene tocadas, esto es lo que se enseña.
+            "on_air": en_rotacion,
+            "on_air_since": rot.get("since"),
+            "on_air_label": (format_date_long_es(rot["since"]) if en_rotacion else ""),
+            "spins": int(rot.get("spins") or 0),
             "note": (r.note or ""),
             "decided_by": (r.decided_by_nick or ""),
             "decided_label": (_format_madrid_datetime_label(r.decided_at) if r.decided_at else ""),
-            "pending": estado == "PENDING",
+            # ⚠️ Se conserva para lo que ya leía «pending» (el cuadro de Previsiones y el proyecto):
+            # una presentación pendiente es la que todavía no se ha hecho.
+            "pending": estado == "PLANNED",
         })
     return salida
 
 
-def _disco_radio_state(session_db, project, release_song=None) -> dict:
-    """Estado de la presentación a radio de un proyecto: si toca, si se puede y cómo va."""
-    cancion = release_song if release_song is not None else _disco_project_release_song(session_db, project)
-    focus = _song_focus_state(cancion)
-    listo = _disco_radio_ready(session_db, project, cancion)
-    filas = _disco_radio_rows(session_db, cancion)
-    pendientes = [r for r in filas if r["pending"]]
-    aceptadas = [r for r in filas if r["status"] == "ACCEPTED"]
-    rechazadas = [r for r in filas if r["status"] == "REJECTED"]
+def _song_radio_module(session_db, song, *, project=None) -> dict:
+    """EL MÓDULO «PRESENTACIÓN A RADIOS», tal cual se pinta en la ficha de la canción y en el
+    proyecto discográfico. Un solo contexto para los dos sitios: lo que se decide en uno se ve
+    igual en el otro.
+
+    ⚠️ **AVISA DE LO PLANIFICADO QUE NO SE HA PRESENTADO** (`missing`), que es justo lo que se
+    pierde de vista: marcar las emisoras y no llegar a mandarlo.
+    """
+    filas = _disco_radio_rows(session_db, song)
+    listo = _song_radio_send_ready(session_db, song)
     return {
-        "song": cancion,
-        "focus": focus,
+        "song": song,
+        "project": project,
+        "rows": filas,
+        "planned": [r for r in filas if r["planned"]],
+        "sent": [r for r in filas if r["sent"] and not r["on_air"]],
+        "on_air": [r for r in filas if r["on_air"]],
+        "rejected": [r for r in filas if r["rejected"] and not r["on_air"]],
+        "any": bool(filas),
+        # Lo que falta para poder presentar (sin máster no se presenta).
+        "ready": listo["ready"],
+        "missing_to_send": listo["missing"],
+        "focus": _song_focus_state(song),
+    }
+
+
+def _song_radio_send_ready(session_db, song) -> dict:
+    """¿SE PUEDE PRESENTAR YA? Hace falta el MÁSTER DE AUDIO.
+
+    ⚠️⚠️ **Sin máster no se presenta a radio** (lo pidió Dani): lo que se le manda a una emisora es
+    el tema para que lo pinche, y se manda **el de más bits** de los que haya subidos. Lo comprueba
+    el servidor, no solo la pantalla."""
+    if song is None:
+        return {"ready": False, "missing": ["la canción"], "master": None}
+    master = _song_radio_master(session_db, song)
+    falta = []
+    if master is None:
+        falta.append("el máster de audio")
+    return {"ready": not falta, "missing": falta, "master": master}
+
+
+def _song_radio_master(session_db, song):
+    """EL MÁSTER QUE SE LE MANDA A LA EMISORA: **el de más bits** de los que estén subidos.
+
+    ⚠️ El orden de calidad es el de siempre (48 > 24 > 16, `_SONG_MASTER_SLOT_ORDER`) y, a igualdad,
+    el último subido. Es el mismo criterio con el que se escucha un tema en Syncros: si hubiera dos
+    formas de elegir «el máster», acabarían mandándose archivos distintos desde cada pantalla."""
+    if song is None:
+        return None
+    try:
+        filas = (session_db.query(SongMaterial)
+                 .filter(SongMaterial.song_id == song.id,
+                         func.upper(func.coalesce(SongMaterial.category, "")) == "MASTER")
+                 .order_by(SongMaterial.created_at.desc()).all())
+    except Exception:
+        app.logger.exception("[radio] no se pudo leer el máster de la canción")
+        return None
+    mejor, peso_mejor = None, 99
+    for m in filas:
+        if not (getattr(m, "file_url", None) or "").strip():
+            continue
+        peso = _SONG_MASTER_SLOT_ORDER.get((getattr(m, "slot_key", "") or "").strip().upper(), 5)
+        if peso < peso_mejor:
+            mejor, peso_mejor = m, peso
+    return mejor
+
+
+def _disco_radio_state(session_db, project, release_song=None) -> dict:
+    """Estado de la presentación a radio de un PROYECTO: a cuántas se va, cuántas faltan y cómo va.
+
+    ⚠️ Es el MISMO módulo que el de la ficha de la canción (`_song_radio_module`): la presentación
+    vive en la canción y el proyecto solo la enseña, así que no puede haber dos versiones."""
+    cancion = release_song if release_song is not None else _disco_project_release_song(session_db, project)
+    listo = _disco_radio_ready(session_db, project, cancion)
+    modulo = _song_radio_module(session_db, cancion, project=project)
+    filas = modulo["rows"]
+    return dict(modulo, **{
         "ready": listo["ready"],
         "missing": listo["missing"],
-        "rows": filas,
         "requested": bool(filas),
-        "pending": pendientes,
-        "accepted": aceptadas,
-        "rejected": rechazadas,
-        # Terminado cuando se ha pedido y ya han contestado todas.
-        "done": bool(filas and not pendientes),
-    }
+        # ⚠️ «Pendiente» es lo PLANIFICADO QUE NO SE HA PRESENTADO: la tarea del proyecto se
+        # termina cuando se ha mandado a todas las emisoras del objetivo, no cuando contestan.
+        "accepted": modulo["on_air"],
+        "done": bool(filas and not modulo["planned"]),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -28449,7 +28579,7 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
                 "id": str(pitch.id), "media_id": str(pitch.media_id),
                 "name": (getattr(media, "name", "") or ""),
                 "logo_url": (getattr(media, "logo_url", "") or ""),
-                "status": (pitch.status or "PENDING"),
+                "status": _song_radio_status(pitch),
                 "start_date": (pitch.start_date.isoformat() if pitch.start_date else ""),
             })
     for s, aid in canciones:
@@ -28522,21 +28652,21 @@ def _forecast_radio_runs(session_db, artist_ids: list, desde: date, hasta: date)
     if not ids:
         return out
     sub = (session_db.query(SongArtist.artist_id.label("aid"),
-                            Play.station_id.label("sid"),
+                            Play.media_id.label("sid"),
                             Play.song_id.label("song"),
                             func.min(Play.week_start).label("entro"),
                             func.max(Play.week_start).label("ultima"),
                             func.sum(Play.spins).label("total"))
            .join(Play, Play.song_id == SongArtist.song_id)
            .filter(SongArtist.artist_id.in_(ids))
-           .filter(Play.spins > 0, Play.week_start <= hasta)
-           .group_by(SongArtist.artist_id, Play.station_id, Play.song_id)
+           .filter(Play.spins > 0, Play.week_start <= hasta, Play.media_id.isnot(None))
+           .group_by(SongArtist.artist_id, Play.media_id, Play.song_id)
            .subquery())
     filas = (session_db.query(sub.c.aid, sub.c.sid, sub.c.song, sub.c.entro, sub.c.ultima, sub.c.total,
-                              Song.title, RadioStation.name, RadioStation.logo_url,
-                              RadioStation.logo_color)
+                              Song.title, MediaOutlet.name, MediaOutlet.logo_url,
+                              MediaOutlet.logo_color)
              .outerjoin(Song, Song.id == sub.c.song)
-             .outerjoin(RadioStation, RadioStation.id == sub.c.sid)
+             .outerjoin(MediaOutlet, MediaOutlet.id == sub.c.sid)
              .all())
     # De cada (artista, emisora) nos quedamos con la canción que ENTRÓ la última.
     mejor = {}
@@ -28797,7 +28927,7 @@ def _forecast_pitch_calendar(session_db, artist_ids: list, desde: date, hasta: d
             "cover_url": _forecast_cover(song),
             "media_id": str(pitch.media_id), "station": (getattr(media, "name", "") or ""),
             "logo_url": (getattr(media, "logo_url", "") or ""),
-            "status": (pitch.status or "PENDING"),
+            "status": _song_radio_status(pitch),
             "date": (fecha.isoformat() if fecha else ""),
             "date_label": (fecha.strftime("%d/%m/%Y") if fecha else "Sin fecha"),
             "note": (pitch.note or ""),
@@ -29928,14 +30058,14 @@ def forecast_song_radio_plan(sid):
             if not mu:
                 continue
             session_db.add(SongRadioPitch(
-                song_id=song.id, media_id=mu, status="PENDING", start_date=fecha,
+                song_id=song.id, media_id=mu, status="PLANNED", start_date=fecha,
                 requested_by_user_id=to_uuid(str(estado.get("user_id") or "")) or None,
                 requested_by_nick=(estado.get("nick") or "")))
             nuevas += 1
         # ⚠️ Solo se quita lo que TODAVÍA no ha contestado la emisora: un «sí entra» o un «no» es
         # información que no se borra desde un cuadro de mando.
         for mid, pitch in actuales.items():
-            if mid not in quiero and (pitch.status or "PENDING") == "PENDING":
+            if mid not in quiero and _song_radio_status(pitch) == "PLANNED":
                 session_db.delete(pitch)
                 quitadas += 1
         session_db.commit()
@@ -30009,7 +30139,7 @@ def forecast_station_colors():
         return jsonify({"ok": True, "colors": {}})
     session_db = db()
     try:
-        filas = session_db.query(RadioStation).filter(RadioStation.id.in_(ids[:60])).all()
+        filas = session_db.query(MediaOutlet).filter(MediaOutlet.id.in_(ids[:60])).all()
         out, tocado, t0 = {}, False, time.monotonic()
         for st in filas:
             url = (st.logo_url or "").strip()
@@ -33077,49 +33207,65 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   value=foco["label"] + (" · lo marcó %s" % foco["by"] if foco["by"] else ""),
                   menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpFocusModal"}])
         # La presentación a radio SOLO si es focus single.
+        # ⚠️ El pop-up de elegir emisoras es el del MÓDULO compartido (`#songRadioPlanModal`): es
+        # el mismo en la ficha de la canción y aquí.
         if foco["yes"]:
             if not radio["requested"]:
                 if not radio["ready"]:
                     # ⚠️ Bloqueada (y rayada): no se puede mandar a radio sin nada que mandar.
-                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", grupo="single",
-                          state="blocked",
+                    tarea("radio", "Elegir emisoras para presentarla", "", "fa-radio",
+                          grupo="single", state="blocked",
                           hint="Falta %s" % " y ".join(radio["missing"]))
                 else:
-                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", True,
-                          grupo="single", hint="Se marcan las emisoras y contesta promoción",
-                          action_label="Solicitar", modal="#dpRadioModal")
-            elif not radio["done"]:
-                tarea("radio", "Presentación a radio", "", "fa-hourglass-half", grupo="single",
-                      state="wait",
-                      value="%d emisora%s · %d contestada%s"
-                            % (len(radio["rows"]), "" if len(radio["rows"]) == 1 else "s",
-                               len(radio["rows"]) - len(radio["pending"]),
-                               "" if (len(radio["rows"]) - len(radio["pending"])) == 1 else "s"),
-                      hint="Contesta promoción (o dirección con función de sello)",
-                      menu=[{"label": "Añadir más emisoras", "icon": "fa-plus", "modal": "#dpRadioModal"}])
+                    tarea("radio", "Elegir emisoras para presentarla", "", "fa-radio", True,
+                          grupo="single", hint="A qué emisoras se le va a presentar el tema",
+                          action_label="Elegir", modal="#songRadioPlanModal")
+            elif radio["planned"]:
+                # ⚠️ LO PLANIFICADO QUE NO SE HA PRESENTADO es lo que queda por hacer: la tarea no
+                # se cierra porque una emisora conteste, sino cuando se ha MANDADO a todas.
+                # ⚠️ La URL va en el TERCER posicional: `tarea(clave, texto, url, …)`.
+                tarea("radio", "Presentar a radio",
+                      url_for("song_radio_send_view", song_id=radio["song"].id),
+                      "fa-paper-plane", True, grupo="single",
+                      value="%d de %d emisora%s sin presentar"
+                            % (len(radio["planned"]), len(radio["rows"]),
+                               "" if len(radio["rows"]) == 1 else "s"),
+                      hint="Sale un correo por emisora desde tu cuenta",
+                      action_label="Presentar",
+                      menu=[{"label": "Modificar emisoras", "icon": "fa-sliders",
+                             "modal": "#songRadioPlanModal"}])
             else:
-                tarea("radio", "Presentación a radio", "", "fa-radio", grupo="single", state="done",
-                      value="%d en rotación · %d rechazada%s"
-                            % (len(radio["accepted"]), len(radio["rejected"]),
-                               "" if len(radio["rejected"]) == 1 else "s"),
+                tarea("radio", "Presentación a radios", "", "fa-radio", grupo="single", state="done",
+                      value="%d presentada%s · %d ya suena%s"
+                            % (len(radio["sent"]) + len(radio["on_air"]),
+                               "" if (len(radio["sent"]) + len(radio["on_air"])) == 1 else "s",
+                               len(radio["on_air"]), "n" if len(radio["on_air"]) != 1 else ""),
                       menu=[{"label": "Presentar a otra emisora", "icon": "fa-plus",
-                             "modal": "#dpRadioModal"}])
-            # …y una SUBTAREA por emisora, con lo que ha dicho cada una.
+                             "modal": "#songRadioPlanModal"}])
+            # …y una SUBTAREA por emisora, con lo que hay de cada una.
             for fila in radio["rows"]:
-                if fila["status"] == "ACCEPTED":
-                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-tower-broadcast",
+                if fila["on_air"]:
+                    # ⚠️ YA SUENA: manda el DATO (sus tocadas), y entonces no se habla ni de
+                    # «presentada» ni de la previsión de entrada.
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-circle-play",
                           grupo="single", sub=True, state="done",
-                          value="Entra en rotación%s%s"
-                                % ((" el %s" % fila["start_label"]) if fila["start_label"] else "",
-                                   (" · %s" % fila["decided_by"]) if fila["decided_by"] else ""))
-                elif fila["status"] == "REJECTED":
+                          value="Suena desde el %s · %d tocada%s"
+                                % (fila["on_air_label"], fila["spins"],
+                                   "" if fila["spins"] == 1 else "s"))
+                elif fila["rejected"]:
                     tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-circle-xmark",
                           grupo="single", sub=True, state="done",
                           value="No la coge%s" % ((" · %s" % fila["note"]) if fila["note"] else ""))
+                elif fila["sent"]:
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-paper-plane",
+                          grupo="single", sub=True, state="done",
+                          value="Presentada%s%s"
+                                % ((" por %s" % fila["by_nick"]) if fila["by_nick"] else "",
+                                   (" · entra el %s" % fila["start_label"]) if fila["start_label"] else ""))
                 else:
                     tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-hourglass-half",
                           grupo="single", sub=True, state="wait",
-                          hint="Pendiente de que promoción diga si entra")
+                          hint="Todavía no se le ha presentado")
 
     # ================= 9 · EL PITCH (con él se escribe todo lo demás) =================
     if _disco_project_release_song(session_db, project) is not None:
@@ -40455,7 +40601,7 @@ def disco_project_radio_request(project_id):
             if existe is not None:
                 continue
             session_db.add(SongRadioPitch(
-                song_id=cancion.id, project_id=project.id, media_id=pk, status="PENDING",
+                song_id=cancion.id, project_id=project.id, media_id=pk, status="PLANNED",
                 requested_by_user_id=_safe_uuid(yo.get("user_id")),
                 requested_by_nick=(yo.get("nick") or ""), requested_at=_now_madrid()))
             nuevas += 1
@@ -40476,6 +40622,368 @@ def disco_project_radio_request(project_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(destino))
+
+
+@app.post("/radio/cancion/<song_id>/emisoras", endpoint="song_radio_plan_save")
+@admin_required
+def song_radio_plan_save(song_id):
+    """A QUÉ EMISORAS SE VA A PRESENTAR esta canción (el OBJETIVO), desde su ficha o su proyecto.
+
+    ⚠️ Es la MISMA presentación de siempre (`SongRadioPitch`, una fila por emisora): lo que se
+    marque aquí sale en la ficha de la canción, en el proyecto, en el plan de lanzamiento y en el
+    cuadro de Previsiones.
+    ⚠️⚠️ **Solo se puede QUITAR lo que todavía no se ha presentado**: una emisora a la que ya se le
+    mandó el tema es historia, y borrarla dejaría el envío sin rastro. Lo comprueba el servidor."""
+    if not _can_present_radio():
+        return forbid("No tienes permisos para configurar la presentación a radio.")
+    session_db = db()
+    destino = request.form.get("next") or url_for("discografica_song_detail", song_id=song_id,
+                                                  tab="informacion")
+    try:
+        cancion = session_db.get(Song, _safe_uuid(song_id))
+        if cancion is None:
+            flash("Esa canción no existe.", "warning")
+            return redirect(safe_next_or(url_for("discografica_view")))
+        yo = (_current_user_state() or {})
+        proyecto_id = _safe_uuid(request.form.get("project_id"))
+        quiero = {x for x in request.form.getlist("media_ids") if (x or "").strip()}
+        actuales = {str(p.media_id): p for p in (session_db.query(SongRadioPitch)
+                                                 .filter(SongRadioPitch.song_id == cancion.id).all())}
+        nuevas, quitadas = 0, 0
+        for mid in quiero:
+            if mid in actuales:
+                continue
+            pk = _safe_uuid(mid)
+            if not pk:
+                continue
+            session_db.add(SongRadioPitch(
+                song_id=cancion.id, project_id=proyecto_id, media_id=pk, status="PLANNED",
+                requested_by_user_id=_safe_uuid(yo.get("user_id")),
+                requested_by_nick=(yo.get("nick") or ""), requested_at=_now_madrid()))
+            nuevas += 1
+        for mid, pitch in actuales.items():
+            if mid not in quiero and _song_radio_status(pitch) == "PLANNED":
+                session_db.delete(pitch)
+                quitadas += 1
+        session_db.commit()
+        if nuevas or quitadas:
+            partes = []
+            if nuevas:
+                partes.append("%d emisora%s más" % (nuevas, "s" if nuevas != 1 else ""))
+            if quitadas:
+                partes.append("%d quitada%s" % (quitadas, "s" if quitadas != 1 else ""))
+            flash("Objetivo de radio guardado: %s." % _join_es(partes), "success")
+        else:
+            flash("El objetivo de radio se queda como estaba.", "info")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[radio] no se pudo guardar el objetivo de emisoras")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/radio/presentacion/<pitch_id>/rotacion", endpoint="song_radio_rotation_save")
+@admin_required
+def song_radio_rotation_save(pitch_id):
+    """CUÁNDO DICE LA EMISORA QUE ENTRA EN ROTACIÓN (la previsión de cuándo empezará a sonar).
+
+    ⚠️ Se conserva a propósito (lo pidió Dani): es la previsión de cuándo va a tener tocadas, y por
+    eso se enseña junto a quién la presentó. En cuanto la canción SUENA de verdad en esa emisora,
+    deja de pintarse: manda el dato.
+    ⚠️ Lo contesta **promoción**, que no tiene por qué poder editar discográfica: va en
+    `REQUEST_ANY_ENDPOINTS` como su hermano `song_radio_pitch_decide`, y aquí se comprueba."""
+    session_db = db()
+    destino = request.form.get("next") or url_for("home")
+    try:
+        fila = session_db.get(SongRadioPitch, _safe_uuid(pitch_id))
+        if fila is None:
+            flash("Esa presentación no existe.", "warning")
+            return redirect(safe_next_or(destino))
+        yo = (_current_user_state() or {})
+        puede = (is_master() or str(yo.get("user_id") or "") in _disco_radio_deciders(session_db)
+                 or can_edit_discografica())
+        if not puede:
+            return forbid("Esto lo apunta promoción.")
+        fecha = parse_optional_date(request.form.get("start_date"))
+        fila.start_date = fecha
+        fila.note = (request.form.get("note") or "").strip() or None
+        fila.decided_by_user_id = _safe_uuid(yo.get("user_id"))
+        fila.decided_by_nick = (yo.get("nick") or "")
+        fila.decided_at = _now_madrid()
+        fila.updated_at = _now_madrid()
+        session_db.add(fila)
+        session_db.commit()
+        flash("Anotado: entra en rotación el %s." % format_date_long_es(fecha) if fecha
+              else "Anotado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[radio] no se pudo guardar la entrada en rotación")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _can_present_radio() -> bool:
+    """QUIÉN PRESENTA UN TEMA A RADIO: el **SELLO** y **PROMOCIÓN**.
+
+    ⚠️ Presentar es trabajo de promoción (es quien habla con las emisoras) y del sello (es quien
+    decide el lanzamiento), así que no se puede exigir solo Discográfica: por eso estos endpoints
+    van en `REQUEST_ANY_ENDPOINTS` y comprueban AQUÍ, como su hermano `song_radio_pitch_decide`."""
+    return bool(can_edit_discografica() or can_edit_promo() or is_master())
+
+
+@app.get("/radio/cancion/<song_id>/presentar", endpoint="song_radio_send_view")
+@admin_required
+def song_radio_send_view(song_id):
+    """LA PANTALLA DE PRESENTAR: los correos que van a salir, **uno a uno y con su vista previa**.
+
+    ⚠️⚠️ La unidad es el CORREO, no la emisora (lo pidió Dani): si el mismo contacto recibe los
+    temas de varias emisoras del grupo se manda UNO con todas dentro, y si una emisora tiene
+    además otro contacto propio, ese va en su correo aparte. Así se ve exactamente lo que va a
+    recibir cada uno antes de mandarlo, y se puede retocar el texto.
+    ⚠️ **Sin máster no se presenta** (lo comprueba también el envío): es lo que se le manda.
+    """
+    if not _can_present_radio():
+        return forbid("No tienes permisos para presentar a radio.")
+    session_db = db()
+    try:
+        cancion = session_db.get(Song, _safe_uuid(song_id))
+        if cancion is None:
+            flash("Esa canción no existe.", "warning")
+            return redirect(url_for("discografica_view"))
+        volver = url_for("discografica_song_detail", song_id=str(cancion.id), tab="informacion")
+        modulo = _song_radio_module(session_db, cancion)
+        # Lo que se va a presentar: lo PLANIFICADO (o solo una emisora, si se ha pinchado la suya).
+        solo = _safe_uuid(request.args.get("media"))
+        pendientes = [r for r in modulo["planned"] if (not solo or r["media_id"] == str(solo))]
+        yo = (_current_user_state() or {})
+        remitente = _radio_sender_options(session_db, yo.get("user_id"))
+        destinatarios = _song_radio_recipients(session_db, cancion, pendientes)
+        sin_contacto = _song_radio_missing_contacts(session_db, pendientes)
+        # La vista previa de CADA correo (con el texto que se puede retocar).
+        vistas = []
+        # ⚠️ En la vista previa los botones llevan a la descarga de dentro de la app: el enlace
+        # del correo lleva el token del ENVÍO, que todavía no existe (se crea al mandarlo), y un
+        # botón a «#» en la previsualización no dice nada de lo que va a recibir la emisora.
+        master = _song_radio_master(session_db, cancion)
+        instr = _song_radio_instrumental(session_db, cancion)
+        prev_audio = (url_for("discografica_song_material_download", song_id=str(cancion.id),
+                              material_id=str(master.id), format="wav") if master is not None else "")
+        prev_instr = (url_for("discografica_song_material_download", song_id=str(cancion.id),
+                              material_id=str(instr.id), format="wav") if instr is not None else "")
+        for d in destinatarios:
+            ctx = _radio_pitch_context(session_db, cancion, medios=d["media"],
+                                       sender=_radio_sender_card(session_db, yo, remitente))
+            ctx["press_url"] = _song_radio_press_url(session_db, cancion)
+            vistas.append({
+                "to": d,
+                "subject": _radio_pitch_subject(ctx),
+                "intro": _radio_pitch_intro(ctx),
+                # ⚠️ La vista previa es EL CORREO (`_radio_pitch_html`), no una imitación: lo que
+                # se ve aquí es exactamente lo que va a salir.
+                "html": _radio_pitch_html(ctx, email=False, press_url=ctx["press_url"],
+                                          audio_url=prev_audio, instrumental_url=prev_instr),
+                "prisa": d["prisa"],
+            })
+        return render_template(
+            "song_radio_send.html",
+            song=cancion, radio_module=modulo, previews=vistas, missing=sin_contacto,
+            sender=remitente, ready=modulo["ready"], missing_to_send=modulo["missing_to_send"],
+            back_url=volver, prisa_email=RADIO_PRISA_EMAIL,
+            has_instrumental=bool(_song_radio_instrumental(session_db, cancion)),
+            press_url=_song_radio_press_url(session_db, cancion),
+        )
+    finally:
+        session_db.close()
+
+
+def _radio_sender_card(session_db, yo, remitente) -> dict:
+    """LA FIRMA del correo: quién lo manda, con su nombre, su correo y su teléfono.
+
+    ⚠️ Es un correo de una persona a otra, así que va firmado por ella —no por «la app»—."""
+    nombre = (yo.get("nick") or "").strip()
+    correo = ((remitente.get("mine") or {}).get("email") or "").strip()
+    telefono = ""
+    try:
+        prof = session_db.get(UserProfile, _safe_uuid(yo.get("user_id")))
+        if prof is not None:
+            nombre = nombre or (prof.nick or "")
+            telefono = (getattr(prof, "phone", None) or "")
+            if not telefono:
+                moviles = getattr(prof, "mobile_phones", None) or []
+                if isinstance(moviles, list) and moviles:
+                    telefono = str(moviles[0] or "")
+    except Exception:
+        app.logger.exception("[radio] no se pudo leer el perfil de quien presenta")
+    if not correo:
+        correo = PRESS_SENDER_PROMO_EMAIL
+    return {"name": nombre, "email": correo, "phone": telefono, "role": "Promoción"}
+
+
+@app.post("/radio/cancion/<song_id>/presentar/enviar", endpoint="song_radio_send")
+@admin_required
+def song_radio_send(song_id):
+    """MANDA UNA presentación (un correo) y apunta un envío POR EMISORA.
+
+    ⚠️⚠️ **Un correo, varios envíos**: si ese contacto recibe los temas de varias emisoras del
+    grupo, sale UN solo correo y se marcan como presentadas TODAS las emisoras que cubre.
+    ⚠️⚠️ **Sale desde el correo de quien lo manda** y, si no tiene cuenta, desde Promoción —y se
+    dice—: nunca se da por enviado algo que no ha salido.
+    ⚠️ Al buzón de Prisa Radio se le adjunta además su **DPC** cumplimentado, uno solo aunque el
+    correo cubra varias de sus cadenas."""
+    if not _can_present_radio():
+        return forbid("No tienes permisos para presentar a radio.")
+    session_db = db()
+    destino = url_for("song_radio_send_view", song_id=song_id)
+    try:
+        cancion = session_db.get(Song, _safe_uuid(song_id))
+        if cancion is None:
+            flash("Esa canción no existe.", "warning")
+            return redirect(url_for("discografica_view"))
+        # ⚠️ El servidor VUELVE A COMPROBAR que hay máster: esconder el botón no basta.
+        listo = _song_radio_send_ready(session_db, cancion)
+        if not listo["ready"]:
+            flash("No se puede presentar: falta %s." % " y ".join(listo["missing"]), "warning")
+            return redirect(safe_next_or(destino))
+        correo = (request.form.get("to_email") or "").strip().lower()
+        if "@" not in correo:
+            flash("Ese destinatario no tiene un correo válido.", "warning")
+            return redirect(safe_next_or(destino))
+        ids = [x for x in request.form.getlist("pitch_ids") if (x or "").strip()]
+        pitches = [p for p in (session_db.query(SongRadioPitch)
+                               .options(joinedload(SongRadioPitch.media))
+                               .filter(SongRadioPitch.song_id == cancion.id,
+                                       SongRadioPitch.id.in_([_safe_uuid(x) for x in ids if _safe_uuid(x)]))
+                               .all())]
+        if not pitches:
+            flash("No hay ninguna emisora que presentar en ese correo.", "warning")
+            return redirect(safe_next_or(destino))
+        yo = (_current_user_state() or {})
+        remitente = _radio_sender_options(session_db, yo.get("user_id"))
+        quiere = (request.form.get("sender") or remitente.get("default") or "").strip().upper()
+        elegido = next((o for o in remitente["options"] if o["key"] == quiere), None) or \
+            (remitente["options"][0] if remitente["options"] else None)
+        if elegido is None:
+            flash("No hay ninguna cuenta de correo con la que mandarlo: configúrala en "
+                  "Integraciones → Correo.", "warning")
+            return redirect(safe_next_or(destino))
+
+        medios = [{"id": str(p.media_id), "name": (getattr(p.media, "name", "") or "La emisora"),
+                   "logo_url": (getattr(p.media, "logo_url", "") or "")} for p in pitches]
+        ctx = _radio_pitch_context(session_db, cancion, medios=medios,
+                                   sender=_radio_sender_card(session_db, yo, remitente))
+        ctx["press_url"] = _song_radio_press_url(session_db, cancion)
+        texto = (request.form.get("intro_text") or "").strip()
+        asunto = (request.form.get("subject") or "").strip() or _radio_pitch_subject(ctx)
+
+        # ⚠️ El ENVÍO SE CREA ANTES de mandar: su token va DENTRO del correo (los enlaces de
+        # descarga), y si el correo no sale se retira (la regla de Syncros).
+        envio = SongRadioSend(
+            song_id=cancion.id, to_email=correo,
+            to_name=(request.form.get("to_name") or "").strip() or None,
+            token=_uuid_token(), subject=asunto, intro_text=(texto or None),
+            media_ids=[m["id"] for m in medios],
+            from_email=elegido["email"], from_name=(elegido.get("name") or ""),
+            sent_by_user_id=_safe_uuid(yo.get("user_id")), sent_by_nick=(yo.get("nick") or ""))
+        session_db.add(envio)
+        session_db.flush()
+
+        audio_url = _external_url_for("public_radio_download", token=envio.token, que="audio")
+        instr = _song_radio_instrumental(session_db, cancion)
+        instrumental_url = (_external_url_for("public_radio_download", token=envio.token,
+                                              que="instrumental") if instr is not None else "")
+        cuerpo = _radio_pitch_html(ctx, email=True, intro_text=texto, audio_url=audio_url,
+                                   instrumental_url=instrumental_url, press_url=ctx["press_url"])
+        envio.body_html = cuerpo
+
+        # EL DPC DE PRISA: solo a su buzón de notificaciones, y UNO aunque cubra varias cadenas.
+        adjuntos = None
+        if correo == RADIO_PRISA_EMAIL:
+            try:
+                datos, nombre_pdf = _radio_prisa_dpc_pdf(session_db, ctx, medios)
+                adjuntos = [{"data": datos, "filename": nombre_pdf, "mimetype": "application/pdf"}]
+                envio.attachment_name = nombre_pdf
+            except Exception:
+                app.logger.exception("[radio] no se pudo componer el DPC de Prisa")
+                session_db.rollback()
+                flash("No se ha mandado nada: el documento de Prisa no se ha podido componer.",
+                      "danger")
+                return redirect(safe_next_or(destino))
+
+        cuenta = _mail_account_for_email(elegido["email"])
+        ok, error = _send_optional_email(
+            correo, asunto, cuerpo, attachments=adjuntos,
+            from_name=(elegido.get("name") or ""), from_email=elegido["email"],
+            auto_submitted=False, account=cuenta)
+        # ⚠️ `_send_optional_email` devuelve (ok, error): tratarlo como booleano daría por enviado
+        # lo que rebotó, y una emisora se quedaría marcada como presentada sin haberlo sido.
+        if not ok:
+            session_db.rollback()
+            flash("No se ha podido enviar a %s: %s" % (correo, error or "el servidor lo rechazó"),
+                  "danger")
+            return redirect(safe_next_or(destino))
+
+        ahora = _now_madrid()
+        for p in pitches:
+            p.status = "SENT"
+            p.presented_at = ahora
+            p.presented_by_user_id = _safe_uuid(yo.get("user_id"))
+            p.presented_by_nick = (yo.get("nick") or "")
+            p.send_id = envio.id
+            p.updated_at = ahora
+            session_db.add(p)
+        session_db.commit()
+        cuantas = len(pitches)
+        aviso = ("Presentada a %d emisora%s (%s)." %
+                 (cuantas, "s" if cuantas != 1 else "", _radio_media_label(
+                     [m["name"] for m in medios], html=False)))
+        if error:
+            # Salió, pero no como se pidió (el servidor no admitió el remitente): se DICE.
+            aviso += " " + error
+        flash(aviso, "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[radio] no se pudo presentar")
+        flash("No se pudo enviar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.get("/radio/envio/<token>/descarga", endpoint="public_radio_download")
+def public_radio_download(token):
+    """La DESCARGA del tema desde el correo de una emisora (sin sesión: ahí no la hay).
+
+    ⚠️ Se manda el MÁSTER **de más bits** que esté subido, tal cual (una emisora quiere calidad:
+    no se le convierte a MP3 como a un supervisor de sincronización), y el INSTRUMENTAL si lo hay.
+    ⚠️ El token es del ENVÍO y **no caduca**: un correo de hace un año tiene que seguir valiendo."""
+    session_db = db()
+    try:
+        envio = (session_db.query(SongRadioSend)
+                 .filter(SongRadioSend.token == (token or "").strip()).first())
+        if envio is None:
+            abort(404)
+        cancion = session_db.get(Song, envio.song_id)
+        if cancion is None:
+            abort(404)
+        que = (request.args.get("que") or "audio").strip().lower()
+        material = (_song_radio_instrumental(session_db, cancion) if que == "instrumental"
+                    else _song_radio_master(session_db, cancion))
+        url = (getattr(material, "file_url", "") or "").strip()
+        if not url:
+            abort(404)
+        nombre = re.sub(r"[\\/:*?\"<>|]+", " ", (cancion.title or "Tema")).strip() or "Tema"
+        artistas = _song_artist_name_list(song=cancion)
+        if artistas:
+            nombre = "%s - %s" % (artistas[0], nombre)
+        if que == "instrumental":
+            nombre += " (instrumental)"
+        return _playlist_audio_response(url, download_name=nombre)
+    finally:
+        session_db.close()
 
 
 @app.post("/radio/presentacion/<pitch_id>/decidir", endpoint="song_radio_pitch_decide")
@@ -40544,7 +41052,7 @@ def song_radio_pitch_decide(pitch_id):
         # Si ya han contestado TODAS, el aviso de «presentar a radio» deja de esperar a nadie.
         if not (session_db.query(func.count(SongRadioPitch.id))
                 .filter(SongRadioPitch.song_id == fila.song_id,
-                        func.upper(SongRadioPitch.status) == "PENDING").scalar() or 0):
+                        func.upper(SongRadioPitch.status).in_(("PLANNED", "PENDING"))).scalar() or 0):
             _notify_resolve(session_db, "SONG_RADIO", str(fila.song_id))
         session_db.commit()
         flash("Anotado: entra en rotación." if decision == "YES" else
@@ -50919,7 +51427,9 @@ def plays_view():
     weeks_list = [w[0] for w in session_db.query(Week.week_start).order_by(Week.week_start.desc()).all()]
 
     artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
-    stations = session_db.query(RadioStation).order_by(RadioStation.name.asc()).all()
+    # ⚠️ LAS EMISORAS SON LOS MEDIOS DE TIPO RADIO (`_radio_media_query`): uno nuevo marcado como
+    # Radio entra aquí solo, sin tener que darlo de alta en ninguna otra parte.
+    stations = _radio_media_query(session_db).all()
 
     artist_blocks = []
     for a in artists:
@@ -50931,8 +51441,9 @@ def plays_view():
         artist_blocks.append((a, songs))
 
     plays_map = {}
-    for p in (session_db.query(Play).filter(Play.week_start == week_start).all()):
-        plays_map[(p.song_id, p.station_id)] = (p.spins, p.position)
+    for p in (session_db.query(Play).filter(Play.week_start == week_start,
+                                            Play.media_id.isnot(None)).all()):
+        plays_map[(p.song_id, p.media_id)] = (p.spins, p.position)
 
     rank_map = {}
     for si in (session_db.query(SongWeekInfo).filter(SongWeekInfo.week_start == week_start).all()):
@@ -50980,20 +51491,22 @@ def plays_save():
 
         for key, val in request.form.items():
             if key.startswith("spins_"):
-                station_id_str = key.split("_", 1)[1]
-                station_id = to_uuid(station_id_str)
+                media_id_str = key.split("_", 1)[1]
+                media_id = _safe_uuid(media_id_str)
+                if not media_id:
+                    continue
                 spins_int = int(val.strip()) if val.strip() else 0
-                pos_val = request.form.get(f"pos_{station_id_str}", "").strip()
+                pos_val = request.form.get(f"pos_{media_id_str}", "").strip()
                 pos_int = int(pos_val) if pos_val else None
 
                 p = (session_db.query(Play)
-                     .filter_by(song_id=song_id, station_id=station_id, week_start=week_start)
+                     .filter_by(song_id=song_id, media_id=media_id, week_start=week_start)
                      .first())
                 if p:
                     p.spins = spins_int
                     p.position = pos_int
                 else:
-                    session_db.add(Play(song_id=song_id, station_id=station_id,
+                    session_db.add(Play(song_id=song_id, media_id=media_id,
                                         week_start=week_start, spins=spins_int, position=pos_int))
 
         session_db.commit()
@@ -51016,9 +51529,9 @@ def plays_save():
 def _plays_positions_context(session_db, week_start: date) -> dict:
     """Lo que se ve en «Actualizar posiciones»: las emisoras con tocadas y el ranking nacional."""
     filas = (
-        session_db.query(Play, Song, RadioStation)
+        session_db.query(Play, Song, MediaOutlet)
         .join(Song, Song.id == Play.song_id)
-        .join(RadioStation, RadioStation.id == Play.station_id)
+        .join(MediaOutlet, MediaOutlet.id == Play.media_id)
         .filter(Play.week_start == week_start)
         .filter(func.coalesce(Play.spins, 0) > 0)
         .all()
@@ -51137,10 +51650,10 @@ def plays_positions_save():
             if not key.startswith("pos_"):
                 continue
             try:
-                _p, station_id, song_id = key.split("_", 2)
+                _p, media_id, song_id = key.split("_", 2)
             except ValueError:
                 continue
-            st = _safe_uuid(station_id)
+            st = _safe_uuid(media_id)
             sg = _safe_uuid(song_id)
             if not st or not sg:
                 continue
@@ -51153,7 +51666,7 @@ def plays_positions_save():
                      .filter(Play.song_id.in_({sg for sg, _st in cambios}))
                      .all())
             for p in filas:
-                clave = (p.song_id, p.station_id)
+                clave = (p.song_id, p.media_id)
                 if clave in cambios:
                     p.position = cambios[clave]
                     tocadas += 1
@@ -51190,6 +51703,199 @@ def plays_positions_save():
 
 
 # ---------- IMPORTAR TOCADAS DESDE EXCEL ----------
+# ---------------------------------------------------------------------------
+#  UNA SOLA BASE DE EMISORAS · la emisora ES UN MEDIO de tipo Radio
+#  ------------------------------------------------------------------------
+#  ⚠️⚠️ Había DOS bases de emisoras y eran la misma cosa: las `RadioStation` de las TOCADAS y los
+#  `MediaOutlet` de tipo Radio de las PRESENTACIONES. La misma emisora estaba dos veces (dos
+#  nombres, dos logos) y no se podía cruzar «se le ha presentado el tema» con «ya suena», que es
+#  justo lo que hace falta saber. Desde sep 2026 (lo pidió Dani) la emisora es el MEDIO: **todo
+#  medio marcado como Radio vale para el reporte de radios**, uno nuevo entra solo, y los que
+#  estaban en Emisoras se vuelcan a Medios (donde se pueden fusionar sin perder una sola tocada,
+#  porque la fusión re-apunta todas las referencias).
+#  ⚠️ `RadioStation` se queda como HISTÓRICO (la sección «Emisoras» ya no existe) con el puente
+#  `media_id`: de él sale que la migración sea idempotente y que se sepa de dónde vino cada medio.
+# ---------------------------------------------------------------------------
+RADIO_MEDIA_TYPE = "Radio"
+RADIO_MEDIA_MIGRATION_KEY = "radio_stations_to_media_v1"
+
+
+def _radio_media_query(session_db):
+    """La consulta de LAS EMISORAS: los medios de tipo Radio, por nombre.
+
+    ⚠️ Punto ÚNICO (lo usan el reporte, las tocadas, la importación y las presentaciones). El tipo
+    se compara en minúsculas: el alta rápida de medios lo guarda a veces en MAYÚSCULAS."""
+    return (session_db.query(MediaOutlet)
+            .filter(func.lower(func.coalesce(MediaOutlet.media_type, "")) == RADIO_MEDIA_TYPE.lower())
+            .order_by(func.lower(MediaOutlet.name).asc()))
+
+
+def _radio_media_is_radio(media) -> bool:
+    """¿Ese medio es una emisora?"""
+    return (getattr(media, "media_type", "") or "").strip().lower() == RADIO_MEDIA_TYPE.lower()
+
+
+def _radio_media_migrate() -> dict:
+    """VUELCA las emisoras viejas (`RadioStation`) a la base de MEDIOS y re-apunta sus tocadas.
+
+    · Cada emisora busca su medio de tipo Radio **por el nombre normalizado** (`_norm_text_key`, sin
+      acentos ni puntuación) y, si no lo hay, se crea con su logo, su país y el color de su logo.
+      ⚠️ Los PARECIDOS no se casan solos («Los 40» y «LOS40» no son la misma clave): fusionar no se
+      puede deshacer, así que eso lo propone el bloque de emisoras repetidas de Medios y lo decide
+      una persona.
+    · Las tocadas pasan a colgar del medio (`plays.media_id`), y si dos emisoras acaban en el MISMO
+      medio, las filas de la misma canción y semana **se suman** en vez de quedar duplicadas.
+    · Los alias aprendidos de los Excel siguen valiendo: apuntan ya al medio.
+    Es idempotente (el puente `radio_stations.media_id` dice lo que ya está hecho)."""
+    resumen = {"medios_creados": 0, "emisoras_enlazadas": 0, "tocadas": 0, "sumadas": 0, "alias": 0}
+    s = db()
+    try:
+        # 1) Cada emisora, a su medio (el que ya exista con ese nombre, o uno nuevo).
+        por_nombre = {}
+        for m in _radio_media_query(s).all():
+            clave = _norm_text_key(m.name or "")
+            if clave and clave not in por_nombre:
+                por_nombre[clave] = m
+        for st in s.query(RadioStation).order_by(RadioStation.name.asc()).all():
+            if getattr(st, "media_id", None):
+                continue                      # ya volcada
+            clave = _norm_text_key(st.name or "")
+            if not clave:
+                continue
+            medio = por_nombre.get(clave)
+            if medio is None:
+                medio = MediaOutlet(
+                    media_type=RADIO_MEDIA_TYPE,
+                    name=(st.name or "").strip(),
+                    logo_url=(getattr(st, "logo_url", None) or None),
+                    country_code=(getattr(st, "country_code", None) or "ES"),
+                    country_name=(getattr(st, "country_name", None) or "España"),
+                    logo_color=(getattr(st, "logo_color", None) or None),
+                    logo_color_src=(getattr(st, "logo_color_src", None) or None),
+                )
+                s.add(medio)
+                s.flush()
+                por_nombre[clave] = medio
+                resumen["medios_creados"] += 1
+            else:
+                # El medio que ya estaba manda, pero lo que tenga VACÍO se completa con la emisora
+                # (un logo o un color que solo estaban en el reporte de radios no se tiran).
+                if not (getattr(medio, "logo_url", None) or "").strip() and (getattr(st, "logo_url", None) or "").strip():
+                    medio.logo_url = st.logo_url
+                if not (getattr(medio, "logo_color", None) or "").strip() and (getattr(st, "logo_color", None) or "").strip():
+                    medio.logo_color, medio.logo_color_src = st.logo_color, st.logo_color_src
+            st.media_id = medio.id
+            resumen["emisoras_enlazadas"] += 1
+        s.commit()
+
+        # 2) Las tocadas, al medio de su emisora.
+        hechas = s.execute(text(
+            "UPDATE plays SET media_id = rs.media_id "
+            "FROM radio_stations rs "
+            "WHERE plays.station_id = rs.id AND rs.media_id IS NOT NULL AND plays.media_id IS NULL"
+        )).rowcount or 0
+        resumen["tocadas"] = int(hechas)
+        s.commit()
+
+        # 3) Dos emisoras en el mismo medio = una sola fila por canción y semana: se SUMAN.
+        #    (Antes no podía pasar; ahora sí, y dos filas iguales darían el doble de tocadas.)
+        sumadas = s.execute(text("""
+            WITH d AS (
+                SELECT song_id, media_id, week_start,
+                       MIN(id::text)::uuid AS keep_id,
+                       SUM(spins) AS total,
+                       MAX(position) AS pos,
+                       COUNT(*) AS n
+                  FROM plays
+                 WHERE media_id IS NOT NULL
+                 GROUP BY song_id, media_id, week_start
+                HAVING COUNT(*) > 1
+            ), upd AS (
+                UPDATE plays p SET spins = d.total,
+                                   position = COALESCE(p.position, d.pos)
+                  FROM d WHERE p.id = d.keep_id
+              RETURNING p.id
+            )
+            DELETE FROM plays p USING d
+             WHERE p.song_id = d.song_id AND p.media_id = d.media_id
+               AND p.week_start = d.week_start AND p.id <> d.keep_id
+        """)).rowcount or 0
+        resumen["sumadas"] = int(sumadas)
+        s.commit()
+
+        # 4) Los alias aprendidos de los Excel.
+        alias = s.execute(text(
+            "UPDATE radio_station_aliases a SET media_id = rs.media_id "
+            "FROM radio_stations rs "
+            "WHERE a.station_id = rs.id AND rs.media_id IS NOT NULL AND a.media_id IS NULL"
+        )).rowcount or 0
+        resumen["alias"] = int(alias)
+        s.commit()
+    except Exception:
+        s.rollback()
+        app.logger.exception("[radio] no se pudieron volcar las emisoras a medios")
+    finally:
+        s.close()
+    return resumen
+
+
+RADIO_PITCH_STATUS_MIGRATION_KEY = "song_radio_status_v2"
+
+
+def _song_radio_status_migrate_once():
+    """Pone los estados VIEJOS de las presentaciones en los nuevos (una sola vez).
+
+    PENDING → **PLANNED** (está en el objetivo y no se ha presentado) y ACCEPTED → **SENT** (se
+    presentó; su fecha prevista de entrada en rotación se conserva tal cual).
+    ⚠️ De las ACCEPTED no se sabe quién mandó el correo —antes no había envío—, así que se apunta
+    **quien la pidió** y **cuándo se decidió**: es lo más cercano a la verdad y no se inventa nada
+    (si no consta, se queda sin quién, que también es la verdad).
+    ⚠️ `_song_radio_status` sigue traduciendo los valores viejos al leer, así que esto es para que
+    los FILTROS por columna (los de SQL) vean lo mismo que la pantalla."""
+    if (_get_app_setting(RADIO_PITCH_STATUS_MIGRATION_KEY) or "").strip() == "done":
+        return
+    s = db()
+    try:
+        s.execute(text(
+            "UPDATE song_radio_pitches SET status = 'PLANNED' WHERE upper(status) = 'PENDING'"))
+        s.execute(text(
+            "UPDATE song_radio_pitches SET status = 'SENT', "
+            "       presented_at = COALESCE(presented_at, decided_at, requested_at), "
+            "       presented_by_user_id = COALESCE(presented_by_user_id, requested_by_user_id), "
+            "       presented_by_nick = COALESCE(presented_by_nick, requested_by_nick) "
+            " WHERE upper(status) = 'ACCEPTED'"))
+        s.commit()
+        _set_app_setting(RADIO_PITCH_STATUS_MIGRATION_KEY, "done")
+    except Exception:
+        s.rollback()
+        app.logger.exception("[radio] no se pudieron poner al día los estados de las presentaciones")
+    finally:
+        s.close()
+
+
+def _radio_media_migrate_once():
+    """El volcado de arriba, UNA vez (marca en `AppSetting`).
+
+    ⚠️ Se vuelve a pasar igualmente si quedara alguna emisora sin volcar (una creada a mano en la
+    BD, una restaurada de un respaldo): el puente hace que no cueste nada cuando no hay nada."""
+    try:
+        if (_get_app_setting(RADIO_MEDIA_MIGRATION_KEY) or "").strip() == "done":
+            s = db()
+            try:
+                pendientes = (s.query(func.count(RadioStation.id))
+                              .filter(RadioStation.media_id.is_(None)).scalar() or 0)
+            finally:
+                s.close()
+            if not pendientes:
+                return
+    except Exception:
+        app.logger.exception("[radio] no se pudo comprobar el volcado de emisoras")
+    resumen = _radio_media_migrate()
+    _set_app_setting(RADIO_MEDIA_MIGRATION_KEY, "done")
+    if any(resumen.values()):
+        app.logger.info("Emisoras volcadas a medios: %s", resumen)
+
+
 def _radio_channel_key(name) -> str:
     """Clave normalizada del nombre de emisora/canal (minúsculas, espacios colapsados)."""
     return " ".join((str(name) if name is not None else "").strip().lower().split())
@@ -51248,16 +51954,19 @@ def _radio_build_isrc_song_map(session_db):
 
 
 def _radio_build_station_map(session_db):
-    """channel_key -> station_id(str). Nombre de RadioStation + alias aprendidos."""
+    """channel_key -> media_id(str). El nombre de cada EMISORA (medio de tipo Radio) + los alias
+    aprendidos de importaciones anteriores (que mandan: son correcciones a mano)."""
     m: dict[str, str] = {}
-    for sid, name in session_db.query(RadioStation.id, RadioStation.name).all():
+    for mid, name in session_db.query(MediaOutlet.id, MediaOutlet.name).filter(
+            func.lower(func.coalesce(MediaOutlet.media_type, "")) == RADIO_MEDIA_TYPE.lower()).all():
         k = _radio_channel_key(name)
         if k:
-            m[k] = str(sid)
-    for alias, sid in session_db.query(RadioStationAlias.alias, RadioStationAlias.station_id).all():
+            m[k] = str(mid)
+    for alias, mid in (session_db.query(RadioStationAlias.alias, RadioStationAlias.media_id)
+                       .filter(RadioStationAlias.media_id.isnot(None)).all()):
         k = _radio_channel_key(alias)
         if k:
-            m[k] = str(sid)
+            m[k] = str(mid)
     return m
 
 
@@ -51351,8 +52060,8 @@ def plays_import_analyze():
         song_options = _radio_song_options(session_db)
         opt_label = {o["id"]: o["label"] for o in song_options}
         all_stations = [
-            {"id": str(s.id), "name": s.name}
-            for s in session_db.query(RadioStation).order_by(RadioStation.name.asc()).all()
+            {"id": str(m.id), "name": m.name}
+            for m in _radio_media_query(session_db).all()
         ]
         st_label = {s["id"]: s["name"] for s in all_stations}
 
@@ -51410,12 +52119,13 @@ def plays_import_analyze():
         session_db.close()
 
 
-def _radio_upsert_station_alias(session_db, alias_key, station_id):
+def _radio_upsert_station_alias(session_db, alias_key, media_id):
+    """Recuerda que ese nombre de canal del Excel es ESA emisora (un medio de tipo Radio)."""
     a = session_db.query(RadioStationAlias).filter(RadioStationAlias.alias == alias_key).first()
     if a:
-        a.station_id = station_id
+        a.media_id = media_id
     else:
-        session_db.add(RadioStationAlias(alias=alias_key, station_id=station_id))
+        session_db.add(RadioStationAlias(alias=alias_key, media_id=media_id))
 
 
 def _radio_upsert_isrc_alias(session_db, isrc, song_id):
@@ -51446,6 +52156,8 @@ def plays_import_apply():
         auto_song_map, _amb = _radio_build_isrc_song_map(session_db)
 
         # 1) Resolver emisoras (enlazar / crear / descartar) y aprender alias de los enlaces manuales.
+        # ⚠️ Una emisora que no tenemos se crea como MEDIO de tipo Radio, que es la única base de
+        # emisoras: así queda con su ficha, sus contactos y su histórico en el mismo sitio.
         chan_to_station = {}
         created_stations = 0
         for st in (payload.get("stations") or []):
@@ -51457,11 +52169,14 @@ def plays_import_apply():
                 name = (st.get("name") or "").strip()
                 if not name:
                     continue
-                existing = session_db.query(RadioStation).filter(func.lower(RadioStation.name) == name.lower()).first()
+                existing = (session_db.query(MediaOutlet)
+                            .filter(func.lower(MediaOutlet.name) == name.lower(),
+                                    func.lower(func.coalesce(MediaOutlet.media_type, "")) == RADIO_MEDIA_TYPE.lower())
+                            .first())
                 if existing:
                     sid = str(existing.id)
                 else:
-                    newst = RadioStation(name=name)
+                    newst = MediaOutlet(media_type=RADIO_MEDIA_TYPE, name=name)
                     session_db.add(newst)
                     session_db.flush()
                     sid = str(newst.id)
@@ -51469,9 +52184,9 @@ def plays_import_apply():
             if not sid or not ck:
                 continue
             chan_to_station[ck] = sid
-            st_obj = session_db.get(RadioStation, to_uuid(sid))
+            st_obj = session_db.get(MediaOutlet, _safe_uuid(sid))
             if st_obj and _radio_channel_key(st_obj.name) != ck:
-                _radio_upsert_station_alias(session_db, ck, to_uuid(sid))
+                _radio_upsert_station_alias(session_db, ck, _safe_uuid(sid))
 
         # 2) Resolver canciones (enlazar / descartar) y recordar alias de los enlaces manuales.
         isrc_to_song = {}
@@ -51505,12 +52220,12 @@ def plays_import_apply():
         applied = 0
         for (sid, stid), n in agg.items():
             p = (session_db.query(Play)
-                 .filter_by(song_id=to_uuid(sid), station_id=to_uuid(stid), week_start=week)
+                 .filter_by(song_id=to_uuid(sid), media_id=to_uuid(stid), week_start=week)
                  .first())
             if p:
                 p.spins = n
             else:
-                session_db.add(Play(song_id=to_uuid(sid), station_id=to_uuid(stid), week_start=week, spins=n))
+                session_db.add(Play(song_id=to_uuid(sid), media_id=to_uuid(stid), week_start=week, spins=n))
             applied += 1
 
         session_db.commit()
@@ -51553,15 +52268,17 @@ def build_summary_context(base_week: date):
         .group_by(Play.song_id).all()
     )}
 
+    # ⚠️ La emisora es el MEDIO (`Play.media_id`): en el reporte, en las tocadas y en las
+    # presentaciones es la misma ficha.
     by_station = {}
-    for row in (session_db.query(Play.song_id, Play.station_id, Play.spins, Play.position)
-                .filter(Play.week_start == base_week).all()):
-        by_station.setdefault(row.song_id, {})[row.station_id] = (row.spins, row.position)
+    for row in (session_db.query(Play.song_id, Play.media_id, Play.spins, Play.position)
+                .filter(Play.week_start == base_week, Play.media_id.isnot(None)).all()):
+        by_station.setdefault(row.song_id, {})[row.media_id] = (row.spins, row.position)
 
     by_station_prev = {}
-    for row in (session_db.query(Play.song_id, Play.station_id, Play.spins, Play.position)
-                .filter(Play.week_start == prev_week).all()):
-        by_station_prev.setdefault(row.song_id, {})[row.station_id] = (row.spins, row.position)
+    for row in (session_db.query(Play.song_id, Play.media_id, Play.spins, Play.position)
+                .filter(Play.week_start == prev_week, Play.media_id.isnot(None)).all()):
+        by_station_prev.setdefault(row.song_id, {})[row.media_id] = (row.spins, row.position)
 
     # Orden + filtro: solo emisoras con > 1 tocada
     by_station_sorted = {}
@@ -51569,7 +52286,7 @@ def build_summary_context(base_week: date):
         filtered = {st_id: pair for st_id, pair in st_dict.items() if (pair[0] or 0) > 0}
         by_station_sorted[song_id] = sorted(filtered.items(), key=lambda kv: kv[1][0], reverse=True)
 
-    stations = session_db.query(RadioStation).order_by(RadioStation.name.asc()).all()
+    stations = _radio_media_query(session_db).all()
     stations_map = {s.id: s for s in stations}
 
     song_ids_this_week = set(totals.keys())
@@ -51650,8 +52367,8 @@ def station_summary(station_id):
 
     session_db = db()
     try:
-        # 2) Obtener la emisora
-        station = session_db.get(RadioStation, stid)
+        # 2) Obtener la emisora (que es un MEDIO de tipo Radio)
+        station = session_db.get(MediaOutlet, stid)
         if not station:
             flash("Emisora no encontrada.", "warning")
             return redirect(url_for("summary_view"))
@@ -51679,7 +52396,7 @@ def station_summary(station_id):
         # 5) Cargar plays de ESA emisora en la semana base (>0 para no mostrar vacíos)
         plays = (session_db.query(Play)
                  .filter(Play.week_start == base_week,
-                         Play.station_id == stid,
+                         Play.media_id == stid,
                          Play.spins > 0)
                  .all())
 
@@ -51699,7 +52416,7 @@ def station_summary(station_id):
         by_song = {p.song_id: (p.spins, p.position) for p in plays}
         prev_week = base_week - timedelta(days=7)
         prev_plays = (session_db.query(Play)
-                      .filter(Play.week_start == prev_week, Play.station_id == stid)
+                      .filter(Play.week_start == prev_week, Play.media_id == stid)
                       .all())
         by_song_prev = {p.song_id: (p.spins, p.position) for p in prev_plays}
 
@@ -51746,13 +52463,15 @@ def station_summary(station_id):
 @app.get("/api/plays_json")
 def api_plays_json():
     song_id = to_uuid(request.args.get("song_id"))
+    # ⚠️ `station_id` sigue llamándose así en la URL (lo piden pantallas ya escritas), pero es el id
+    # del MEDIO: la emisora es un medio de tipo Radio.
     station_id_param = request.args.get("station_id")
-    station_id = to_uuid(station_id_param) if station_id_param else None
+    station_id = _safe_uuid(station_id_param) if station_id_param else None
 
     session_db = db()
     q = session_db.query(Play.week_start, func.sum(Play.spins)).filter(Play.song_id == song_id)
     if station_id:
-        q = q.filter(Play.station_id == station_id)
+        q = q.filter(Play.media_id == station_id)
     q = q.group_by(Play.week_start).order_by(Play.week_start.asc())
     data = q.all()
     session_db.close()
@@ -84223,6 +84942,7 @@ from models import (
     PressReleaseTemplate,
     PressReleaseFile,
     MediaLocation,
+    MediaNotDuplicate,
     MediaPromotionRecord,
     PromotionRequest,
     ProductionRequest,
@@ -84385,6 +85105,7 @@ def _bootstrap_schema_bg():
         (ensure_playlists_schema, "ensure_playlists_schema"),
         (ensure_disco_projects_schema, "ensure_disco_projects_schema"),
         (ensure_song_radio_schema, "ensure_song_radio_schema"),
+        (ensure_radio_media_schema, "ensure_radio_media_schema"),
         (ensure_disco_approvals_schema, "ensure_disco_approvals_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
@@ -84438,6 +85159,12 @@ def _bootstrap_schema_bg():
     # WhatsApp). De aquí en adelante lo hace el guardado. Ver `_phones_normalize_backfill`.
     _safe_ensure(lambda: globals()["_phones_normalize_backfill_once"](),
                  "_phones_normalize_backfill_once")
+    # Una sola vez: volcar las EMISORAS del reporte de radios a la base de MEDIOS (la emisora es un
+    # medio de tipo Radio) y re-apuntar sus tocadas. Ver `_radio_media_migrate`.
+    _safe_ensure(lambda: globals()["_radio_media_migrate_once"](), "_radio_media_migrate_once")
+    # Y los estados de las presentaciones a radio, a los del rediseño (PLANNED/SENT/REJECTED).
+    _safe_ensure(lambda: globals()["_song_radio_status_migrate_once"](),
+                 "_song_radio_status_migrate_once")
     # Una sola vez: poner las DIRECCIONES ya guardadas en la forma de la casa («Calle, CP Municipio,
     # Provincia, País») y repartir las piezas de las fiscales que las tuvieran vacías. De aquí en
     # adelante lo hace el guardado. Ver `_addresses_normalize_backfill`.
@@ -95317,7 +96044,9 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "radio", "label": "Radio", "section_key": "radio", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 100, "description": "Seguimiento de emisiones en radio (tocadas) y emisoras."},
     {"key": "radio.reportes", "label": "Reporte de radios", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 101, "description": "Informe de tocadas por emisora/artista. Página «Reporte de radios»."},
     {"key": "radio.actualizar", "label": "Actualizar tocadas", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 102, "description": "Carga y actualización de tocadas. Página «Actualizar tocadas»."},
-    {"key": "radio.emisoras", "label": "Emisoras", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 103, "description": "Alta y edición de emisoras de radio."},
+    # ⚠️ «Emisoras» se retiró (sep 2026): la emisora es un MEDIO de tipo Radio, así que su sitio es
+    # Bases de datos → Medios. Está en `LEGACY_REMOVED_ACCESS_KEYS` y sus permisos se trasladan a
+    # `databases.media` (`MIGRATED_ACCESS_KEYS`) ANTES de la poda, para que nadie pierda el acceso.
 
     {"key": "ventas", "label": "Ventas", "section_key": "ventas", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 110, "description": "Venta de entradas: informes y carga de cifras (con importes)."},
     {"key": "ventas.reportes", "label": "Reporte de ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 111, "description": "Página «Reporte de ventas». Con «Ver» se ve CÓMO VAN LAS VENTAS sin importes (vendidas, aforo, pendientes, % y punto de empate). El interruptor ECONÓMICO añade la RECAUDACIÓN (bruta y neta, rebate, el informe por concierto y las columnas de dinero del Excel y del A4), y es también quien decide si esa persona recibe el correo del reporte con importes."},
@@ -95483,7 +96212,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -95927,7 +96656,11 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     if endpoint == "home":
         return "home"
     fixed = {
-        "summary_view": "radio.reportes", "plays_view": "radio.actualizar", "stations_view": "radio.emisoras",
+        "summary_view": "radio.reportes", "plays_view": "radio.actualizar",
+        # Las tres rutas de la vieja sección Emisoras solo REDIRIGEN a Medios, que es donde vive
+        # ahora una emisora: su recurso es el de Medios.
+        "stations_view": "databases.media", "station_update": "databases.media",
+        "station_delete": "databases.media",
         "plays_positions_view": "radio.actualizar", "plays_positions_save": "radio.actualizar",
         "sales_report_view": "ventas.reportes", "sales_update_view": "ventas.actualizar",
         "syncros_view": "syncros.supervisors",
@@ -96046,6 +96779,11 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # Cuadro de mando de PREVISIONES (endpoints `forecast_*`, fuera de cualquier prefijo cubierto).
     if endpoint.startswith("forecast_"):
         return "discografica.previsiones"
+    # ⚠️ PRESENTACIÓN A RADIOS (`song_radio_*`): la decide el SELLO desde la ficha de la canción o
+    # desde el proyecto, así que su recurso es el repertorio —no la sección Radio, que son las
+    # tocadas—. Va con una regla de PREFIJO: puesto en un `mapping` interno sería código muerto.
+    if endpoint.startswith("song_radio_"):
+        return "discografica.canciones"
     if endpoint.startswith("song_platform_id"):
         # Los IDs de plataforma son un módulo de los materiales de la CANCIÓN.
         return "discografica.canciones"
@@ -96207,6 +96945,10 @@ LEGACY_REMOVED_ACCESS_KEYS = {
     # delicados. **A propósito NO está en `MIGRATED_ACCESS_KEYS`**: quien tuviera aquel permiso no
     # hereda este (lo pidió Dani). Nace solo para dirección y administración.
     "artists.liquidaciones",
+    # «Emisoras» (sep 2026): la emisora es un MEDIO de tipo Radio, así que su sitio es Medios.
+    # ⚠️ SÍ está en `MIGRATED_ACCESS_KEYS`: quien podía dar de alta y editar emisoras tiene que
+    # poder seguir haciéndolo donde están ahora.
+    "radio.emisoras",
 }
 
 # Clave retirada -> (clave nueva, econ). Al retirar un recurso, `_sync_access_resources` lo borra y
@@ -96215,6 +96957,7 @@ LEGACY_REMOVED_ACCESS_KEYS = {
 # la migración no encuentra nada que mover.
 MIGRATED_ACCESS_KEYS = {
     "ventas.recaudacion": ("ventas.reportes", True),
+    "radio.emisoras": ("databases.media", False),
 }
 
 
@@ -96631,7 +97374,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/contratacion", "contratacion"),
         ("/conciertos", "contratacion.conciertos"),
         ("/cuadrantes", "contratacion.cuadrantes"),
-        ("/emisoras", "radio.emisoras"),
+        ("/emisoras", "databases.media"),
         ("/tocadas", "radio.actualizar"),
         ("/ventas", "ventas"),
         ("/recintos", "databases.venues"),
@@ -96824,8 +97567,8 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint in {"plays_view", "plays_save", "plays_positions_view", "plays_positions_save",
                     "plays_import_analyze", "plays_import_apply"}:
         return "radio.actualizar"
-    if endpoint == "stations_view":
-        return "radio.emisoras"
+    if endpoint in ("stations_view", "station_update", "station_delete"):
+        return "databases.media"
     if endpoint == "sales_report_view":
         return "ventas.reportes"
     if endpoint == "sales_update_view":
@@ -96900,6 +97643,11 @@ def _resolve_request_resource_key() -> str | None:
     # Cuadro de mando de PREVISIONES (endpoints `forecast_*`, fuera de cualquier prefijo cubierto).
     if endpoint.startswith("forecast_"):
         return "discografica.previsiones"
+    # ⚠️ PRESENTACIÓN A RADIOS (`song_radio_*`): la decide el SELLO desde la ficha de la canción o
+    # desde el proyecto, así que su recurso es el repertorio —no la sección Radio, que son las
+    # tocadas—. Va con una regla de PREFIJO: puesto en un `mapping` interno sería código muerto.
+    if endpoint.startswith("song_radio_"):
+        return "discografica.canciones"
     if endpoint.startswith("song_platform_id"):
         # Los IDs de plataforma son un módulo de los materiales de la CANCIÓN.
         return "discografica.canciones"
@@ -97441,9 +98189,10 @@ def can_edit_promo() -> bool:
 
 
 def can_edit_artists_stations() -> bool:
+    # ⚠️ «Emisoras» se retiró: quien editaba emisoras edita ahora MEDIOS (`databases.media`).
     return (
         has_access_key("artists", edit=True, include_descendants=True)
-        or has_access_key("radio.emisoras", edit=True)
+        or has_access_key("databases.media", edit=True)
         or current_role() in (2, 5, 6, 10)
     )
 
@@ -97477,7 +98226,6 @@ def _resource_default_url(key: str) -> str:
         "radio": url_for("summary_view"),
         "radio.reportes": url_for("summary_view"),
         "radio.actualizar": url_for("plays_view"),
-        "radio.emisoras": url_for("stations_view"),
         "ventas": url_for("sales_report_view"),
         "ventas.reportes": url_for("sales_report_view"),
         "ventas.actualizar": url_for("sales_update_view"),
@@ -97711,7 +98459,6 @@ def _build_nav_menu() -> list[dict]:
         {"type": "dropdown", "key": "radio", "label": "Radio", "children": [
             {"key": "radio.reportes", "label": "Reporte de radios", "url": _resource_default_url("radio.reportes")},
             {"key": "radio.actualizar", "label": "Actualizar tocadas", "url": _resource_default_url("radio.actualizar")},
-            {"key": "radio.emisoras", "label": "Emisoras", "url": _resource_default_url("radio.emisoras")},
         ]},
         {"type": "dropdown", "key": "ventas", "label": "Ventas", "children": [
             {"key": "ventas.reportes", "label": "Reporte de ventas", "url": _resource_default_url("ventas.reportes")},
@@ -98821,7 +99568,7 @@ HOME_TASK_SOURCES = [
     {"ctx": "HOME_PRODUCER_CONTRACTS", "kind": "LANZAMIENTO", "order": 4,
      "label": "Preparar el contrato del productor", "action": "Prepararlo"},
     {"ctx": "HOME_RADIO_PITCHES", "kind": "LANZAMIENTO", "order": 4,
-     "label": "Contestar a las emisoras", "action": "Contestar"},
+     "label": "¿Entra en rotación? Preguntar a las emisoras", "action": "Anotarlo"},
     {"ctx": "HOME_ARTISTS_NO_NOTIF", "kind": "ARTISTA", "order": 5,
      "label": "No se le puede comunicar nada: falta configurar sus notificaciones",
      "action": "Configurarlo"},
@@ -100660,6 +101407,13 @@ REQUEST_ANY_ENDPOINTS = {
     # sello): el endpoint comprueba dentro que es de quien le toca. Va aquí y no en
     # `SUPPORT_ACTION_ENDPOINTS` por lo mismo que la logística: ese exige ser «actor».
     "song_radio_pitch_decide", "discografica_song_tiktok_save",
+    # ⚠️ Y APUNTAR CUÁNDO ENTRA EN ROTACIÓN, por lo mismo: es lo que contesta la emisora y lo
+    # recoge promoción (el endpoint comprueba dentro que es de quien le toca).
+    "song_radio_rotation_save",
+    # ⚠️⚠️ PRESENTAR UN TEMA A RADIO lo hacen el SELLO **y PROMOCIÓN** (es quien habla con las
+    # emisoras, y el correo sale desde SU dirección), así que no puede exigir Discográfica: los
+    # tres endpoints comprueban dentro con `_can_present_radio`.
+    "song_radio_send_view", "song_radio_send", "song_radio_plan_save",
     # ⚠️ La NOTA DE PRENSA la sube promoción (el texto) y diseño (el gráfico), y la marca enviada
     # promoción: ninguno tiene por qué poder editar discográfica. Cada endpoint comprueba dentro que
     # es de su departamento (o dirección).
@@ -114911,6 +115665,30 @@ def _media_program_snap(session_db, media_id, texto) -> str | None:
     return limpio
 
 
+def _media_radio_contacts(session_db, media_ids) -> dict:
+    """QUIÉN RECIBE LAS PRESENTACIONES A RADIO de cada medio: {media_id(str): [MediaContact]}.
+
+    ⚠️ Punto ÚNICO (lo usan la ficha del medio y el envío). Solo cuentan los que tienen CORREO: a
+    quien no lo tenga no se le puede mandar nada, y ofrecerlo sería mentir.
+    ⚠️ En BLOQUE: una consulta para todas las emisoras del envío, no una por emisora."""
+    ids = [x for x in (media_ids or []) if x]
+    if not ids:
+        return {}
+    try:
+        filas = (session_db.query(MediaContact)
+                 .filter(MediaContact.media_id.in_(ids),
+                         MediaContact.radio_pitch.is_(True),
+                         func.coalesce(MediaContact.email, "") != "")
+                 .order_by(MediaContact.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[radio] no se pudieron leer los contactos de presentaciones")
+        return {}
+    out = {}
+    for c in filas:
+        out.setdefault(str(c.media_id), []).append(c)
+    return out
+
+
 def _media_contact_groups(contacts) -> list:
     """Cómo se lee el listado de contactos: PRIMERO los que no son de ningún programa y después,
     agrupados por programa (alfabéticamente). Dentro de cada grupo, por su nombre."""
@@ -115021,6 +115799,12 @@ def _media_contact_apply_form(session_db, contact, form, media_id) -> None:
         contact.promoter_id = promoter.id
 
     contact.nick = (form.get("nick") or "").strip() or None
+    # ⚠️ Un BUZÓN de la cadena (sin persona detrás) se queda con la parte de antes de la @ como
+    # nick: en la lista tiene que poder leerse algo, y «cadenasmusicales» es exactamente lo que es.
+    if not contact.nick and _truthy(form.get("radio_pitch")):
+        correo = (form.get("email") or "").strip()
+        if "@" in correo:
+            contact.nick = correo.split("@", 1)[0]
     nombre, apellidos = _split_full_name(form.get("full_name") or "")
     contact.first_name = nombre or None
     contact.last_name = apellidos or None
@@ -115040,6 +115824,221 @@ def _media_contact_apply_form(session_db, contact, form, media_id) -> None:
     contact.email = ((form.get("email") or "").strip()
                      or ((promoter.contact_email or "").strip() if promoter is not None else "")) or None
     contact.press_releases = _truthy(form.get("press_releases"))
+    # ⚠️ CENTINELA: solo se toca la marca de radio si el formulario la trae (el pop-up solo la
+    # pregunta en un medio de tipo Radio; sin esto, guardar desde otro sitio la borraría).
+    if "radio_pitch_present" in form:
+        contact.radio_pitch = _truthy(form.get("radio_pitch"))
+
+
+# ── MEDIOS REPETIDOS · la misma emisora dos veces ───────────────────────────────────────────────
+# ⚠️⚠️ Al volcar las emisoras del reporte de radios a Medios pueden quedar dos fichas de lo mismo
+# escritas de otra forma («Los 40» / «LOS40»), y una emisora repetida parte su historia: las
+# tocadas en una y las presentaciones en la otra. La fusión de siempre las une sin perder nada (el
+# motor re-apunta TODAS las referencias, tocadas incluidas); aquí solo se PROPONE la pareja.
+# ⚠️⚠️ **EL CORREO NO SIRVE COMO CRITERIO EN UN MEDIO** (al revés que en un tercero): las seis
+# emisoras de Prisa comparten `cadenasmusicales@prisaradio.com` y saldrían quince parejas falsas.
+# Se miran solo los NOMBRES.
+MEDIA_DUPLICATE_MIN_CHARS = 5
+
+
+def _media_pair_key(a, b) -> tuple:
+    """La pareja ORDENADA, para que (A,B) y (B,A) sean la misma. Punto único."""
+    x, y = str(a or ""), str(b or "")
+    return (x, y) if x <= y else (y, x)
+
+
+def _media_dismissed_pairs(session_db) -> set:
+    """Las parejas que alguien ya dijo que NO son el mismo medio (en bloque, una consulta)."""
+    try:
+        return {_media_pair_key(a, b)
+                for a, b in session_db.query(MediaNotDuplicate.media_a_id,
+                                             MediaNotDuplicate.media_b_id).all()}
+    except Exception:
+        app.logger.exception("[medios] no se pudieron leer las parejas descartadas")
+        return set()
+
+
+def _media_name_keys(media) -> tuple:
+    """(clave exacta, clave apretada) del nombre de un medio.
+
+    La apretada va **sin espacios** para que «Los 40» y «LOS40» se reconozcan: es justo como se
+    escribe el nombre de una emisora en un sitio y en otro."""
+    clave = _norm_text_key(getattr(media, "name", "") or "")
+    return clave, clave.replace(" ", "")
+
+
+def _media_duplicate_pairs(session_db, medios, *, limite: int = 20) -> list:
+    """LAS FICHAS DE MEDIO QUE SON LA MISMA, **DE DOS EN DOS**, con por qué lo son.
+
+    · **Mismo nombre** (sin acentos ni mayúsculas) → siempre se propone.
+    · **Nombre apretado igual** («Los 40» = «LOS40») o **uno dentro del otro** (con al menos
+      `MEDIA_DUPLICATE_MIN_CHARS` letras) → solo entre medios **del mismo tipo**, que si no «Radio
+      Olé» y «Olé Televisión» acabarían emparejados.
+    ⚠️ Lo que alguien descartó no vuelve a salir, y se dice cuántas parejas quedan fuera del tope.
+    """
+    filas = [m for m in (medios or []) if getattr(m, "id", None)]
+    if len(filas) < 2:
+        return []
+    por_id = {str(m.id): m for m in filas}
+    claves = {sid: _media_name_keys(m) for sid, m in por_id.items()}
+    tipos = {sid: (getattr(m, "media_type", "") or "").strip().lower() for sid, m in por_id.items()}
+    descartadas = _media_dismissed_pairs(session_db)
+
+    motivos: dict = {}
+    sids = [sid for sid in por_id if claves[sid][0]]
+    # ⚠️ Agrupando por clave, no comparando todos contra todos: con cientos de medios, el par a par
+    # solo hace falta para «uno dentro del otro», y ahí se compara por tipo y con el nombre corto.
+    por_exacta, por_apretada = {}, {}
+    for sid in sids:
+        exacta, apretada = claves[sid]
+        por_exacta.setdefault(exacta, []).append(sid)
+        por_apretada.setdefault(apretada, []).append(sid)
+
+    def _anota(x, y, motivo):
+        par = _media_pair_key(x, y)
+        if par in descartadas:
+            return
+        motivos.setdefault(par, set()).add(motivo)
+
+    for grupo in por_exacta.values():
+        for i in range(len(grupo)):
+            for j in range(i + 1, len(grupo)):
+                _anota(grupo[i], grupo[j], "nombre")
+    for grupo in por_apretada.values():
+        for i in range(len(grupo)):
+            for j in range(i + 1, len(grupo)):
+                if tipos[grupo[i]] == tipos[grupo[j]]:
+                    _anota(grupo[i], grupo[j], "parecido")
+    # Uno dentro del otro (mismo tipo), sobre el nombre apretado.
+    ordenados = sorted(sids, key=lambda sid: len(claves[sid][1]))
+    for i, x in enumerate(ordenados):
+        kx = claves[x][1]
+        if len(kx) < MEDIA_DUPLICATE_MIN_CHARS:
+            continue
+        for y in ordenados[i + 1:]:
+            if tipos[x] != tipos[y]:
+                continue
+            ky = claves[y][1]
+            if kx != ky and kx in ky:
+                _anota(x, y, "parecido")
+
+    etiquetas = {"nombre": "el mismo nombre", "parecido": "un nombre parecido"}
+    salida = []
+    for (x, y), ms in motivos.items():
+        a, b = por_id.get(x), por_id.get(y)
+        if a is None or b is None:
+            continue
+        def _ficha(m):
+            return {"id": str(m.id), "name": (m.name or "—"), "photo": (m.logo_url or ""),
+                    "type": _media_type_label(getattr(m, "media_type", "")),
+                    "country": (getattr(m, "country_name", "") or "")}
+        salida.append({
+            "key": x + "|" + y,
+            "order": 0 if "nombre" in ms else 1,
+            "a": _ficha(a), "b": _ficha(b),
+            "why": _join_es([etiquetas[m] for m in ("nombre", "parecido") if m in ms]),
+        })
+    salida.sort(key=lambda g: (g["order"], (g["a"]["name"] or "").casefold()))
+    if len(salida) > limite:
+        salida[limite - 1]["rest"] = len(salida) - limite
+    return salida[:limite]
+
+
+@app.post("/medios/duplicados/descartar", endpoint="media_duplicate_dismiss")
+@admin_required
+def media_duplicate_dismiss():
+    """«NO SON EL MISMO»: esa pareja de medios deja de proponerse para fusionar.
+
+    ⚠️ `solo` = el botón de UNA fila: descarta ESA y nada más, aunque haya casillas marcadas (el
+    bloque entero es un formulario y pulsar un botón no puede hacer de más)."""
+    session_db = db()
+    back = request.form.get("next") or url_for("media_outlets_view")
+    try:
+        yo = (_current_user_state() or {})
+        uno = (request.form.get("solo") or "").strip()
+        pares = [uno] if uno else [x for x in request.form.getlist("pares[]") if (x or "").strip()]
+        n = 0
+        for par in pares:
+            trozos = par.split("|")
+            if len(trozos) != 2:
+                continue
+            ua, ub = _safe_uuid(trozos[0]), _safe_uuid(trozos[1])
+            if not ua or not ub or ua == ub:
+                continue
+            x, y = _media_pair_key(ua, ub)
+            existe = (session_db.query(MediaNotDuplicate)
+                      .filter(MediaNotDuplicate.media_a_id == _safe_uuid(x),
+                              MediaNotDuplicate.media_b_id == _safe_uuid(y)).first())
+            if existe is not None:
+                continue
+            session_db.add(MediaNotDuplicate(
+                media_a_id=_safe_uuid(x), media_b_id=_safe_uuid(y),
+                dismissed_by_user_id=_safe_uuid(yo.get("user_id")),
+                dismissed_by_nick=(yo.get("nick") or "")))
+            n += 1
+        session_db.commit()
+        if n:
+            flash("Descartada%s %d pareja%s: dejan de proponerse."
+                  % ("s" if n != 1 else "", n, "s" if n != 1 else ""), "success")
+        else:
+            flash("No había ninguna pareja que descartar.", "info")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo descartar la pareja")
+        flash("No se ha podido descartar.", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(back))
+
+
+@app.post("/medios/duplicados/restaurar", endpoint="media_duplicate_restore")
+@admin_required
+def media_duplicate_restore():
+    """DESHACER un «no son el mismo»: esa pareja vuelve a proponerse si sigue pareciéndose."""
+    session_db = db()
+    back = request.form.get("next") or url_for("media_outlets_view")
+    try:
+        x, y = _media_pair_key(_safe_uuid(request.form.get("a")), _safe_uuid(request.form.get("b")))
+        n = (session_db.query(MediaNotDuplicate)
+             .filter(MediaNotDuplicate.media_a_id == _safe_uuid(x),
+                     MediaNotDuplicate.media_b_id == _safe_uuid(y))
+             .delete(synchronize_session=False))
+        session_db.commit()
+        flash("Vuelve a salir como posible duplicado." if n else "Esa pareja ya no estaba descartada.",
+              "success" if n else "info")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo restaurar la pareja")
+        flash("No se ha podido deshacer.", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(back))
+
+
+def _media_dismissed_rows(session_db) -> list[dict]:
+    """Las parejas descartadas, para poder DESHACERLAS (quién lo dijo y cuándo)."""
+    try:
+        filas = (session_db.query(MediaNotDuplicate)
+                 .order_by(MediaNotDuplicate.created_at.desc()).limit(60).all())
+    except Exception:
+        app.logger.exception("[medios] no se pudieron leer las parejas descartadas")
+        return []
+    ids = {f.media_a_id for f in filas} | {f.media_b_id for f in filas}
+    if not ids:
+        return []
+    medios = {m.id: m for m in session_db.query(MediaOutlet).filter(MediaOutlet.id.in_(ids)).all()}
+    salida = []
+    for f in filas:
+        a, b = medios.get(f.media_a_id), medios.get(f.media_b_id)
+        if a is None or b is None:
+            continue
+        salida.append({
+            "a": {"id": str(a.id), "name": (a.name or "—")},
+            "b": {"id": str(b.id), "name": (b.name or "—")},
+            "by": (f.dismissed_by_nick or ""),
+            "when": (_format_madrid_datetime_label(f.created_at) if f.created_at else ""),
+        })
+    return salida
 
 
 @app.route("/medios", methods=["GET", "POST"], endpoint="media_outlets_view")
@@ -115132,6 +116131,13 @@ def media_outlets_view():
         return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES,
                                selected_types=f_types, query_text=q, country_options=country_options_es(),
                                media_import_pending=_media_import_pending(session_db),
+                               # Las fichas repetidas se buscan sobre TODOS los medios, no sobre lo
+                               # que deje ver el filtro: un duplicado escondido detrás de un filtro
+                               # seguiría partiendo la historia de esa emisora en dos.
+                               duplicate_pairs=_media_duplicate_pairs(
+                                   session_db, session_db.query(MediaOutlet).all()),
+                               dismissed_pairs=_media_dismissed_rows(session_db),
+                               radio_media_type=RADIO_MEDIA_TYPE,
                                media_tags_map=_media_tags_map(session_db, [m.id for m in media_rows]),
                                media_tag_catalog=_media_tag_catalog(session_db), tag_counts=tag_counts,
                                selected_tags=f_tags)
@@ -115182,8 +116188,13 @@ def media_outlet_detail_view(media_id):
                     if not contact or contact.media_id != outlet.id:
                         flash("Contacto no encontrado.", "warning")
                         return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="contactos"))
-                # Lo único que se exige es saber cómo se llama.
-                if not ((request.form.get("nick") or "").strip() or (request.form.get("full_name") or "").strip()):
+                # Lo único que se exige es saber cómo se llama… salvo si es un BUZÓN de la
+                # cadena para las presentaciones a radio: ahí a veces no hay una persona detrás
+                # (`cadenasmusicales@prisaradio.com`), y con el correo basta.
+                correo_radio = (_truthy(request.form.get("radio_pitch"))
+                                and "@" in (request.form.get("email") or ""))
+                if not ((request.form.get("nick") or "").strip()
+                        or (request.form.get("full_name") or "").strip() or correo_radio):
                     _flash_form_error(
                         "No se ha guardado el contacto: dinos al menos cómo se llama (el nick o su nombre completo).",
                         campos=["nick", "full_name"], abrir="mediaContactModal")
@@ -115253,6 +116264,12 @@ def media_outlet_detail_view(media_id):
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=True,
             media_import_pending=_media_import_pending(session_db),
+            # Si es una EMISORA, lo que ha sonado en ella (el histórico del reporte de radios)
+            # y QUIÉN recibe las presentaciones de un tema.
+            radio_summary=_media_radio_summary(session_db, outlet),
+            is_radio_media=_radio_media_is_radio(outlet),
+            radio_contacts=(_media_radio_contacts(session_db, [outlet.id]).get(str(outlet.id), [])
+                            if _radio_media_is_radio(outlet) else []),
         )
     finally:
         session_db.close()
@@ -115296,6 +116313,30 @@ def media_contact_press_toggle(media_id, contact_id):
         session_db.close()
 
 
+@app.post("/medios/<media_id>/contactos/<contact_id>/presentaciones-radio",
+          endpoint="media_contact_radio_toggle")
+@admin_required
+def media_contact_radio_toggle(media_id, contact_id):
+    """A esta persona (o a este buzón) se le mandan las PRESENTACIONES A RADIO.
+
+    Hermano del interruptor de notas de prensa: se guarda al momento, sin recargar."""
+    session_db = db()
+    try:
+        contact = session_db.get(MediaContact, to_uuid(contact_id))
+        if not contact or str(contact.media_id) != str(to_uuid(media_id)):
+            return jsonify({"ok": False, "error": "Contacto no encontrado."}), 404
+        datos = request.get_json(silent=True) or {}
+        contact.radio_pitch = _truthy(datos.get("on"))
+        session_db.commit()
+        return jsonify({"ok": True, "on": bool(contact.radio_pitch)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo cambiar el envío de presentaciones a radio")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 400
+    finally:
+        session_db.close()
+
+
 @app.post("/medios/<media_id>/contactos/<contact_id>/delete")
 @admin_required
 def media_contact_delete(media_id, contact_id):
@@ -115319,6 +116360,32 @@ def media_contact_delete(media_id, contact_id):
 # =========================================================
 
 MEDIA_IMPORT_MAX_ROWS = 4000
+
+
+def _media_radio_summary(session_db, media) -> dict:
+    """LO QUE SUENA DE ESE MEDIO: total de tocadas, cuántas canciones y la última semana.
+
+    Solo tiene sentido en una emisora (un medio de tipo Radio). Es lo que hace visible que el
+    histórico del reporte de radios **no se pierde** al fusionar dos fichas: se ve en la ficha del
+    medio que se conserva."""
+    if media is None or not _radio_media_is_radio(media):
+        return {}
+    try:
+        fila = (session_db.query(func.coalesce(func.sum(Play.spins), 0),
+                                 func.count(func.distinct(Play.song_id)),
+                                 func.max(Play.week_start))
+                .filter(Play.media_id == media.id).first())
+    except Exception:
+        app.logger.exception("[medios] no se pudo leer el histórico de radio")
+        return {}
+    total, canciones, ultima = (fila or (0, 0, None))
+    return {
+        "spins": int(total or 0),
+        "songs": int(canciones or 0),
+        "last_week": ultima,
+        "last_label": (week_label_range(ultima) if ultima else ""),
+        "url": url_for("station_summary", station_id=str(media.id)),
+    }
 
 
 def _media_import_row_payload(row) -> dict:
@@ -132705,6 +133772,59 @@ def _mail_dns_check(acc) -> dict:
     return salida
 
 
+def _user_mail_account(session_db, user_id):
+    """LA CUENTA DE CORREO DE ESA PERSONA (su buzón de la empresa), o None.
+
+    ⚠️⚠️ Punto ÚNICO de «¿desde qué dirección manda esta persona?». Lo que se escribe de tú a tú
+    —la presentación de un tema a una emisora— tiene que salir **desde el correo de quien lo
+    manda**: quien lo recibe contesta a esa persona, no a un buzón de la app. Se da de alta en
+    Integraciones → Correo y se le asigna ahí.
+    ⚠️ Tiene que estar ACTIVA y con contraseña: sin credenciales no se puede conectar a su buzón,
+    y decir que sale desde su correo sin que sea verdad es justo lo que no puede pasar."""
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return None
+    try:
+        return (session_db.query(MailAccount)
+                .filter(MailAccount.user_id == uid, MailAccount.is_active.is_(True),
+                        func.coalesce(MailAccount.smtp_password, "") != "")
+                .order_by(MailAccount.created_at.asc()).first())
+    except Exception:
+        app.logger.exception("[correo] no se pudo leer la cuenta de la persona")
+        return None
+
+
+def _radio_sender_options(session_db, user_id) -> dict:
+    """DESDE QUÉ DIRECCIÓN puede salir una presentación a radio, para quien la está mandando.
+
+    · **Su propio correo**, si tiene cuenta dada de alta: es lo que se usa por defecto.
+    · **Promoción** (`promocion@33producciones.es`) como salida cuando no la tiene — con el aviso
+      de que no es su dirección, para que lo sepa antes de mandar (lo pidió Dani).
+    ⚠️ Si no hay ninguna de las dos, no se puede mandar y se dice por qué: un correo que sale con
+    el remitente de la app, escrito en primera persona, no lo abre nadie."""
+    propia = _user_mail_account(session_db, user_id)
+    promo = _mail_account_for_email(PRESS_SENDER_PROMO_EMAIL)
+    opciones = []
+    if propia is not None:
+        opciones.append({
+            "key": "MINE", "email": (propia.from_email or ""),
+            "name": (propia.from_name or "").strip() or (propia.label or ""),
+            "label": "Mi correo", "account_id": str(propia.id),
+        })
+    if promo is not None and (propia is None or (promo.from_email or "").lower() != (propia.from_email or "").lower()):
+        opciones.append({
+            "key": "PROMO", "email": PRESS_SENDER_PROMO_EMAIL, "name": PRESS_SENDER_PROMO_NAME,
+            "label": "Promoción", "account_id": str(promo.id),
+        })
+    return {
+        "options": opciones,
+        "mine": (opciones[0] if (opciones and opciones[0]["key"] == "MINE") else None),
+        "promo_ready": any(o["key"] == "PROMO" for o in opciones),
+        "default": (opciones[0]["key"] if opciones else ""),
+        "can_send": bool(opciones),
+    }
+
+
 def _mail_account_row(acc) -> dict:
     """Una cuenta tal como se enseña (SIN la contraseña: solo si la tiene)."""
     email = (acc.from_email or "").strip()
@@ -132723,6 +133843,8 @@ def _mail_account_row(acc) -> dict:
         "dkim_selector": acc.dkim_selector or "", "domain": dominio,
         "company_id": (str(acc.company_id) if getattr(acc, "company_id", None) else ""),
         "cycle_id": (str(acc.cycle_id) if getattr(acc, "cycle_id", None) else ""),
+        # DE QUIÉN DE LA CASA es el buzón (sus presentaciones a radio salen por él).
+        "user_id": (str(acc.user_id) if getattr(acc, "user_id", None) else ""),
         # ¿El usuario con el que se autentica es del MISMO dominio que el remitente? Si no, SPF/DKIM
         # no pueden cuadrar y el correo va a spam (la pista que ya da la tabla de arriba).
         "aligned": bool(dominio and (not usuario or "@" not in usuario or usuario.split("@", 1)[1].lower() == dominio)),
@@ -132745,9 +133867,26 @@ def _mail_accounts_context(session_db) -> dict:
                   session_db.query(CycleFestival).filter(CycleFestival.event_id.is_(None)).order_by(CycleFestival.name.asc()).limit(200).all()]
     except Exception:
         empresas, ciclos = [], []
+    # EL PERSONAL, para poder decir de quién es cada buzón (y que sus correos salgan por él).
+    personas, nombres = [], {}
+    try:
+        fuera = _inactive_user_ids(session_db)
+        for u, prof in (session_db.query(User, UserProfile)
+                        .outerjoin(UserProfile, UserProfile.user_id == User.id).all()):
+            if u.id in fuera:
+                continue
+            nombre = ((getattr(prof, "nick", "") or "").strip() or (u.email or "").strip())
+            personas.append({"id": str(u.id), "name": nombre,
+                             "photo": (getattr(prof, "photo_url", "") or "")})
+            nombres[str(u.id)] = nombre
+        personas.sort(key=lambda x: _norm_text_key(x["name"]))
+    except Exception:
+        app.logger.exception("[correo] no se pudo leer el personal para las cuentas")
+    for f in filas:
+        f["user_name"] = nombres.get(f.get("user_id") or "", "")
     dadas = {(f["from_email"] or "").lower() for f in filas}
     esperadas = [dict(e, missing=(e["email"].lower() not in dadas)) for e in MAIL_EXPECTED_ACCOUNTS]
-    return {"rows": filas, "companies": empresas, "cycles": ciclos,
+    return {"rows": filas, "companies": empresas, "cycles": ciclos, "people": personas,
             "security_kinds": MAIL_SECURITY_KINDS, "ports": MAIL_SECURITY_PORTS,
             "promo_email": PRESS_SENDER_PROMO_EMAIL, "promo_name": PRESS_SENDER_PROMO_NAME,
             "promo_missing": not any(f["is_promo"] for f in filas),
@@ -132812,6 +133951,18 @@ def mail_account_save():
         if "owner_present" in f:
             acc.company_id = _safe_uuid((f.get("company_id") or "").strip()) if (f.get("company_id") or "").strip() else None
             acc.cycle_id = _safe_uuid((f.get("cycle_id") or "").strip()) if (f.get("cycle_id") or "").strip() else None
+        # …y DE QUIÉN DE LA CASA (su correo personal de la empresa): sus presentaciones a radio
+        # salen desde aquí. ⚠️ Con su centinela, como los demás.
+        if "user_present" in f:
+            nuevo_uid = _safe_uuid((f.get("user_id") or "").strip()) if (f.get("user_id") or "").strip() else None
+            # ⚠️ Una persona, UNA cuenta: si ya tenía otra, se le suelta (si no, «su» cuenta sería
+            # la primera que apareciera y nadie sabría por cuál sale).
+            if nuevo_uid:
+                for otra in (session_db.query(MailAccount)
+                             .filter(MailAccount.user_id == nuevo_uid).all()):
+                    if acc.id is None or otra.id != acc.id:
+                        otra.user_id = None
+            acc.user_id = nuevo_uid
         acc.smtp_username = (f.get("smtp_username") or "").strip() or email
         clave = (f.get("smtp_password") or "").strip()
         if _truthy(f.get("clear_password")):
@@ -158937,11 +160088,14 @@ def _home_registros_pending(limit: int = 20) -> list[dict]:
 
 
 def _home_radio_pitches(limit: int = 12) -> list[dict]:
-    """PRESENTAR A RADIO (módulo de Inicio de **promoción** y de **dirección con función de sello**).
+    """¿ENTRA EN ROTACIÓN? (módulo de Inicio de **promoción** y de **dirección con función de sello**).
 
-    Una fila por canción y, dentro, **una subtarea por emisora** con sus dos botones: «Sí va a entrar»
-    (con la fecha de entrada en rotación) y «No va a entrar». Cuando todas han contestado, la fila
-    desaparece sola."""
+    ⚠️⚠️ Desde el rediseño de sep 2026 aquí sale lo **PRESENTADO** —el tema ya se le mandó a la
+    emisora— de lo que **todavía no se sabe nada**: ni ha dicho cuándo entra ni ha empezado a
+    sonar. Una fila por canción y, dentro, una línea por emisora con sus dos botones: **cuándo
+    entra en rotación** (la previsión, que es lo que Dani quiere conservar) y **no la cogen**.
+    ⚠️ **Lo que ya SUENA no sale**: se mira el DATO (sus tocadas), así que la fila desaparece sola
+    en cuanto entra de verdad —sin que nadie tenga que marcar nada—."""
     estado = _current_user_state() or {}
     yo = str(estado.get("user_id") or "")
     if not yo:
@@ -158950,15 +160104,28 @@ def _home_radio_pitches(limit: int = 12) -> list[dict]:
     try:
         if yo not in _disco_radio_deciders(session_db):
             return []
+        # PRESENTADAS y sin fecha de entrada: es de lo que hay que preguntar a la emisora.
         pendientes = (session_db.query(SongRadioPitch)
                       .options(joinedload(SongRadioPitch.media))
-                      .filter(func.upper(func.coalesce(SongRadioPitch.status, "PENDING")) == "PENDING")
-                      .order_by(SongRadioPitch.requested_at.asc()).limit(200).all())
+                      .filter(func.upper(func.coalesce(SongRadioPitch.status, "PLANNED")).in_(("SENT", "ACCEPTED")),
+                              SongRadioPitch.start_date.is_(None))
+                      .order_by(SongRadioPitch.presented_at.asc().nullslast()).limit(200).all())
         if not pendientes:
             return []
         por_cancion = {}
         for fila in pendientes:
             por_cancion.setdefault(str(fila.song_id), []).append(fila)
+        # ⚠️ LO QUE YA SUENA SE CAE SOLO: se comprueba con las TOCADAS, en bloque (una consulta por
+        # canción, no una por emisora).
+        for sid, filas in list(por_cancion.items()):
+            suena = _song_radio_on_air_map(session_db, to_uuid(sid), [f.media_id for f in filas])
+            quedan = [f for f in filas if str(f.media_id) not in suena]
+            if quedan:
+                por_cancion[sid] = quedan
+            else:
+                por_cancion.pop(sid, None)
+        if not por_cancion:
+            return []
         canciones = {str(c.id): c for c in (session_db.query(Song)
                      .options(joinedload(Song.artists))
                      .filter(Song.id.in_([to_uuid(k) for k in por_cancion.keys()])).all())}
@@ -158982,7 +160149,9 @@ def _home_radio_pitches(limit: int = 12) -> list[dict]:
                     "id": str(f.id),
                     "name": (getattr(getattr(f, "media", None), "name", "") or "La emisora"),
                     "logo_url": (getattr(getattr(f, "media", None), "logo_url", "") or ""),
-                    "requested_by": (f.requested_by_nick or ""),
+                    # QUIÉN la presentó y cuándo (lo que hay que saber para preguntar por ella).
+                    "requested_by": (f.presented_by_nick or f.requested_by_nick or ""),
+                    "sent_label": (_format_madrid_datetime_label(f.presented_at) if f.presented_at else ""),
                     "decide_url": url_for("song_radio_pitch_decide", pitch_id=str(f.id)),
                 } for f in filas],
             })
@@ -169879,7 +171048,7 @@ def _sync_song_rows(session_db, canciones, *, one_stop_map=None) -> list[dict]:
     generos = _song_genres_map(session_db, ids)
     enviados = _sync_sent_state(session_db, ids)
     # El audio de todas, de UNA consulta (el máster; la maqueta solo para las que no lo tengan).
-    masters, orden = {}, {"MASTER_48": 0, "MASTER_24": 1, "MASTER_16": 2}
+    masters, orden = {}, _SONG_MASTER_SLOT_ORDER
     try:
         for m in (session_db.query(SongMaterial)
                   .filter(SongMaterial.song_id.in_(ids),
@@ -170050,7 +171219,7 @@ def _sync_repertoire_context(session_db) -> dict:
 
 def _sync_song_audio_url(session_db, song) -> str:
     """El audio con el que se escucha el tema: su MÁSTER (48 antes que 24 y 16) o, si no, su maqueta."""
-    orden = {"MASTER_48": 0, "MASTER_24": 1, "MASTER_16": 2}
+    orden = _SONG_MASTER_SLOT_ORDER
     mejor, mejor_peso = "", 99
     try:
         for m in (session_db.query(SongMaterial)
@@ -170116,6 +171285,544 @@ SYNC_LISTEN_SECONDS = 60
 # El token de cada envío viaja en el cuerpo como este MARCADOR y se sustituye por destinatario: así
 # el correo se compone UNA vez por idioma y aun así cada uno lleva SU enlace y SU píxel.
 SYNC_TOKEN_MARK = "__SYNC_TOKEN__"
+
+
+# ---------------------------------------------------------------------------
+#  PRESENTACIÓN A RADIOS · EL CORREO
+#  ------------------------------------------------------------------------
+#  ⚠️⚠️ Lo escribe UNA PERSONA a otra («quiero presentarte el nuevo single de…»), así que sale
+#  desde SU correo (`_radio_sender_options`) y lleva su firma. La maqueta es la de las
+#  comunicaciones de la casa —la misma que Syncros—: tablas con estilos EN LÍNEA, los logos del
+#  grupo arriba a la derecha y cada dato con su ICONO de marca (nunca un emoji: en un correo el
+#  icono va como PNG, `_brand_icon`).
+#  ⚠️ Respecto al de Syncros: **sin one-stop, sin géneros y sin los autores**, con la etiqueta
+#  **FOCUS SINGLE** cuando lo es, y con el **ISRC** (el principal de audio) y la **fecha de
+#  publicación** (con su día de la semana, como todo lo que sale de casa).
+# ---------------------------------------------------------------------------
+RADIO_PITCH_SUBJECT = "Presentación nuevo single"
+
+
+def _radio_song_interpreters(session_db, song) -> dict:
+    """Quién firma el tema: NUESTRO artista y, si es una colaboración, los demás intérpretes.
+
+    ⚠️ Punto único del asunto y del texto. Se apoya en `_song_display_parts`, que es el criterio de
+    la casa para saber si hay colaboración (el mismo de la cabecera de la ficha)."""
+    try:
+        filas = (session_db.query(SongInterpreter)
+                 .filter(SongInterpreter.song_id == song.id)
+                 .order_by(SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[radio] no se pudieron leer los intérpretes")
+        filas = []
+    partes = _song_display_parts(song, filas)
+    nuestros = list(partes.get("artist_names") or [])
+    claves = {_norm_person_name_key(x) for x in nuestros}
+    otros = [n for n in (partes.get("interpreters") or []) if _norm_person_name_key(n) not in claves]
+    return {"artists": nuestros, "others": otros,
+            "artist_label": _join_es(nuestros) or "",
+            "others_label": _join_es(otros) or ""}
+
+
+def _radio_media_label(nombres, *, html: bool = True) -> str:
+    """Los MEDIOS de ese correo: «Cadena Dial» · «Los 40 y Cadena Dial» · «A, B y C».
+
+    ⚠️ En el cuerpo van **en negrita**, haya uno o varios (lo pidió Dani)."""
+    limpios = [(n or "").strip() for n in (nombres or []) if (n or "").strip()]
+    if not limpios:
+        return ""
+    if html:
+        limpios = ["<strong>%s</strong>" % escape(n) for n in limpios]
+    return _join_es(limpios)
+
+
+def _radio_pitch_context(session_db, song, *, medios=None, sender=None) -> dict:
+    """TODO lo que necesita una presentación a radio: el tema, sus datos y a qué emisoras va.
+
+    ⚠️ Punto ÚNICO del correo, de la vista previa y del PDF de Prisa: los tres dicen lo mismo."""
+    ctx = _sync_song_context(session_db, song, lang="ES")
+    quienes = _radio_song_interpreters(session_db, song)
+    try:
+        isrcs = _song_isrcs_by_kind(session_db, song.id, "AUDIO")
+    except Exception:
+        app.logger.exception("[radio] no se pudo leer el ISRC")
+        isrcs = []
+    focus = _song_focus_state(song)
+    fecha = getattr(song, "release_date", None)
+    medios = list(medios or [])
+    ctx.update({
+        "artists": quienes["artists"],
+        "others": quienes["others"],
+        "artist_label": quienes["artist_label"] or ctx.get("artist_name") or "",
+        "others_label": quienes["others_label"],
+        # ⚠️ El ISRC que se le da a una emisora es **el principal de AUDIO** (aquí se llama solo
+        # «ISRC»): el del videoclip no le sirve de nada.
+        "isrc": (isrcs[0] if isrcs else ""),
+        "focus": bool(focus.get("yes")),
+        "release_date_obj": fecha,
+        # La FECHA lleva su DÍA DE LA SEMANA: es lo primero que mira quien la recibe.
+        "release_long": (format_date_long_es(fecha) if fecha else ""),
+        "media": medios,
+        "media_label": _radio_media_label([m.get("name") for m in medios], html=False),
+        "sender": (sender or {}),
+    })
+    return ctx
+
+
+def _radio_pitch_intro(ctx: dict) -> str:
+    """EL TEXTO de la presentación (el que se puede retocar antes de mandarlo, en texto plano).
+
+    Se compone con lo que hay: el artista, el single, los demás intérpretes **si es una
+    colaboración**, la fecha de publicación, lo de focus single **solo si lo es** y el medio (o los
+    medios) a los que va ese correo."""
+    t = ["Buenas, quiero presentarte el nuevo single de %s, “%s”"
+         % (ctx.get("artist_label") or "", ctx.get("title") or "")]
+    if ctx.get("others_label"):
+        t.append(", en colaboración con %s" % ctx["others_label"])
+    if ctx.get("release_long"):
+        t.append(", que publicaremos el próximo %s" % ctx["release_long"])
+    if ctx.get("focus"):
+        t.append(", que va a ser nuestro nuevo Focus Single")
+    medios = ctx.get("media_label") or ""
+    if medios:
+        t.append(", y me gustaría pedirte que lo valorarais para %s" % medios)
+    t.append(", y pedirte todo el apoyo posible.")
+    return "".join(t)
+
+
+def _radio_pitch_subject(ctx: dict) -> str:
+    """El ASUNTO: «Presentación nuevo single <artista> [y <otros>], <single>, <medio(s)>»."""
+    quien = ctx.get("artist_label") or ""
+    if ctx.get("others_label"):
+        quien = "%s y %s" % (quien, ctx["others_label"])
+    resto = [x for x in (quien, (ctx.get("title") or ""), (ctx.get("media_label") or "")) if x]
+    return ("%s %s" % (RADIO_PITCH_SUBJECT, ", ".join(resto))).strip()
+
+
+def _radio_pitch_intro_html(ctx: dict, texto: str = "") -> str:
+    """El texto de presentación EN HTML: los NOMBRES DE LOS MEDIOS van en negrita.
+
+    ⚠️ Si la persona ha retocado el texto se respeta tal cual (solo se escapa y se convierten los
+    saltos de línea): lo que ha escrito es suyo."""
+    # ⚠️⚠️ `escape()` devuelve un **Markup**, y `Markup.replace()` vuelve a escapar lo que se le
+    # mete: los `<strong>` de los medios salían como texto («&lt;strong&gt;»). Se trabaja con
+    # `str()` desde el principio (bug de la primera prueba).
+    cuerpo = (texto or "").strip()
+    if cuerpo:
+        html = str(escape(cuerpo)).replace("\n", "<br>")
+    else:
+        # El texto de la casa, con los medios en negrita (lo pidió Dani).
+        html = str(escape(_radio_pitch_intro(ctx)))
+        medios = ctx.get("media_label") or ""
+        if medios:
+            html = html.replace(str(escape(medios)),
+                                _radio_media_label([m.get("name") for m in (ctx.get("media") or [])]))
+    cierre = ("<br><br>Por supuesto, como siempre, podéis contar con el artista para lo que "
+              "necesites.<br><br>Muchas gracias, y quedo pendiente de tu feedback.<br><br>Un abrazo.")
+    return html + cierre
+
+
+def _radio_pitch_html(ctx: dict, *, email: bool = True, intro_text: str = "",
+                      audio_url: str = "", instrumental_url: str = "", press_url: str = "") -> str:
+    """EL CUERPO del correo de presentación a radio (estilos en línea: esto va por correo).
+
+    ⚠️ Punto ÚNICO: la vista previa y el correo pintan ESTO, así que lo que se ve es lo que sale.
+    ⚠️ Los BOTONES van justo debajo del bocadillo de la canción y son solo tres: **Descargar
+    Audio**, **Descargar instrumental** y la **nota de prensa** si ya está subida (lo pidió Dani);
+    los demás de Syncros no pintan nada aquí."""
+    esc = lambda v: escape(str(v or ""))
+    ico = lambda n, size=16: _brand_icon(n, email=email, size=size)
+
+    # ── Los logos del grupo, arriba a la derecha ──
+    celdas = ""
+    for url, nombre in ctx.get("brand_logos") or []:
+        if url:
+            celdas += ('<td style="vertical-align:middle;padding:0 0 0 14px;text-align:center;">'
+                       '<img src="%s" alt="%s" style="height:30px;width:auto;display:block;'
+                       'margin:0 auto;"></td>' % (esc(url), esc(nombre)))
+    logos = (('<table class="sync-logos" style="border-collapse:collapse;margin-left:auto;'
+              'display:inline-table;"><tr>%s</tr></table>' % celdas) if celdas
+             else ('<span style="font-size:13px;color:#6b7280;">%s</span>' % esc(ctx.get("label_name"))))
+
+    # ── La portada ──
+    if ctx.get("cover_url"):
+        portada = ('<img src="%s" alt="" width="220" class="sync-cover" style="width:220px;'
+                   'height:220px;object-fit:contain;background:#f1f3f5;border-radius:12px;'
+                   'border:1px solid #e6e9ec;display:block;">' % esc(ctx["cover_url"]))
+    else:
+        portada = ('<div class="sync-cover-ph" style="width:220px;height:220px;border-radius:12px;'
+                   'background:#f1f3f5;border:1px solid #e6e9ec;"></div>')
+
+    def dato(icono, valor):
+        return ('<div style="margin-top:7px;font-size:13.5px;color:#374151;line-height:1.35;">'
+                '%s&nbsp; %s</div>' % (icono, valor))
+
+    # ── El ARTISTA con su foto y, a la derecha, sus certificaciones ──
+    foto = ctx.get("artist_photo")
+    artista = ""
+    if foto:
+        artista += ('<img src="%s" alt="" width="26" height="26" style="width:26px;height:26px;'
+                    'border-radius:50%%;object-fit:cover;vertical-align:middle;margin-right:6px;">'
+                    % esc(foto))
+    artista += '<strong style="vertical-align:middle;">%s</strong>' % esc(
+        ctx.get("artist_label") or ctx.get("artist_name"))
+    if ctx.get("others_label"):
+        artista += ('<span style="vertical-align:middle;color:#6b7280;"> con %s</span>'
+                    % esc(ctx["others_label"]))
+    certis = ""
+    for cert in (ctx.get("certifications") or []):
+        n = int(cert.get("count") or 1)
+        certis += ('<span title="%s" style="display:inline-block;margin-left:8px;white-space:nowrap;'
+                   'vertical-align:middle;"><img src="%s" alt="%s" height="30" style="height:30px;'
+                   'width:auto;vertical-align:middle;">%s</span>'
+                   % (esc(cert.get("label")), esc(cert.get("image_url")), esc(cert.get("label")),
+                      ('<strong style="font-size:13px;color:#374151;vertical-align:middle;'
+                       'margin-left:3px;">×%d</strong>' % n) if n > 1 else ""))
+    linea_artista = ('<div style="margin-top:10px;font-size:15px;color:#111827;">%s</div>' % artista)
+    bloque_artista = (('<table style="width:100%%;border-collapse:collapse;"><tr>'
+                       '<td style="vertical-align:middle;">%s</td>'
+                       '<td style="vertical-align:middle;text-align:right;white-space:nowrap;">%s</td>'
+                       '</tr></table>' % (linea_artista, certis)) if certis else linea_artista)
+
+    # ── La etiqueta FOCUS SINGLE (solo si lo es), en el azul de la marca ──
+    etiqueta = ""
+    if ctx.get("focus"):
+        etiqueta = ('<span style="display:inline-block;background:#007CA2;color:#fff;'
+                    'border-radius:999px;padding:4px 12px 4px 10px;font-size:11px;font-weight:800;'
+                    'letter-spacing:.06em;white-space:nowrap;">%s&nbsp; FOCUS SINGLE</span>'
+                    % _brand_icon("star", email=email, size=12, color="ffffff"))
+
+    sello = ""
+    if ctx.get("label_logo"):
+        sello = ('<div style="margin-top:9px;">%s&nbsp; '
+                 '<img src="%s" alt="%s" style="height:20px;width:auto;vertical-align:middle;"></div>'
+                 % (ico("compact-disc"), esc(ctx["label_logo"]), esc(ctx.get("label_name"))))
+    elif ctx.get("label_name"):
+        sello = dato(ico("compact-disc"), "<strong>%s</strong>" % esc(ctx["label_name"]))
+
+    # ── LOS BOTONES: solo el audio, el instrumental y la nota de prensa ──
+    def boton(url, texto, icono, primario=False):
+        if not url:
+            return ""
+        if primario:
+            return ('<a href="%s" style="display:inline-block;background:#007CA2;color:#fff;'
+                    'text-decoration:none;border-radius:8px;padding:9px 16px;font-size:13.5px;'
+                    'font-weight:700;margin:0 8px 8px 0;">%s&nbsp; %s</a>'
+                    % (esc(url), _brand_icon(icono, email=email, size=13, color="ffffff"), esc(texto)))
+        return ('<a href="%s" style="display:inline-block;background:#fff;color:#111827;'
+                'text-decoration:none;border:1px solid #d6dbe0;border-radius:8px;padding:9px 14px;'
+                'font-size:13.5px;font-weight:700;margin:0 8px 8px 0;">%s&nbsp; %s</a>'
+                % (esc(url), ico(icono, 13), esc(texto)))
+
+    botones = (boton(audio_url, "Descargar audio", "download", primario=True)
+               + boton(instrumental_url, "Descargar instrumental", "sliders")
+               + boton(press_url, "Nota de prensa", "newspaper"))
+
+    # ── LA FIRMA: quien lo manda (es un correo de una persona a otra) ──
+    s = ctx.get("sender") or {}
+    firma = ""
+    if s.get("name") or s.get("email"):
+        lineas = '<div style="font-size:15.5px;font-weight:700;color:#111827;">%s</div>' % esc(s.get("name"))
+        if s.get("role"):
+            lineas += ('<div style="font-size:13.5px;color:#6b7280;margin-bottom:8px;">%s</div>'
+                       % esc(s.get("role")))
+        if s.get("email"):
+            lineas += ('<div style="margin-top:6px;"><a href="mailto:%s" style="color:#00637f;'
+                       'text-decoration:none;font-size:14.5px;">%s&nbsp; %s</a></div>'
+                       % (esc(s["email"]), ico("envelope"), esc(s["email"])))
+        if s.get("phone"):
+            lineas += ('<div style="margin-top:6px;"><a href="tel:%s" style="color:#00637f;'
+                       'text-decoration:none;font-size:14.5px;">%s&nbsp; %s</a></div>'
+                       % (esc(s["phone"]), ico("phone"), esc(s["phone"])))
+        firma = ('<table class="sync-contact" style="width:100%%;border-collapse:collapse;'
+                 'background:#fbfcfd;border:1px solid #e6e9ec;border-radius:14px;margin-top:14px;">'
+                 '<tr><td style="padding:16px 18px;">%s</td></tr></table>' % lineas)
+
+    intro = ('<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#374151;'
+             'text-align:left;">%s</p>' % _radio_pitch_intro_html(ctx, intro_text))
+
+    return (
+        # ⚠️ La media query va DENTRO del cuerpo: un correo no admite hojas externas. Por debajo de
+        # 520 px la portada y los datos se apilan (la misma maqueta que el de Syncros).
+        '<style>'
+        '.sync-body{max-width:680px;margin:0 auto;padding:22px;background:#fff;}'
+        '@media only screen and (max-width:520px){'
+        '.sync-body{padding:14px !important;}'
+        '.sync-card{table-layout:auto !important;}'
+        '.sync-card tr{display:block !important;width:100%% !important;}'
+        '.sync-card .sync-cell{display:block !important;width:100%% !important;}'
+        '.sync-card .sync-cell--cover{padding:14px 14px 0 !important;text-align:center !important;}'
+        '.sync-card .sync-cell--data{padding:12px 14px 14px !important;}'
+        '.sync-cover,.sync-cover-ph{width:100%% !important;max-width:260px !important;'
+        'height:auto !important;aspect-ratio:1/1;margin:0 auto !important;}'
+        '.sync-logos img{height:24px !important;}'
+        '}'
+        '</style>'
+        '<div class="sync-body" style="max-width:680px;margin:0 auto;padding:22px;'
+        'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;'
+        'background:#fff;">'
+        '<div style="text-align:right;margin-bottom:6px;">%s</div>'
+        '%s'
+        '<table class="sync-card" style="width:100%%;border-collapse:collapse;table-layout:fixed;'
+        'background:#fff;border:1px solid #e6e9ec;border-radius:14px;"><tr>'
+        '<td class="sync-cell sync-cell--cover" style="padding:16px;vertical-align:top;width:236px;">%s</td>'
+        '<td class="sync-cell sync-cell--data" style="padding:16px 16px 16px 0;vertical-align:top;">'
+        '<table style="width:100%%;border-collapse:collapse;"><tr>'
+        '<td style="font-size:20px;font-weight:800;color:#111827;line-height:1.2;padding:0;">%s</td>'
+        '<td style="text-align:right;padding:0 0 0 10px;white-space:nowrap;">%s</td>'
+        '</tr></table>'
+        '%s%s%s%s'
+        '</td></tr>'
+        '%s</table>'
+        '%s</div>'
+        % (logos, intro, portada,
+           esc(ctx.get("title")), etiqueta,
+           bloque_artista,
+           (dato(ico("calendar-day"), "<strong>%s</strong>" % esc(ctx.get("release_long")))
+            if ctx.get("release_long") else ""),
+           (dato(ico("barcode"), esc(ctx.get("isrc"))) if ctx.get("isrc") else ""),
+           sello,
+           # Los botones, DEBAJO del bocadillo de la canción y a todo el ancho de la tarjeta.
+           ('<tr><td colspan="2" style="padding:0 16px 16px;">%s</td></tr>' % botones) if botones else "",
+           firma))
+
+
+# ⚠️⚠️ EL BUZÓN DE PRISA RADIO. Su DPC («Documento de Presentación de Canciones») va **como
+# adjunto y SOLO a esta dirección**, que es la que ellos dan para recibirlo todo: no es una marca
+# del medio, es a QUIÉN se le manda —y por eso, aunque el correo cubra seis emisoras del grupo, el
+# documento es UNO solo con todas sus cadenas dentro (lo dice el propio documento)—.
+RADIO_PRISA_EMAIL = "cadenasmusicales@prisaradio.com"
+RADIO_PRISA_COMPANY = "PIES Compañía Discográfica"
+
+
+def _radio_prisa_dpc_pdf(session_db, ctx, medios) -> tuple:
+    """EL DPC DE PRISA cumplimentado, en PDF y con los enlaces CLICABLES. → (bytes, nombre).
+
+    ⚠️ Este PDF **no sigue el estilo de los nuestros**: es el documento de PRISA, así que se
+    respeta el suyo (su logo arriba y sus mismos campos, en su orden).
+    ⚠️⚠️ **SOLO SE RELLENA LO QUE TENEMOS**: lo que no haya se deja EN BLANCO (lo pidió Dani), y lo
+    cumplimentado va en NEGRITA para que se lea de un vistazo. Un dato inventado en un documento
+    que sale de casa es peor que un hueco.
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+                                    Image as RLImage)
+
+    estilos = getSampleStyleSheet()
+    rotulo = ParagraphStyle("dpcRot", parent=estilos["Normal"], fontName="Helvetica",
+                            fontSize=8.5, leading=11, textColor=colors.HexColor("#444444"))
+    valor = ParagraphStyle("dpcVal", parent=estilos["Normal"], fontName="Helvetica-Bold",
+                           fontSize=9, leading=12, textColor=colors.HexColor("#111111"))
+    titulo = ParagraphStyle("dpcTit", parent=estilos["Normal"], fontName="Helvetica-Bold",
+                            fontSize=13, leading=16, alignment=1)
+    seccion = ParagraphStyle("dpcSec", parent=estilos["Normal"], fontName="Helvetica-Bold",
+                             fontSize=10, leading=13, textColor=colors.HexColor("#111111"))
+
+    def enlace(url, texto=""):
+        """Un enlace CLICABLE (lo pidió Dani): en un PDF, un enlace que no se puede pinchar obliga
+        a copiarlo a mano."""
+        u = (url or "").strip()
+        if not u:
+            return ""
+        return '<link href="%s" color="#0b63a5">%s</link>' % (escape(u), escape(texto or u))
+
+    hoy = today_local()
+    cadenas = _radio_media_label([m.get("name") for m in (medios or [])], html=False)
+    # Las REPRODUCCIONES y los enlaces de plataforma (solo si están: lo que falte, en blanco).
+    spotify_url = spotify_plays = youtube_url = youtube_plays = ""
+    try:
+        for fila in _cm_song_header(session_db, ctx["song"]):
+            if fila["platform"] == "spotify":
+                spotify_url, spotify_plays = (fila.get("url") or ""), (fila.get("value_fmt") or "")
+            elif fila["platform"] == "youtube":
+                youtube_url, youtube_plays = (fila.get("url") or ""), (fila.get("value_fmt") or "")
+    except Exception:
+        app.logger.exception("[radio] no se pudieron leer las reproducciones para el DPC")
+
+    # El ÁLBUM del single, si forma parte de uno (su título, su UPC y su fecha).
+    album = None
+    try:
+        album = (session_db.query(Album).join(AlbumTrack, AlbumTrack.album_id == Album.id)
+                 .filter(AlbumTrack.song_id == ctx["song"].id).first())
+    except Exception:
+        album = None
+
+    artistas = ", ".join([x for x in ((ctx.get("artists") or []) + (ctx.get("others") or [])) if x])
+    categoria = "Prioridad - Focus Single" if ctx.get("focus") else "Prioridad"
+    nota = ctx.get("press_url") or ""
+
+    campos = [
+        ("FECHA DE PRESENTACIÓN:", escape(hoy.strftime("%d/%m/%Y"))),
+        ("COMPAÑÍA:", escape(RADIO_PRISA_COMPANY)),
+        ("ARTISTA:", escape(artistas)),
+        ("TÍTULO DE LA CANCIÓN:", escape(ctx.get("title") or "")),
+        ("ISRC DE LA CANCIÓN:", escape(ctx.get("isrc") or "")),
+        ("FECHA DE LANZAMIENTO DE LA CANCIÓN:",
+         escape(ctx["release_date_obj"].strftime("%d/%m/%Y") if ctx.get("release_date_obj") else "")),
+        ("Nº DE REPRODUCCIONES EN YOUTUBE Y URL:",
+         " · ".join([x for x in [escape(youtube_plays), enlace(youtube_url)] if x])),
+        ("Nº DE “PLAYS” EN SPOTIFY Y ENLACE:",
+         " · ".join([x for x in [escape(spotify_plays), enlace(spotify_url)] if x])),
+        ("TÍTULO DEL ÁLBUM (SI HUBIERA):", escape(getattr(album, "title", "") or "")),
+        ("UPC DE LA OBRA:", escape(getattr(album, "upc_code", "") or "")),
+        ("FECHA LANZAMIENTO DEL ÁLBUM:",
+         escape(album.release_date.strftime("%d/%m/%Y")
+                if (album is not None and getattr(album, "release_date", None)) else "")),
+        ("CADENA (S) A LA(S) QUE SE PRESENTA:", escape(cadenas)),
+    ]
+    complementaria = [
+        ("BREVE BIO. DEL ARTISTA/NOTA DE PRENSA:", enlace(nota, "Nota de prensa") if nota else ""),
+        ("Categorización para la compañía de la canción/artista:", escape(categoria)),
+        ("Previsión de giras y disponibilidad del artista para eventos y/o acciones promocionales:",
+         "Disponibilidad total para hacer acciones con la emisora"),
+    ]
+
+    def tabla(filas):
+        datos = [[Paragraph(r, rotulo), Paragraph(v, valor)] for r, v in filas]
+        t = Table(datos, colWidths=[78 * mm, 92 * mm])
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c9ced4")),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f4f6f8")),
+        ]))
+        return t
+
+    story = []
+    logo = os.path.join(app.root_path, "static", "img", "prisa_radio.jpg")
+    if os.path.exists(logo):
+        try:
+            img = RLImage(logo, width=52 * mm, height=17.7 * mm)
+            img.hAlign = "LEFT"
+            story.append(img)
+            story.append(Spacer(1, 8))
+        except Exception:
+            app.logger.exception("[radio] no se pudo poner el logo de Prisa en el DPC")
+    story.append(Paragraph("DOCUMENTO DE PRESENTACIÓN DE CANCIONES (DPC)", titulo))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph("FICHA BÁSICA:", seccion))
+    story.append(Spacer(1, 4))
+    story.append(tabla(campos))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("INFORMACIÓN COMPLEMENTARIA:", seccion))
+    story.append(Spacer(1, 4))
+    story.append(tabla(complementaria))
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=15 * mm, bottomMargin=15 * mm,
+                            title="DPC · %s" % (ctx.get("title") or ""))
+    doc.build(story)
+    nombre = "DPC %s - %s.pdf" % (
+        re.sub(r"[\\/:*?\"<>|]+", " ", (ctx.get("artist_label") or "")).strip() or "Artista",
+        re.sub(r"[\\/:*?\"<>|]+", " ", (ctx.get("title") or "")).strip() or "Single")
+    return buf.getvalue(), nombre
+
+
+def _song_radio_instrumental(session_db, song):
+    """El INSTRUMENTAL de la canción (si se ha subido): es el otro archivo que pide una emisora."""
+    if song is None:
+        return None
+    try:
+        return (session_db.query(SongMaterial)
+                .filter(SongMaterial.song_id == song.id,
+                        func.upper(func.coalesce(SongMaterial.category, "")) == "INSTRUMENTAL",
+                        func.coalesce(SongMaterial.file_url, "") != "")
+                .order_by(SongMaterial.created_at.desc()).first())
+    except Exception:
+        app.logger.exception("[radio] no se pudo leer el instrumental")
+        return None
+
+
+def _song_radio_press_url(session_db, song) -> str:
+    """La NOTA DE PRENSA de ese single, si ya está subida (su página pública).
+
+    ⚠️ Solo una que se pueda abrir desde fuera: en el correo de una emisora un enlace de la app no
+    vale de nada. Si no hay, el botón no se pinta."""
+    if song is None:
+        return ""
+    try:
+        filas = (session_db.query(PressRelease)
+                 .filter(_press_is_press_clause(),
+                         PressRelease.about_kind == "SINGLE", PressRelease.about_id == song.id)
+                 .order_by(PressRelease.created_at.desc()).limit(5).all())
+    except Exception:
+        app.logger.exception("[radio] no se pudo leer la nota de prensa del single")
+        return ""
+    for pr in filas:
+        if getattr(pr, "public_token", None):
+            try:
+                return _press_public_url(pr)
+            except Exception:
+                continue
+    return ""
+
+
+def _song_radio_recipients(session_db, song, pitches) -> list[dict]:
+    """A QUIÉN se le manda: **un correo por DIRECCIÓN**, con las emisoras que cubre.
+
+    ⚠️⚠️ La unidad del envío es el CORREO, no la emisora (lo pidió Dani). Si el mismo contacto —o
+    el mismo buzón de la cadena, como `cadenasmusicales@prisaradio.com`— recibe los temas de varias
+    emisoras del grupo, se manda **UNO SOLO** nombrándolas todas, y en la app quedan apuntados
+    tantos envíos como emisoras. Y si una emisora tiene además otro contacto propio, ese va en **su
+    correo aparte**: por eso la vista previa los enseña uno a uno.
+    ⚠️ Una emisora SIN nadie a quien mandárselo se devuelve igual (`missing`), porque hay que
+    decirlo: si no, desaparecería del envío sin explicación."""
+    filas = list(pitches or [])
+    if not filas:
+        return []
+    por_medio = {str(p["media_id"]): p for p in filas}
+    contactos = _media_radio_contacts(session_db, [_safe_uuid(m) for m in por_medio])
+    grupos: dict = {}
+    faltan = []
+    for mid, pitch in por_medio.items():
+        gente = contactos.get(mid) or []
+        if not gente:
+            faltan.append(pitch)
+            continue
+        for c in gente:
+            correo = (c.email or "").strip().lower()
+            if not correo:
+                continue
+            g = grupos.setdefault(correo, {
+                "email": correo,
+                "name": _media_contact_name(c),
+                "contact_ids": [],
+                "media": [],
+                "pitch_ids": [],
+            })
+            if str(c.id) not in g["contact_ids"]:
+                g["contact_ids"].append(str(c.id))
+            if mid not in [m["id"] for m in g["media"]]:
+                g["media"].append({"id": mid, "name": pitch["media_name"],
+                                   "logo_url": pitch.get("logo_url") or ""})
+                g["pitch_ids"].append(pitch["id"])
+    salida = list(grupos.values())
+    # Primero los que cubren más emisoras (los buzones de grupo), y luego por nombre de medio.
+    salida.sort(key=lambda g: (-len(g["media"]), _norm_text_key(g["media"][0]["name"] if g["media"] else "")))
+    for g in salida:
+        g["media_label"] = _radio_media_label([m["name"] for m in g["media"]], html=False)
+        # ⚠️ EL DPC DE PRISA va SOLO al buzón de notificaciones de Prisa Radio, y uno solo aunque
+        # cubra varias de sus emisoras (lo dice el propio documento).
+        g["prisa"] = (g["email"] == RADIO_PRISA_EMAIL)
+    return salida
+
+
+def _song_radio_missing_contacts(session_db, pitches) -> list[dict]:
+    """Las emisoras del envío a las que NO se puede mandar nada: no tienen a nadie con correo.
+
+    ⚠️ Se dice en la pantalla con el enlace a su ficha: una emisora que desaparece del envío sin
+    explicación es un envío que alguien da por hecho y no se ha hecho."""
+    filas = list(pitches or [])
+    if not filas:
+        return []
+    contactos = _media_radio_contacts(session_db, [_safe_uuid(p["media_id"]) for p in filas])
+    return [p for p in filas if not (contactos.get(str(p["media_id"])) or [])]
 
 
 def _sync_sender() -> dict:

@@ -1979,6 +1979,10 @@ class RadioStation(Base):
     # URL con la que se calculó, así que al cambiar el logo se vuelve a sacar.
     logo_color = Column(Text)
     logo_color_src = Column(Text)
+    # ⚠️ EN QUÉ MEDIO SE CONVIRTIÓ esta emisora (`_radio_media_migrate`). La base de emisoras es
+    # ahora la de MEDIOS: esta tabla se queda como histórico y este puente es lo que hace que la
+    # migración sea idempotente (y que se sepa de dónde salió cada medio).
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -1988,16 +1992,29 @@ class Week(Base):
 
 
 class Play(Base):
+    """LAS TOCADAS de una canción en una EMISORA una semana.
+
+    ⚠️⚠️ **LA EMISORA ES UN MEDIO** (`media_id` → `media_outlets` de tipo Radio), no una
+    `RadioStation` (sep 2026, lo pidió Dani: «las emisoras del reporte de radios desaparecen y pasan
+    a estar en la base de datos de medios»). Antes había DOS bases de emisoras —las de las tocadas y
+    los medios de tipo Radio de las presentaciones—, así que la misma emisora estaba dos veces y no
+    se podía cruzar «se le presentó» con «ya suena».
+    ⚠️ `station_id` se conserva **solo como rastro** de la emisora de la que vino cada fila en la
+    migración (`_radio_media_migrate`): no se lee en ninguna parte y no se escribe en las filas
+    nuevas. La emisora es `media_id`."""
+
     __tablename__ = "plays"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
-    station_id = Column(PGUUID(as_uuid=True), ForeignKey("radio_stations.id", ondelete="CASCADE"), nullable=False)
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"))
+    station_id = Column(PGUUID(as_uuid=True), ForeignKey("radio_stations.id", ondelete="CASCADE"))
     week_start = Column(Date, ForeignKey("weeks.week_start", ondelete="CASCADE"), nullable=False)
     spins = Column(Integer, nullable=False, default=0)
     position = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     song = relationship("Song", back_populates="plays")
+    media = relationship("MediaOutlet")
     station = relationship("RadioStation")
 
 
@@ -2071,7 +2088,10 @@ class RadioStationAlias(Base):
     __tablename__ = "radio_station_aliases"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     alias = Column(Text, nullable=False, unique=True)  # nombre de canal normalizado (minúsculas)
-    station_id = Column(PGUUID(as_uuid=True), ForeignKey("radio_stations.id", ondelete="CASCADE"), nullable=False)
+    # ⚠️ El alias apunta al MEDIO (la emisora es un `MediaOutlet` de tipo Radio). `station_id` se
+    # conserva como rastro de la emisora vieja y no se lee en ninguna parte.
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"))
+    station_id = Column(PGUUID(as_uuid=True), ForeignKey("radio_stations.id", ondelete="CASCADE"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -4707,6 +4727,12 @@ class MediaOutlet(Base):
     country_code = Column(Text, nullable=False, server_default=text("'ES'"))
     country_name = Column(Text, nullable=False, server_default=text("'España'"))
     address = Column(Text)
+    # EL COLOR PRINCIPAL DE SU LOGO (#rrggbb), para pintar su raya en el cuadro de Previsiones con
+    # su propio color en clarito. Se calcula UNA vez del logo y se guarda; `logo_color_src` es la
+    # URL con la que se calculó, así que al cambiar el logo se vuelve a sacar. (Estaba en
+    # `RadioStation`, que ya no es la base de emisoras.)
+    logo_color = Column(Text)
+    logo_color_src = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -4788,6 +4814,11 @@ class MediaContact(Base):
     phone = Column(Text)
     email = Column(Text)
     press_releases = Column(Boolean, nullable=False, server_default=text("false"))
+    # ⚠️⚠️ A ESTA PERSONA SE LE MANDAN LAS PRESENTACIONES A RADIO (sep 2026). Es una marca aparte
+    # de la de notas de prensa: en una emisora, quien recibe los temas nuevos no suele ser quien
+    # recibe las notas. Y a veces NO ES UNA PERSONA sino un buzón de la cadena
+    # (`cadenasmusicales@prisaradio.com`), así que un contacto de radio puede ser solo un correo.
+    radio_pitch = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -4795,6 +4826,34 @@ class MediaContact(Base):
 
     __table_args__ = (
         Index("idx_media_contacts_media_id", "media_id"),
+    )
+
+
+class MediaNotDuplicate(Base):
+    """«ESTOS DOS MEDIOS **NO** SON EL MISMO»: esa pareja deja de proponerse para fusionar.
+
+    Hermano de `PromoterNotDuplicate`. Al volcar las emisoras del reporte de radios a Medios pueden
+    quedar fichas parecidas («Los 40» / «LOS40»), y la pantalla las propone; pero fusionar **no se
+    puede deshacer**, así que tiene que haber una salida para las que de verdad son dos medios
+    distintos (una cadena y su programa, una emisora local y la nacional).
+    ⚠️ Se descarta **la pareja**, no la ficha: si mañana aparece una tercera que casa con
+    cualquiera de las dos, esa pareja nueva sí se propone.
+    ⚠️ La pareja se guarda ORDENADA (`a` < `b`) y es ÚNICA, así que (A,B) y (B,A) son la misma fila.
+    """
+
+    __tablename__ = "media_not_duplicates"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    media_a_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"),
+                        nullable=False)
+    media_b_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"),
+                        nullable=False)
+    dismissed_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    dismissed_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("media_a_id", "media_b_id", name="uq_media_not_duplicate"),
     )
 
 
@@ -7956,6 +8015,12 @@ class MailAccount(Base):
     # envíos a compradores (si la actividad no tiene una cuenta propia, sale por la de quien firma).
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     cycle_id = Column(PGUUID(as_uuid=True), ForeignKey("cycle_festivals.id", ondelete="SET NULL"))
+    # ⚠️⚠️ EL BUZÓN DE UNA PERSONA DE LA CASA (sep 2026). Lo que se manda «de tú a tú» —una
+    # presentación de un tema a una emisora— tiene que salir **desde el correo de quien lo manda**,
+    # no desde el remitente de la app: quien lo recibe contesta a esa persona. Con esta columna,
+    # una cuenta de la empresa queda asignada a alguien y sus envíos salen por ella.
+    # ⚠️ Una persona, UNA cuenta (`_user_mail_account` se queda con la primera activa).
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     last_test_at = Column(DateTime(timezone=True))
     last_test_ok = Column(Boolean)
     last_test_info = Column(Text)
@@ -8045,6 +8110,10 @@ def ensure_mail_accounts_schema():
         "ALTER TABLE mail_accounts ADD COLUMN IF NOT EXISTS company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL;",
         "ALTER TABLE mail_accounts ADD COLUMN IF NOT EXISTS cycle_id uuid REFERENCES cycle_festivals(id) ON DELETE SET NULL;",
         "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS mail_account_id uuid REFERENCES mail_accounts(id) ON DELETE SET NULL;",
+        # DE QUIÉN de la casa es este buzón: sus envíos «de tú a tú» (la presentación de un tema a
+        # una emisora) salen desde su propia dirección.
+        "ALTER TABLE mail_accounts ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_mail_accounts_user ON mail_accounts(user_id);",
     ]
     _exec_ddl_statements(stmts, "mail_accounts")
 
@@ -14495,9 +14564,20 @@ class SongRadioPitch(Base):
     project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="SET NULL"))
     media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"),
                       nullable=False)
-    status = Column(Text, nullable=False, server_default=text("'PENDING'"))   # PENDING|ACCEPTED|REJECTED
-    start_date = Column(Date)                 # fecha prevista de entrada en rotación
+    # PLANNED (está en el objetivo, todavía sin presentar) | SENT (presentada) | REJECTED (no la
+    # cogen). ⚠️ «Suena ya» NO es un estado: se mira el DATO (sus tocadas en esa emisora), que es
+    # la regla de la casa — una marca aparte se desparejaría con el reporte de radios.
+    # ⚠️ Los valores viejos se siguen leyendo: PENDING = PLANNED y ACCEPTED = SENT con su fecha.
+    status = Column(Text, nullable=False, server_default=text("'PLANNED'"))
+    start_date = Column(Date)                 # fecha PREVISTA de entrada en rotación
     note = Column(Text)                       # el motivo del rechazo, o lo que diga la emisora
+    # CUÁNDO SE PRESENTÓ y QUIÉN lo hizo. ⚠️ Se guarda el USUARIO (no su correo): lo que se enseña
+    # es su FOTO y su NICK, como en el resto de la app (lo pidió Dani, sep 2026).
+    presented_at = Column(DateTime(timezone=True))
+    presented_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    presented_by_nick = Column(Text)
+    # EL CORREO con el que se presentó (uno puede cubrir varias emisoras del mismo grupo).
+    send_id = Column(PGUUID(as_uuid=True), ForeignKey("song_radio_sends.id", ondelete="SET NULL"))
     requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     requested_by_nick = Column(Text)
     requested_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -14517,6 +14597,42 @@ class SongRadioPitch(Base):
         UniqueConstraint("song_id", "media_id", name="uq_song_radio_pitch"),
         Index("idx_song_radio_song", "song_id"),
     )
+
+
+class SongRadioSend(Base):
+    """UN CORREO DE PRESENTACIÓN que ha salido (a una dirección), con lo que decía.
+
+    ⚠️⚠️ **UN CORREO PUEDE CUBRIR VARIAS EMISORAS**: si la misma persona (o el mismo buzón de la
+    cadena, como `cadenasmusicales@prisaradio.com`) recibe los temas de varias emisoras del grupo,
+    se manda **un solo correo** —con todas ellas en el texto— y en la app quedan apuntados **tantos
+    envíos como emisoras** (cada `SongRadioPitch` apunta aquí con `send_id`). Así el registro dice
+    la verdad por emisora y el buzón no recibe el mismo tema cinco veces.
+    ⚠️ Se guarda el CUERPO tal cual salió: una presentación se puede haber retocado a mano antes de
+    mandarla, y lo que hay que poder mirar después es lo que recibió esa persona."""
+
+    __tablename__ = "song_radio_sends"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    to_email = Column(Text, nullable=False)
+    to_name = Column(Text)
+    # ⚠️ TOKEN OPACO del envío: es con lo que la emisora se baja el tema desde el correo (no hay
+    # sesión al otro lado). No caduca: un correo de hace un año tiene que seguir funcionando.
+    token = Column(Text, unique=True)
+    subject = Column(Text)
+    intro_text = Column(Text)                 # el texto de presentación, con los retoques a mano
+    body_html = Column(Text)                  # el correo entero, tal como salió
+    # Las emisoras que cubre ESTE correo (ids de medios), para poder leerlo sin recomponerlo.
+    media_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    attachment_name = Column(Text)            # el DPC de Prisa, cuando lo lleva
+    from_email = Column(Text)
+    from_name = Column(Text)
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    sent_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("idx_song_radio_sends_song", "song_id"),)
 
 
 class DiscoApproval(Base):
@@ -14676,6 +14792,33 @@ def ensure_song_radio_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_song_radio_song ON song_radio_pitches(song_id);",
         "CREATE INDEX IF NOT EXISTS idx_song_radio_pending ON song_radio_pitches(status);",
+        # QUIÉN presentó el tema a esa emisora y CUÁNDO (⚠️ cada columna en su propia sentencia).
+        "ALTER TABLE IF EXISTS song_radio_pitches ADD COLUMN IF NOT EXISTS presented_at timestamptz;",
+        "ALTER TABLE IF EXISTS song_radio_pitches ADD COLUMN IF NOT EXISTS presented_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS song_radio_pitches ADD COLUMN IF NOT EXISTS presented_by_nick text;",
+        # EL CORREO QUE SALIÓ (uno puede cubrir varias emisoras del mismo grupo).
+        """
+        CREATE TABLE IF NOT EXISTS song_radio_sends (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            to_email text NOT NULL,
+            to_name text,
+            token text UNIQUE,
+            subject text,
+            intro_text text,
+            body_html text,
+            media_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            attachment_name text,
+            from_email text,
+            from_name text,
+            sent_at timestamptz DEFAULT now(),
+            sent_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            sent_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_song_radio_sends_song ON song_radio_sends(song_id);",
+        "ALTER TABLE IF EXISTS song_radio_pitches ADD COLUMN IF NOT EXISTS send_id uuid REFERENCES song_radio_sends(id) ON DELETE SET NULL;",
         # EL COLOR DEL LOGO de cada emisora (Previsiones lo usa para su barra). ⚠️ CADA COLUMNA EN
         # SU PROPIA SENTENCIA: metida en un bloque con guarda no llegaría a aplicarse nunca.
         "ALTER TABLE IF EXISTS radio_stations ADD COLUMN IF NOT EXISTS logo_color text;",
@@ -14716,6 +14859,56 @@ def ensure_song_radio_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_forecast_report_sig ON disco_forecast_reports(signature);",
     ], label="ensure_song_radio_schema")
+
+
+def ensure_radio_media_schema():
+    """UNA SOLA BASE DE EMISORAS: las tocadas cuelgan del MEDIO (idempotente, sin Alembic).
+
+    Había DOS bases de emisoras y eran la misma cosa: las `RadioStation` de las tocadas y los
+    `MediaOutlet` de tipo Radio de las presentaciones. Con eso, la misma emisora estaba dos veces,
+    con dos logos y dos nombres, y no se podía cruzar «se le presentó el tema» con «ya suena».
+    Desde sep 2026 la emisora es el MEDIO: todo medio de tipo Radio vale para el reporte de radios y
+    la tabla de emisoras se queda como histórico (`_radio_media_migrate` la vuelca y deja el
+    puente `radio_stations.media_id`).
+    ⚠️ **Cada columna en SU sentencia**: dentro de un bloque con guarda podría no ejecutarse nunca.
+    ⚠️ `station_id` pasa a admitir NULL: las filas nuevas ya no llevan emisora vieja.
+    ⚠️ **NO se crea un índice ÚNICO** por (canción, medio, semana): al volcar, dos emisoras que
+    acaban en el mismo medio traen dos filas de la misma semana y el DDL reventaría antes de que la
+    migración pudiera sumarlas. Las suma ella (`_radio_media_migrate`), como hacía el guardado.
+    """
+    _create_all_once()
+    _exec_ddl_statements([
+        # El color del logo, que vivía en la emisora, pasa al medio (lo usa Previsiones).
+        "ALTER TABLE IF EXISTS media_outlets ADD COLUMN IF NOT EXISTS logo_color text;",
+        "ALTER TABLE IF EXISTS media_outlets ADD COLUMN IF NOT EXISTS logo_color_src text;",
+        # LA EMISORA DE UNA TOCADA ES UN MEDIO.
+        "ALTER TABLE IF EXISTS plays ADD COLUMN IF NOT EXISTS media_id uuid REFERENCES media_outlets(id) ON DELETE CASCADE;",
+        # De qué emisora vieja salió cada medio (puente de la migración: la hace idempotente).
+        "ALTER TABLE IF EXISTS radio_stations ADD COLUMN IF NOT EXISTS media_id uuid REFERENCES media_outlets(id) ON DELETE SET NULL;",
+        # Los alias aprendidos de los Excel de tocadas apuntan también al medio.
+        "ALTER TABLE IF EXISTS radio_station_aliases ADD COLUMN IF NOT EXISTS media_id uuid REFERENCES media_outlets(id) ON DELETE CASCADE;",
+        # Las filas nuevas no llevan emisora vieja.
+        "ALTER TABLE IF EXISTS plays ALTER COLUMN station_id DROP NOT NULL;",
+        "ALTER TABLE IF EXISTS radio_station_aliases ALTER COLUMN station_id DROP NOT NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_plays_media ON plays(media_id);",
+        "CREATE INDEX IF NOT EXISTS idx_plays_media_week ON plays(media_id, week_start);",
+        "CREATE INDEX IF NOT EXISTS idx_radio_alias_media ON radio_station_aliases(media_id);",
+        # QUIÉN recibe las PRESENTACIONES A RADIO de un medio (aparte de las notas de prensa).
+        "ALTER TABLE IF EXISTS media_contacts ADD COLUMN IF NOT EXISTS radio_pitch boolean NOT NULL DEFAULT false;",
+        "CREATE INDEX IF NOT EXISTS idx_media_contacts_radio ON media_contacts(media_id) WHERE radio_pitch;",
+        # «Estos dos medios NO son el mismo» (la salida de un duplicado que no lo es).
+        """
+        CREATE TABLE IF NOT EXISTS media_not_duplicates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            media_a_id uuid NOT NULL REFERENCES media_outlets(id) ON DELETE CASCADE,
+            media_b_id uuid NOT NULL REFERENCES media_outlets(id) ON DELETE CASCADE,
+            dismissed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            dismissed_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_media_not_duplicate UNIQUE (media_a_id, media_b_id)
+        );
+        """,
+    ], label="ensure_radio_media_schema")
 
 
 def ensure_vacations_schema():

@@ -21,11 +21,37 @@
       <h3 class="m-0">{{ outlet.name }}</h3>
       <div class="small text-muted">{{ outlet.address or 'Sin dirección' }}</div>
       <span class="badge text-bg-light border mt-2">{{ outlet.media_type }}</span>
+      {# ⚠️ UN MEDIO MARCADO COMO RADIO ES UNA EMISORA del reporte de radios (sep 2026): no hay otra
+         base de emisoras, así que aquí se dice y se lleva a su histórico de tocadas. #}
+      {% if is_radio_media %}
+        <span class="badge text-bg-light border mt-2" title="Está en el reporte de radios y en las tocadas">
+          <i class="fa fa-tower-broadcast me-1"></i>Emisora</span>
+      {% endif %}
       {% for t in media_tags or [] %}<span class="badge media-tag mt-2"><i class="fa fa-tag me-1"></i>{{ t }}</span>{% endfor %}
       {% if (outlet.country_code or 'ES') != 'ES' %}<span class="badge text-bg-light border mt-2">{{ outlet.country_name or country_name_es(outlet.country_code) }}</span>{% endif %}
     </div>
   </div>
 </div>
+
+{# LO QUE HA SONADO EN ESTA EMISORA. Es lo que hace ver que, al fusionar dos fichas de la misma
+   emisora, el histórico de radio NO se pierde: se queda aquí, en la que se conserva. #}
+{% if is_radio_media and radio_summary and radio_summary.spins %}
+<div class="card mb-3">
+  <div class="card-body d-flex flex-wrap align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2">
+      <i class="fa fa-tower-broadcast text-danger"></i>
+      <strong>Radio</strong>
+    </div>
+    <div class="small text-muted">
+      <strong>{{ radio_summary.spins }}</strong> tocada{{ 's' if radio_summary.spins != 1 else '' }}
+      de <strong>{{ radio_summary.songs }}</strong> canci{{ 'ones' if radio_summary.songs != 1 else 'ón' }}
+      {% if radio_summary.last_label %} · última semana con datos: {{ radio_summary.last_label }}{% endif %}
+    </div>
+    <a href="{{ radio_summary.url }}" class="btn btn-sm btn-outline-primary ms-auto">
+      <i class="fa fa-chart-line me-1"></i>Ver su reporte</a>
+  </div>
+</div>
+{% endif %}
 
 <div class="card mb-3">
   <div class="card-body">
@@ -74,6 +100,49 @@
      · Se añaden y se editan en un POP-UP (el mismo para las dos cosas).
      · El listado va PRIMERO con quien no es de ningún programa y después AGRUPADO por programas.
      · Al lado de cada uno, el interruptor de NOTAS DE PRENSA (se ve su estado) y sus tres puntitos. #}
+  {# ⚠️⚠️ PRESENTACIONES A RADIO · UN MÓDULO APARTE (sep 2026, lo pidió Dani). En una emisora,
+     quien recibe los temas nuevos no suele ser quien recibe las notas de prensa, así que va
+     separado del resto de contactos —aunque sean los MISMOS contactos del medio: quien se añade
+     aquí sale también abajo, en su programa—.
+     ⚠️ A veces NO ES UNA PERSONA sino un buzón de la cadena (cadenasmusicales@prisaradio.com):
+     por eso basta con el correo. #}
+  {% if is_radio_media %}
+    <div class="card mb-3 border-danger-subtle">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+          <i class="fa fa-paper-plane text-danger"></i>
+          <strong>Presentaciones a radio</strong>
+          {% if radio_contacts %}<span class="badge text-bg-light border">{{ radio_contacts|length }}</span>{% endif %}
+          <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-mc-new data-mc-radio="1">
+            <i class="fa fa-plus me-1"></i>Añadir quien lo recibe</button>
+        </div>
+        <div class="text-muted small mb-2">A estas direcciones les llega el tema cuando se presenta
+          a esta emisora. Puede ser una persona (su ficha de tercero) o el buzón de la cadena.</div>
+        {% if radio_contacts %}
+          <div class="d-flex flex-wrap gap-2">
+            {% for c in radio_contacts %}
+              <span class="d-inline-flex align-items-center gap-2 border rounded-pill ps-3 pe-2 py-1 bg-white">
+                <span class="min-w-0">
+                  <span class="d-block small fw-semibold">{{ contact_name(c) }}</span>
+                  <span class="d-block text-muted" style="font-size:.75rem">{{ c.email }}</span>
+                </span>
+                {# ⚠️ Quitarlo de aquí NO borra el contacto: solo deja de recibir presentaciones. #}
+                <button type="button" class="btn btn-sm btn-link text-muted p-0 px-1" data-mc-radio-off
+                        data-mc-url="{{ url_for('media_contact_radio_toggle', media_id=outlet.id, contact_id=c.id) }}"
+                        title="Que deje de recibir las presentaciones (no se borra el contacto)">
+                  <i class="fa fa-xmark"></i></button>
+              </span>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-warning mb-0 py-2 small">
+            <i class="fa fa-triangle-exclamation me-1"></i>Todavía no hay nadie: sin una dirección
+            aquí, esta emisora no puede recibir la presentación de un tema.</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <h5 class="m-0">Contactos {% if contacts %}<span class="text-muted fw-normal">· {{ contacts|length }}</span>{% endif %}</h5>
     <button type="button" class="btn btn-primary" data-mc-new>
@@ -112,6 +181,21 @@
         <span class="pl-switch__lab">Notas de prensa</span>
       </span>
 
+      {# PRESENTACIONES A RADIO: el mismo interruptor, solo en una emisora. #}
+      {% if is_radio_media %}
+        <span class="pl-switch{{ ' is-on' if contact.radio_pitch }}" data-mc-radio-box
+              title="Si se marca, a esta dirección le llegan las presentaciones a radio">
+          <span class="pl-switch__ico"><i class="fa fa-paper-plane"></i></span>
+          <label class="sw dl m-0">
+            <input type="checkbox" role="switch" data-mc-radio-sw
+                   data-mc-url="{{ url_for('media_contact_radio_toggle', media_id=outlet.id, contact_id=contact.id) }}"
+                   {% if contact.radio_pitch %}checked{% endif %}>
+            <span class="tr"></span>
+          </label>
+          <span class="pl-switch__lab">Presentaciones</span>
+        </span>
+      {% endif %}
+
       <div class="dropdown">
         <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis"></i></button>
         <ul class="dropdown-menu dropdown-menu-end">
@@ -124,6 +208,7 @@
                 data-mc-phone="{{ contact.phone or '' }}"
                 data-mc-email="{{ contact.email or '' }}"
                 data-mc-press="{{ '1' if contact.press_releases else '' }}"
+                data-mc-radio="{{ '1' if contact.radio_pitch else '' }}"
                 data-mc-promoter-id="{{ contact.promoter_id or '' }}">
             <i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
           {% if contact.email %}<li><a class="dropdown-item" href="mailto:{{ contact.email }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Mail</a></li>{% endif %}
@@ -266,6 +351,26 @@
                   </label>
                 </div>
               </div>
+
+              {# PRESENTACIONES A RADIO (solo en una emisora). ⚠️ Con su CENTINELA: sin él, guardar
+                 desde una pantalla que no pregunta esto borraría la marca. #}
+              {% if is_radio_media %}
+                <div class="demo-card">
+                  <div class="demo-card__head"><i class="fa fa-paper-plane"></i>Presentaciones a radio</div>
+                  <div class="demo-card__body d-flex align-items-center justify-content-between gap-3">
+                    <input type="hidden" name="radio_pitch_present" value="1">
+                    <div>
+                      <div class="fw-semibold">Recibe las presentaciones de temas</div>
+                      <div class="form-text m-0">Al activarlo, a su correo le llega el tema cuando se
+                        presenta a esta emisora. Si es el buzón de la cadena, basta con el correo.</div>
+                    </div>
+                    <label class="sw dl m-0">
+                      <input type="checkbox" role="switch" name="radio_pitch" value="1" data-mc-f="radio">
+                      <span class="tr"></span>
+                    </label>
+                  </div>
+                </div>
+              {% endif %}
 
             </div>
           </div>

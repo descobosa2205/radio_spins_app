@@ -6,6 +6,7 @@
 
 ## Qué hay aquí
 
+- EL BUZÓN DE UNA PERSONA DE LA CASA: cada uno manda desde su correo (MailAccount.user_id)
 - LOS ICONOS DE UNA COMUNICACIÓN: los sólidos de la casa, nunca emojis
 - LA FECHA DE UNA COMUNICACIÓN LLEVA SU DÍA DE LA SEMANA
 
@@ -27,6 +28,15 @@
 - CUENTAS DE ENVÍO · el catálogo de las que la app ESPERA (sep 2026,
 
 ---
+
+- ⚠️⚠️ **EL BUZÓN DE UNA PERSONA DE LA CASA** (sep 2026, `MailAccount.user_id`): en Integraciones →
+  Correo, una cuenta se puede asignar a **alguien de la oficina**, y lo que se escribe de tú a tú
+  —hoy, la **presentación de un tema a una emisora**— sale **desde su dirección**, porque quien lo
+  recibe le contesta a esa persona. Punto único **`_user_mail_account`** (activa y **con
+  contraseña**: sin credenciales no se puede decir que sale desde su correo) y
+  **`_radio_sender_options`**, que ofrece la salida por **Promoción** a quien no tiene la suya —y
+  lo avisa en la pantalla, ANTES de mandar—. ⚠️ Una persona, UNA cuenta: al asignarla se le suelta
+  la anterior. El envío, en `docs/app/promocion-prensa.md`.
 
 ## LA FECHA DE UNA COMUNICACIÓN LLEVA SU DÍA DE LA SEMANA
 

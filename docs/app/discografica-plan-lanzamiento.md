@@ -288,9 +288,10 @@
   su plan de lanzamiento.
   ⚠️⚠️ **Solo se puede QUITAR lo que la emisora todavía no ha contestado**: un «sí entra» o un «no»
   es información y no se borra desde un cuadro de mando.
-  ⚠️⚠️ **HAY DOS CONCEPTOS DE EMISORA y no son el mismo**: **`RadioStation`** son las de las TOCADAS
-  (los Excel semanales de spins) y los **`MediaOutlet` de tipo Radio** son las de la PRESENTACIÓN.
-  Lo que suena y la última entrada salen de las primeras; las presentaciones, de las segundas.
+  ⚠️⚠️ **YA NO HAY DOS CONCEPTOS DE EMISORA** (sep 2026): la emisora es **el MEDIO de tipo Radio** y
+  de él cuelgan tanto las TOCADAS (`Play.media_id`) como las PRESENTACIONES. Antes eran dos bases
+  distintas (`RadioStation` y los `MediaOutlet`) y no se podían cruzar: por eso no se sabía si lo
+  presentado había llegado a sonar. Ver `docs/app/promocion-prensa.md`.
   · **TODO SIN RECARGAR**: al cambiar de artista, de semana o de periodo se vuelve a pedir el cuadro
   entero por **`forecast_data`** (`/discografica/previsiones/datos`) y se repinta, así no se pierde
   por dónde se iba. Motor **`_forecast_context`** (una sola pasada) + `static/js/disco_forecast.js`

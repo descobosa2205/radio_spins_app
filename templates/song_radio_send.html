@@ -1,0 +1,171 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ⚠️⚠️ PRESENTAR A RADIO · los correos que van a salir, UNO A UNO y con su vista previa
+   (sep 2026, lo pidió Dani). La unidad es el CORREO, no la emisora: si el mismo contacto recibe
+   los temas de varias emisoras del grupo se manda UNO con todas dentro, y si una emisora tiene
+   además otro contacto propio, ese va en su correo aparte.
+   Al enviar uno se vuelve aquí y queda el siguiente, hasta que no queda ninguno. #}
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+  <div class="d-flex align-items-center gap-3">
+    <a href="{{ back_url }}" class="btn btn-outline-secondary btn-volver" title="Volver a la canción"
+       aria-label="Volver a la canción"><i class="fa fa-arrow-left"></i></a>
+    <div>
+      <h3 class="m-0"><i class="fa fa-paper-plane me-2 text-danger"></i>Presentar a radio</h3>
+      <div class="text-muted">{{ song.title }}</div>
+    </div>
+  </div>
+</div>
+
+{# SIN MÁSTER NO SE PRESENTA: es lo que se le manda a la emisora. #}
+{% if not ready %}
+  <div class="alert alert-danger">
+    <i class="fa fa-lock me-1"></i>No se puede presentar todavía: falta
+    <strong>{{ (missing_to_send or [])|join(' y ') }}</strong>.
+    <a class="alert-link ms-1" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='materiales') }}">
+      Subir los materiales</a>.
+  </div>
+{% endif %}
+
+{# ⚠️⚠️ DESDE QUÉ CORREO SALE. Lo escribe una persona, así que sale desde SU dirección; quien no
+   la tenga configurada lo sabe aquí —no después— y puede mandarlo desde Promoción. #}
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <i class="fa fa-at text-muted"></i><strong>Sale desde</strong>
+    </div>
+    {% if sender.mine %}
+      <div class="small">Tu correo: <strong>{{ sender.mine.email }}</strong>. Quien lo reciba te
+        contesta a ti.</div>
+    {% else %}
+      <div class="alert alert-warning py-2 mb-2 small">
+        <i class="fa fa-triangle-exclamation me-1"></i><strong>No tienes tu correo configurado</strong>
+        para enviar desde la app.
+        {% if sender.promo_ready %}
+          Esto saldrá desde <strong>Promoción</strong>
+          ({{ (sender.options|selectattr('key', 'equalto', 'PROMO')|first).email }}), así que quien
+          lo reciba contestará ahí.
+        {% endif %}
+        Para que salga con tu dirección, dirección tiene que darla de alta en
+        <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Integraciones → Correo</a>.
+      </div>
+    {% endif %}
+    {% if sender.options|length > 1 %}
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        {% for o in sender.options %}
+          <label class="border rounded-pill px-3 py-1 bg-white small">
+            <input class="form-check-input me-2" type="radio" name="sender_pick" value="{{ o.key }}"
+                   form="" data-radio-sender {% if loop.first %}checked{% endif %}>
+            {{ o.label }} · <span class="text-muted">{{ o.email }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    {% elif not sender.can_send %}
+      <div class="alert alert-danger py-2 mb-0 small">
+        <i class="fa fa-circle-exclamation me-1"></i>No hay ninguna cuenta de correo con la que
+        mandarlo. Se configura en
+        <a class="alert-link" href="{{ url_for('integrations_view') }}#tab-correo">Integraciones → Correo</a>.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{# LAS EMISORAS A LAS QUE NO SE LE PUEDE MANDAR NADA: se dice, con el enlace para arreglarlo.
+   Si desaparecieran en silencio, alguien daría por presentado lo que no ha salido. #}
+{% if missing %}
+  <div class="alert alert-warning">
+    <div class="fw-semibold mb-1"><i class="fa fa-user-slash me-1"></i>Sin nadie a quien mandárselo</div>
+    <div class="small mb-2">Estas emisoras están en el objetivo pero no tienen ninguna dirección
+      marcada para recibir las presentaciones:</div>
+    <div class="d-flex flex-wrap gap-2">
+      {% for m in missing %}
+        <a class="badge text-bg-light border text-decoration-none"
+           href="{{ url_for('media_outlet_detail_view', media_id=m.media_id) }}">
+          <i class="fa fa-tower-broadcast me-1"></i>{{ m.media_name }}
+          <span class="text-muted">· añadir contacto</span></a>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+{% if previews %}
+  <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <h5 class="m-0">{{ previews|length }} correo{{ 's' if previews|length != 1 else '' }} por enviar</h5>
+    <span class="text-muted small">Se revisa y se manda uno a uno.</span>
+  </div>
+
+  {% for p in previews %}
+    <form class="card mb-3" method="post" action="{{ url_for('song_radio_send', song_id=song.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="to_email" value="{{ p.to.email }}">
+      <input type="hidden" name="to_name" value="{{ p.to.name }}">
+      {% for pid in p.to.pitch_ids %}<input type="hidden" name="pitch_ids" value="{{ pid }}">{% endfor %}
+      {# El remitente elegido arriba viaja en cada formulario (son formularios independientes). #}
+      <input type="hidden" name="sender" value="{{ sender.default }}" data-radio-sender-field>
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+          <span class="badge text-bg-light border"><i class="fa fa-envelope me-1"></i>{{ loop.index }}
+            de {{ previews|length }}</span>
+          <strong>{{ p.to.name or p.to.email }}</strong>
+          <span class="text-muted small">{{ p.to.email }}</span>
+          {% for m in p.to.media %}
+            <span class="badge text-bg-light border"><i class="fa fa-tower-broadcast me-1"></i>{{ m.name }}</span>
+          {% endfor %}
+          {% if p.to.media|length > 1 %}
+            <span class="badge text-bg-info-subtle text-info-emphasis border" title="Reciben los temas de varias emisoras: se manda un solo correo y se apunta un envío por cada una">
+              <i class="fa fa-layer-group me-1"></i>{{ p.to.media|length }} emisoras, un solo correo</span>
+          {% endif %}
+          {% if p.prisa %}
+            <span class="badge text-bg-warning text-dark" title="A este buzón se le adjunta el DPC de Prisa cumplimentado">
+              <i class="fa fa-file-pdf me-1"></i>Lleva el DPC de Prisa</span>
+          {% endif %}
+        </div>
+
+        <div class="row g-3">
+          <div class="col-12 col-lg-5">
+            <label class="form-label small mb-1">Asunto</label>
+            <input class="form-control form-control-sm" name="subject" value="{{ p.subject }}">
+            <label class="form-label small mb-1 mt-3">Texto de la presentación
+              <span class="text-muted fw-normal">(se puede cambiar o añadir lo que haga falta)</span></label>
+            {# ⚠️ El texto se manda TAL CUAL se deje aquí: lo que escriba la persona es suyo. Debajo
+               van siempre el cierre («Por supuesto, como siempre…») y la ficha del tema. #}
+            <textarea class="form-control form-control-sm" name="intro_text" rows="7">{{ p.intro }}</textarea>
+            <div class="form-text">Debajo del texto va siempre la ficha del tema con sus botones de
+              descarga.</div>
+            <div class="mt-3 d-flex gap-2 flex-wrap">
+              <button class="btn btn-danger" {% if not ready or not sender.can_send %}disabled{% endif %}>
+                <i class="fa fa-paper-plane me-1"></i>Enviar a {{ p.to.name or p.to.email }}</button>
+            </div>
+          </div>
+          <div class="col-12 col-lg-7">
+            <label class="form-label small mb-1">Vista previa del correo</label>
+            {# La vista previa ES el correo (el mismo motor), así que lo que se ve es lo que sale. #}
+            <div class="border rounded-3 p-2 bg-white" style="max-height:520px;overflow:auto;">
+              {{ p.html|safe }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-light border">
+    {% if radio_module.planned %}
+      Las emisoras que quedan por presentar no tienen a nadie a quien mandárselo (arriba se dice
+      cuáles).
+    {% else %}
+      <i class="fa fa-circle-check text-success me-1"></i>No queda ninguna emisora por presentar.
+      <a href="{{ back_url }}" class="alert-link">Volver a la canción</a>.
+    {% endif %}
+  </div>
+{% endif %}
+
+<script>
+  /* El remitente se elige ARRIBA y vale para todos los correos: se copia en cada formulario.
+     ⚠️ Delegado en `document` (regla de la casa): esta zona se puede repintar. */
+  document.addEventListener('change', function (ev) {
+    if (!ev.target.matches('[data-radio-sender]')) return;
+    var v = ev.target.value || '';
+    document.querySelectorAll('[data-radio-sender-field]').forEach(function (i) { i.value = v; });
+  });
+</script>
+{% endblock %}

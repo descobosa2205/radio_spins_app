@@ -6,6 +6,7 @@
 
 ## Qué hay aquí
 
+- LA FICHA DE LA CANCIÓN LLEVA EL MÓDULO DE PRESENTACIÓN A RADIOS (sep 2026)
 - La pestaña «Gastos» de una CANCIÓN tiene su propio permiso (discografica.gastos,
 - Fichas (concierto/canción/álbum/artista) — estructura común (en curso): cabecera visual
 - Materiales de canción (song_detail.html pestaña materiales + helpers _song_material_ /
@@ -37,6 +38,14 @@
 - UN ÁLBUM NO TIENE GÉNERO NI CALIFICACIÓN PROPIOS: SON DE CADA CANCIÓN. El
 
 ---
+
+- ⚠️⚠️ **LA FICHA DE LA CANCIÓN LLEVA EL MÓDULO DE PRESENTACIÓN A RADIOS** (sep 2026): a qué
+  emisoras se presenta, quién la presentó (su **foto** y su **nick**) y cuándo, la previsión de
+  entrada en rotación y —en cuanto tiene tocadas— **desde cuándo suena** (y entonces desaparecen
+  «presentada» y la previsión). Es el MISMO módulo del proyecto discográfico
+  (`_song_radio_module`). Detalle completo en `docs/app/promocion-prensa.md`.
+  ⚠️ Sus endpoints se llaman **`song_radio_*`** y se mapean por PREFIJO a `discografica.canciones`;
+  **presentar** lo pueden hacer también promoción (`_can_present_radio`).
 
 - ⚠️ **La pestaña «Gastos» de una CANCIÓN tiene su propio permiso** (`discografica.gastos`,
   ago 2026): antes exigía `contabilidad`, que no tiene nada que ver, así que **no había forma de

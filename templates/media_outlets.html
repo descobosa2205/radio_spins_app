@@ -15,6 +15,124 @@
 
 {% include '_media_import_alert.html' %}
 
+{# ⚠️⚠️ FICHAS REPETIDAS · la misma emisora dos veces (sep 2026). Las emisoras del reporte de radios
+   se volcaron aquí, y una misma puede haber quedado con dos fichas escritas de otra forma («Los 40»
+   / «LOS40»): con eso su historia se parte —las tocadas en una y las presentaciones en la otra—.
+   La fusión de siempre las une SIN PERDER NADA (re-apunta todas las referencias, tocadas
+   incluidas); aquí solo se propone la pareja.
+   ⚠️ Solo aparece si hay algo que unir: una caja vacía diciendo «no hay duplicados» es ruido. #}
+{% if duplicate_pairs %}
+<div class="card mb-3 border-warning">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <i class="fa fa-clone text-warning"></i>
+      <strong>Fichas repetidas</strong>
+      <span class="badge text-bg-warning text-dark">{{ duplicate_pairs|length }}</span>
+      <button class="btn btn-sm btn-link ms-auto p-0" type="button" data-bs-toggle="collapse"
+              data-bs-target="#mediaDuplicates">Ver / ocultar</button>
+    </div>
+    <div class="text-muted small mb-2">Estas dos fichas pueden ser el mismo medio. Al fusionarlas,
+      todo lo que cuelga de la que se descarta (tocadas, contactos, presentaciones a radio,
+      promociones, notas de prensa) pasa a la que se conserva: <strong>no se pierde el
+      histórico</strong>. Y si <strong>no</strong> son el mismo —una cadena y su emisora local—,
+      dilo y deja de proponerse.</div>
+    {# ⚠️ UN SOLO FORMULARIO para todo el bloque: cada pareja tiene su casilla y se descartan las
+       marcadas de golpe. Fusionar sigue siendo de una en una (es irreversible). Los botones de una
+       sola fila mandan `solo`, así que no arrastran lo que haya marcado. #}
+    <form method="post" action="{{ url_for('media_duplicate_dismiss') }}" class="collapse show"
+          id="mediaDuplicates" data-dup-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ url_for('media_outlets_view') }}">
+      {% if duplicate_pairs|length > 1 %}
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-2 p-2 rounded-3 bg-light border">
+          <label class="form-check mb-0 small">
+            <input class="form-check-input" type="checkbox" data-dup-all>
+            <span class="form-check-label">Marcar todas</span>
+          </label>
+          <span class="small text-muted" data-dup-count>Ninguna marcada</span>
+          <button type="submit" class="btn btn-sm btn-outline-secondary ms-auto" data-dup-bulk disabled>
+            <i class="fa fa-xmark me-1"></i>Las marcadas no son el mismo</button>
+        </div>
+      {% endif %}
+      {% for g in duplicate_pairs %}
+        <div class="border rounded-3 p-2 mb-2 bg-white">
+          <div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Tienen {{ g.why }}.</div>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <input class="form-check-input mt-0" type="checkbox" name="pares[]" data-dup-one
+                   value="{{ g.a.id }}|{{ g.b.id }}" title="Marcar para descartarla">
+            {% for m in [g.a, g.b] %}
+              <a class="d-flex align-items-center gap-2 text-decoration-none text-reset border rounded-pill ps-1 pe-3 py-1"
+                 href="{{ url_for('media_outlet_detail_view', media_id=m.id) }}" title="Abrir su ficha">
+                <img src="{{ m.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
+                     style="width:28px;height:28px;border-radius:50%;object-fit:contain;background:#fff;flex:0 0 auto">
+                <span style="min-width:0">
+                  <span class="d-block small fw-semibold text-truncate">{{ m.name }}</span>
+                  <span class="d-block text-muted" style="font-size:.75rem">
+                    {{ m.type }}{% if m.country %} · {{ m.country }}{% endif %}</span>
+                </span>
+              </a>
+              {% if loop.first %}<i class="fa fa-arrows-left-right text-muted"></i>{% endif %}
+            {% endfor %}
+            <span class="ms-auto d-flex gap-2 flex-wrap">
+              {# ⚠️ `name="solo"`: manda SOLO esta pareja, aunque haya casillas marcadas. #}
+              <button type="submit" name="solo" value="{{ g.a.id }}|{{ g.b.id }}"
+                      class="btn btn-sm btn-outline-secondary" title="No son el mismo: deja de proponerlo">
+                <i class="fa fa-xmark me-1"></i>No son el mismo</button>
+              {# Abre el modal de fusión de siempre YA en la comparación de estas dos. #}
+              <button type="button" class="btn btn-sm btn-warning"
+                      data-merge-open data-merge-label="Medio"
+                      data-merge-id="{{ g.a.id }}" data-merge-with="{{ g.b.id }}"
+                      data-merge-name="{{ g.a.name|e }}" data-merge-photo="{{ g.a.photo or '' }}"
+                      data-merge-search="{{ url_for('merge_search_media') }}"
+                      data-merge-compare="{{ url_for('merge_compare_media') }}"
+                      data-merge-execute="{{ url_for('merge_execute_media') }}">
+                <i class="fa fa-code-merge me-1"></i>Fusionarlas</button>
+            </span>
+          </div>
+          {% if g.rest %}
+            <div class="small text-muted mt-2"><i class="fa fa-ellipsis me-1"></i>Y {{ g.rest }}
+              pareja{{ 's' if g.rest != 1 else '' }} más: al resolver estas, salen las siguientes.</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# LAS PAREJAS DESCARTADAS, con su «deshacer». Plegado: es un archivo, no trabajo pendiente. #}
+{% if dismissed_pairs %}
+<div class="mb-3">
+  <button class="btn btn-sm btn-link px-0" type="button" data-bs-toggle="collapse"
+          data-bs-target="#mediaDupDismissed">
+    <i class="fa fa-list-check me-1"></i>Parejas descartadas ({{ dismissed_pairs|length }})</button>
+  <div class="collapse" id="mediaDupDismissed">
+    <div class="card"><div class="card-body">
+      <div class="text-muted small mb-2">Alguien dijo que no son el mismo medio, así que dejaron de
+        proponerse. Se puede deshacer.</div>
+      {% for d in dismissed_pairs %}
+        <div class="d-flex flex-wrap gap-2 align-items-center border rounded-3 p-2 mb-2 bg-white">
+          <a class="small text-decoration-none text-reset" href="{{ url_for('media_outlet_detail_view', media_id=d.a.id) }}">{{ d.a.name }}</a>
+          <i class="fa fa-arrows-left-right text-muted"></i>
+          <a class="small text-decoration-none text-reset" href="{{ url_for('media_outlet_detail_view', media_id=d.b.id) }}">{{ d.b.name }}</a>
+          {% if d.by or d.when %}
+            <span class="small text-muted">· {{ d.by }}{% if d.when %} · {{ d.when }}{% endif %}</span>
+          {% endif %}
+          <form method="post" action="{{ url_for('media_duplicate_restore') }}" class="ms-auto">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="a" value="{{ d.a.id }}">
+            <input type="hidden" name="b" value="{{ d.b.id }}">
+            <input type="hidden" name="next" value="{{ url_for('media_outlets_view') }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+              <i class="fa fa-rotate-left me-1"></i>Deshacer</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div></div>
+  </div>
+</div>
+{% endif %}
+
 <form class="card card-body mb-4" method="get" id="mediaFilterForm">
   <div class="row g-3 align-items-end">
     <div class="col-12 col-lg-6">
@@ -71,6 +189,14 @@
               <div class="fw-semibold">{{ outlet.name }}</div>
               <div class="small text-muted">{{ outlet.address or 'Sin dirección' }}</div>
               <span class="badge text-bg-light border mt-2">{{ outlet.media_type }}</span>
+              {# ⚠️ TODO MEDIO MARCADO COMO RADIO ESTÁ EN EL REPORTE DE RADIOS (sep 2026): la
+                 emisora es el medio, así que uno nuevo entra solo sin darlo de alta en otro sitio.
+                 ⚠️ Va como <span>, no como enlace: la tarjeta entera YA es un <a> y un <a> dentro
+                 de otro parte el HTML (el navegador saca lo de dentro y no avisa). #}
+              {% if (outlet.media_type or '')|lower == (radio_media_type or 'Radio')|lower %}
+                <span class="badge text-bg-light border mt-2" title="Está en el reporte de radios y en las tocadas">
+                  <i class="fa fa-tower-broadcast me-1"></i>Emisora</span>
+              {% endif %}
               {# Las ETIQUETAS del medio, al lado de su tipo. #}
               {% for t in media_tags_map.get(outlet.id|string, []) %}<span class="badge media-tag mt-2"><i class="fa fa-tag me-1"></i>{{ t }}</span>{% endfor %}
               {% if (outlet.country_code or 'ES') != 'ES' %}<span class="badge text-bg-light border mt-2">{{ outlet.country_name or country_name_es(outlet.country_code) }}</span>{% endif %}
@@ -227,4 +353,5 @@
 })();
 </script>
 {% include '_merge_modal.html' %}
+{% include '_dup_pairs_js.html' %}
 {% endblock %}

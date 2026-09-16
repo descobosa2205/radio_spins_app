@@ -182,6 +182,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 - `{% import %}` / `{% from %}` **sin `with context`** no ven los globales (salen vacíos, sin error).
 - `|tojson` dentro de un atributo con comillas dobles **corta el atributo** → `|tojson|forceescape`;
   dentro de un `<script>`, `|tojson` **a secas** (ahí `forceescape` rompe el JS).
+- ⚠️ **`escape()` devuelve un `Markup`, y sus `.replace()` / `+` VUELVEN A ESCAPAR lo que se les
+  mete**: el HTML que se inserta sale como texto (`&lt;strong&gt;`). Al componer un cuerpo de correo
+  a mano, `str(escape(x))` desde el principio. → detalle en `docs/app/promocion-prensa.md`.
 - Un `{% include %}` **fuera del `{% block content %}`** se pinta antes del `<!doctype>` (quirks mode).
 - Un `</div>` de más o un `<style>` sin cerrar no dan error: los caza `tools/check_divs.py`.
 
@@ -531,7 +534,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 ### Comunicación
 - **`avisos-correo-sms.md`** — avisos (campanita, franjas), correo, cuentas de envío y SMS.
   ⚠️ *Por correo solo se avisa cuando algo te ENTRA; lo demás se ve en la app.*
-- **`promocion-prensa.md`** — promoción de prensa, marketing, notas de prensa, medios y radio.
+- **`promocion-prensa.md`** — promoción de prensa, marketing, notas de prensa, medios, radio y la
+  **presentación de un tema a las emisoras** (el correo, el DPC de Prisa). ⚠️ *La emisora es un
+  MEDIO de tipo Radio: no hay otra base de emisoras, y «ya suena» sale de las TOCADAS.*
 - **`externos-publico.md`** — portal de externos y páginas públicas. ⚠️ *Un enlace compartido se abre
   sin identificarse y solo enseña ESO; el portal es otra vía y no se tocan entre sí.*
 

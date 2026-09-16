@@ -984,9 +984,14 @@
     }
 
     // ------------------------------------------------------------ D · presentaciones
-    var PITCH_ST = { PENDING: ['Pendiente', 'fa-hourglass-half', '#f59e0b'],
-                     ACCEPTED: ['Entra', 'fa-check', '#198754'],
-                     REJECTED: ['No entra', 'fa-xmark', '#6c757d'] };
+    /* ⚠️ Los estados son los del módulo de presentación a radios: PLANNED (en el objetivo, sin
+       presentar) · SENT (presentada) · REJECTED. Los valores viejos (PENDING/ACCEPTED) los
+       traduce ya el servidor, pero se dejan aquí por si llega un payload guardado. */
+    var PITCH_ST = { PLANNED: ['Sin presentar', 'fa-hourglass-half', '#f59e0b'],
+                     SENT: ['Presentada', 'fa-paper-plane', '#0d6efd'],
+                     REJECTED: ['No entra', 'fa-xmark', '#6c757d'],
+                     PENDING: ['Sin presentar', 'fa-hourglass-half', '#f59e0b'],
+                     ACCEPTED: ['Presentada', 'fa-paper-plane', '#0d6efd'] };
     function renderPitchModes() {
       var z = root.querySelector('[data-fc-pitchmodes]');
       z.innerHTML = '<div class="btn-group btn-group-sm" role="group">'

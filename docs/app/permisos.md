@@ -6,6 +6,7 @@
 
 ## Qué hay aquí
 
+- «Emisoras» (radio.emisoras) SE RETIRÓ: sus permisos van a databases.media
 - UN RECURSO QUE **NO SE HEREDA DEL PADRE** (`EXACT_ACCESS_KEYS`)
 
 - Sesiones BD: s = db() con try/except rollback/finally close, o with get_db() as s.
@@ -25,6 +26,14 @@
 - NADIE SE COME UN 403 EN UNA FUNCIÓN QUE TIENE ASIGNADA.
 
 ---
+
+- ⚠️ **«Emisoras» (`radio.emisoras`) SE RETIRÓ** (sep 2026): la emisora es un MEDIO de tipo Radio,
+  así que su sitio es **`databases.media`** — y ahí se trasladan sus permisos
+  (`MIGRATED_ACCESS_KEYS`, el patrón de «retirar un recurso» de más abajo).
+  · Los endpoints de la presentación a radios (**`song_radio_*`**) van por PREFIJO a
+  `discografica.canciones`, y los tres de **presentar** (`song_radio_send_view`, `song_radio_send`,
+  `song_radio_plan_save`) están en `REQUEST_ANY_ENDPOINTS` porque **también lo hace promoción**:
+  comprueban dentro con `_can_present_radio`.
 
 ## UN RECURSO QUE NO SE HEREDA DEL PADRE (`EXACT_ACCESS_KEYS`)
 

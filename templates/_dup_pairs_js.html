@@ -1,0 +1,34 @@
+{# LAS CASILLAS DE «FICHAS REPETIDAS»: marcar varias y descartarlas de golpe.
+   ⚠️ Punto ÚNICO: lo usan Terceros y Medios (el mismo bloque, los mismos gestos). Si se toca el
+      comportamiento de las casillas, se toca aquí y vale para los dos.
+   ⚠️ Delegado en `document`: el bloque se repinta con la página y así sobrevive (regla de la
+      casa). No decide nada: solo cuenta lo marcado y habilita el botón. #}
+<script>
+  (function () {
+    function caja() { return document.querySelector('[data-dup-form]'); }
+    function marcadas(f) { return f ? f.querySelectorAll('[data-dup-one]:checked').length : 0; }
+    function pinta() {
+      var f = caja(); if (!f) return;
+      var n = marcadas(f);
+      var btn = f.querySelector('[data-dup-bulk]');
+      if (btn) btn.disabled = !n;
+      var txt = f.querySelector('[data-dup-count]');
+      if (txt) txt.textContent = n ? (n + (n === 1 ? ' marcada' : ' marcadas')) : 'Ninguna marcada';
+      var todas = f.querySelector('[data-dup-all]');
+      if (todas) {
+        var total = f.querySelectorAll('[data-dup-one]').length;
+        todas.checked = !!total && n === total;
+        todas.indeterminate = !!n && n < total;
+      }
+    }
+    document.addEventListener('change', function (ev) {
+      var f = caja(); if (!f) return;
+      if (ev.target.closest('[data-dup-all]')) {
+        var on = ev.target.checked;
+        f.querySelectorAll('[data-dup-one]').forEach(function (c) { c.checked = on; });
+      }
+      if (ev.target.closest('[data-dup-one], [data-dup-all]')) pinta();
+    });
+    pinta();
+  })();
+</script>

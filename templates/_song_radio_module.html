@@ -1,0 +1,243 @@
+{# ⚠️⚠️ PRESENTACIÓN A RADIOS · EL MÓDULO (sep 2026, lo pidió Dani).
+   El MISMO en la ficha de la canción y en el proyecto discográfico: la presentación vive en la
+   CANCIÓN y el proyecto solo la enseña, así que no puede haber dos versiones que digan cosas
+   distintas. Todo el contexto sale de `_song_radio_module` (punto único).
+
+   Lo que se ve, en este orden:
+     · lo que ya SUENA (y desde cuándo): el dato manda, y entonces desaparece «presentada»;
+     · lo PRESENTADO que todavía no suena, con QUIÉN lo presentó (su foto y su nick, nunca su
+       correo) y cuándo, más la previsión de entrada en rotación si la emisora la ha dado;
+     · lo PLANIFICADO que no se ha presentado — que es justo lo que se pierde de vista— con su
+       botón para presentarlo;
+     · lo RECHAZADO, que deja rastro.
+   ⚠️ `rm_can_edit` dice si esta pantalla deja tocar (la ficha de la canción y el proyecto exigen
+   poder editar Discográfica). Sin eso, el módulo se ve pero no se pinta ningún botón. #}
+{% set rm = radio_module %}
+{% if rm and (rm.any or rm_can_edit) %}
+<div class="ficha-section mb-3" id="songRadioModule">
+  <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <i class="fa fa-tower-broadcast text-danger"></i>
+    <h6 class="m-0">Presentación a radios</h6>
+    {% if rm.focus and rm.focus.yes %}
+      <span class="badge" style="background:var(--brand-accent,#007CA2);"><i class="fa fa-star me-1"></i>Focus single</span>
+    {% endif %}
+    {% if rm.rows %}
+      <span class="text-muted small">{{ rm.rows|length }} emisora{{ 's' if rm.rows|length != 1 else '' }}</span>
+    {% endif %}
+    {% if rm_can_edit %}
+      <button type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+              data-bs-toggle="modal" data-bs-target="#songRadioPlanModal">
+        <i class="fa fa-sliders me-1"></i>{{ 'Modificar emisoras' if rm.any else 'Elegir emisoras' }}</button>
+    {% endif %}
+  </div>
+
+  {# ⚠️ LA ALERTA: hay emisoras marcadas a las que todavía NO se ha presentado. Es el aviso que
+     pidió Dani —«aparecerá como alerta si hay planificado que se presente a radio y todavía no se
+     ha hecho»—, y va arriba, con el botón que lo resuelve sin salir. #}
+  {% if rm.planned %}
+    <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2">
+      <i class="fa fa-triangle-exclamation"></i>
+      <span>Está planificado presentarla a
+        <strong>{{ rm.planned|length }} emisora{{ 's' if rm.planned|length != 1 else '' }}</strong>
+        y todavía no se ha hecho.</span>
+      {% if rm_can_edit %}
+        {% if rm.ready %}
+          <a class="btn btn-sm btn-danger ms-auto"
+             href="{{ url_for('song_radio_send_view', song_id=rm.song.id) }}">
+            <i class="fa fa-paper-plane me-1"></i>Presentar</a>
+        {% else %}
+          <span class="ms-auto small"><i class="fa fa-lock me-1"></i>No se puede presentar todavía:
+            falta {{ (rm.missing_to_send or [])|join(' y ') }}.</span>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="d-flex flex-column gap-2">
+    {# 1 · YA SUENA. En cuanto hay tocadas, lo que importa es desde cuándo: «presentada» y la
+       previsión de entrada se dejan de pintar (lo pidió Dani). #}
+    {% for r in rm.on_air %}
+      <div class="d-flex align-items-center gap-2 flex-wrap border rounded-3 p-2 bg-white">
+        {% if r.logo_url %}
+          <img src="{{ r.logo_url }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;flex:0 0 auto;">
+        {% else %}
+          <span class="d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;border-radius:8px;background:#f1f3f7;flex:0 0 auto;"><i class="fa fa-tower-broadcast text-muted"></i></span>
+        {% endif %}
+        <span class="fw-semibold">{{ r.media_name }}</span>
+        <span class="badge text-bg-success"><i class="fa fa-circle-play me-1"></i>Suena</span>
+        <span class="small text-muted">desde el {{ r.on_air_label }} · {{ r.spins }} tocada{{ 's' if r.spins != 1 else '' }}</span>
+      </div>
+    {% endfor %}
+
+    {# 2 · PRESENTADA (y todavía no suena): quién la presentó, cuándo, y la previsión de entrada. #}
+    {% for r in rm.sent %}
+      <div class="d-flex align-items-center gap-2 flex-wrap border rounded-3 p-2 bg-white">
+        {% if r.logo_url %}
+          <img src="{{ r.logo_url }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;flex:0 0 auto;">
+        {% else %}
+          <span class="d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;border-radius:8px;background:#f1f3f7;flex:0 0 auto;"><i class="fa fa-tower-broadcast text-muted"></i></span>
+        {% endif %}
+        <span class="fw-semibold">{{ r.media_name }}</span>
+        <span class="badge text-bg-primary"><i class="fa fa-paper-plane me-1"></i>Presentada</span>
+        {% if r.by_nick %}
+          <span class="d-inline-flex align-items-center gap-1 small text-muted">por
+            <img src="{{ r.by_photo or DEFAULT_AVATAR_URL }}" data-avatar="1" alt=""
+                 style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+            <strong class="text-body">{{ r.by_nick }}</strong>
+            {% if r.sent_label %}· {{ r.sent_label }}{% endif %}</span>
+        {% elif r.sent_label %}
+          <span class="small text-muted">{{ r.sent_label }}</span>
+        {% endif %}
+        {% if r.start_label %}
+          <span class="small text-muted"><i class="fa fa-calendar-day me-1"></i>entra en rotación el
+            {{ r.start_label }}</span>
+        {% endif %}
+        {% if rm_can_edit %}
+          <button type="button" class="btn btn-sm btn-link ms-auto p-0" data-bs-toggle="modal"
+                  data-bs-target="#songRadioRotationModal" data-srr-id="{{ r.id }}"
+                  data-srr-name="{{ r.media_name|e }}"
+                  data-srr-date="{{ r.start_date.isoformat() if r.start_date else '' }}">
+            {{ 'Cambiar la fecha' if r.start_label else '¿Cuándo entra?' }}</button>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    {# 3 · EN EL OBJETIVO, SIN PRESENTAR: se pincha y se presenta. #}
+    {% for r in rm.planned %}
+      <div class="d-flex align-items-center gap-2 flex-wrap border rounded-3 p-2 bg-white">
+        {% if r.logo_url %}
+          <img src="{{ r.logo_url }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;flex:0 0 auto;">
+        {% else %}
+          <span class="d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;border-radius:8px;background:#f1f3f7;flex:0 0 auto;"><i class="fa fa-tower-broadcast text-muted"></i></span>
+        {% endif %}
+        <span class="fw-semibold">{{ r.media_name }}</span>
+        <span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>Sin presentar</span>
+        {% if rm_can_edit and rm.ready %}
+          <a class="btn btn-sm btn-outline-danger ms-auto"
+             href="{{ url_for('song_radio_send_view', song_id=rm.song.id, media=r.media_id) }}">
+            <i class="fa fa-paper-plane me-1"></i>Presentar</a>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    {# 4 · RECHAZADA: un «no» es información y deja rastro. #}
+    {% for r in rm.rejected %}
+      <div class="d-flex align-items-center gap-2 flex-wrap border rounded-3 p-2 bg-white opacity-75">
+        {% if r.logo_url %}
+          <img src="{{ r.logo_url }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;flex:0 0 auto;">
+        {% else %}
+          <span class="d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;border-radius:8px;background:#f1f3f7;flex:0 0 auto;"><i class="fa fa-tower-broadcast text-muted"></i></span>
+        {% endif %}
+        <span class="fw-semibold">{{ r.media_name }}</span>
+        <span class="badge text-bg-light border text-muted"><i class="fa fa-xmark me-1"></i>No la cogen</span>
+        {% if r.note %}<span class="small text-muted">{{ r.note }}</span>{% endif %}
+      </div>
+    {% endfor %}
+
+    {% if not rm.rows %}
+      <div class="text-muted small">Todavía no se ha marcado a qué emisoras se va a presentar.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if rm_can_edit %}
+  {# ELEGIR / MODIFICAR LAS EMISORAS del objetivo. Las emisoras son los medios marcados como Radio:
+     no hay otra base de emisoras. ⚠️ Lo ya presentado sale marcado y NO se puede quitar (el
+     servidor lo vuelve a comprobar): borrarlo dejaría el envío sin rastro. #}
+  <div class="modal fade" id="songRadioPlanModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <form class="modal-content" method="post"
+            action="{{ url_for('song_radio_plan_save', song_id=rm.song.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        {% if rm.project %}<input type="hidden" name="project_id" value="{{ rm.project.id }}">{% endif %}
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-tower-broadcast me-2"></i>¿A qué emisoras se presenta?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="text-muted small mb-3">Son los medios marcados como <strong>Radio</strong>.
+            Uno nuevo aparece aquí solo con darlo de alta en
+            <a href="{{ url_for('media_outlets_view', type='Radio') }}">Medios</a>.</div>
+          <div class="row g-2">
+            {% for m in (radio_media or []) %}
+              {% set fila = (rm.rows or [])|selectattr('media_id', 'equalto', m.id)|list %}
+              {% set ya = fila[0] if fila else None %}
+              {% set fijo = ya and not ya.planned %}
+              <div class="col-12 col-md-6">
+                <label class="d-flex align-items-center gap-2 border rounded p-2 h-100 bg-white">
+                  <input class="form-check-input m-0" type="checkbox" name="media_ids" value="{{ m.id }}"
+                         {% if ya %}checked{% endif %} {% if fijo %}disabled{% endif %}>
+                  {# ⚠️ Un campo DESHABILITADO no se envía, así que lo ya presentado viaja en un
+                     oculto: si no, al guardar se entendería que se quiere quitar. #}
+                  {% if fijo %}<input type="hidden" name="media_ids" value="{{ m.id }}">{% endif %}
+                  {% if m.logo_url %}
+                    <img src="{{ m.logo_url }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;flex:0 0 auto;">
+                  {% else %}
+                    <span class="d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;border-radius:8px;background:#f1f3f7;flex:0 0 auto;"><i class="fa fa-tower-broadcast text-muted"></i></span>
+                  {% endif %}
+                  <span style="min-width:0">
+                    <span class="d-block fw-semibold small text-truncate">{{ m.name }}</span>
+                    {% if ya %}<span class="d-block small text-muted">{{ ya.status_label }}{% if fijo %} · ya no se puede quitar{% endif %}</span>{% endif %}
+                  </span>
+                </label>
+              </div>
+            {% else %}
+              <div class="col-12">
+                <div class="alert alert-secondary mb-0">No hay ningún medio marcado como Radio.
+                  <a href="{{ url_for('media_outlets_view', type='Radio') }}">Añádelos en Medios</a>.</div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# CUÁNDO ENTRA EN ROTACIÓN (lo que contesta la emisora): es la previsión de cuándo empezará a
+     sonar, y por eso se conserva junto a quién la presentó. #}
+  <div class="modal fade" id="songRadioRotationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" data-srr-form action="">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-calendar-day me-2"></i>¿Cuándo entra en rotación?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="text-muted small mb-3">En <strong data-srr-name></strong>. Es la previsión de
+            cuándo va a empezar a sonar; en cuanto tenga tocadas de verdad, se enseña desde cuándo
+            suena.</div>
+          <label class="form-label">Fecha prevista</label>
+          <input type="date" class="form-control" name="start_date" data-srr-date>
+          <label class="form-label mt-3">Nota (opcional)</label>
+          <input type="text" class="form-control" name="note" placeholder="Lo que haya dicho la emisora">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    /* El pop-up de la fecha de rotación se rellena EN EL PROPIO CLIC: con `modal_stack.js` por
+       medio, `shown.bs.modal` no siempre llega (regla de la casa). Delegado en `document`. */
+    document.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-srr-id]');
+      if (!b) return;
+      var f = document.querySelector('[data-srr-form]');
+      if (!f) return;
+      f.setAttribute('action', '{{ url_for('song_radio_rotation_save', pitch_id='__ID__') }}'.replace('__ID__', b.getAttribute('data-srr-id')));
+      var n = f.querySelector('[data-srr-name]'); if (n) n.textContent = b.getAttribute('data-srr-name') || '';
+      var d = f.querySelector('[data-srr-date]'); if (d) d.value = b.getAttribute('data-srr-date') || '';
+    });
+  </script>
+{% endif %}
+{% endif %}

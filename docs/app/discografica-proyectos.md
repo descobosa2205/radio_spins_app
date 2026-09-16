@@ -6,6 +6,7 @@
 
 ## Qué hay aquí
 
+- PRESENTACIÓN A RADIOS · REDISEÑO (sep 2026): el mismo módulo que la ficha de la canción
 - DISCOGRÁFICA · PROYECTOS: donde se PREPARA el material discográfico —álbumes, EPs,
 - LA BOLSA DE UN SINGLE QUE NO TIENE PROYECTO: un single preparado con un PROYECTO
 - PROYECTO · LA FOTO DE LA PORTADA se aprueba y LUEGO se elige
@@ -571,6 +572,14 @@
   ⚠️ `_disco_pitch_url` lleva `url_for` **protegido**: el estado del pitch se lee también desde un
   cron o un hilo, y ahí `url_for` revienta con «Working outside of application context» (el mismo bug
   que ya salió en `_peticion_edit_payload` y en `_royalty_holded_fields`).
+
+- ⚠️⚠️ **PRESENTACIÓN A RADIOS · REDISEÑO (sep 2026)**: lo de abajo sigue valiendo en lo que es
+  del proyecto (el focus single y que solo un focus se presenta), pero **la presentación cambió**:
+  ahora el proyecto pinta **el MISMO módulo que la ficha de la canción**
+  (`_song_radio_module` + `templates/_song_radio_module.html`), se **presenta por correo** desde la
+  propia app y **lo que ya suena sale de las tocadas**, no de una marca. El detalle completo, en
+  `docs/app/promocion-prensa.md` («Presentación a radios»). ⚠️ El pop-up de elegir emisoras es el
+  del módulo (`#songRadioPlanModal`): `#dpRadioModal` **ya no existe**.
 
 - **PROYECTO · FOCUS SINGLE y PRESENTACIÓN A RADIO** (ago 2026). Un lanzamiento puede ser **focus
   single** (el prioritario) y entonces se presenta a las emisoras.

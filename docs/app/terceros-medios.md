@@ -6,6 +6,7 @@
 
 ## Qué hay aquí
 
+- UNA EMISORA DE RADIO ES UN MEDIO (las del reporte de radios se volcaron a Medios)
 - LAS ETIQUETAS DE UN TERCERO al crearlo (el clic que no marcaba nada)
 
 - Vinculaciones entre entidades (ThirdPartyLink + templates/_entity_links_panel.html +
@@ -20,6 +21,15 @@
 - PromoterCompany NO TIENE COLUMNA name (bug real, sep 2026): su nombre es legal_name
 
 ---
+
+- ⚠️⚠️ **UNA EMISORA DE RADIO ES UN MEDIO** (sep 2026): las emisoras del reporte de radios se
+  volcaron a Medios y **todo medio marcado como Radio** entra en las tocadas. En Medios hay ahora
+  su bloque de **FICHAS REPETIDAS** con «Fusionarlas» y «No son el mismo» (`MediaNotDuplicate`), y
+  la fusión **no pierde el histórico de radio** (el motor re-apunta también las tocadas).
+  ⚠️ Ahí el **correo NO vale como criterio** de duplicado: las seis emisoras de Prisa comparten el
+  mismo buzón y saldrían quince parejas falsas. Detalle en `docs/app/promocion-prensa.md`.
+  · Un medio de tipo Radio tiene además su módulo de **contactos para las presentaciones a radio**
+  (`MediaContact.radio_pitch`), aparte del de notas de prensa.
 
 ## LAS ETIQUETAS DE UN TERCERO al crearlo (el clic que no marcaba nada)
 

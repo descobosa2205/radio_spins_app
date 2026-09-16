@@ -40927,8 +40927,17 @@ def _song_radio_send_one(session_db, cancion, correo, nombre, pitches, elegido, 
             return False, "", "el documento de Prisa no se ha podido componer"
 
     cuenta = _mail_account_for_email(elegido["email"])
+    # ⚠️⚠️ **SE RESPONDE A QUIEN LO HA MANDADO** (lo pidió Dani: como en toda la app). Cuando el
+    # correo sale por el buzón de **Promoción** —porque esa persona no tiene el suyo dado de alta—,
+    # el From es el genérico pero la conversación es SUYA: sin `Reply-To`, la respuesta de la
+    # emisora se perdería en un buzón que nadie mira como propio.
+    # ⚠️ Si sale por su propia cuenta no hace falta (el From ya es ella), así que solo se pone
+    # cuando la dirección de salida NO es la suya.
+    mio = ((yo.get("email") or "").strip() or _current_user_email()).strip()
+    responder_a = (mio if (mio and "@" in mio
+                           and mio.lower() != (elegido["email"] or "").strip().lower()) else None)
     ok, error = _send_optional_email(
-        correo, asunto, cuerpo, attachments=adjuntos,
+        correo, asunto, cuerpo, attachments=adjuntos, reply_to=responder_a,
         from_name=(elegido.get("name") or ""), from_email=elegido["email"],
         auto_submitted=False, account=cuenta)
     # ⚠️ Devuelve (ok, error): tratarlo como booleano daría por enviado lo que rebotó.
@@ -101619,9 +101628,12 @@ REQUEST_ANY_ENDPOINTS = {
     # recoge promoción (el endpoint comprueba dentro que es de quien le toca).
     "song_radio_rotation_save",
     # ⚠️⚠️ PRESENTAR UN TEMA A RADIO lo hacen el SELLO **y PROMOCIÓN** (es quien habla con las
-    # emisoras, y el correo sale desde SU dirección), así que no puede exigir Discográfica: los
-    # tres endpoints comprueban dentro con `_can_present_radio`.
-    "song_radio_send_view", "song_radio_send", "song_radio_plan_save",
+    # emisoras, y el correo sale desde SU dirección), así que no puede exigir Discográfica: estos
+    # endpoints comprueban dentro con `_can_present_radio`.
+    # ⚠️ **Al añadir uno nuevo hay que ponerlo AQUÍ**: `song_radio_send_all` se quedó fuera y
+    # promoción veía la pantalla (el GET sí estaba) pero el botón «Enviar todos» le daba un 403
+    # —lo cazó la prueba de que nadie manda desde el correo de otro—.
+    "song_radio_send_view", "song_radio_send", "song_radio_send_all", "song_radio_plan_save",
     # ⚠️ La NOTA DE PRENSA la sube promoción (el texto) y diseño (el gráfico), y la marca enviada
     # promoción: ninguno tiene por qué poder editar discográfica. Cada endpoint comprueba dentro que
     # es de su departamento (o dirección).

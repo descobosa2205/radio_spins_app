@@ -306,8 +306,17 @@
   ⚠️ Las descargas van por **`public_radio_download`** con el token del ENVÍO (al otro lado no hay
   sesión) y sirven el archivo **tal cual**: a una emisora no se le manda un MP3 recomprimido.
   · **DESDE QUÉ CORREO** (`_radio_sender_options`, `MailAccount.user_id`): el buzón de esa persona,
-  que se le asigna en **Integraciones → Correo**. Quien no lo tenga **lo sabe en la pantalla, antes
-  de mandar**, y se le ofrece salir desde **Promoción**. Y **presentar lo pueden hacer el sello y
+  que se le asigna en **Integraciones → Correo** —o que se reconoce solo porque **la cuenta se
+  llama como su correo** (ver `docs/app/avisos-correo-sms.md`)—. Quien no lo tenga **lo sabe en la
+  pantalla, antes de mandar**, y se le ofrece salir desde **Promoción**.
+  ⚠️⚠️ **NADIE MANDA DESDE EL CORREO DE OTRO** (lo pidió Dani): las únicas dos salidas son **la
+  suya** y **Promoción**, que es la genérica de estos envíos. Y no es solo que la pantalla no lo
+  ofrezca: `_song_radio_send_pick` **elige entre esas dos** y lo que llegue en el formulario
+  pidiendo otra cosa cae en la suya (probado manipulando el POST).
+  ⚠️⚠️ **SE RESPONDE A QUIEN LO HA MANDADO** (como en toda la app): si sale por Promoción —o por un
+  buzón asignado que no es su dirección—, el correo lleva **`Reply-To` a la persona**; si sale por
+  su propio correo no se añade, que el From ya es ella. Sin eso, la respuesta de la emisora se
+  perdería en un buzón que nadie mira como propio. Y **presentar lo pueden hacer el sello y
   PROMOCIÓN** (`_can_present_radio`): sus endpoints van en `REQUEST_ANY_ENDPOINTS` y comprueban
   dentro, como `song_radio_pitch_decide`.
   ⚠️ `_send_optional_email` devuelve **(ok, error)**: si el correo no sale, **no se marca nada como

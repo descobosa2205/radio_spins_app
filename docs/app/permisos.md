@@ -32,8 +32,12 @@
   (`MIGRATED_ACCESS_KEYS`, el patrón de «retirar un recurso» de más abajo).
   · Los endpoints de la presentación a radios (**`song_radio_*`**) van por PREFIJO a
   `discografica.canciones`, y los tres de **presentar** (`song_radio_send_view`, `song_radio_send`,
-  `song_radio_plan_save`) están en `REQUEST_ANY_ENDPOINTS` porque **también lo hace promoción**:
-  comprueban dentro con `_can_present_radio`.
+  `song_radio_send_all`, `song_radio_plan_save`) están en `REQUEST_ANY_ENDPOINTS` porque **también
+  lo hace promoción**: comprueban dentro con `_can_present_radio`.
+  ⚠️⚠️ **UN ENDPOINT NUEVO DE ESA FAMILIA HAY QUE AÑADIRLO A LA LISTA**: `song_radio_send_all` se
+  quedó fuera y el resultado fue de los que no se ven —promoción **veía la pantalla** (el GET sí
+  estaba) y el botón «Enviar todos» le devolvía un **403**, sin más explicación—. Lo cazó la prueba
+  de «nadie manda desde el correo de otro», no la lectura del código.
 
 ## UN RECURSO QUE NO SE HEREDA DEL PADRE (`EXACT_ACCESS_KEYS`)
 

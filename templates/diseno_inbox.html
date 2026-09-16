@@ -19,24 +19,51 @@
   </div>
 </div>
 
-<div class="card mb-3">
-  <div class="card-header d-flex align-items-center gap-2 flex-wrap">
-    <span class="fw-semibold"><i class="fa fa-list-check text-danger me-2"></i>Peticiones y tareas pendientes</span>
-    {% if tasks %}<span class="badge text-bg-danger">{{ tasks|length }}</span>{% endif %}
-    {% if late_count %}<span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ late_count }} fuera de plazo</span>{% endif %}
-    {% if soon_count %}<span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>{{ soon_count }} esta semana</span>{% endif %}
-  </div>
-  <div class="card-body">
-    {% if tasks %}
-      <div class="list-group dz-list">
-        {% for t in tasks %}
-          <button type="button" class="list-group-item list-group-item-action dz-row{% if t.late %} dz-row--late{% endif %}"
+{# ── LO QUE HAY, DE UN VISTAZO ───────────────────────────────────────────────────────────────── #}
+<div class="dz-summary mb-3">
+  <span class="fw-semibold"><i class="fa fa-list-check text-danger me-2"></i>Peticiones y tareas pendientes</span>
+  {% if tasks %}<span class="badge text-bg-danger">{{ tasks|length }}</span>{% endif %}
+  {% if late_count %}<span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ late_count }} fuera de plazo</span>{% endif %}
+  {% if soon_count %}<span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>{{ soon_count }} esta semana</span>{% endif %}
+  {% if groups %}<span class="text-muted small ms-auto"><i class="fa fa-users me-1"></i>{{ groups|length }} artista{{ '' if groups|length == 1 else 's' }}</span>{% endif %}
+</div>
+
+{# ══ UNA TARJETA POR ARTISTA ═══════════════════════════════════════════════════════════════════
+   Todo lo que te han pedido de ese artista junto, con su foto: es como se busca el trabajo («lo
+   de Fulano»), no tarea a tarea. El orden sigue siendo el de la ENTREGA MÁS CERCANA, dentro y
+   fuera de cada tarjeta (`_design_groups`).
+   ⚠️ Lo que todavía NO ESTÁ CONFIRMADO (una actividad sin confirmar, un proyecto cuya fecha de
+      lanzamiento no ha cerrado Registros) sale con el FONDO RAYADO de la casa y dice por qué: se
+      puede ir haciendo, pero puede moverse. #}
+{% if groups %}
+  {% for g in groups %}
+    <div class="card mb-3 dz-group">
+      <div class="card-header dz-group__head">
+        {# ⚠️ El icono va SIEMPRE debajo: si la foto no carga, `this.remove()` la quita y queda el
+           icono — sin dejar un hueco vacío (el mismo patrón que «Mis tareas pendientes»). #}
+        <span class="dz-group__photo">
+          <i class="fa {{ 'fa-palette' if g.key == '__otros__' else 'fa-guitar' }}"></i>
+          {% if g.photo %}<img src="{{ g.photo }}" alt="" onerror="this.remove()">{% endif %}
+        </span>
+        <span class="dz-group__name">{{ g.name }}</span>
+        <span class="badge text-bg-danger">{{ g.count }}</span>
+        {% if g.late %}<span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ g.late }} fuera de plazo</span>{% endif %}
+        {% if g.soon %}<span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>{{ g.soon }} esta semana</span>{% endif %}
+        {% if g.due_label %}
+          <span class="dz-group__due ms-auto"><i class="fa fa-flag-checkered me-1"></i>{{ g.due_label }}{% if g.days_label %} · {{ g.days_label }}{% endif %}</span>
+        {% endif %}
+      </div>
+      <div class="list-group list-group-flush dz-list">
+        {% for t in g.tasks %}
+          <button type="button" class="list-group-item list-group-item-action dz-row{% if t.late %} dz-row--late{% endif %}{% if t.provisional %} is-provisional{% endif %}"
                   data-dz-open="{{ t.key }}">
             <span class="dz-row__ico"><i class="fa {{ t.icon }}"></i></span>
-            {% if t.photo %}<img src="{{ t.photo }}" alt="" class="dz-row__photo">{% endif %}
             <span class="dz-row__main">
               <span class="dz-row__t">{{ t.title }}</span>
-              <span class="dz-row__s">{{ t.what }}{% if t.subject %} · {{ t.subject }}{% endif %}</span>
+              <span class="dz-row__s">{{ t.what }}{% if t.subject_short %} · {{ t.subject_short }}{% endif %}</span>
+              {% if t.provisional %}
+                <span class="dz-row__prov"><i class="fa fa-triangle-exclamation me-1"></i>{{ t.provisional_label or 'Todavía sin confirmar' }}</span>
+              {% endif %}
             </span>
             <span class="dz-row__due">
               {% if t.due_label %}
@@ -52,11 +79,13 @@
           </button>
         {% endfor %}
       </div>
-    {% else %}
-      <div class="text-muted small py-2"><i class="fa fa-inbox me-1"></i>No tienes nada pendiente. Aquí llegará todo lo que te pidan.</div>
-    {% endif %}
-  </div>
-</div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="card mb-3"><div class="card-body">
+    <div class="text-muted small py-2"><i class="fa fa-inbox me-1"></i>No tienes nada pendiente. Aquí llegará todo lo que te pidan.</div>
+  </div></div>
+{% endif %}
 
 {# ── EL POP-UP de una tarea: qué se pide, los archivos de referencia y la zona de subir ───────── #}
 <div class="modal fade" id="disenoTaskModal" tabindex="-1" aria-hidden="true">
@@ -179,6 +208,8 @@
   }
 
   function texto(el, valor) { if (el) el.textContent = valor || ''; }
+  // Texto que se mete en un innerHTML: se escapa siempre (un nick o un estado son datos).
+  function esc(v) { var d = document.createElement('div'); d.textContent = (v == null ? '' : String(v)); return d.innerHTML; }
 
   function abrir(clave) {
     var t = TAREAS[clave];
@@ -194,8 +225,13 @@
         '"><i class="fa fa-flag-checkered me-1"></i>Entrega: ' + t.due_label +
         (t.days_label ? ' (' + t.days_label + ')' : '') + '</span>');
     }
-    if (t.asked_by) chapas.push('<span class="badge text-bg-light border"><i class="fa fa-user me-1"></i>Lo pide ' + t.asked_by + '</span>');
-    if (t.asked_label) chapas.push('<span class="badge text-bg-light border"><i class="fa fa-clock me-1"></i>Pedido el ' + t.asked_label + '</span>');
+    if (t.asked_by) chapas.push('<span class="badge text-bg-light border"><i class="fa fa-user me-1"></i>Lo pide ' + esc(t.asked_by) + '</span>');
+    if (t.asked_label) chapas.push('<span class="badge text-bg-light border"><i class="fa fa-clock me-1"></i>Pedido el ' + esc(t.asked_label) + '</span>');
+    // ⚠️ TODAVÍA SIN CONFIRMAR: se puede ir haciendo, pero puede moverse (mismo aviso que el rayado).
+    if (t.provisional) {
+      chapas.push('<span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>' +
+        esc(t.provisional_label || 'Todavía sin confirmar') + '</span>');
+    }
     q('[data-dz-badges]').innerHTML = chapas.join('');
 
     var specs = t.specs || [];
@@ -247,6 +283,19 @@
     if (quitar) { cola.splice(Number(quitar.getAttribute('data-dz-quitar')), 1); pintarCola(); return; }
     if (e.target.closest('[data-dz-pick]')) { q('[data-dz-input]').click(); return; }
   });
+
+  // ⚠️ SE LLEGA A UNA TAREA CONCRETA (`/diseno?tarea=<clave>`, desde «Mis tareas pendientes»): se
+  // abre su pop-up al cargar, que es donde se hace. Si ya no está pendiente no hay nada que abrir.
+  // ⚠️ Bootstrap se carga DESPUÉS del contenido, así que se reintenta hasta que esté (regla de la casa).
+  var ABRIR = {{ (open_key or '')|tojson }};
+  if (ABRIR && TAREAS[ABRIR]) {
+    var intentos = 0;
+    (function esperar() {
+      if (window.bootstrap && bootstrap.Modal) { abrir(ABRIR); return; }
+      if (++intentos > 60) return;
+      setTimeout(esperar, 50);
+    })();
+  }
 
   q('[data-dz-input]').addEventListener('change', function (ev) { añadir(ev.target.files); ev.target.value = ''; });
   var zona = q('[data-dz-zone]');

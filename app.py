@@ -61167,11 +61167,30 @@ def _design_files(valores) -> list[dict]:
     return salida
 
 
+def _design_subject_short(subject: str, artist: str) -> str:
+    """El sujeto sin el nombre del artista delante («Los Ñus · 16/10 · Sevilla» → «16/10 · Sevilla»).
+
+    Si el sujeto es SOLO el artista se deja como está: quitarlo dejaría la fila sin nada que leer."""
+    sujeto = (subject or "").strip()
+    nombre = (artist or "").strip()
+    if not nombre or not sujeto or _norm_text_key(sujeto) == _norm_text_key(nombre):
+        return sujeto
+    for sep in (" · ", " — ", " - "):
+        # El artista va delante en la cartelería y detrás en un proyecto («Disco nuevo · Los Ñus»).
+        if sujeto.lower().startswith((nombre + sep).lower()):
+            return sujeto[len(nombre) + len(sep):].strip()
+        if sujeto.lower().endswith((sep + nombre).lower()):
+            return sujeto[:-(len(nombre) + len(sep))].strip()
+    return sujeto
+
+
 def _design_task(kind: str, tid, *, title: str, subject: str = "", photo: str = "",
                  due_date=None, asked_by: str = "", asked_at=None, specs=None, note: str = "",
                  files=None, url: str = "", upload: bool = True,
                  upload_label: str = "", upload_help: str = "", multiple: bool = True,
-                 action_label: str = "") -> dict:
+                 action_label: str = "", artist: str = "", artist_id: str = "",
+                 subject_kind: str = "", subject_id: str = "",
+                 provisional: bool = False, provisional_label: str = "") -> dict:
     """UNA cosa pendiente de diseño, con todo lo que hace falta para pintarla y para hacerla."""
     rotulo, icono = DESIGN_TASK_META.get(kind, ("Tarea de diseño", "fa-palette"))
     # La fecha de entrega es un DÍA: lo que llegue como marca de tiempo se queda en su día (si no,
@@ -61189,6 +61208,9 @@ def _design_task(kind: str, tid, *, title: str, subject: str = "", photo: str = 
         "icon": icono,
         "title": (title or rotulo),
         "subject": (subject or ""),
+        # El sujeto SIN el nombre del artista delante: dentro de su grupo ya se sabe de quién es y
+        # repetirlo en cada fila es ruido. Fuera del grupo (el pop-up, Inicio) se lee el entero.
+        "subject_short": _design_subject_short(subject or "", artist or ""),
         "photo": (photo or ""),
         "due_date": vence,
         "due_label": (vence.strftime("%d/%m/%Y") if vence else ""),
@@ -61207,6 +61229,24 @@ def _design_task(kind: str, tid, *, title: str, subject: str = "", photo: str = 
         "multiple": bool(multiple),
         "accept": DESIGN_UPLOAD_ACCEPT.get(kind, ""),
         "action_label": (action_label or ("Subir" if upload else "Abrir")),
+        # ── DE QUIÉN ES ────────────────────────────────────────────────────────────────────────
+        # La bandeja se AGRUPA POR ARTISTA (una cabecera con su foto y debajo todo lo suyo), así
+        # que cada tarea dice de quién es. Lo que no es de nadie (una campaña sin artista) va al
+        # final en «Otros».
+        "artist": (artist or ""),
+        "artist_id": str(artist_id or ""),
+        # QUÉ es el sujeto y CUÁL (la actividad, el proyecto, la canción, la campaña). Con esto
+        # Inicio etiqueta cada tarea con lo que de verdad es —cartelería, proyecto…— en vez de
+        # llamarlo todo «lanzamiento», y le pone su cartel o su portada.
+        "subject_kind": (subject_kind or ""),
+        "subject_id": str(subject_id or ""),
+        # ⚠️⚠️ TODAVÍA NO ESTÁ CONFIRMADO: una actividad que no está CONFIRMADA o un proyecto cuya
+        # fecha de lanzamiento no ha confirmado Registros. Lo que se pida ahí puede moverse o
+        # caerse, así que la fila se pinta con el FONDO RAYADO de la casa (el mismo de un
+        # lanzamiento provisional) y dice por qué: diseño distingue de un vistazo lo que va a misa
+        # de lo que todavía no.
+        "provisional": bool(provisional),
+        "provisional_label": (provisional_label or ""),
     }
 
 
@@ -61251,6 +61291,18 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
             estado = (getattr(row, "status", "") or "DRAFT").upper()
             hecho_por = (getattr(row, "handled_by", None) or "OURS").upper()
             vigentes = [a for a in (getattr(row, "assets", None) or []) if not a.is_archived]
+            # ⚠️ DE QUIÉN es (para agrupar la bandeja) y si la actividad está CONFIRMADA: mientras
+            # no lo esté, lo que se diseñe puede moverse o caerse, así que la fila sale rayada con
+            # el estado que tenga («Reservado», «Hablado»…).
+            estado_act = (getattr(c, "status", "") or "").upper()
+            sin_confirmar = estado_act != "CONFIRMADO"
+            de_quien = dict(
+                artist=((getattr(artista, "name", "") or "").strip() or nombre),
+                artist_id=str(getattr(c, "artist_id", "") or ""),
+                subject_kind="CONCIERTO", subject_id=str(c.id),
+                provisional=sin_confirmar,
+                provisional_label=(CONCERT_STATUS_META.get(estado_act, ("Sin confirmar", ""))[0]
+                                   if sin_confirmar else ""))
             # a) La cartelería que hacemos NOSOTROS y todavía no está entregada.
             if hecho_por == "OURS" and estado in ("REQUESTED", "CORRECTIONS"):
                 carteles = [a for a in vigentes if _artwork_asset_category(a) == "POSTER"]
@@ -61272,7 +61324,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                         photo=foto, due_date=getattr(row, "delivery_deadline", None),
                         asked_at=getattr(row, "requested_at", None),
                         specs=especificaciones, note=(row.other_notes or ""),
-                        url=ficha, upload_label="los carteles",
+                        url=ficha, upload_label="los carteles", **de_quien,
                         upload_help="Se puede soltar una carpeta entera: se sube cada archivo que haya dentro."))
             # b) El cartel de SOLD OUT (se pide solo al 90% de venta).
             if getattr(row, "soldout_requested_at", None):
@@ -61286,7 +61338,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                         asked_at=getattr(row, "soldout_requested_at", None),
                         specs=[{"label": "Formatos", "value": " · ".join(st.get("format_labels") or [])},
                                {"label": "Venta", "value": (st.get("pct_label") or "")}],
-                        url=ficha, upload_label="los carteles de Sold Out"))
+                        url=ficha, upload_label="los carteles de Sold Out", **de_quien))
             # c) Los carteles que diseño tiene que aprobar (no es una subida).
             # ⚠️⚠️ Un cartel en **PENDING espera SIEMPRE a diseño**, lo haya subido el promotor,
             # contratación o quien sea (`ARTWORK_PHASE_WHO`: PENDING → DISEÑO, DESIGN_OK → quien
@@ -61301,7 +61353,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                     photo=foto, due_date=getattr(row, "delivery_deadline", None),
                     specs=[{"label": "Esperando el visto bueno", "value": "%d cartel(es)" % len(pendientes)}],
                     files=[_design_file_row(a.file_url, a.original_name or a.format_label) for a in pendientes],
-                    url=ficha, upload=False, action_label="Revisarlos",
+                    url=ficha, upload=False, action_label="Revisarlos", **de_quien,
                     upload_help="Se aprueban o se rechazan uno a uno en la pestaña Cartelería."))
     except Exception:
         app.logger.exception("[diseño] no se pudo leer la cartelería pendiente")
@@ -61320,6 +61372,16 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
         sujeto = " · ".join([x for x in [_disco_project_title(p), (getattr(artista, "name", "") or "")] if x])
         foto = (getattr(artista, "photo_url", "") or "")
         ficha = url_for("disco_project_detail", project_id=str(p.id), tab="calendario")
+        # ⚠️ Mientras REGISTROS no CONFIRMA la fecha de lanzamiento, el proyecto entero puede
+        # moverse: sus tareas salen rayadas (la señal de la casa de «esto todavía no va»). Es el
+        # mismo dato que mira el cuadro de dirección (`release_date_confirmed_at`).
+        sin_fecha = not getattr(p, "release_date_confirmed_at", None)
+        de_quien = dict(
+            artist=(getattr(artista, "name", "") or ""),
+            artist_id=str(getattr(p, "artist_id", "") or ""),
+            subject_kind="PROYECTO", subject_id=str(p.id),
+            provisional=sin_fecha,
+            provisional_label=("Fecha de lanzamiento sin confirmar" if sin_fecha else ""))
         # a) LA PORTADA (solo si la hacemos nosotros y todavía no está entregada).
         try:
             art = _disco_artwork_state(session_db, p)
@@ -61332,7 +61394,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                     due_date=art.get("due_date"),
                     specs=[{"label": "La idea", "value": (art.get("idea_text") or "")},
                            {"label": "Lo que ha dicho el artista", "value": (art.get("artist_idea_text") or "")}],
-                    files=ficheros, url=ficha,
+                    files=ficheros, url=ficha, **de_quien,
                     upload_label="el JPG y el PSD",
                     upload_help="Hacen falta los dos: la imagen (JPG o PNG) y el archivo abierto (PSD, PSB, ZIP o RAR)."))
         except Exception:
@@ -61355,7 +61417,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                                                        "AUDIO": "Audio"}.get(
                                (fila.get("media") or "IMAGE").upper(), "")}],
                     note=(fila.get("note") or "" or (getattr(peticion, "note", "") or "")),
-                    url=ficha, multiple=False, upload_label="la pieza"))
+                    url=ficha, multiple=False, upload_label="la pieza", **de_quien))
         except Exception:
             app.logger.exception("[diseño] no se pudieron leer las creatividades")
         # c) LOS CONTENIDOS del plan de lanzamiento pedidos a diseño.
@@ -61374,7 +61436,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                            {"label": "El copy", "value": (getattr(ct, "copy_text", "") or "")}],
                     note=(getattr(ct, "design_notes", "") or getattr(ct, "description", "") or ""),
                     url=url_for("disco_project_detail", project_id=str(p.id), tab="lanzamiento"),
-                    multiple=False, upload_label="el contenido"))
+                    multiple=False, upload_label="el contenido", **de_quien))
         except Exception:
             app.logger.exception("[diseño] no se pudieron leer los contenidos del plan")
         # d) LA MINIATURA DEL VIDEOCLIP del proyecto.
@@ -61394,7 +61456,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                         specs=[{"label": "La idea", "value": (mini.get("idea") or "")}],
                         files=_design_files(mini.get("files")),
                         url=url_for("disco_project_detail", project_id=str(p.id), tab="calendario"),
-                        multiple=False, upload_label="la miniatura"))
+                        multiple=False, upload_label="la miniatura", **de_quien))
         except Exception:
             app.logger.exception("[diseño] no se pudo leer la miniatura del videoclip")
         # e) EL GRÁFICO DE LA NOTA DE PRENSA (igual: el payload primero, el estado solo si toca).
@@ -61408,7 +61470,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                     photo=foto, due_date=pr.get("due_date"),
                     asked_by=(pr.get("requested_by") or ""),
                     specs=[{"label": "Indicaciones", "value": (pr.get("note") or "")}],
-                    url=ficha, multiple=False, upload_label="el gráfico de la nota"))
+                    url=ficha, multiple=False, upload_label="el gráfico de la nota", **de_quien))
         except Exception:
             app.logger.exception("[diseño] no se pudo leer la nota de prensa")
 
@@ -61438,7 +61500,14 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                     specs=[{"label": "La idea", "value": (mini.get("idea") or "")}],
                     files=_design_files(mini.get("files")),
                     url=url_for("discografica_song_detail", song_id=str(cancion.id), tab="videoclip"),
-                    multiple=False, upload_label="la miniatura"))
+                    multiple=False, upload_label="la miniatura",
+                    artist=(getattr(artista, "name", "") or ""),
+                    artist_id=str(getattr(artista, "id", "") or ""),
+                    subject_kind="CANCION", subject_id=str(cancion.id),
+                    # Un tema que todavía está preparando un proyecto es PROVISIONAL: mismo rayado.
+                    provisional=bool(getattr(cancion, "is_provisional", False)),
+                    provisional_label=("Lanzamiento provisional"
+                                       if getattr(cancion, "is_provisional", False) else "")))
     except Exception:
         app.logger.exception("[diseño] no se pudieron leer las miniaturas pedidas de canciones")
 
@@ -61451,12 +61520,19 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
         pids = [r.promotion_id for r in encargos]
         campañas = ({p.id: p for p in session_db.query(Promotion).filter(Promotion.id.in_(pids)).all()}
                     if pids else {})
+        # DE QUIÉN es cada campaña: sus artistas, en UNA consulta (la bandeja se agrupa por artista).
+        _aids = [x for x in (_safe_uuid(a) for p in campañas.values()
+                             for a in (getattr(p, "artist_ids", None) or [])) if x]
+        artistas_promo = ({str(a.id): a for a in
+                           session_db.query(Artist).filter(Artist.id.in_(_aids)).all()} if _aids else {})
         for r in encargos:
             promo = campañas.get(r.promotion_id)
             if promo is None:
                 continue
             act = (session_db.get(PromotionActivity, r.activity_id) if getattr(r, "activity_id", None)
                    else None)
+            art_promo = next((artistas_promo[str(x)] for x in (getattr(promo, "artist_ids", None) or [])
+                              if str(x) in artistas_promo), None)
             tareas.append(_design_task(
                 "MARKETING_DESIGN", r.id, title="Materiales de marketing",
                 subject=" · ".join([x for x in [_promo_title(promo),
@@ -61466,7 +61542,11 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                 asked_at=getattr(r, "requested_at", None),
                 note=(r.note or ""),
                 url=url_for("promotion_detail_view", promotion_id=str(promo.id), tab="materiales"),
-                upload_label="los materiales"))
+                upload_label="los materiales",
+                photo=(getattr(art_promo, "photo_url", "") or ""),
+                artist=(getattr(art_promo, "name", "") or ""),
+                artist_id=str(getattr(art_promo, "id", "") or ""),
+                subject_kind="PROMOCION", subject_id=str(promo.id)))
     except Exception:
         app.logger.exception("[diseño] no se pudieron leer los encargos de marketing")
 
@@ -61489,12 +61569,59 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                        {"label": "Dónde", "value": (fila.get("municipality") or "")}],
                 note=(fila.get("notes") or ""),
                 url=url_for("booking_request_detail_view", rid=str(r.id)),
-                upload=False, action_label="Abrir la petición"))
+                upload=False, action_label="Abrir la petición",
+                artist=(fila.get("artist_name") or ""), artist_id=(fila.get("artist_id") or ""),
+                subject_kind="PETICION", subject_id=str(r.id)))
     except Exception:
         app.logger.exception("[diseño] no se pudieron leer las peticiones del departamento")
 
     tareas.sort(key=_design_sort_key)
     return tareas[:limit]
+
+
+def _design_groups(tareas: list[dict]) -> list[dict]:
+    """LA BANDEJA AGRUPADA POR ARTISTA: una cabecera por artista y debajo todo lo que le han pedido.
+
+    ⚠️ **No cambia el orden ni la lista**: es la misma de `_design_tasks` y la misma urgencia
+    (`_design_sort_key`). Primero va el artista que tiene la entrega más cercana y, dentro, sus
+    tareas en el mismo orden — agrupar es para VERLO, no para reordenar el trabajo.
+    ⚠️ Se agrupa por el **id** del artista, que es lo que no engaña. Lo que viene SIN id (una campaña,
+    una petición) se arrima al grupo que ya tenga ESE nombre —sin acentos ni mayúsculas— y, si no hay
+    ninguno, abre el suyo: así el mismo artista no sale dos veces, que es justo lo que se quería
+    evitar. Lo que no es de nadie se junta al final en «Otros».
+    ⚠️ Por eso va en DOS pasadas: las que traen id primero, para que las otras tengan a qué arrimarse
+    (llegan en orden de urgencia, no de artista)."""
+    grupos: dict = {}
+    por_nombre: dict = {}
+    for t in sorted((tareas or []), key=lambda x: not str(x.get("artist_id") or "").strip()):
+        nombre = (t.get("artist") or "").strip()
+        nkey = _norm_text_key(nombre)
+        clave = (str(t.get("artist_id") or "").strip()
+                 or por_nombre.get(nkey) or nkey or "__otros__")
+        fila = grupos.get(clave)
+        if fila is None:
+            fila = grupos[clave] = {"key": clave, "name": (nombre or "Otros"),
+                                    "photo": "", "tasks": [], "late": 0, "soon": 0}
+            if nkey:
+                por_nombre.setdefault(nkey, clave)
+        if not fila["photo"] and t.get("photo"):
+            fila["photo"] = t["photo"]
+        if t.get("late"):
+            fila["late"] += 1
+        elif t.get("days_left") is not None and 0 <= t["days_left"] <= 7:
+            fila["soon"] += 1
+        fila["tasks"].append(t)
+    salida = list(grupos.values())
+    for g in salida:
+        g["tasks"].sort(key=_design_sort_key)
+        g["count"] = len(g["tasks"])
+        # La entrega más cercana del grupo: es por donde ordena y lo que se lee en la cabecera.
+        proxima = next((x for x in g["tasks"] if x.get("due_label")), None)
+        g["due_label"] = (proxima.get("due_label") if proxima else "")
+        g["days_label"] = (proxima.get("days_label") if proxima else "")
+    # Lo más urgente primero y «Otros» siempre al final (no es un artista).
+    salida.sort(key=lambda g: (g["key"] == "__otros__", _design_sort_key(g["tasks"][0])))
+    return salida
 
 
 def _design_task_find(session_db, kind: str, tid: str) -> dict | None:
@@ -61866,7 +61993,9 @@ def diseno_view():
     """LA BANDEJA DE DISEÑO: todo lo que le han pedido, de la entrega más cercana a la más lejana.
 
     Es la MISMA lista que su módulo de Inicio (`_design_tasks`, punto único), aquí con el pop-up de
-    cada tarea para verla entera y entregarla sin salir de la pantalla."""
+    cada tarea para verla entera y entregarla sin salir de la pantalla.
+    ⚠️ Se enseña **agrupada POR ARTISTA** (`_design_groups`): una cabecera con su foto y debajo todo
+    lo suyo. El orden sigue siendo el de la entrega más cercana, dentro y fuera de cada grupo."""
     session_db = db()
     try:
         tareas = _design_tasks(session_db)
@@ -61878,8 +62007,13 @@ def diseno_view():
     return render_template(
         "diseno_inbox.html",
         title="Diseño", icon="fa-palette",
-        subtitle="Todo lo que te han pedido, por fecha de entrega.",
+        subtitle="Todo lo que te han pedido, por artista y por fecha de entrega.",
         tasks=tareas,
+        groups=_design_groups(tareas),
+        # ⚠️ `?tarea=<clave>`: se llega desde «Mis tareas pendientes» y la pantalla abre ESA tarea
+        # con su pop-up (lo que se pide, los adjuntos y la zona de subir). Antes el aviso llevaba
+        # «a Diseño» y había que volver a buscarla en la lista.
+        open_key=(request.args.get("tarea") or "").strip(),
         # Lo que lee el pop-up: lo mismo, pero sin la fecha en crudo (que no es JSON).
         tasks_json=[{k: v for k, v in t.items() if k != "due_date"} for t in tareas],
         # Lo que ya venció y lo que vence en los 7 próximos días: es la urgencia real.
@@ -96769,6 +96903,22 @@ def _home_contratacion_only() -> bool:
     return depts == {_norm_text_key("Contratación")}
 
 
+def _home_diseno_only() -> bool:
+    """¿El Inicio de esta persona es el de DISEÑO (solo lo que le han pedido a diseño)?
+
+    Lo es quien está en el departamento **Diseño y en ninguno más**. En «Mis tareas pendientes» ve
+    entonces LO SUYO —la cartelería, las portadas, las creatividades, las peticiones de su
+    departamento y sus propios gastos— y **no el trabajo de los demás**: le estaban saliendo cosas
+    de los proyectos discográficos (el pitch, los materiales por revisar…) que no son de diseño.
+    ⚠️ Mismo criterio que `_home_ticketing_only` / `_home_contratacion_only`: si se toca uno, se
+    tocan los tres. Quien esté además en otro departamento lo sigue viendo todo."""
+    if is_master():
+        return False
+    estado = _current_user_state() or {}
+    depts = {_norm_text_key(d) for d in (estado.get("departments") or []) if str(d or "").strip()}
+    return depts == {_norm_text_key("Diseño")}
+
+
 def _home_contracting_tasks(limit: int = 20) -> list[dict]:
     """LAS TAREAS DE CONTRATACIÓN de esta persona, todas juntas, para el módulo de Inicio.
 
@@ -97451,7 +97601,10 @@ HOME_TASK_SOURCES = [
     {"ctx": "HOME_AFAVOR_INVOICES", "kind": "ROYALTIES", "order": 3,
      "label": "Emitir la factura", "action": "Emitirla"},
     # ── DISEÑO Y PRENSA ────────────────────────────────────────────────────────────────────────
-    {"ctx": "HOME_DESIGN_TASKS", "kind": "LANZAMIENTO", "order": 3,
+    # ⚠️ El `kind` lo dice CADA FILA (`kind_key`): la cartelería de un concierto es CARTELERÍA y la
+    # portada de un lanzamiento es su PROYECTO. Si no, en el Inicio de diseño salía todo como
+    # «Lanzamiento», que es justo lo que no es.
+    {"ctx": "HOME_DESIGN_TASKS", "kind": "LANZAMIENTO", "kind_key": "kind", "order": 3,
      "subtasks": "tasks", "subtask_label": "label", "action": "Entregarlo"},
     # ── DIGITAL ────────────────────────────────────────────────────────────────────────────────
     # ⚠️ Es una ACTIVIDAD (se anuncia en redes, se suben sus enlaces de venta), no un lanzamiento.
@@ -97476,6 +97629,15 @@ HOME_TASK_SOURCES = [
 HOME_TASK_SOURCES_SPECIAL = {"HOME_ACTIVITY_PHASES", "HOME_PRODUCTION_ACTIVATION",
                              "HOME_ARTWORK_REJECTED", "HOME_BATCH_APPROVALS",
                              "HOME_VACATION_PENDING", "HOME_MY_PETICIONES", "HOME_INVITATIONS"}
+
+# ⚠️⚠️ EL INICIO DE DISEÑO ES SOLO LO SUYO. A quien está en Diseño y en ningún otro departamento le
+# salían aquí cosas de los PROYECTOS discográficos que no son trabajo suyo (se cuelan por los
+# permisos de lectura que necesita para poder abrir las fichas donde trabaja: `docs/app/diseno.md`).
+# Aquí solo entra **lo de diseño y cartelería** (`HOME_DESIGN_TASKS`), **las peticiones de su
+# departamento** y **sus propios gastos**, que es suyo y de nadie más.
+# ⚠️ Mismo criterio que el Inicio de Ticketing y el de Contratación: quien esté además en otro
+# departamento lo sigue viendo todo.
+HOME_TASK_SOURCES_DISENO = {"HOME_DESIGN_TASKS", "HOME_PENDING_PETICIONES", "HOME_MY_EXPENSES"}
 
 
 def _home_task_url(fuente: dict, fila: dict) -> str:
@@ -97524,7 +97686,7 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
 
     def añade(kind, sid, titulo, ficha_url, *, label, action_url="", action_label="",
               state="todo", artist="", photo="", fecha="", note="", order=5,
-              activity_type="", ref_id="", done_url=""):
+              activity_type="", ref_id="", done_url="", provisional=False, provisional_label=""):
         """Una subtarea. Las de un MISMO sujeto (kind+id) se juntan en una sola fila."""
         if not label:
             return
@@ -97539,6 +97701,10 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                 "artist_name": (artist or ""), "artist_photo": (photo or ""),
                 "date": (fecha or ""), "date_label": _iso_date_label(fecha) if fecha else "",
                 "note": (note or ""), "order": order, "tasks": [],
+                # ⚠️ TODAVÍA SIN CONFIRMAR (una actividad que no está CONFIRMADA, un proyecto cuya
+                # fecha no ha cerrado Registros): la fila sale con el FONDO RAYADO de la casa. Se
+                # puede ir haciendo, pero puede moverse.
+                "provisional": bool(provisional), "provisional_label": (provisional_label or ""),
                 # LA IMAGEN de la fila: la PORTADA de un lanzamiento o el CARTEL de una actividad;
                 # si no hay, el icono de lo que es. La resuelve `_my_task_images`.
                 "image": "", "image_kind": "", "flag": "", "flag_title": "",
@@ -97642,8 +97808,12 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
     # ⚠️ No se calcula nada nuevo: `fuentes` es el contexto de Inicio, donde cada `_home_*` ya ha
     # decidido qué le toca a ESTA persona (lo asignado, lo que ha creado, lo que gestiona o lo
     # genérico de su departamento).
+    solo_diseno = _home_diseno_only()
     for fuente in HOME_TASK_SOURCES:
         if fuente["ctx"] in HOME_TASK_SOURCES_SPECIAL:
+            continue
+        # ⚠️ Quien SOLO es diseño no ve aquí el trabajo de los demás (ver `HOME_TASK_SOURCES_DISENO`).
+        if solo_diseno and fuente["ctx"] not in HOME_TASK_SOURCES_DISENO:
             continue
         try:
             for fila in _home_task_source_rows(fuente, (fuentes or {}).get(fuente["ctx"])):
@@ -97657,8 +97827,15 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                     order=int(fuente.get("order") or 5),
                     activity_type=str(fila.get("activity_type") or ""),
                     ref_id=_home_task_pick(fila, "id", fuente.get("id")),
+                    provisional=bool(fila.get("provisional")),
+                    provisional_label=str(fila.get("provisional_label") or ""),
                 )
                 titulo = _home_task_title(fuente, fila)
+                # ⚠️ `kind_key`: una fuente puede traer tareas de COSAS DISTINTAS (diseño tiene
+                # cartelería de una actividad y la portada de un lanzamiento), y cada una se
+                # etiqueta con lo que es. Sin esto salían todas con la etiqueta de la fuente.
+                kind = ((str(fila.get(fuente["kind_key"]) or "").strip().upper()
+                         if fuente.get("kind_key") else "") or fuente["kind"])
                 sid = comun["ref_id"] or titulo
                 subs = fila.get(fuente["subtasks"]) if fuente.get("subtasks") else None
                 if subs:
@@ -97666,7 +97843,7 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                     for sub in subs:
                         if not isinstance(sub, dict):
                             continue
-                        añade(fuente["kind"], sid, titulo,
+                        añade(kind, sid, titulo,
                               label=(sub.get(fuente.get("subtask_label") or "label") or ""),
                               action_url=(sub.get("url") or url),
                               action_label=(sub.get("action_label") or fuente.get("action") or "Hacerlo"),
@@ -97675,7 +97852,7 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                 else:
                     etiqueta = (str(fila.get(fuente["label_key"]) or "") if fuente.get("label_key")
                                 else (fuente.get("label") or ""))
-                    añade(fuente["kind"], sid, titulo, label=etiqueta,
+                    añade(kind, sid, titulo, label=etiqueta,
                           action_label=(fuente.get("action") or "Hacerlo"),
                           state=(fuente.get("state") or "todo"), **comun)
         except Exception:
@@ -156964,6 +157141,33 @@ def _home_producer_contracts(limit: int = 12) -> list[dict]:
         session_db.close()
 
 
+# QUÉ ES cada tarea de diseño en «Mis tareas pendientes» (`MY_TASK_KINDS`). Sin esto todas salían
+# etiquetadas como «Lanzamiento» —también la cartelería de un concierto—, así que en su Inicio
+# parecía que se le pedían cosas del sello. Además, con el kind bueno y el id del SUJETO, la fila
+# se queda con el CARTEL de la actividad o con la PORTADA del lanzamiento (`_my_task_images`).
+DESIGN_TASK_HOME_KINDS = {
+    "CONCIERTO": "CARTELERIA",
+    "PROYECTO": "PROYECTO",
+    "CANCION": "LANZAMIENTO",
+    "PROMOCION": "MARKETING",
+}
+
+
+def _design_task_action_url(t: dict) -> str:
+    """DÓNDE SE HACE esa tarea, de un clic.
+
+    ⚠️⚠️ Lo que se ENTREGA se entrega en la bandeja: el enlace la abre **con el pop-up de ESA tarea
+    ya abierto** (`/diseno?tarea=<clave>`), con lo que se pide, los adjuntos y la zona de subir. Lo
+    que no se sube (revisar unos carteles, una petición) lleva a donde se hace de verdad. Antes
+    todo llevaba «a Diseño» y había que buscar la tarea otra vez en la lista."""
+    if t.get("upload"):
+        try:
+            return url_for("diseno_view", tarea=t["key"])
+        except Exception:
+            return "/diseno?tarea=%s" % quote(t["key"])
+    return (t.get("url") or "")
+
+
 def _home_design_tasks(limit: int = 12) -> list[dict]:
     """LO QUE DISEÑO TIENE PENDIENTE (módulo de Inicio), agrupado por aquello a lo que pertenece.
 
@@ -156971,7 +157175,8 @@ def _home_design_tasks(limit: int = 12) -> list[dict]:
     módulo solo miraba los proyectos discográficos y la bandeja otra cosa, así que Inicio y la
     sección decían números distintos. Una fila por sujeto (el lanzamiento, la actividad, la
     campaña) y, dentro, una subtarea por cosa, con **los días que faltan**, que es lo que hay que
-    mirar. El enlace lleva a la bandeja, que es donde se entrega."""
+    mirar.
+    ⚠️ Cada subtarea lleva **a hacerla** (`_design_task_action_url`), no «a Diseño»."""
     estado = _current_user_state() or {}
     yo = str(estado.get("user_id") or "")
     if not yo:
@@ -156981,28 +157186,33 @@ def _home_design_tasks(limit: int = 12) -> list[dict]:
         de_diseno = yo in [str(x) for x in _department_user_ids(session_db, "Diseño")]
         if not (de_diseno or int(estado.get("role") or 0) == 10):
             return []
-        try:
-            destino = url_for("diseno_view")
-        except Exception:
-            destino = "/diseno"
         filas, por_sujeto = [], {}
         for t in _design_tasks(session_db):
             # Las PETICIONES ya tienen su propio módulo en Inicio: aquí se verían dos veces.
             if t["kind"] == "PETICION":
                 continue
-            clave = t.get("subject") or t.get("title") or t["key"]
+            # Una fila por SUJETO de verdad (esa actividad, ese proyecto), no por el texto que se
+            # lee: así las dos cosas que se piden del mismo concierto salen juntas.
+            clave = ("%s:%s" % (t.get("subject_kind") or "", t.get("subject_id") or "")
+                     if t.get("subject_id") else (t.get("subject") or t.get("title") or t["key"]))
+            destino = _design_task_action_url(t)
             fila = por_sujeto.get(clave)
             if fila is None:
                 if len(filas) >= limit:
                     continue
                 fila = {
-                    "id": t["key"],
-                    "title": clave,
-                    "artist_name": "",
+                    "id": (t.get("subject_id") or t["key"]),
+                    "kind": DESIGN_TASK_HOME_KINDS.get(t.get("subject_kind") or "", "LANZAMIENTO"),
+                    "title": (t.get("subject") or t.get("title") or ""),
+                    "artist_name": (t.get("artist") or ""),
                     "artist_photo": (t.get("photo") or ""),
                     "release_label": (t.get("due_label") or ""),
                     "tasks": [],
                     "late": False,
+                    # ⚠️ TODAVÍA SIN CONFIRMAR: la fila sale con el FONDO RAYADO de la casa, igual
+                    # que en la bandeja, para que diseño lo distinga de lo que ya va a misa.
+                    "provisional": bool(t.get("provisional")),
+                    "provisional_label": (t.get("provisional_label") or ""),
                     "url": destino,
                 }
                 por_sujeto[clave] = fila
@@ -157010,10 +157220,15 @@ def _home_design_tasks(limit: int = 12) -> list[dict]:
             fila["tasks"].append({"label": t["title"], "icon": t.get("icon") or "fa-palette",
                                   "due_label": (t.get("due_label") or ""),
                                   "days": (t.get("days_label") or ""),
-                                  "late": bool(t.get("late"))})
+                                  "late": bool(t.get("late")),
+                                  "url": destino,
+                                  "action_label": ("Entregarlo" if t.get("upload")
+                                                   else (t.get("action_label") or "Hacerlo"))})
             fila["late"] = fila["late"] or bool(t.get("late"))
             if not fila["artist_photo"] and t.get("photo"):
                 fila["artist_photo"] = t["photo"]
+            if not fila["artist_name"] and t.get("artist"):
+                fila["artist_name"] = t["artist"]
         return filas
     except Exception:
         app.logger.exception("[diseño] no se pudieron montar las tareas de diseño")

@@ -943,6 +943,17 @@
   ⚠️ A partir de la fila **20** se esconden tras «Ver las N restantes»: con cincuenta tareas lo de
   arriba —que es lo más urgente, porque van por fecha— dejaba de verse.
   ⚠️ Su plantilla es **`_home_my_tasks.html`** (antes `_home_direccion.html`).
+  · **`kind_key`**: una fuente puede traer tareas de COSAS DISTINTAS (diseño tiene la cartelería de
+  una actividad y la portada de un lanzamiento) y cada una se etiqueta con lo que es. Sin esto salían
+  todas con el `kind` de la fuente, y en el Inicio de diseño la cartelería de un concierto aparecía
+  como «Lanzamiento». Con el kind bueno y el id del SUJETO, la fila se queda además con su **cartel**
+  o su **portada** (`_my_task_images`).
+  · **`provisional` / `provisional_label`**: si la fila lo trae, sale con el **fondo rayado** de la
+  casa (la regla única de `styles.css`) y el porqué al lado del título. Es «se puede ir haciendo,
+  pero puede moverse». → `docs/app/diseno.md`
+  ⚠️⚠️ **QUIEN ESTÁ EN UN SOLO DEPARTAMENTO NO VE AQUÍ EL TRABAJO DE LOS DEMÁS**: `_home_diseno_only`
+  (+ `HOME_TASK_SOURCES_DISENO`) deja a diseño solo lo suyo, igual que `_home_ticketing_only` y
+  `_home_contratacion_only` con sus Inicios. **Si se toca uno, se tocan los tres.**
   ⚠️ Los **avisos de una promoción** que se produce (cambio de fecha, de sitio, cancelación) pasan a
   la **campanita** (`_promo_alert_add` crea ya el `AppNotification`): vivían SOLO en su módulo de
   Inicio y al reunir las tareas se habrían perdido —`PromotionAlert` es su propia tabla—.

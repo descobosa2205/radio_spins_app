@@ -7,6 +7,8 @@
 ## Qué hay aquí
 
 - LA BANDEJA DE DISEÑO · todo lo que le han pedido, por fecha de entrega
+- AGRUPADA POR ARTISTA, Y LO QUE TODAVÍA NO ESTÁ CONFIRMADO SE VE
+- EN INICIO · lo suyo y nada más, y cada tarea lleva A HACERLA
 - EL POP-UP DE UNA TAREA · lo que se pide, los adjuntos y la zona de subir
 - DÓNDE VA LO QUE SUBE (y a quién se avisa)
 - DISEÑO TIENE QUE PODER VER Y SUBIR LO QUE LE PIDEN (los 403 que se comía)
@@ -59,6 +61,68 @@ a nadie y se quedaba esperando un OK que nadie le había pedido. La fase se lee 
 **`_artwork_asset_phase`**, el punto único que la normaliza.
 ⚠️ Lo que sube diseño nace en `DESIGN_OK` (`_artwork_new_asset_status`), así que su propia entrega
 **no se reclama a sí misma**. Comprobado en las cuatro fases.
+
+## AGRUPADA POR ARTISTA, Y LO QUE TODAVÍA NO ESTÁ CONFIRMADO SE VE
+
+**Una tarjeta por ARTISTA** (`_design_groups`, sep 2026): su foto, su nombre, cuántas cosas le han
+pedido y la entrega más cercana; dentro, sus tareas. El trabajo se busca como se piensa —«lo de
+Fulano»— y no tarea a tarea en una lista de treinta.
+⚠️ **No cambia el orden ni la lista**: es la misma de `_design_tasks` y la misma urgencia
+(`_design_sort_key`). Primero el artista que tiene la entrega más cercana y, dentro, igual.
+⚠️ Se agrupa por el **id** del artista, que es lo que no engaña. Lo que viene SIN id (una campaña,
+una petición) **se arrima al grupo que ya tenga ese nombre** —sin acentos ni mayúsculas
+(`_norm_text_key`)— y solo abre uno propio si no hay ninguno: así el mismo artista **no sale dos
+veces**, que es justo lo que se quería evitar. Por eso va en DOS pasadas (las que traen id primero:
+llegan en orden de urgencia, no de artista). Lo que no es de nadie se junta al final en **«Otros»**,
+nunca en medio.
+⚠️ Dentro de la tarjeta, la fila lee el sujeto **sin el nombre del artista** (`subject_short`): ya
+está en la cabecera y repetirlo en cada línea es ruido. Fuera del grupo (el pop-up, Inicio) se lee
+el entero.
+⚠️ La foto lleva el **icono debajo**: si no carga, `this.remove()` la quita y queda el icono, nunca
+un hueco (el mismo patrón que «Mis tareas pendientes»).
+
+⚠️⚠️ **LO QUE TODAVÍA NO ESTÁ CONFIRMADO SALE RAYADO** y dice por qué (`provisional` /
+`provisional_label`). Lo pidió Dani: diseño puede ir haciéndolo, pero eso **puede moverse o caerse**,
+y hasta ahora no había forma de distinguirlo de lo que va a misa. **Es el MISMO rayado** de un
+lanzamiento provisional, de una tarea bloqueada y de un contenido del plan sin subir —una sola
+declaración en `styles.css`, así que no se pueden desparejar—.
+
+| lo que se pide | está «sin confirmar» cuando… | lo que se lee |
+|---|---|---|
+| cartelería · Sold Out · carteles por aprobar | `Concert.status` **no es CONFIRMADO** | el estado que tenga (`CONCERT_STATUS_META`): «Reservado», «Hablado»… |
+| todo lo de un proyecto discográfico | **Registros no ha confirmado la fecha** (`release_date_confirmed_at` vacío) | «Fecha de lanzamiento sin confirmar» |
+| la miniatura de una canción suelta | la canción es **provisional** (la está preparando un proyecto) | «Lanzamiento provisional» |
+
+⚠️ Se mira **el DATO**, no una marca aparte: en cuanto la actividad se confirma o Registros cierra la
+fecha, el rayado se va solo. Y sale **en los dos sitios** —la bandeja (`.dz-row.is-provisional`) y
+«Mis tareas pendientes» (`.mytask.is-provisional`)—, porque es la misma tarea.
+
+## EN INICIO · lo suyo y nada más, y cada tarea lleva A HACERLA
+
+⚠️⚠️ **EN «MIS TAREAS PENDIENTES», A DISEÑO SOLO LE SALE LO DE DISEÑO Y CARTELERÍA** (sep 2026, lo
+pidió Dani). Le estaban saliendo cosas de los **proyectos discográficos** que no son trabajo suyo:
+se cuelan porque para poder abrir las fichas donde trabaja necesita permisos de LECTURA de esas
+secciones (el apartado de los 403, más abajo), y varios módulos de Inicio miran el permiso en vez
+del departamento. Ahora **quien está en Diseño y en ningún otro departamento** (`_home_diseno_only`)
+solo recibe las fuentes de `HOME_TASK_SOURCES_DISENO`: **lo de diseño** (`HOME_DESIGN_TASKS`), **las
+peticiones de su departamento** y **sus propios gastos**, que son suyos y de nadie más.
+⚠️ **Mismo criterio que `_home_ticketing_only` y `_home_contratacion_only`** (el Inicio de Ticketing
+y el de Contratación): **si se toca uno, se tocan los tres**. Quien esté ADEMÁS en otro departamento
+lo sigue viendo todo — es de ese otro departamento también.
+
+⚠️⚠️ **CADA TAREA LLEVA A HACERLA, no «a Diseño»** (`_design_task_action_url`). Lo que se ENTREGA
+abre la bandeja **con el pop-up de ESA tarea ya abierto** (`/diseno?tarea=<clave>`: lo que se pide,
+los adjuntos y la zona de subir); lo que no se sube (revisar unos carteles, una petición) lleva a
+donde se hace de verdad. Antes todo llevaba a la lista y había que volver a buscar la tarea.
+⚠️ Si al llegar esa tarea **ya no está pendiente**, no se abre nada (la lista es el punto único: lo
+entregado no está). El pop-up se abre esperando a que **Bootstrap** exista, que se carga DESPUÉS del
+contenido — la trampa de siempre.
+
+⚠️ **Y cada una con la etiqueta de lo que ES**: la cartelería de un concierto es **Cartelería** (con
+su cartel) y la portada de un lanzamiento es su **Proyecto discográfico** (con su portada). Antes
+salían todas como «Lanzamiento», que es lo que hacía parecer que se le pedían cosas del sello. Lo
+hace `kind_key` en el registro (`DESIGN_TASK_HOME_KINDS` → `MY_TASK_KINDS`) con el id del **sujeto**,
+que es lo que `_my_task_images` necesita para poner la imagen. → `docs/app/ui-plantillas.md`
 
 ## EL POP-UP DE UNA TAREA · lo que se pide, los adjuntos y la zona de subir
 

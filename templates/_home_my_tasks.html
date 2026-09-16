@@ -30,7 +30,10 @@
       {# ⚠️ A partir de la 20 se esconden: con cincuenta tareas el módulo se hace infinito y lo de
          arriba —que es lo más urgente, porque van por fecha— deja de verse. Se despliegan aquí
          mismo con «Ver las N restantes»: no se pierde ninguna. #}
-      <div class="mytask{% if t.is_new %} is-new{% endif %}{% if loop.index > 20 %} mytask--more d-none{% endif %}" data-mytask="{{ t.key }}"
+      {# ⚠️ TODAVÍA SIN CONFIRMAR (una actividad que no está CONFIRMADA, un proyecto cuya fecha de
+         lanzamiento no ha cerrado Registros): FONDO RAYADO, el mismo de un lanzamiento provisional,
+         y el porqué al lado del título. Se puede ir haciendo, pero puede moverse. #}
+      <div class="mytask{% if t.is_new %} is-new{% endif %}{% if t.provisional %} is-provisional{% endif %}{% if loop.index > 20 %} mytask--more d-none{% endif %}" data-mytask="{{ t.key }}"
            data-mytask-url="{{ t.url }}" data-mytask-seen="{{ t.seen_url }}" role="button" tabindex="0">
         <div class="mytask__head">
           {# LA IMAGEN es CUADRADA: la PORTADA del lanzamiento (o la de «sin portada») y, en un
@@ -48,6 +51,9 @@
               <span class="mytask__kind"><i class="fa {{ t.kind_icon }}"></i>{{ t.kind_label }}</span>
               <span class="mytask__title text-truncate">{{ t.title }}</span>
               {% if t.flag %}<span class="mytask__flag" title="{{ t.flag_title }}">{{ t.flag }}</span>{% endif %}
+              {% if t.provisional %}
+                <span class="mytask__prov"><i class="fa fa-triangle-exclamation me-1"></i>{{ t.provisional_label or 'Todavía sin confirmar' }}</span>
+              {% endif %}
               {% if t.is_new %}<span class="mytask__new">Nueva</span>{% endif %}
             </span>
             <span class="mytask__facts">

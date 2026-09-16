@@ -2269,6 +2269,13 @@ div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spaci
   letter-spacing: .04em; line-height: 1.2;
 }
 .mytask__kind i { color: inherit; }
+/* POR QUÉ está rayada: lo que se pide todavía puede moverse (la actividad no está confirmada, la
+   fecha del lanzamiento no la ha cerrado Registros). */
+.mytask__prov {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  background: rgba(255,193,7,.16); color: #8a6d00; border: 1px solid rgba(255,193,7,.55);
+  border-radius: 999px; padding: .15em .6em; font-size: .68rem; font-weight: 700; line-height: 1.2;
+}
 .mytask__new {
   display: inline-flex; align-items: center; flex-shrink: 0;
   background: var(--brand-primary, #E33D48); color: #fff; border-radius: 999px;
@@ -5535,6 +5542,12 @@ tr.is-provisional > td,
 /* Un CONTENIDO del plan que todavía no está subido (lo estamos preparando o se lo hemos pedido a
    diseño): mismo rayado, misma señal de «esto todavía no va». Se puede programar igual. */
 .dp-content.is-pending,
+/* Una tarea de la bandeja de DISEÑO cuyo sujeto todavía no está confirmado (una actividad que no
+   está CONFIRMADA, un proyecto cuya fecha de lanzamiento no ha cerrado Registros): se puede ir
+   haciendo, pero puede moverse — misma señal, mismo rayado. */
+.dz-row.is-provisional,
+/* Y su fila en «Mis tareas pendientes»: la misma tarea, la misma señal. */
+.mytask.is-provisional,
 .launch-row.is-provisional {
   background-image: repeating-linear-gradient(45deg,
       rgba(255, 193, 7, .10) 0 10px, rgba(255, 193, 7, 0) 10px 20px);
@@ -8006,15 +8019,32 @@ body.accsc-open{ overflow:hidden; }
 .rm-zoomlink:hover{ color:#05587a; }
 
 /* ---- DISEÑO · LA BANDEJA ---------------------------------------------------------------------
-   Una fila por cosa pendiente, ordenadas por la fecha de entrega más cercana. Lo que está fuera de
-   plazo se marca con una banda roja a la izquierda: es lo que hay que mirar primero.
+   UNA TARJETA POR ARTISTA y, dentro, una fila por cosa pendiente ordenadas por la fecha de entrega
+   más cercana. Lo que está fuera de plazo se marca con una banda roja a la izquierda (es lo que hay
+   que mirar primero) y lo que todavía no está confirmado, con el fondo rayado de la casa
+   (`.is-provisional`, la regla única de más arriba).
    ⚠️ `min-width:0` en la columna que debe encogerse y `flex:0 0 auto` en lo de tamaño fijo (la foto
    y el icono), o el texto se parte letra a letra dentro del flex. */
+/* La franja de arriba: cuántas hay, cuántas fuera de plazo y de cuántos artistas. */
+.dz-summary{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+/* UNA TARJETA POR ARTISTA: la foto, el nombre y lo que le han pedido debajo. Así el trabajo se
+   busca como se piensa («lo de Fulano»), sin perder el orden por fecha de entrega. */
+.dz-group__head{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; background:#fff; }
+.dz-group__photo{ position:relative; flex:0 0 auto; width:42px; height:42px; border-radius:50%;
+  overflow:hidden; border:1px solid #eee; background:#fdf2f3; }
+/* El icono, detrás: si la foto no carga se queda él (nunca un hueco). */
+.dz-group__photo > i{ position:absolute; inset:0; display:flex; align-items:center;
+  justify-content:center; color:var(--brand-primary,#E33D48); }
+.dz-group__photo > img{ position:relative; z-index:1; width:100%; height:100%; object-fit:cover;
+  display:block; }
+.dz-group__name{ font-weight:700; font-size:1.02rem; min-width:0; }
+.dz-group__due{ font-size:.82rem; color:#6c757d; }
 .dz-row{ display:flex; align-items:center; gap:.75rem; text-align:left; }
 .dz-row--late{ border-left:4px solid var(--brand-primary,#E33D48); }
+/* Por qué está rayada: lo que se pide todavía puede moverse. */
+.dz-row__prov{ font-size:.78rem; color:#8a6d00; font-weight:600; }
 .dz-row__ico{ flex:0 0 auto; width:38px; height:38px; border-radius:10px; background:#fdf2f3;
   color:var(--brand-primary,#E33D48); display:flex; align-items:center; justify-content:center; }
-.dz-row__photo{ flex:0 0 auto; width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #eee; }
 .dz-row__main{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
 .dz-row__t{ font-weight:600; }
 .dz-row__s{ font-size:.85rem; color:#6c757d; }

@@ -164,8 +164,13 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 - **JSONB**: leer-copiar-reasignar **no escribe la segunda vez en la misma petición** (el valor sale
   «unchanged» y no da ningún error) → `flag_modified(obj, "campo")`.
 - Nombres de campo que se confunden: `Promoter` es **`contact_email`/`contact_phone`** (no
-  `email`/`phone`) · `PromoterCompany` es **`legal_name`** (no `name`) · `Song` no tiene `artist_id`
-  (va por `SongArtist`) · `UserProfile` tiene el `nick`, `User` el correo. → `docs/app/terceros-medios.md`
+  `email`/`phone`) · `PromoterCompany` es **`legal_name`** (no `name`) · `PromoterContact` es
+  **`first_name`/`last_name`** (no `name`) · `Song` no tiene `artist_id` (va por `SongArtist`) ·
+  `UserProfile` tiene el `nick`, `User` el correo, y el departamento es **`departments`, una LISTA**
+  (se compara con `_profile_in_department`, nunca en crudo) · el contacto de **TICKETING** vive en
+  `ticketing_payload['ticketing_contact']`, **no** en `ticketing_payload['contacts']` como los demás
+  roles · y `ticketing_payload['contacts_own']` es la **lista de roles ya decididos**, no un
+  booleano. → `docs/app/terceros-medios.md`
 - `parse_date("")` **revienta** → `parse_optional_date`. `to_uuid` con algo que no es UUID
   **revienta** → `_safe_uuid` (en cualquier id que venga de una URL pública).
 

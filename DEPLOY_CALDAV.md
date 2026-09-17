@@ -5,11 +5,15 @@
 - **Desplegado**: app `radio-spins-caldav` en la cuenta de Fly.io de Dani (org «personal»,
   `d.escobosamartinez@gmail.com`), región **Frankfurt (`fra`)**, una máquina `shared-cpu-1x` con
   **1 GB** (≈ 5,7 $/mes). Hostname provisional: `https://radio-spins-caldav.fly.dev`.
-- **Nombre público elegido por Dani: `calendario.33producciones.es`** (en línea con `app.`; el
-  camino `app.33producciones.es/calendario` NO es posible porque `app.` es Render y su proxy corta
-  los métodos CalDAV para cualquier ruta). Certificado ya registrado en Fly; queda el CNAME en Wix
-  (paso 5) y poner ese nombre en `CALDAV_PUBLIC_HOST` en Render (paso 6). El certificado de
-  `caldav.33producciones.es` que se registró primero se puede retirar (`fly certs remove`).
+- **Nombre público: `calendario.33producciones.es` — EN MARCHA desde el 17-sep-2026** (en línea con
+  `app.`; el camino `app.33producciones.es/calendario` NO es posible porque `app.` es Render y su
+  proxy corta los métodos CalDAV para cualquier ruta). El CNAME está en **Wix** (la cuenta de Wix
+  Studio de la casa, espacio «PIES Compañía Discográfica», la misma que lleva las webs de
+  33producciones.es, piesrecords.com, 3y3music.com, alvarogarciamusica.com, bookingstage.com y
+  cadizmusicstadium.com), el certificado de Let's Encrypt está emitido en Fly, `CALDAV_PUBLIC_HOST`
+  lleva ese nombre en Render y en `fly.toml`, y la guía y los PDF ya lo enseñan. El certificado de
+  `caldav.33producciones.es` que se registró primero se retiró. `radio-spins-caldav.fly.dev` sigue
+  respondiendo (es el destino del CNAME): quien lo tenga configurado en el móvil no tiene que cambiar nada.
 - `flyctl` está instalado en el Mac de Dani en `~/.fly/bin` (vía el script de `fly.io/install.sh`,
   no hay Homebrew) y en el PATH de `~/.zshrc`.
 

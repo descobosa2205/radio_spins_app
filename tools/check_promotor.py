@@ -177,6 +177,11 @@ def main() -> int:
               and "cumpliméntalos" in previa)
     comprueba("se despide", "Muchas gracias" in previa)
     comprueba("el texto es EDITABLE (va en el cuadro de la nota)", "data-an-note" in previa)
+    # ⚠️ Y la PRIMERA vista previa ya lo enseña (bug real: hasta teclear algo, el cuadro de la
+    # izquierda y el correo de la derecha decían cosas distintas).
+    comprueba("y la vista previa ya sale con ese texto",
+              previa.count("está confirmado, y la fecha reservada") >= 2,
+              previa.count("está confirmado, y la fecha reservada"))
     comprueba("las seis secciones se pueden marcar",
               all(('data-an-sec="%s"' % k) in previa for k in
                   ("promotor", "contactos", "recinto", "anuncio", "carteles", "venta")))
@@ -446,8 +451,11 @@ def main() -> int:
     comprueba("y dice que no la tenemos", r.get("found") is False, r)
 
     nombre_soc = "Promotora SL %s" % suf
+    # ⚠️ CIF distinto en cada pasada: con uno fijo se cruzaba con las sociedades que dejaron las
+    # pasadas anteriores (de otros promotores de prueba) y la comprobación mentía.
+    cif_soc = "B%08d" % (int(suf, 16) % 100000000)
     r = anon.post("/promotor/%s/sociedad-nueva" % token, data={
-        "legal_name": nombre_soc, "tax_id": "B12345674",
+        "legal_name": nombre_soc, "tax_id": cif_soc,
         "address": "C/ Gran Vía 1", "city": "Madrid"}).get_json() or {}
     comprueba("se da de alta la sociedad", r.get("ok") and not r.get("reused"), r)
     soc_id = ((r.get("company") or {}).get("id") or "")
@@ -458,10 +466,10 @@ def main() -> int:
               soc is not None and str(soc.promoter_id) == str(prom.id),
               getattr(soc, "promoter_id", None))
     r2 = anon.post("/promotor/%s/sociedad-nueva" % token, data={
-        "legal_name": nombre_soc, "tax_id": "B12345674"}).get_json() or {}
+        "legal_name": nombre_soc, "tax_id": cif_soc}).get_json() or {}
     comprueba("crearla dos veces NO la duplica", r2.get("ok") and r2.get("reused"), r2)
     r3 = anon.post("/promotor/%s/sociedad-buscar" % token,
-                   data={"tax_id": "B12345674"}).get_json() or {}
+                   data={"tax_id": cif_soc}).get_json() or {}
     comprueba("ahora la encuentra por CIF y dice que ya es suya",
               r3.get("found") and r3.get("own"), r3)
     comprueba("sin razón social no se crea nada",

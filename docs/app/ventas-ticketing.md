@@ -14,6 +14,7 @@
 - UN BUSCADOR TIENE QUE NORMALIZAR LOS DOS LADOS (bug real, ago 2026): en el reporte de ventas
 - EL A4 Y EL CORREO DEL REPORTE DE VENTAS SIGUEN MANDANDO EL DÍA COMPLETO, no lo que se está
 - EL PROCESO DEL SOLD OUT · avisar en casa, los carteles y el artista
+  (con la TAREA de comunicárselo, el correo «Anuncio de Sold Out» y la tarea de REDES)
 - AL 90% DE VENTA SE PIDE SOLO EL CARTEL DE SOLD OUT. Cuando una actividad que
 - ENVÍOS A COMPRADORES · el correo SE DISEÑA, por la COMPRA o PUBLICITARIO, a VARIAS bases y
 - IMPORTAR TERCEROS, CONTACTOS DE MEDIOS Y COMPRADORES: NINGÚN CAMPO ES OBLIGATORIO.
@@ -376,17 +377,53 @@ marcarla agotada y hace tres cosas:
 ⚠️ Es **idempotente** (`Concert.soldout_declared_at`): marcar y desmarcar no vuelve a dar la murga
 a media oficina. Y es **best-effort**: si un aviso falla, no tumba el marcado del Sold Out.
 
+⚠️⚠️ **Y QUEDA LA TAREA DE COMUNICÁRSELO AL ARTISTA** (sep 2026, lo pidió Dani), en **el proceso de
+la actividad** y en **las tareas de Contratación** (kind `SOLDOUT_NOTICE`, la primera de la lista:
+un Sold Out se publica cuando pasa, no una semana después). Punto único
+**`_soldout_notice_pending`**.
+⚠️⚠️ **BLOQUEADA MIENTRAS NO HAYA CARTEL DE SOLD OUT**: sin cartel no hay nada que publicar, así que
+mandarle el aviso sería mandarle un correo que no le sirve. En el tablero sale con su candado y su
+motivo; a **Contratación no se le reclama** hasta que se puede hacer (en esa lista no hay forma de
+decir «bloqueada», y una tarea que no se puede hacer solo hace ruido).
+⚠️ **Solo de los Sold Out de ESTA SEMANA en adelante** (`SOLDOUT_TASK_BACKFILL_DAYS` = 7, lo pidió
+Dani así: «aplícalo a los Sold Out que hubiera habido esta semana y de ahora en adelante»):
+reclamar hoy uno de hace meses no arregla nada. Sin `soldout_declared_at` no se reclama —es de antes
+de que esto existiera y no se sabe de cuándo es—.
+
 **EL AVISO AL ARTISTA** es el de siempre (misma pantalla, misma vista previa, mismos canales) con
-un tipo nuevo: **`SOLDOUT` · «¡Sold Out! Ya se puede publicar»**. Lleva **los carteles de SOLD
+un tipo nuevo: **`SOLDOUT` · «Anuncio de Sold Out»**.
+· **EL TEXTO lo dictó Dani** y sale **ESCRITO Y EDITABLE** en la nota (`_soldout_notice_note`):
+  *«Enhorabuena, el concierto de Móstoles está agotado, y ya puedes publicar el Sold Out. Aquí
+  tienes los carteles.»* La actividad se nombra con su **nombre propio** si lo tiene (un festival)
+  y, si no, con el **municipio**; el tipo sale del punto único `_artwork_activity_word` y el
+  **género** de su artículo («la acción» → «está agotada»). El texto va **justificado**.
+· **LA ETIQUETA «SOLD OUT»** va dentro de la **cabecera de la actividad, a la derecha** y centrada
+  (`ctx["badge"]`), que es lo primero que se mira en ese correo.
+· **EL BOTÓN «Descargar carteles de Sold Out»** va **FUERA de la cabecera y a la derecha**
+  (`ctx["badge_button"]`), y lleva a la **misma pantalla que cuando se comparten carteles** pero con
+  los suyos (`?cat=SOLDOUT`). ⚠️ Ahí **no se repite** el «Descargar la cartelería» de dentro del
+  módulo: dos botones al mismo sitio no son dos opciones.
+⚠️⚠️ **LA PRIMERA VISTA PREVIA SALE YA CON ESE TEXTO** (bug real, visto en el navegador): antes no
+se le pasaba la nota, así que el cuadro de la izquierda decía una cosa y el correo de la derecha
+otra hasta que alguien tecleaba algo — y lo que se está mirando ahí es justo si el correo queda
+bien. Vale para los tres avisos que salen escritos (Sold Out, cancelación y aplazamiento). Lleva **los carteles de SOLD
 OUT** con su botón de descarga — no los normales: `_activity_notice_artwork(..., category="SOLDOUT")`
 y `_concert_artwork_share_url(..., category="SOLDOUT")`, que es lo que hace que el enlace público
 enseñe los suyos (`?cat=SOLDOUT`, que esa página ya entendía).
 ⚠️ **Mandarlo es lo que CIERRA el proceso** (`Concert.soldout_notified_at`): hasta entonces la
 actividad está agotada pero el artista no lo sabe.
+⚠️⚠️ **Y AL MANDARLO, A REDES LE ENTRA SU TAREA**: «Publicar el Sold Out en redes» (`soldout` en
+`DIGITAL_TASKS`, el mismo motor del ANUNCIO y de la salida a la venta, que ahora son **tres**
+puertas). Se le manda **EL MISMO correo** que acaba de salir —con sus carteles, que es lo que
+necesita— y la **marca hecha él** desde su Inicio: ahí se cierra la alerta de redes. ⚠️ La tarea va
+con `email=False`: el correo ya ha salido y `_notify_user` mandaría otro distinto.
 
 **EN LA CABECERA de la actividad** se ve el estado de un vistazo: **«Sold Out»** en rojo cuando ya
 se le ha comunicado, y **«Sold Out · falta avisar al artista»** en ámbar mientras no —y esa se
 **PINCHA** para comunicárselo—. Punto único **`_soldout_state`**.
+
+· **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_soldout.py`** (39 comprobaciones con
+la app real, de punta a punta). Es **idempotente**. Al tocar esto, en verde.
 
 ⚠️ Esto **no sustituye** a la petición del 90 % (`_soldout_artwork_check`), que se sigue haciendo
 sola y con antelación: aquí se reclama lo que YA debería estar y no está.

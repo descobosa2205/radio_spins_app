@@ -57649,6 +57649,17 @@ def _concert_task_board(session_db, concert) -> dict:
                        blocked_reason=("Primero tiene que confirmar el artista." if _falta_artista else ""),
                        done_url=url_for("concert_promoter_notice_ack", cid=concert.id),
                        done_label="Ya se lo he confirmado")
+        # ⚠️⚠️ SOLD OUT · COMUNICÁRSELO AL ARTISTA (sep 2026, lo pidió Dani): se ha agotado y hay
+        # que decírselo para que lo publique. BLOQUEADA mientras no haya cartel de Sold Out: sin
+        # él no hay nada que publicar. Desaparece sola al mandarlo (`soldout_notified_at`).
+        _so = _soldout_notice_pending(session_db, concert)
+        if _so["pending"]:
+            suelta("soldout_artista", 10, "Sold Out · comunicárselo al artista", "fa-fire",
+                   url=("" if _so["blocked"] else _so["url"]),
+                   action_label="Comunicar el Sold Out",
+                   hint=("Agotada el %s" % _so["at_label"] if _so["at_label"] else ""),
+                   blocked=_so["blocked"], blocked_reason=_so["blocked_reason"])
+
         # ⚠️ Lo que ha subido el promotor por su ficha: revisarlo es un paso del proceso, no un
         # aviso suelto. Desaparece solo al revisarlo (se mira el dato).
         _rev = _promoter_sheet_pending(session_db, concert)
@@ -99339,6 +99350,9 @@ CONTRACTING_TASK_META = {
     # la tarea desaparece sola al revisarla.
     "PROMOTER_DATA": ("Datos del promotor por revisar", "fa-clipboard-check",
                       "text-bg-warning text-dark", 1),
+    # ⚠️ SOLD OUT: se ha agotado y el artista todavía no lo sabe. Va la PRIMERA porque el Sold Out
+    # se publica cuando pasa, no una semana después.
+    "SOLDOUT_NOTICE": ("Sold Out sin comunicar al artista", "fa-fire", "text-bg-danger", 0),
     "INVOICE":    ("Pendiente de facturar", "fa-file-circle-plus", "text-bg-secondary", 5),
     "COLLECT":    ("Pendiente de cobrar", "fa-hourglass-half", "text-bg-warning text-dark", 6),
 }
@@ -99542,6 +99556,12 @@ def _contracting_tasks_data() -> dict:
             # o no, si mandó datos hay que mirarlos igual.
             if _promoter_sheet_pending(session_db, c)["pending"]:
                 kinds.append("PROMOTER_DATA")
+            # ⚠️ El SOLD OUT sin comunicar es trabajo de contratación (lo pidió Dani). Solo cuando
+            # ya hay cartel: bloqueada no es una tarea que se pueda hacer, y en esta lista no hay
+            # forma de decir «bloqueada» — se reclama cuando de verdad se puede hacer.
+            _so_c = _soldout_notice_pending(session_db, c)
+            if _so_c["pending"] and not _so_c["blocked"]:
+                kinds.append("SOLDOUT_NOTICE")
             if not kinds:
                 continue
             tabs = _contracting_activity_tabs(c)
@@ -123442,7 +123462,7 @@ ACTIVITY_NOTICE_KINDS = {
     "CARTELERIA": "Ya tienes los carteles",
     # ⚠️ SOLD OUT: «está agotado y ya se puede publicar». Lleva los carteles de Sold Out para
     # descargarlos, y al mandarlo la actividad queda con el proceso cerrado (`soldout_notified_at`).
-    "SOLDOUT": "¡Sold Out! Ya se puede publicar",
+    "SOLDOUT": "Anuncio de Sold Out",
     "CAMBIOS": "Cambios en la actividad",
     "CANCELACION": "Actividad cancelada",
     "APLAZAMIENTO": "Actividad aplazada",
@@ -124479,9 +124499,36 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
     return modulos
 
 
+def _soldout_notice_note(concert) -> str:
+    """EL TEXTO del aviso de Sold Out al artista (lo dictó Dani, sep 2026).
+
+    Sale **escrito y editable** en la nota, como en el resto de previsualizaciones de la casa.
+    ⚠️ La actividad se nombra como se habla: su **nombre propio** si lo tiene (un festival, un
+    ciclo) y, si no, el **municipio** — y el tipo sale del punto único `_artwork_activity_word`
+    («el concierto», «el festival»…), el mismo del correo de los carteles.
+    ⚠️ El GÉNERO se saca de su artículo («la acción» → «está agotada»), o acabaría en
+    «la acción está agotado»."""
+    con_articulo = _artwork_activity_word(concert, articulo=True)
+    femenino = con_articulo.strip().lower().startswith("la ")
+    donde = (getattr(concert, "festival_name", None) or "").strip()
+    if not donde:
+        try:
+            donde = (_concert_city(concert) or "").strip()
+        except Exception:
+            donde = ""
+    quien = ("%s de %s" % (con_articulo, donde)) if donde else con_articulo
+    return ("Enhorabuena, %s está %s, y ya puedes publicar el Sold Out. Aquí tienes los carteles."
+            % (quien, "agotada" if femenino else "agotado"))
+
+
 def _cancel_notice_note(session_db, concert, notice_kind: str) -> str:
     """La nota con la que sale el aviso de una cancelación o un aplazamiento: el motivo y lo que se
-    decidió (caché, gastos, nueva fecha). Vacía en cualquier otro aviso."""
+    decidió (caché, gastos, nueva fecha).
+
+    ⚠️ En el **SOLD OUT** trae su propio texto (`_soldout_notice_note`): el aviso sale ya escrito y
+    quien lo manda solo tiene que retocarlo si quiere. Vacía en cualquier otro aviso."""
+    if (notice_kind or "").strip().upper() == "SOLDOUT":
+        return _soldout_notice_note(concert)
     if (notice_kind or "").strip().upper() not in ("CANCELACION", "APLAZAMIENTO"):
         return ""
     try:
@@ -124900,6 +124947,12 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
     except Exception:
         roadmap_url = ""
 
+    # ⚠️ La CARTELERÍA se calcula UNA sola vez: la usan el módulo de carteles y —en el Sold Out— el
+    # botón de descargarlos. Pedirla dos veces son dos recorridos de sus piezas por cada aviso.
+    _arte = (_activity_notice_artwork(
+        session_db, concert, category=("SOLDOUT" if kind == "SOLDOUT" else "POSTER"))
+        if kind in ("ANUNCIO", "CARTELERIA", "SOLDOUT") else {})
+
     return {
         "concert_id": str(getattr(concert, "id", "") or ""),
         "kind": kind,
@@ -124917,12 +124970,15 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         # anuncio. En los demás tipos van vacíos y sus módulos no se pintan.
         # ⚠️ En el SOLD OUT van SUS carteles (los de Sold Out), no los de siempre: es lo que el
         # artista necesita para publicarlo.
-        "artwork": (_activity_notice_artwork(
-            session_db, concert,
-            category=("SOLDOUT" if kind == "SOLDOUT" else "POSTER"))
-            if kind in ("ANUNCIO", "CARTELERIA", "SOLDOUT") else {}),
+        "artwork": _arte,
         "announcement": (_activity_notice_announcement(concert)
                          if kind in ("ANUNCIO", "CARTELERIA") else {}),
+        # ⚠️ SOLO EN EL SOLD OUT: la etiqueta que va en la cabecera (a la derecha) y el botón de
+        # descargar SUS carteles, fuera y a la derecha (lo pidió Dani). En los demás avisos van
+        # vacíos y no se pintan.
+        "badge": ("SOLD OUT" if kind == "SOLDOUT" else ""),
+        "badge_button": ({"label": "Descargar carteles de Sold Out",
+                          "url": (_arte.get("url") or "")} if kind == "SOLDOUT" else {}),
         "has_cache": _concert_has_cache(session_db, concert),
         "channel_key": _activity_notification_channel(session_db, concert),
         # ¿Este aviso PIDE respuesta? (los botones Confirmar / Rechazar del correo y de la landing).
@@ -125070,8 +125126,10 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
 
     # ---- la NOTA, justo debajo del primer título ----
     if (note or "").strip():
+        # ⚠️ JUSTIFICADO (lo pidió Dani): es un texto de varias líneas que se lee como una carta.
         partes.append('<div style="margin:0 0 16px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
-                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;white-space:pre-line;">'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;'
+                      'text-align:justify;white-space:pre-line;">'
                       + esc(note.strip()) + '</div>')
 
     # ---- la CABECERA DE LA ACTIVIDAD (la galleta, igual que en la ficha) ----
@@ -125086,6 +125144,15 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
         f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )
+    # ⚠️ LA ETIQUETA «SOLD OUT» va en la propia cabecera, a la DERECHA y centrada en vertical (lo
+    # pidió Dani): es lo primero que se mira en ese correo. Solo la trae el aviso de SOLD OUT.
+    _sello = ""
+    if (ctx.get("badge") or "").strip():
+        _sello = (f'<td width="1%" align="right" style="white-space:nowrap;vertical-align:middle;'
+                  f'padding-left:12px;"><span style="display:inline-block;padding:7px 14px;'
+                  f'background:{BRAND_RED};color:#ffffff;border-radius:999px;font-size:13px;'
+                  f'font-weight:800;letter-spacing:.6px;text-transform:uppercase;">'
+                  f'{esc(ctx["badge"])}</span></td>')
     partes.append(
         '<div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">'
         '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>'
@@ -125095,7 +125162,7 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
         + (f'<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">{esc(ctx.get("eyebrow") or "")}</div>' if (ctx.get("eyebrow") or "") else "")
         + f'<div style="font-size:19px;font-weight:800;margin:1px 0 6px;">{esc(ctx.get("subject_name") or "")}</div>'
         + f'<table role="presentation" style="border-collapse:collapse;">{datos}</table>'
-        + '</td></tr></table></div>'
+        + '</td>' + _sello + '</tr></table></div>'
     )
 
     # ---- ¿CONFIRMAS LA ACTIVIDAD? Los dos botones, en el propio cuerpo del aviso ----
@@ -125134,6 +125201,17 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
                    'border:1px solid #b42318;border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">'
                    'Rechazar</span>')
                 + '</div>')
+
+    # ---- EL BOTÓN DE LOS CARTELES DE SOLD OUT: fuera de la cabecera y a la DERECHA (lo pidió
+    # Dani). Lleva a la MISMA pantalla que cuando se comparten carteles, pero con los de Sold Out
+    # (`?cat=SOLDOUT`, que esa página ya entiende).
+    if (ctx.get("badge_button") or {}).get("url"):
+        _bb = ctx["badge_button"]
+        partes.append(
+            '<div style="margin:12px 0 4px;text-align:right;">'
+            f'<a href="{esc(_bb["url"])}" style="display:inline-block;padding:11px 18px;'
+            f'background:{BRAND_RED};color:#fff;text-decoration:none;border-radius:9px;'
+            f'font-weight:800;font-size:14px;">{esc(_bb.get("label") or "Descargar")}</a></div>')
 
     # ---- BARRA DE BOTONES (de momento solo la hoja de ruta; los futuros van a su derecha) ----
     # ⚠️ Se puede dejar fuera con su OJO, como cualquier otro módulo: si se le manda la hoja de ruta
@@ -125292,7 +125370,9 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
                            f'y {int(arte["count"]) - len(arte["rows"])} más</div>')
         elif int(arte.get("count") or 0):
             cuerpo += f'<div style="margin-top:6px;font-size:14px;">{esc(arte["count"])} piezas</div>'
-        if arte.get("url"):
+        # ⚠️ En el SOLD OUT el botón de descargar ya va FUERA y a la derecha (`badge_button`), así
+        # que aquí no se repite: dos botones que llevan al mismo sitio no son dos opciones.
+        if arte.get("url") and not (ctx.get("badge_button") or {}).get("url"):
             cuerpo += (f'<div style="margin-top:10px;"><a href="{esc(arte["url"])}" '
                        'style="display:inline-block;padding:10px 16px;background:#212529;color:#fff;'
                        'text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">'
@@ -125450,6 +125530,10 @@ DIGITAL_TASKS = (
      "La actividad ya está anunciada: toca publicarla en las redes del artista y de la casa."),
     ("sale_links", "Subir los enlaces de venta", "fa-link", "ticketing",
      "Ya está a la venta: hay que poner los enlaces de compra donde toca."),
+    # ⚠️ SOLD OUT (sep 2026, lo pidió Dani): se le ha comunicado al artista que está agotado, así
+    # que toca publicarlo en las redes. Se marca como hecha y ahí se cierra la alerta de redes.
+    ("soldout", "Publicar el Sold Out en redes", "fa-fire", "carteleria",
+     "La actividad está agotada y ya se le ha comunicado al artista: toca publicar el Sold Out."),
 )
 DIGITAL_TASK_LABELS = {k: l for k, l, _i, _t, _h in DIGITAL_TASKS}
 DIGITAL_TASK_ICONS = {k: i for k, _l, i, _t, _h in DIGITAL_TASKS}
@@ -125521,8 +125605,8 @@ def _digital_emails(session_db) -> list[str]:
 def _digital_task_ask(session_db, concert, key: str, *, subject: str = "", html: str = "") -> bool:
     """LE ENTRA A DIGITAL: se apunta la tarea, se le avisa en la app y se le manda **EL MISMO CORREO**.
 
-    Punto único de las dos puertas (el ANUNCIO al artista y la SALIDA A LA VENTA), así que las dos se
-    comportan igual. Devuelve si se ha apuntado algo nuevo.
+    Punto único de las TRES puertas (el ANUNCIO al artista, la SALIDA A LA VENTA y el **SOLD OUT**),
+    así que las tres se comportan igual. Devuelve si se ha apuntado algo nuevo.
     ⚠️⚠️ El correo que se le manda es **el mismo que sale de casa** (`html`), no uno resumido: es lo
     que hace falta para publicarlo. Si la comunicación ya se lo ha mandado por su cuenta —la salida a
     la venta lo lleva en su lista de destinatarios— se llama SIN `html` y aquí solo se apunta la tarea.
@@ -125719,7 +125803,11 @@ def concert_artist_notice_view(cid):
             # ⚠️ La primera vista previa sale con los módulos OPT-IN ya apagados (las notas de
             # contratación): el ojo los enciende a propósito, y a partir de ahí el front manda la
             # lista de ocultos como siempre. Lo interno no se manda por olvido.
+            # ⚠️⚠️ CON LA NOTA QUE SALE ESCRITA: sin pasarla, la previa no la enseñaba hasta que
+            # alguien tecleaba algo, así que el cuadro de la izquierda y el correo de la derecha
+            # decían cosas distintas — y lo que se está mirando ahí es justo si el correo queda bien.
             preview_html=_activity_notice_html(ctx, preview=True,
+                                               note=_cancel_notice_note(session_db, concert, kind),
                                                hidden=ACTIVITY_NOTICE_OPT_IN_MODULES),
             history=historial,
             # ⚠️ En una CANCELACIÓN o un APLAZAMIENTO la nota sale ya escrita con el MOTIVO y con lo
@@ -126032,6 +126120,14 @@ def concert_artist_notice_send(cid):
         if kind == "SOLDOUT":
             concert.soldout_notified_at = _now_madrid()
             concert.updated_at = _now_madrid()
+            # ⚠️⚠️ Y A REDES LE ENTRA SU TAREA (sep 2026, lo pidió Dani): publicar el Sold Out. Es
+            # el mismo patrón del ANUNCIO y de la salida a la venta — se le manda EL MISMO correo
+            # que se acaba de mandar al artista (con sus carteles, que es lo que necesita) y la
+            # tarea la marca hecha él desde su Inicio, que es donde se cierra la alerta.
+            # ⚠️ Con `email=False` en la tarea: el correo ya ha salido y `_notify_user` mandaría otro.
+            _digital_task_ask(session_db, concert, "soldout",
+                              subject=("%s · %s" % (ctx["title"], ctx["subject_name"])),
+                              html=cuerpo)
             session_db.commit()
             texto = _activity_notice_share_text(ctx)
             if es_json:
@@ -127332,7 +127428,11 @@ def concert_promoter_notice_view(cid):
             # ⚠️ Los módulos de dinero y las notas salen APAGADOS de serie: son de la casa. El ojo
             # los enciende a propósito (misma idea que las notas en el aviso al artista).
             opt_in_modules=sorted(PROMOTER_NOTICE_OPT_IN_MODULES),
+            # ⚠️ Con el texto que sale escrito, como en el aviso al artista (si no, la previa no lo
+            # enseñaba hasta teclear).
             preview_html=_promoter_notice_html(ctx, preview=True,
+                                               note=_promoter_notice_intro(concert,
+                                                                           asking=bool(marcadas)),
                                                hidden=PROMOTER_NOTICE_OPT_IN_MODULES),
             history=historial,
             sms_gateway=_sms_available(),
@@ -128008,19 +128108,30 @@ def public_promoter_sheet_company_find(token):
         if not norm:
             return jsonify({"ok": False, "error": "Escribe el CIF"}), 400
         mio = str(getattr(concert, "promoter_id", "") or "")
+        # ⚠️⚠️ PRIMERO LAS SUYAS: el mismo CIF puede estar dado de alta colgando de varias fichas
+        # (una gestora que lleva a dos promotores), y cortar en la primera que aparezca devolvía la
+        # de OTRO — con `own=False`, así que se le ofrecía crear una que ya tenía. Se recorre entero
+        # y manda la suya.
+        encontrada, suya = None, None
         for c in (session_db.query(PromoterCompany)
                   .filter(PromoterCompany.tax_id.isnot(None)).all()):
             if _prl_norm_dni(c.tax_id) != norm:
                 continue
+            if str(c.promoter_id) == mio:
+                suya = c
+                break
+            encontrada = encontrada or c
+        elegida = suya or encontrada
+        if elegida is not None:
             return jsonify({"ok": True, "found": True,
-                            "own": (str(c.promoter_id) == mio),
-                            "company": {"id": (str(c.id) if str(c.promoter_id) == mio else ""),
-                                        "legal_name": (c.legal_name or ""),
-                                        "tax_id": (c.tax_id or ""),
-                                        "address": (c.fiscal_address or ""),
-                                        "postal_code": (c.fiscal_postal_code or ""),
-                                        "city": (c.fiscal_city or ""),
-                                        "province": (c.fiscal_province or "")}})
+                            "own": bool(suya is not None),
+                            "company": {"id": (str(elegida.id) if suya is not None else ""),
+                                        "legal_name": (elegida.legal_name or ""),
+                                        "tax_id": (elegida.tax_id or ""),
+                                        "address": (elegida.fiscal_address or ""),
+                                        "postal_code": (elegida.fiscal_postal_code or ""),
+                                        "city": (elegida.fiscal_city or ""),
+                                        "province": (elegida.fiscal_province or "")}})
         # ¿Es el CIF de una ficha de tercero? Entonces se ofrecen sus datos para crear la sociedad.
         for pr in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
             if _prl_norm_dni(pr.tax_id) != norm:
@@ -128533,6 +128644,59 @@ def _soldout_state(session_db, concert) -> dict:
         # El proceso está CERRADO cuando está agotada y el artista ya lo sabe.
         "done": bool(getattr(concert, "sold_out", False) and avisado),
     }
+
+
+# ⚠️⚠️ A QUÉ SOLD OUTS SE LES RECLAMA EL AVISO AL ARTISTA. Lo pidió Dani: «aplícalo a los Sold Out
+# que hubiera habido esta semana y de ahora en adelante». O sea, no se reclama un Sold Out de hace
+# meses —ese momento ya pasó y sería ruido—, pero tampoco se empieza de cero: lo de esta semana
+# todavía está a tiempo de publicarse.
+SOLDOUT_TASK_BACKFILL_DAYS = 7
+
+
+def _soldout_notice_pending(session_db, concert) -> dict:
+    """¿HAY QUE COMUNICARLE EL SOLD OUT AL ARTISTA? Punto único de la tarea.
+
+    Sale cuando la actividad está **agotada** y el artista **todavía no lo sabe**
+    (`soldout_notified_at`), y va **BLOQUEADA mientras no haya cartel de Sold Out subido** (lo pidió
+    Dani): sin cartel no hay nada que publicar, así que mandar el aviso sería mandarle un correo que
+    no le sirve.
+    ⚠️ Solo de los Sold Out **de esta semana en adelante** (`SOLDOUT_TASK_BACKFILL_DAYS`): reclamar
+    hoy uno de hace meses no arregla nada y llena la bandeja de todo el mundo. Sin `declared_at` no
+    se reclama: es de antes de que esto existiera y no se sabe de cuándo es.
+    ⚠️ Las mismas exenciones de siempre: un EVENTO no es de ningún artista y el histórico no genera
+    trabajo."""
+    vacio = {"applies": False, "pending": False, "blocked": False, "blocked_reason": "",
+             "url": "", "at": None, "at_label": "", "has_posters": False}
+    if concert is None:
+        return dict(vacio)
+    try:
+        if not bool(getattr(concert, "sold_out", False)):
+            return dict(vacio)
+        if not getattr(concert, "artist_id", None) or getattr(concert, "event_id", None):
+            return dict(vacio)
+        if _concert_is_legacy(concert):
+            return dict(vacio)
+        declarado = getattr(concert, "soldout_declared_at", None)
+        if not declarado:
+            return dict(vacio)
+        if (_now_madrid() - declarado).days > SOLDOUT_TASK_BACKFILL_DAYS:
+            return dict(vacio)
+        estado = _soldout_state(session_db, concert)
+        if estado["notified_at"]:
+            return dict(vacio)
+        sin_cartel = not estado["has_posters"]
+        return {
+            "applies": True, "pending": True,
+            "blocked": sin_cartel,
+            "blocked_reason": ("Falta el cartel de Sold Out: sin él no hay nada que publicar."
+                               if sin_cartel else ""),
+            "url": url_for("concert_artist_notice_view", cid=concert.id, kind="SOLDOUT"),
+            "at": declarado, "at_label": estado["declared_label"],
+            "has_posters": estado["has_posters"],
+        }
+    except Exception:
+        app.logger.exception("[soldout] no se pudo mirar si falta avisar al artista")
+        return dict(vacio)
 
 
 def _soldout_house_user_ids(session_db, concert) -> list[str]:

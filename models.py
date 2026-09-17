@@ -2553,6 +2553,9 @@ class GroupCompany(Base):
     # Máximo 11 caracteres y solo letras, números, espacios, puntos y guiones (lo valida
     # `sms_utils.sender_is_valid`, el mismo límite que el remitente de Integraciones → SMS).
     sms_sender = Column(Text)
+    # CÓDIGO DUNS (Dun & Bradstreet): NUEVE cifras. Se guarda EN SECO (solo las cifras, sin guiones ni
+    # espacios; `_duns_clean` en app.py) y se enseña como 12-345-6789 (`_duns_pretty`).
+    duns = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -13513,6 +13516,8 @@ def ensure_enterticket_schema():
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_buyer_list_row ON buyer_events (buyer_id, list_id) WHERE list_id IS NOT NULL;",
         # Nombre abreviado con el que sale un SMS de cada empresa del grupo (máximo 11 caracteres).
         "ALTER TABLE group_companies ADD COLUMN IF NOT EXISTS sms_sender text;",
+        # Código DUNS de cada empresa del grupo (9 cifras, en seco). ⚠️ En su propia sentencia.
+        "ALTER TABLE group_companies ADD COLUMN IF NOT EXISTS duns text;",
         """
         CREATE TABLE IF NOT EXISTS buyer_campaigns (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -15,7 +15,7 @@
 <div class="card mb-3">
   <div class="card-body">
     <label class="form-label">Buscar empresa</label>
-    <input type="search" class="form-control" id="companiesSearchInput" placeholder="Escribe para filtrar por nombre o datos fiscales..." autocomplete="off">
+    <input type="search" class="form-control" id="companiesSearchInput" placeholder="Escribe para filtrar por nombre, datos fiscales o código DUNS..." autocomplete="off">
   </div>
 </div>
 
@@ -23,7 +23,8 @@
 <div class="modal fade" id="newCompanyModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
-      <form method="post" enctype="multipart/form-data">
+      {# `data-autosave`: si el servidor rechaza el alta (un DUNS que no vale), el pop-up vuelve con lo tecleado. #}
+      <form method="post" enctype="multipart/form-data" id="newCompanyForm" data-autosave="empresa-grupo-alta" data-autosave-title="Nueva empresa del grupo">
         <div class="modal-header sw-head">
           <h5 class="modal-title"><i class="fa fa-building me-2"></i>Nueva empresa del grupo</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -37,6 +38,11 @@
             <div class="col-12">
               <label class="form-label">Datos fiscales (opcional)</label>
               <input name="tax_info" class="form-control" placeholder="CIF / Razón social..." />
+            </div>
+            <div class="col-12">
+              <label class="form-label">Código DUNS (opcional)</label>
+              <input name="duns" class="form-control" inputmode="numeric" maxlength="13" pattern="[0-9 .\-]*" placeholder="12-345-6789" autocomplete="off" />
+              <div class="form-text">Las 9 cifras del identificador en Dun &amp; Bradstreet; se guarda solo con las cifras.</div>
             </div>
             <div class="col-12">
               <label class="form-label">Logo (opcional)</label>
@@ -59,7 +65,7 @@
     {% for c in companies %}
       <a class="list-group-item list-group-item-action co-row entity-row"
          href="{{ url_for('company_detail', cid=c.id) }}"
-         data-search="{{ ((c.name or '') ~ ' ' ~ (c.tax_info or ''))|lower }}">
+         data-search="{{ ((c.name or '') ~ ' ' ~ (c.tax_info or '') ~ ' ' ~ (c.duns or ''))|lower }}">
         <div class="d-flex align-items-center gap-3">
           {{ company_logo(c, size=46, cls='co-row__logo') }}
           <div class="flex-grow-1 min-w-0">

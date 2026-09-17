@@ -74594,6 +74594,39 @@ def concert_contract_delete(cid, ctid):
 
 
 # --------- EMPRESAS ---------------------
+# ══ CÓDIGO DUNS de una empresa del grupo ═══════════════════════════════════════════════════════
+# El identificador de Dun & Bradstreet: NUEVE cifras. Se admite escrito con guiones o espacios
+# («12-345-6789», que es como lo enseña D&B) y se guarda EN SECO (solo las cifras), igual que el ISRC
+# y el IBAN: así se compara y se copia sin sorpresas. Se enseña siempre como 12-345-6789.
+DUNS_LENGTH = 9
+
+
+def _duns_clean(value) -> str:
+    """Solo las cifras del DUNS («12-345-6789» → «123456789»)."""
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _duns_pretty(value) -> str:
+    """El DUNS como lo enseña D&B, 12-345-6789 (lo que no tenga 9 cifras se devuelve tal cual)."""
+    cifras = _duns_clean(value)
+    if len(cifras) != DUNS_LENGTH:
+        return str(value or "").strip()
+    return "%s-%s-%s" % (cifras[:2], cifras[2:5], cifras[5:])
+
+
+def _duns_error(raw) -> str:
+    """Por qué NO vale lo escrito como DUNS. Vacío = vale (también si no se ha puesto: es opcional)."""
+    txt = str(raw or "").strip()
+    if not txt:
+        return ""
+    if not re.fullmatch(r"[0-9\s.\-]+", txt):
+        return "el código DUNS solo admite cifras (puedes separarlas con guiones o espacios)."
+    n = len(_duns_clean(txt))
+    if n != DUNS_LENGTH:
+        return "el código DUNS tiene que tener 9 cifras (has puesto %d)." % n
+    return ""
+
+
 @app.route("/empresas", methods=["GET", "POST"])
 @admin_required
 def companies_view():
@@ -74615,10 +74648,18 @@ def companies_view():
     if request.method == "POST":
         name = request.form.get("name","").strip()
         tax_info = request.form.get("tax_info","").strip()
+        # El CÓDIGO DUNS (opcional). Si no vale, NO se crea nada: el pop-up se reabre con lo tecleado
+        # y el campo en rojo (`_flash_form_error`, la regla de la casa para un formulario rechazado).
+        duns_raw = request.form.get("duns", "")
+        motivo = _duns_error(duns_raw)
+        if motivo:
+            session.close()
+            _flash_form_error("No se ha creado la empresa: %s" % motivo, campos=["duns"], abrir="newCompanyModal")
+            return redirect(url_for("companies_view"))
         logo = request.files.get("logo")
         try:
             logo_url = upload_image(logo, "companies") if logo else None
-            co = GroupCompany(name=name, tax_info=tax_info, logo_url=logo_url)
+            co = GroupCompany(name=name, tax_info=tax_info, logo_url=logo_url, duns=(_duns_clean(duns_raw) or None))
             session.add(co)
             session.commit()
             flash("Empresa creada.", "success")
@@ -74651,6 +74692,16 @@ def company_update(cid):
     if not co:
         flash("Empresa no encontrada.", "warning")
         session.close(); return redirect(url_for("companies_view"))
+    # ── El CÓDIGO DUNS (9 cifras, opcional). Centinela: si el formulario no lo trae, no se toca. ──
+    # ⚠️ Si no vale se RECHAZA EL ENVÍO ENTERO sin guardar nada, y la ficha vuelve con el formulario
+    # abierto (`?editar=`, lo entiende `ficha_inline.js`) y el campo en rojo (`_flash_form_error`).
+    if "duns" in request.form:
+        motivo = _duns_error(request.form.get("duns"))
+        if motivo:
+            session.close()
+            _flash_form_error("No se ha guardado: %s" % motivo, campos=["duns"])
+            return redirect(url_for("company_detail", cid=cid, tab="datos", editar="companyDatosForm"))
+        co.duns = _duns_clean(request.form.get("duns")) or None
     co.name = request.form.get("name", co.name).strip()
     co.tax_info = request.form.get("tax_info", co.tax_info or "").strip()
     # NOMBRE ABREVIADO PARA EL SMS: es lo que ve en el móvil quien recibe un envío de esta empresa.
@@ -74679,7 +74730,8 @@ def company_update(cid):
         flash(f"Error actualizando: {e}", "danger")
     finally:
         session.close()
-    return redirect(url_for("companies_view"))
+    # A la FICHA, que es el único sitio desde donde se edita (antes mandaba al listado).
+    return redirect(url_for("company_detail", cid=cid, tab="datos"))
 
 @app.post("/empresas/<cid>/delete")
 @admin_required
@@ -74845,6 +74897,7 @@ def company_detail(cid):
             bank_accounts=_company_bank_accounts(session_db, co.id),
             banks=_bank_rows(session_db),
             iban_pretty=_iban_pretty,
+            duns_pretty=_duns_pretty,
         )
     finally:
         session_db.close()

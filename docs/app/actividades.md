@@ -1195,6 +1195,21 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   endpoints `company_*` ya caen en `databases.group_companies` por prefijo en `_coarse_endpoint_resource`,
   no hay que mapearlos a mano. El **listado** `/empresas` es una lista simple sin botones: cada fila
   enlaza a su ficha (`companies.html`, clases `.co-row*`).
+- **CÓDIGO DUNS de la empresa del grupo** (sep 2026, lo pidió Dani): `GroupCompany.duns`, el
+  identificador de Dun & Bradstreet, **9 cifras**. Se escribe en el alta (`companies.html`, opcional)
+  y en Datos de la ficha (`company_detail.html`), y en la ficha se ve con su chip en la cabecera y un
+  botón de copiar que copia **solo las cifras** (es lo que piden los formularios donde se pega).
+  · **En seco**: se admite con guiones o espacios («12-345-6789», como lo enseña D&B) y se guarda
+  solo con las cifras (`_duns_clean`); se enseña siempre como 12-345-6789 (`_duns_pretty`). El
+  listado `/empresas` lo incluye en `data-search`.
+  · **Un DUNS que no vale RECHAZA el envío entero** (`_duns_error` → `_flash_form_error`): en el alta
+  se reabre el pop-up (`abrir="newCompanyModal"`; el formulario lleva ya `data-autosave` para volver
+  con lo tecleado) y en la ficha se vuelve con `?editar=companyDatosForm` (lo abre `ficha_inline.js`)
+  y el campo en rojo. Centinela: si el formulario no trae `duns`, no se toca.
+  ⚠️ `company_update` vuelve ahora a la **FICHA** (`company_detail?tab=datos`), no al listado: es el
+  único sitio desde donde se edita, y un rechazo tiene que caer donde está el formulario.
+  ⚠️ La columna va en **su propia sentencia** dentro de `ensure_enterticket_schema` (donde ya estaba
+  `sms_sender`); comprobado borrándola en la BD de prueba y viendo que el ensure la crea.
 - **Contratos de actividad: el PDF va por un endpoint con permiso** (`concert_contract_download`,
   `/conciertos/<cid>/contratos/<ctid>/ver`): exige sesión y `can_view_concert_contracts()` y sirve el
   fichero desde el servidor. ⚠️ Los contratos viven en el bucket PÚBLICO de Storage: la ficha ya no

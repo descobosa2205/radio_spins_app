@@ -22,6 +22,7 @@
     <h1 class="ficha-hero__title">{{ company.name }}</h1>
     <div class="ficha-hero__facts">
       {% if company.tax_info %}<span><i class="fa fa-id-card"></i>{{ company.tax_info.splitlines()[0] }}</span>{% endif %}
+      {% if company.duns %}<span title="Código DUNS"><i class="fa fa-barcode"></i>DUNS {{ duns_pretty(company.duns) }}</span>{% endif %}
       <span><i class="fa fa-folder-open"></i>{{ doc_rows|length }} documento{{ '' if doc_rows|length == 1 else 's' }}</span>
       {% if invoice_urls.link %}<span><i class="fa fa-file-invoice"></i>Facturación activa</span>{% endif %}
     </div>
@@ -72,6 +73,18 @@
           <div class="text-muted fst-italic small">Sin datos de facturación. Son los que ve el proveedor al hacer la factura.</div>
         {% endif %}
       </div>
+      {% if company.duns %}
+        <div class="border rounded-3 p-3 mt-2">
+          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-1">
+            <div class="text-muted small text-uppercase" style="letter-spacing:.03em;">Código DUNS</div>
+            {# Se copian SOLO las cifras (es lo que piden los formularios donde se pega). #}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-target="#companyDunsRaw" title="Copiar el código DUNS (solo las cifras)"><i class="fa fa-copy"></i></button>
+          </div>
+          <input type="hidden" id="companyDunsRaw" value="{{ company.duns }}">
+          <div><i class="fa fa-barcode me-2 text-danger"></i><span class="fw-semibold" style="letter-spacing:.04em;">{{ duns_pretty(company.duns) }}</span></div>
+          <div class="text-muted small">Identificador de la empresa en Dun &amp; Bradstreet (9 cifras). Lo piden algunas plataformas y proveedores.</div>
+        </div>
+      {% endif %}
       {% if company.sms_sender %}
         <div class="border rounded-3 p-3 mt-2">
           <div class="text-muted small text-uppercase mb-1" style="letter-spacing:.03em;">Nombre abreviado para SMS</div>
@@ -102,6 +115,16 @@
               salen con este nombre). Máximo 11 caracteres, sin acentos ni símbolos.
               <strong>En España hay que registrarlo en la pasarela</strong>; si se deja vacío, el SMS
               sale con el número de la pasarela.
+            </div>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label"><i class="fa fa-barcode me-1 text-danger"></i>Código DUNS</label>
+            <input class="form-control" name="duns" value="{{ duns_pretty(company.duns) if company.duns else '' }}"
+                   inputmode="numeric" maxlength="13" pattern="[0-9 .\-]*"
+                   placeholder="12-345-6789" autocomplete="off">
+            <div class="form-text">
+              Las 9 cifras del identificador de la empresa en Dun &amp; Bradstreet. Puedes escribirlo
+              con guiones o sin ellos: se guarda solo con las cifras.
             </div>
           </div>
           <div class="col-12">

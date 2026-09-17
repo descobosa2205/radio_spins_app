@@ -854,54 +854,13 @@
             </div>
           </form>
         </div>
-      <div class="modal fade" id="albumCertificationNotifyModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-          <form class="modal-content" method="post" action="{{ url_for('discografica_album_certification_notify', album_id=album.id) }}">
-            <div class="modal-header">
-              <h5 class="modal-title">Notificar certificación</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body">
-              <input type="hidden" name="certification_type" id="albumCertNotifyType">
-              <input type="hidden" name="country_code" id="albumCertNotifyCountryCode">
-              <p class="mb-2">La certificación ya se ha guardado correctamente.</p>
-              <div class="alert alert-light border mb-3">
-                <div class="fw-semibold" id="albumCertNotifyTitle">Certificación</div>
-                <div class="small text-muted" id="albumCertNotifySummary"></div>
-              </div>
-              <div class="fw-semibold mb-2">Enviar a:</div>
-              {% if album_cert_delivery.email_options and (album_cert_delivery.email_options|length) > 0 %}
-                <div class="d-flex flex-column gap-2 mb-3">
-                  {% for option in album_cert_delivery.email_options %}
-                    <label class="form-check border rounded px-3 py-2">
-                      <input class="form-check-input me-2" type="checkbox" name="recipients" value="{{ option.email }}" {% if option.checked %}checked{% endif %}>
-                      <span class="fw-semibold">{{ option.email }}</span>
-                      <span class="text-muted small">· {{ option.label }}</span>
-                    </label>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="text-muted small mb-3">No hay correos guardados en la ficha del artista.</div>
-              {% endif %}
-              <div class="mb-3">
-                <label class="form-label">Añadir más correos</label>
-                <textarea class="form-control" name="extra_emails" rows="3" placeholder="Puedes añadir varios separados por coma, punto y coma o salto de línea."></textarea>
-              </div>
-              <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" value="1" id="albumCertNotifyTeam" name="notify_team">
-                <label class="form-check-label" for="albumCertNotifyTeam">Notificar también a todo el equipo</label>
-              </div>
-              {% if album_team_recipients and (album_team_recipients|length) > 0 %}
-                <div class="small text-muted">Equipo: {{ album_team_recipients|join(', ') }}</div>
-              {% endif %}
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-              <button class="btn btn-primary"><i class="fa fa-paper-plane"></i> Enviar</button>
-            </div>
-          </form>
-        </div>
-      </div>
+      {# NOTIFICAR UNA CERTIFICACIÓN: el pop-up con la vista previa del correo (parcial único, canción y álbum). #}
+      {% with cn_prefix='album',
+              cn_send_url=url_for('discografica_album_certification_notify', album_id=album.id),
+              cn_preview_url=url_for('discografica_album_certification_preview', album_id=album.id),
+              cn_delivery=album_cert_delivery, cn_team=album_team_recipients %}
+        {% include '_certification_notify_modal.html' %}
+      {% endwith %}
 
       <div class="modal fade" id="albumProductionContractModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -1456,7 +1415,6 @@
   let _albumSongSearchModal;
   let _albumRoyaltyModal;
   let _albumSongSearchTimer;
-  let _albumCertificationNotifyModal;
   let _albumProductionContractModal;
 
   function applyAlbumInfoEditState(){
@@ -1733,25 +1691,9 @@
     _albumCertificationModal.show();
   }
 
-  function resetAlbumCertificationNotifyModal(){
-    const title = document.getElementById('albumCertNotifyTitle');
-    const summary = document.getElementById('albumCertNotifySummary');
-    const type = document.getElementById('albumCertNotifyType');
-    const country = document.getElementById('albumCertNotifyCountryCode');
-    if (title) title.textContent = 'Certificación';
-    if (summary) summary.textContent = '';
-    if (type) type.value = '';
-    if (country) country.value = '';
-  }
-
   function openAlbumCertificationNotify(btn){
-    resetAlbumCertificationNotifyModal();
-    document.getElementById('albumCertNotifyType').value = btn.dataset.certType || '';
-    document.getElementById('albumCertNotifyCountryCode').value = btn.dataset.countryCode || '';
-    document.getElementById('albumCertNotifyTitle').textContent = btn.dataset.displayTitle || 'Certificación';
-    document.getElementById('albumCertNotifySummary').textContent = btn.dataset.summary || '';
-    _albumCertificationNotifyModal = new bootstrap.Modal(document.getElementById('albumCertificationNotifyModal'));
-    _albumCertificationNotifyModal.show();
+    // El pop-up con la vista previa del correo vive en `_certification_notify_modal.html`.
+    if (window.app33CertNotify && window.app33CertNotify.album) window.app33CertNotify.album(btn);
   }
 
   function albumContractProfitScopeVisibility(selectEl){

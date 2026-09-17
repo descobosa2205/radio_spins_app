@@ -38,6 +38,8 @@
 - UN ÁLBUM NO TIENE GÉNERO NI CALIFICACIÓN PROPIOS: SON DE CADA CANCIÓN. El
 - EL CORREO DE UNA CERTIFICACIÓN («¡Enhorabuena!»): la maqueta de Syncros, el disco APILADO y grande, y en el
   móvil todo apilado para que el nombre vaya en UNA línea (sep 2026)
+- NOTIFICAR UNA CERTIFICACIÓN · el pop-up con la VISTA PREVIA del correo (la dinámica de Syncros y de las
+  liquidaciones a favor), la oficina entera de una vez y una nota que viaja en el correo (sep 2026)
 
 ---
 
@@ -682,3 +684,29 @@
   media query no entra (el cliente de correo sí usa el ancho del móvil). Medido a 375 px: nada se sale
   (`scrollWidth` = ancho), el nombre mide una línea y el disco 160 px; y a escritorio la maqueta de lado a
   lado. Las certificaciones en un DOCUMENTO (Label Copy) siguen en `docs/app/discografica-proyectos.md`.
+
+- **NOTIFICAR UNA CERTIFICACIÓN · EL POP-UP CON LA VISTA PREVIA DEL CORREO** (sep 2026, lo pidió Dani:
+  «cámbiala a como tenemos las previsualizaciones de otras notificaciones, pero con la función de
+  mandar a toda la oficina como está ahora»). Parcial ÚNICO **`_certification_notify_modal.html`**
+  (canción y álbum, incluido con `{% with cn_prefix=… %}` DENTRO del bloque de contenido), con la
+  dinámica y la estética del envío de Syncros y de las liquidaciones a favor: `modal-xl`, a la
+  izquierda **a quién** (los correos de la ficha del artista, «Notificar también a toda la oficina» con
+  cuántos son, otros correos a mano) y la **nota** opcional; a la derecha la **vista previa** en
+  `.an-preview` con el asunto.
+  · **LA PREVIA ES EL CORREO**: `discografica_song/album_certification_preview` (POST JSON con
+  `certification_type`, `country_code`, `note`) devuelve el MISMO HTML de
+  `_build_certification_notification_email` (punto único `_certification_preview_response`), y se
+  repinta al escribir la nota (350 ms; una respuesta vieja que llegue tarde se descarta por serie).
+  · **La nota viaja en el correo** (`note=` del constructor; el envío la lee del formulario): bajo
+  el título, en el mismo cuadro justificado de la nota de los avisos de una actividad; y en el texto
+  plano.
+  ⚠️ El pop-up se **registra** en `window.app33CertNotify[cn_prefix]` y cada ficha conserva su función
+  de siempre (`openSongCertificationNotify` / `openAlbumCertificationNotify`) como envoltorio de una
+  línea: la llaman los botones «Notificar» y el aviso de «ya se ha guardado» al añadir una
+  certificación, y así `check_botones` la ve definida donde se usa (con `window['nombre'] =` en el
+  parcial la daba por inexistente).
+  ⚠️ Se monta EN EL CLIC (`shown.bs.modal` no siempre llega) y la vista previa carga al abrir.
+  Probado con la app real: las dos fichas pintan el pop-up (un solo `<!doctype>`), la previa de
+  «3 Discos de Oro» y la del álbum, la nota escapada dentro, una certificación o un id inexistentes
+  dan 404 en JSON, y el envío con nota la lleva en el HTML y en el texto; «toda la oficina» sigue
+  sumando a la plantilla entera.

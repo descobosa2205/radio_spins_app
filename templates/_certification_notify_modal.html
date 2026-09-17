@@ -1,0 +1,150 @@
+{# ============================================================================
+   NOTIFICAR UNA CERTIFICACIÓN (de una canción o de un álbum) · EL POP-UP CON LA VISTA PREVIA.
+   La misma dinámica y estética que el envío de Syncros y las liquidaciones a favor: a la
+   izquierda A QUIÉN se le manda (los correos de la ficha del artista, la oficina entera y otros
+   a mano) y una nota opcional; a la derecha el correo TAL COMO va a llegar —el MISMO HTML que se
+   manda (`_build_certification_notification_email`)—, que se repinta al escribir la nota.
+
+   Variables (se incluye con `{% with %}`): cn_prefix ('song' | 'album') · cn_send_url ·
+   cn_preview_url · cn_delivery (`email_options`) · cn_team (los correos de la oficina).
+   El pop-up se REGISTRA en `window.app33CertNotify[cn_prefix]`; la ficha define la función que ya
+   usan sus botones «Notificar» (`openSongCertificationNotify` / `openAlbumCertificationNotify`)
+   como un envoltorio de una línea, así `check_botones` la ve definida donde se usa.
+   ⚠️ Va DENTRO de `{% block content %}`: fuera se pintaría antes del <!doctype>.
+   ⚠️ Lo que hay que montar al abrir se monta EN EL CLIC (`shown.bs.modal` no siempre llega).
+   ============================================================================ #}
+<div class="modal fade" id="{{ cn_prefix }}CertificationNotifyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ cn_send_url }}" id="{{ cn_prefix }}CertNotifyForm"
+          data-cert-notify-form data-url-preview="{{ cn_preview_url }}">
+      <input type="hidden" name="certification_type" data-cn-type>
+      <input type="hidden" name="country_code" data-cn-country>
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-award me-2 text-danger"></i>Notificar la certificación ·
+          <span class="fw-normal" data-cn-title>Certificación</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          {# ---- A QUIÉN ---- #}
+          <div class="col-12 col-lg-5">
+            <div class="fw-semibold mb-1"><i class="fa-solid fa-users me-1 text-danger"></i>¿A quién se le manda?</div>
+            <div class="text-muted small mb-2">
+              Del artista van los correos configurados para lo discográfico en su ficha (módulo
+              Notificaciones). Quita a quien no toque o añade otros.
+            </div>
+            {% if cn_delivery and cn_delivery.email_options %}
+              <div class="border rounded-3 px-3 py-1 mb-2">
+                {% for option in cn_delivery.email_options %}
+                  <label class="an-recipient d-flex align-items-center gap-2 m-0 py-2">
+                    <input class="form-check-input m-0 flex-shrink-0" type="checkbox" name="recipients"
+                           value="{{ option.email }}" {% if option.checked %}checked{% endif %}>
+                    <span style="min-width:0;">
+                      <span class="fw-semibold d-block text-truncate">{{ option.email }}</span>
+                      <span class="text-muted small">{{ option.label }}</span>
+                    </span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="alert alert-warning py-2 px-3 small mb-2">
+                No hay correos guardados en la ficha del artista. Escribe abajo a quién se lo mandamos.
+              </div>
+            {% endif %}
+            {# Toda la OFICINA, de una vez (la función de siempre). #}
+            <label class="border rounded-3 px-3 py-2 d-flex align-items-start gap-2 m-0 mb-2">
+              <input class="form-check-input m-0 mt-1 flex-shrink-0" type="checkbox" value="1" name="notify_team"
+                     id="{{ cn_prefix }}CertNotifyTeam">
+              <span style="min-width:0;">
+                <span class="fw-semibold d-block"><i class="fa-solid fa-building me-1 text-danger"></i>Notificar también a toda la oficina</span>
+                {% if cn_team %}
+                  <span class="text-muted small">{{ cn_team|length }} persona{{ '' if cn_team|length == 1 else 's' }} · {{ cn_team|join(', ') }}</span>
+                {% else %}
+                  <span class="text-muted small">No hay nadie de la oficina con correo.</span>
+                {% endif %}
+              </span>
+            </label>
+            <label class="form-label small mb-1">Otros correos <span class="text-muted">(opcional)</span></label>
+            <textarea class="form-control form-control-sm" name="extra_emails" rows="2"
+                      placeholder="correo@ejemplo.com, otro@ejemplo.com"></textarea>
+            <div class="form-text">Se separan por comas, punto y coma o saltos de línea.</div>
+
+            <label class="form-label small mb-1 mt-3">Nota <span class="text-muted">(opcional; sale bajo el título)</span></label>
+            <textarea class="form-control form-control-sm" name="note" rows="3" data-cn-note
+                      placeholder="Lo que quieras añadir."></textarea>
+          </div>
+
+          {# ---- VISTA PREVIA ---- #}
+          <div class="col-12 col-lg-7">
+            <div class="d-flex align-items-center justify-content-between gap-2 mb-2 flex-wrap">
+              <span class="fw-semibold"><i class="fa fa-eye me-1 text-danger"></i>Vista previa</span>
+              <span class="text-muted small text-truncate" style="max-width:100%;">Asunto: <strong data-cn-subject>…</strong></span>
+            </div>
+            <div class="an-preview" style="max-height:560px;overflow:auto;" data-cn-preview>
+              <div class="p-4 text-center text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Cargando…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modalEl = document.getElementById('{{ cn_prefix }}CertificationNotifyModal');
+  if (!modalEl) return;
+  var form = modalEl.querySelector('[data-cert-notify-form]');
+  var zona = modalEl.querySelector('[data-cn-preview]');
+  var asunto = modalEl.querySelector('[data-cn-subject]');
+  var nota = modalEl.querySelector('[data-cn-note]');
+  var tipo = form.querySelector('[data-cn-type]');
+  var pais = form.querySelector('[data-cn-country]');
+  var timer = null, serie = 0;
+
+  function cargando() {
+    zona.innerHTML = '<div class="p-4 text-center text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Cargando…</div>';
+  }
+  // La vista previa ES el correo: se le pide al servidor el MISMO HTML que va a mandar.
+  function pinta() {
+    if (!tipo.value) return;
+    var mia = ++serie;
+    fetch(form.getAttribute('data-url-preview'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ certification_type: tipo.value, country_code: pais.value, note: (nota ? nota.value : '') })
+    }).then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        if (mia !== serie) return;                       // ha llegado otra más nueva
+        if (j && j.ok && j.html) {
+          zona.innerHTML = j.html;
+          if (asunto) asunto.textContent = j.subject || '';
+        } else {
+          zona.innerHTML = '<div class="p-4 text-danger small">' + ((j && j.error) || 'No se pudo cargar la vista previa.') + '</div>';
+        }
+      })
+      .catch(function () { if (mia === serie) zona.innerHTML = '<div class="p-4 text-danger small">No se pudo cargar la vista previa.</div>'; });
+  }
+  function pintaPronto() { clearTimeout(timer); timer = setTimeout(pinta, 350); }
+  if (nota) nota.addEventListener('input', pintaPronto);
+
+  // Lo abren los botones «Notificar» de la pestaña (y el aviso de «ya se ha guardado» tras añadir
+  // una certificación): traen el tipo, el país y el nombre en sus data-*.
+  window.app33CertNotify = window.app33CertNotify || {};
+  window.app33CertNotify['{{ cn_prefix }}'] = function (btn) {
+    var d = (btn && btn.dataset) || {};
+    tipo.value = d.certType || '';
+    pais.value = d.countryCode || '';
+    modalEl.querySelector('[data-cn-title]').textContent = d.displayTitle || 'Certificación';
+    if (nota) nota.value = '';
+    if (asunto) asunto.textContent = '…';
+    cargando();
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    pinta();
+  };
+})();
+</script>

@@ -9317,7 +9317,8 @@ def _certification_stack_ratio(image_rel: str, count: int = 1, size: int = 120) 
     return (1 + 0.24 * (count - 1)) / (1 + 0.13 * (count - 1))
 
 
-def _build_certification_notification_email(session_db, media_kind: str, item, cert_group: dict, artist: Artist | None) -> dict:
+def _build_certification_notification_email(session_db, media_kind: str, item, cert_group: dict, artist: Artist | None,
+                                            note: str = "") -> dict:
     """El correo de ENHORABUENA por una certificación (de una canción o de un álbum).
 
     ⚠️ Con la maqueta de SYNCROS (lo pidió Dani, sep 2026): el logo del sello arriba a la DERECHA,
@@ -9332,7 +9333,9 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
     Platino» salía partido en tres). El `<style>` va dentro del propio cuerpo —un correo no admite
     hojas externas— y el cliente que no entienda media queries ve la maqueta de escritorio.
     ⚠️ La imagen lleva `width` Y `height` (atributos y CSS) calculados con su proporción real, porque
-    la pila es más ancha que alta y Outlook pinta a tamaño natural lo que no los lleve."""
+    la pila es más ancha que alta y Outlook pinta a tamaño natural lo que no los lleve.
+    · `note`: la NOTA opcional del pop-up de «Notificar», bajo el título (el mismo cuadro que la nota
+    de los avisos de una actividad). La vista previa del pop-up pinta ESTE mismo HTML."""
     media_kind = (media_kind or 'SONG').strip().upper()
     esc = lambda v: html.escape('' if v is None else str(v))
     ico = lambda n, size=16, color='007CA2': _brand_icon(n, email=True, size=size, color=color)
@@ -9431,6 +9434,15 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
         f'<span style="margin-right:6px;">{ico("award", 15, BRAND_BLUE_DARK.lstrip("#"))}</span>'
         'Ha sido certificado con</td></tr></table>')
 
+    nota = str(note or '').strip()
+    nota_html = ''
+    if nota:
+        # ⚠️ JUSTIFICADA y con los saltos de línea (`pre-line`): es un texto que se lee como una carta,
+        # el mismo cuadro que la nota de `_activity_notice_html`.
+        nota_html = ('<div style="margin:0 0 16px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                     'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;text-align:justify;'
+                     f'white-space:pre-line;">{esc(nota)}</div>')
+
     css = (
         '<style>'
         '.cert-body{max-width:680px;margin:0 auto;padding:22px;background:#fff;}'
@@ -9466,6 +9478,7 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
         + f'<div class="cert-logo" style="text-align:right;margin-bottom:6px;">{logo_html}</div>'
         + '<h1 class="cert-title" style="margin:8px 0 16px;font-size:26px;line-height:1.2;text-align:center;'
           'color:#111827;letter-spacing:.03em;">¡ENHORABUENA!</h1>'
+        + nota_html
         # La tarjeta de la canción/álbum: portada a la izquierda, datos a la derecha (la de Syncros).
         + '<table class="cert-card" role="presentation" cellspacing="0" cellpadding="0" style="width:100%;'
           'border-collapse:collapse;table-layout:fixed;background:#fff;border:1px solid #e6e9ec;border-radius:14px;"><tr class="cert-row">'
@@ -9493,7 +9506,8 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
     )
     text_body = (
         "¡ENHORABUENA!\n\n"
-        f"{title} · {media_label}\n"
+        + (f"{nota}\n\n" if nota else "")
+        + f"{title} · {media_label}\n"
         f"{interpreters_label}\n"
         + (f"Publicación: {publication_label}\n" if publication_label else "")
         + f"\nHa sido certificado con: {cert_title}\n"
@@ -49479,7 +49493,8 @@ def discografica_song_certification_notify(song_id):
         if not recipients:
             flash("Selecciona al menos un correo válido para notificar.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
-        email_payload = _build_certification_notification_email(session_db, 'SONG', song, group, delivery.get('artist'))
+        email_payload = _build_certification_notification_email(session_db, 'SONG', song, group, delivery.get('artist'),
+                                                                note=(request.form.get('note') or ''))
         ok, err = _send_optional_email(recipients, email_payload['subject'], email_payload['html_body'], email_payload.get('text_body'))
         if ok:
             flash("Notificación enviada correctamente.", "success")
@@ -49521,7 +49536,8 @@ def discografica_album_certification_notify(album_id):
         if not recipients:
             flash("Selecciona al menos un correo válido para notificar.", "warning")
             return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
-        email_payload = _build_certification_notification_email(session_db, 'ALBUM', album, group, delivery.get('artist'))
+        email_payload = _build_certification_notification_email(session_db, 'ALBUM', album, group, delivery.get('artist'),
+                                                                note=(request.form.get('note') or ''))
         ok, err = _send_optional_email(recipients, email_payload['subject'], email_payload['html_body'], email_payload.get('text_body'))
         if ok:
             flash("Notificación enviada correctamente.", "success")
@@ -49532,6 +49548,58 @@ def discografica_album_certification_notify(album_id):
     finally:
         session_db.close()
     return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+def _certification_preview_response(session_db, media_kind: str, item, rows, artist):
+    """La VISTA PREVIA del correo de una certificación, en JSON para el pop-up de «Notificar».
+
+    ⚠️ Es EL MISMO HTML que se manda (`_build_certification_notification_email`, con la nota que se
+    esté escribiendo): la previa no puede desparejarse del correo. Lo que llega es JSON
+    (`certification_type`, `country_code`, `note`)."""
+    datos = request.get_json(silent=True) or {}
+    cert_type = (datos.get("certification_type") or "").strip().upper()
+    country_code = (datos.get("country_code") or "").strip().upper()
+    groups = _group_certifications(rows, media_kind=media_kind)
+    group = next((g for g in groups if g.get("certification_type") == cert_type
+                  and g.get("country_code") == country_code), None)
+    if not group:
+        return jsonify({"ok": False, "error": "No se encontró la certificación seleccionada."}), 404
+    mail = _build_certification_notification_email(session_db, media_kind, item, group, artist,
+                                                   note=(datos.get("note") or ""))
+    return jsonify({"ok": True, "subject": mail["subject"], "html": mail["html_body"]})
+
+
+@app.post("/discografica/canciones/<song_id>/certifications/preview", endpoint="discografica_song_certification_preview")
+@admin_required
+def discografica_song_certification_preview(song_id):
+    session_db = db()
+    try:
+        sid = _safe_uuid(song_id)
+        song = session_db.get(Song, sid) if sid else None
+        if not song:
+            return jsonify({"ok": False, "error": "Canción no encontrada."}), 404
+        rows = (session_db.query(SongCertification).filter(SongCertification.song_id == song.id)
+                .order_by(SongCertification.created_at.asc()).all())
+        return _certification_preview_response(session_db, "SONG", song, rows, _song_primary_artist(session_db, song))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/albumes/<album_id>/certifications/preview", endpoint="discografica_album_certification_preview")
+@admin_required
+def discografica_album_certification_preview(album_id):
+    session_db = db()
+    try:
+        aid = _safe_uuid(album_id)
+        album = session_db.get(Album, aid) if aid else None
+        if not album:
+            return jsonify({"ok": False, "error": "Álbum no encontrado."}), 404
+        rows = (session_db.query(AlbumCertification).filter(AlbumCertification.album_id == album.id)
+                .order_by(AlbumCertification.created_at.asc()).all())
+        artist = session_db.get(Artist, album.artist_id) if getattr(album, "artist_id", None) else None
+        return _certification_preview_response(session_db, "ALBUM", album, rows, artist)
+    finally:
+        session_db.close()
 
 
 def _pdf_al_vuelo_response(pdf_bytes: bytes, filename: str):

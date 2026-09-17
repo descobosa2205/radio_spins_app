@@ -88,6 +88,7 @@
 - EL DÍA DEL ANUNCIO, AL ARTISTA LE LLEGA UN SMS CON SUS CARTELES (sep 2026)
 - EL CUADRANTE · EL CACHÉ FIJO Y EL VARIABLE, EN DOS COLUMNAS (sep 2026)
 - EL PROCESO DE UNA ACTIVIDAD · los pasos, en orden, y lo bloqueado RAYADO (sep 2026)
+- CONFIRMARLE LA ACTIVIDAD AL PROMOTOR, Y PEDIRLE DE PASO LO QUE FALTA (sep 2026)
 
 ---
 
@@ -2043,3 +2044,87 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   pendientes» de Contratación (con su marco, su fondo alterno y su `display:block`), y reutilizar el
   nombre le colaba a estas filas los estilos de aquella — y su `background` en atajo **se comía el
   rayado**. Una cosa, un nombre.
+
+- ⚠️⚠️⚠️ **CONFIRMARLE LA ACTIVIDAD AL PROMOTOR, Y PEDIRLE DE PASO LO QUE FALTA** (sep 2026, lo pidió
+  Dani). Cuando el artista ya ha dicho que sí, lo siguiente es **confirmárselo a quien la compra**.
+  Hasta ahora eso era una llamada y un botón de «ya se lo he dicho» —que **se mantiene**—; ahora
+  además se le puede comunicar **desde la app**, con el MISMO patrón que el aviso al artista (vista
+  previa, canal, nota y ojos por módulo) y dos diferencias:
+  · **NO le pide respuesta** (no hay botones de confirmar/rechazar: se le comunica y ya está), y
+  · **puede llevar una PETICIÓN DE DATOS**: en la vista previa se marca lo que nos falta y el correo
+    se lo enseña con su botón **«Cumplimentar»**.
+  · **EN TODAS LAS ACTIVIDADES CON PROMOTOR**, no solo en las que vienen de una petición (igual que
+    se hizo con la confirmación del artista). Punto único **`_promoter_confirm_state`**, que mira el
+    DATO: el aviso mandado (`ConcertPromoterNotification`, con `channel='MANUAL'` cuando se marcó a
+    mano) **y** el `acceptance_notified_at` de su petición, que es donde lo apuntaba lo de antes —
+    así lo confirmado en su día sigue contando y nadie tiene que volver a marcarlo.
+  ⚠️⚠️ **EL BOTÓN DESAPARECE DE LOS DESTACADOS AL CONFIRMARSE** («para que no se queden cosas ahí»):
+  queda solo la etiqueta verde «Promotor confirmado». Es la regla que ya siguen el aviso al artista
+  y la ficha de contratación. Y en el tablero de la pestaña Inicio el paso 4 lleva **las DOS
+  opciones**: «Notificar al promotor» y «Ya se lo he confirmado». ⚠️ **Bloqueado** mientras el
+  artista no haya confirmado: no se compromete una fecha con nadie de fuera antes.
+  · **EL TEXTO lo dictó Dani** y sale **ESCRITO Y EDITABLE** en el cuadro de la nota, como en todas
+    las previsualizaciones de la casa: *«Buenas, este concierto está confirmado, y la fecha
+    reservada. Por favor revisa los datos por si hubiera alguna información errónea y si hay datos
+    pendientes por favor cumpliméntalos. / Muchas gracias»*.
+    ⚠️⚠️ **AL PROMOTOR NO SE LE DICE «EVENTO PROMOCIONAL»**: la palabra sale del punto único
+    **`_artwork_activity_word`** (el mismo del correo de los carteles), y el **GÉNERO** se saca de su
+    artículo («la acción» → «esta acción está confirmada»): escrito a mano acaba en «esta acción
+    está confirmado». Si no se le pide nada, la frase de los datos pendientes **no sale**.
+  · **LO NUESTRO NO VIAJA DE SERIE** (`PROMOTER_NOTICE_OPT_IN_MODULES`): el caché, las comisiones,
+    los otros gastos y las notas de contratación salen **apagados** y hay que encenderlos con su ojo.
+    ⚠️ En la VISTA PREVIA un módulo apagado **se sigue viendo** (atenuado, con `data-notice-hidden`):
+    es como se vuelve a encender. Lo que cuenta es que no viaje en el correo.
+  · **EL CALENDARIO DE PAGOS DEL CACHÉ** (lo pidió Dani) es un módulo más, y este SÍ va **encendido**:
+    es lo que le toca a ÉL, cuándo paga cada plazo. Solo se compone si hay caché de pago y está
+    configurado (`_concert_cache_payment_state`), y se puede omitir con su ojo como los demás.
+    ⚠️ Se mete **entre las condiciones** (`_promoter_notice_payment_module`, detrás del caché), no
+    tocando el motor: así se pinta, se oculta y se cuenta igual que los otros.
+  · **QUÉ SE LE PUEDE PEDIR** (`PROMOTER_ASK_SECTIONS`, y **solo sale lo que falta**): los
+    **contactos** de las cuatro funciones preconfiguradas · el **recinto** · la **fecha de anuncio y
+    la cartelería** · la **salida a la venta y su enlace**. Punto único `_promoter_ask_state`, del
+    que viven las casillas, el correo y su ficha. ⚠️ **En una actividad GRATUITA no hay salida a la
+    venta** ni contacto de ticketing (la regla de siempre).
+  ⚠️⚠️ **EL ANUNCIO Y LOS CARTELES YA TIENEN SU PROPIO CAMINO** (el botón «Solicitar cartelería y
+  fecha de anuncio»): si se le piden desde aquí se sellan `announce_ask_*` y se prepara la solicitud
+  de siempre (`ConcertArtworkRequest` con `handled_by='PROMOTER'`), para **no pedirle lo mismo por
+  dos correos**. Los carteles los sube en la página de siempre (`/carteleria/<token>`).
+  · **SU FICHA** (`/promotor/<token>`, `public_promoter_sheet`): lo mismo que el correo **sin el
+    texto del correo**, y **cada cosa en su pop-up**. ⚠️⚠️ **NO HAY BOTÓN DE GUARDAR NI DE ENVIAR**:
+    cada pop-up guarda al aceptarlo y puede volver cuando quiera. **El enlace se desactiva a los 15
+    días** (`PROMOTER_LINK_DAYS`, sellado en `expires_at` al mandarlo, para que cambiar el plazo no
+    desactive enlaces ya mandados). ⚠️ Caducado, la página **se sigue viendo** (lo que se le comunicó
+    no desaparece); lo que no se puede es escribir.
+  ⚠️ El RECINTO se busca en nuestra base y, si no está, **se da de alta desde ahí** — y el alta va
+  **ANTES del guardado y en serie**: en paralelo, el dato se guardaba sin su `venue_id` y el recinto
+  nuevo quedaba creado pero suelto.
+  · ⚠️⚠️ **NADA SE CARGA SIN MÁS** (lo pidió Dani): todo lo que rellena cae en
+    **`ConcertContractSheet.promoter_data`** —el mismo sitio donde cae la ficha de contratación que
+    manda él— y queda **pendiente de revisar** (`promoter_reviewed_at = NULL`), así que sale la tarea
+    **«Revisar los datos que ha subido el promotor»** (en el tablero de la actividad, en el módulo de
+    Contratación con el kind `PROMOTER_DATA`, y como botón en la barra de la ficha) y se aplica desde
+    la **pantalla de comparación de siempre**, campo a campo. Cada vez que guarda algo nuevo la marca
+    vuelve a NULL, así que la tarea reaparece sola — y desaparece sola al revisarla.
+    ⚠️ **A quien la gestiona le llega UN aviso, no uno por campo** (bug real, visto en el navegador:
+    dos secciones seguidas dejaban dos franjas diciendo lo mismo): se mira si ya hay uno **sin leer**
+    (`ref_type='PROMOTER_DATA'`), como en `_artist_notice_missing`. El trabajo es uno: revisar su
+    ficha. Y va a **quien gestiona la actividad** (`_announce_alert_owner_ids`: contratación, o la
+    persona del sello si es un evento promocional), no a un departamento fijo.
+  ⚠️⚠️ **DOS AGUJEROS DEL CATÁLOGO DE LA FICHA que salieron aquí**: `promotion_announcement_date` y
+  `gala_venue_id` se guardaban y se sabían consolidar, pero **no estaban en `CONTRACT_SHEET_GROUPS`**,
+  así que la pantalla de revisión **no los pintaba y no se podían aceptar nunca**. La fecha ya está
+  en el catálogo (con su hora, nueva); el id del recinto no se le enseña a nadie, así que **viaja CON
+  su nombre** por **`CONTRACT_SHEET_SATELLITE_FIELDS`**. ⚠️ Al añadir un campo a la ficha, comprobar
+  que está en el catálogo: si no, es un dato que se pide y no se puede usar.
+  · Campos nuevos: **`ticketing_sale_links`** (tipo `links`, la ticketera y su enlace) —que al
+    consolidar pasan a `ConcertTicketer.sale_url` con `_contract_sheet_apply_sale_links`, **solo los
+    que falten**: un enlace que ya tenemos puede ser el de la integración, que es el bueno— y
+    **`promotion_announcement_time`**.
+  ⚠️⚠️ **EL CORREO ESCUETO DE «Confirmada · tu petición» SE RETIRÓ**: lo sustituye este aviso. Dos
+  correos para lo mismo acaban diciendo cosas distintas.
+  ⚠️⚠️ **`missing` ERA UNA LISTA Y UN BOOLEANO A LA VEZ** (bug real, lo cazó la prueba: «'bool'
+  object is not iterable» → 500 en la vista previa). En `_promoter_ask_state` **todas** las secciones
+  llevan un `missing` que es «¿falta algo?»; la lista de funciones sin cubrir se llama ahora
+  **`missing_roles`**. Es la regla de siempre —una cosa, un nombre— dentro de un diccionario.
+  · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_promotor.py`** (95 comprobaciones con
+    la app real, de punta a punta). Es **idempotente**. Al tocar esto, en verde.

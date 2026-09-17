@@ -397,6 +397,53 @@ class ConcertArtistNotification(Base):
     )
 
 
+class ConcertPromoterNotification(Base):
+    """Cada AVISO AL PROMOTOR de una actividad (uno por envío).
+
+    Es el hermano de `ConcertArtistNotification`, para el otro lado de la mesa: cuando el artista ya
+    ha dicho que sí, al promotor hay que confirmarle que la fecha sale adelante. **No le pide
+    respuesta** (a diferencia del `CONFIRMAR` del artista): se le comunica y ya está.
+
+    ⚠️⚠️ LO QUE SÍ PUEDE LLEVAR ES UNA PETICIÓN DE DATOS: en la vista previa se marcan las secciones
+    de lo que nos falta (`asked_sections`: los contactos de las cuatro funciones, el recinto, la
+    fecha de anuncio y la cartelería, y la salida a la venta), y el correo lleva su botón
+    «Cumplimentar» a la ficha pública (`public_promoter_sheet`), donde las rellena una a una.
+
+    ⚠️ `snapshot` congela el HTML que se mandó, como en el aviso al artista: la página pública
+    enseña ESO, no lo de hoy.
+    ⚠️ `channel = 'MANUAL'` es «ya se lo he confirmado yo» (por teléfono): no se manda nada y no hay
+    token. Es el mismo patrón que el «ya fue informado» del artista, y así el hecho de que el
+    promotor está confirmado sale del DATO y no de una marca aparte.
+    """
+
+    __tablename__ = "concert_promoter_notifications"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    # EMAIL | WHATSAPP | SMS | MANUAL
+    channel = Column(Text, nullable=False)
+    # A quién fue: [{"name": ..., "email": ..., "phone": ...}]
+    recipients = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    note = Column(Text)
+    # Módulos que se ocultaron al enviar (los «ojos» de la vista previa).
+    hidden_modules = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # QUÉ datos se le han pedido (las claves de `PROMOTER_ASK_SECTIONS`).
+    asked_sections = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    public_token = Column(Text)
+    # ⚠️⚠️ EL ENLACE CADUCA (lo pidió Dani: «el link se desactiva a los 15 días»). Se guarda la fecha
+    # en vez de calcularla al leer, para que un cambio del plazo no desactive enlaces ya mandados.
+    expires_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    sent_by_nick = Column(Text)
+
+    __table_args__ = (
+        Index("idx_concert_promoter_notif_concert", "concert_id"),
+    )
+
+
 class ExternalProductionAccess(Base):
     """ACCESO EXTERNO a la producción de UNA actividad.
 
@@ -650,6 +697,28 @@ def ensure_artist_notifications_schema():
             ADD COLUMN IF NOT EXISTS responded_at timestamptz,
             ADD COLUMN IF NOT EXISTS response_note text;
         """,
+        # ⚠️⚠️ EL AVISO AL PROMOTOR (sep 2026): el hermano del aviso al artista para el otro lado de
+        # la mesa. Lleva `asked_sections` (qué datos se le piden) y `expires_at` (el enlace se
+        # desactiva a los 15 días, lo pidió Dani).
+        """
+        CREATE TABLE IF NOT EXISTS concert_promoter_notifications (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            channel text NOT NULL,
+            recipients jsonb NOT NULL DEFAULT '[]'::jsonb,
+            note text,
+            hidden_modules jsonb NOT NULL DEFAULT '[]'::jsonb,
+            asked_sections jsonb NOT NULL DEFAULT '[]'::jsonb,
+            snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            public_token text,
+            expires_at timestamptz,
+            sent_at timestamptz DEFAULT now(),
+            sent_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            sent_by_nick text
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_concert_promoter_notif_concert ON concert_promoter_notifications(concert_id);",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_concert_promoter_notif_token ON concert_promoter_notifications(public_token) WHERE public_token IS NOT NULL AND public_token <> '';",
     ]
     _exec_ddl_statements(stmts, "artist_notifications")
 

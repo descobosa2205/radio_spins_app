@@ -1,0 +1,517 @@
+{% extends "layout.html" %}
+{# LA FICHA DEL PROMOTOR · lo mismo que su correo, sin el texto del correo.
+   ⚠️⚠️ NO HAY BOTÓN DE GUARDAR NI DE ENVIAR (lo pidió Dani): cada cosa se rellena en su pop-up y se
+   guarda al aceptarlo. Puede volver cuando quiera hasta que el enlace caduque.
+   ⚠️ Enlace público: se abre sin identificarse, lo autoriza su TOKEN y solo se ve ESTO. #}
+{% block content %}
+<style>
+  .pms-card { border:1px solid #e6e8eb; border-radius:14px; background:#fff; }
+  .pms-head { background:#eaf4f8; border-radius:10px; padding:.5rem .75rem; }
+  .pms-head h6 { color:#005c78; font-weight:800; margin:0; }
+  .pms-need { background:#fff8e6; border:1px solid #f2d492; border-radius:10px; padding:.6rem .75rem; }
+  .pms-need__title { font-size:.78rem; font-weight:700; color:#8a6100; }
+  .pms-have { font-size:.9rem; }
+  .pms-have dt { color:#6b7683; font-weight:600; font-size:.78rem; }
+  .pms-have dd { margin:0 0 .4rem; font-weight:700; }
+  .pms-venue-hit { cursor:pointer; }
+  .pms-venue-hit:hover { background:#f5f7f9; }
+  .pms-save { position:sticky; bottom:0; background:#fff; border-top:1px solid #e6e8eb; }
+</style>
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:900px;">
+    {# Logo de la empresa del grupo arriba a la DERECHA + título centrado (maqueta de la casa). #}
+    <div class="text-end mb-2">
+      <img src="{{ notice.logo_url or url_for('static', filename='img/logo_33_producciones.png') }}"
+           alt="" style="max-height:56px;max-width:200px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-3">{{ notice.title }}</h3>
+
+    {# La CABECERA de la actividad: la misma que va en el correo. #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+        {% if notice.subject_photo %}
+          <img src="{{ notice.subject_photo }}" alt=""
+               style="flex:0 0 auto;width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
+        {% endif %}
+        <div class="flex-grow-1" style="min-width:0;">
+          {% if notice.eyebrow %}
+            <div class="text-uppercase small fw-bold" style="letter-spacing:.4px;color:#8b95a1;">{{ notice.eyebrow }}</div>
+          {% endif %}
+          <h4 class="mb-1">{{ notice.subject_name }}</h4>
+          <div class="d-flex flex-wrap gap-3 text-muted small">
+            {% for r in notice.hero_rows %}
+              <span><i class="fa {{ r.icon }} me-1"></i>{{ r.label }}: <strong class="text-dark">{{ r.value }}</strong></span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if request.args.get('ok') %}
+      <div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>Guardado, gracias.</div>
+    {% endif %}
+
+    {% if expired %}
+      {# ⚠️ Con el enlace caducado la página SE SIGUE VIENDO: lo que se comunicó no desaparece.
+         Lo que no se puede es escribir. Decirle «no existe» sería mentirle. #}
+      <div class="alert alert-secondary">
+        <i class="fa fa-clock me-1"></i>Este enlace ya no admite cambios (caducó
+        {% if expires_label %}el {{ expires_label }}{% else %}a los {{ link_days or 15 }} días{% endif %}).
+        Si hace falta actualizar algo, contesta a este correo y te mandamos uno nuevo.
+      </div>
+    {% elif sections %}
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <h5 class="m-0">Nos faltan estos datos</h5>
+        {% if expires_label %}
+          <span class="text-muted small"><i class="fa fa-clock me-1"></i>Puedes volver hasta el {{ expires_label }}</span>
+        {% endif %}
+      </div>
+      <p class="text-muted small">
+        Cada cosa se guarda al momento: no hay que darle a guardar al final, y puedes volver más
+        adelante a completarlo o corregirlo.
+      </p>
+
+      <div data-pms data-url-save="{{ save_url }}" data-url-venues="{{ venues_url }}"
+           data-url-venue-new="{{ venue_create_url }}">
+        {% for s in sections %}
+          <div class="pms-card p-2 mb-3" id="{{ s.key }}">
+            <div class="pms-head d-flex justify-content-between align-items-center">
+              <h6><i class="fa {{ s.icon }} me-1"></i>{{ s.label }}</h6>
+              {% if s.done %}
+                <span class="badge text-bg-success"><i class="fa fa-check me-1"></i>Completo</span>
+              {% else %}
+                <span class="badge text-bg-warning text-dark">Pendiente</span>
+              {% endif %}
+            </div>
+            <div class="px-2 pt-2 pb-1">
+
+              {# ---------- CONTACTOS: una tarjeta por función ---------- #}
+              {% if s.key == 'contactos' %}
+                <div class="text-muted small mb-2">{{ s.help }}</div>
+                <div class="row g-2">
+                  {% for c in s.contacts %}
+                    <div class="col-12 col-md-6">
+                      <div class="border rounded p-2 h-100 d-flex flex-column">
+                        <div class="fw-semibold small"><i class="fa {{ c.icon }} me-1 text-muted"></i>{{ c.label }}</div>
+                        <div class="text-muted" style="font-size:.78rem;">{{ c.help }}</div>
+                        <div class="mt-1 flex-grow-1">
+                          {% if c.name %}
+                            <div class="fw-bold">{{ c.name }}</div>
+                            <div class="text-muted small">{{ c.email }}{% if c.phone %} · {{ c.phone }}{% endif %}</div>
+                          {% elif c.people %}
+                            {% for p in c.people %}
+                              <div class="fw-bold">{{ p.name }}</div>
+                              <div class="text-muted small">{{ p.email }}{% if p.phone %} · {{ p.phone }}{% endif %}</div>
+                            {% endfor %}
+                          {% else %}
+                            <div class="pms-need mt-1"><span class="pms-need__title">Nos falta</span></div>
+                          {% endif %}
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-primary mt-2"
+                                data-bs-toggle="modal" data-bs-target="#mdl-c-{{ c.role }}">
+                          <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if (c.name or c.people) else 'Cumplimentar' }}
+                        </button>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+
+              {# ---------- RECINTO ---------- #}
+              {% elif s.key == 'recinto' %}
+                <div class="text-muted small mb-2">{{ s.help }}</div>
+                {% if s.name %}
+                  <dl class="pms-have mb-2">
+                    <dt>Recinto</dt><dd>{{ s.name }}</dd>
+                    {% if s.address or s.municipality %}
+                      <dt>Dirección</dt><dd>{{ s.address }}{% if s.municipality %}{% if s.address %} · {% endif %}{{ s.municipality }}{% endif %}</dd>
+                    {% endif %}
+                  </dl>
+                {% else %}
+                  <div class="pms-need mb-2">
+                    <span class="pms-need__title">Nos falta</span>
+                    <div>El recinto donde se hace, con su dirección.</div>
+                  </div>
+                {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-primary"
+                        data-bs-toggle="modal" data-bs-target="#mdl-recinto">
+                  <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if s.name else 'Cumplimentar' }}
+                </button>
+
+              {# ---------- ANUNCIO Y CARTELERÍA ---------- #}
+              {% elif s.key == 'anuncio' %}
+                <div class="text-muted small mb-2">{{ s.help }}</div>
+                {% if s.date_iso %}
+                  <dl class="pms-have mb-2">
+                    <dt>Se anuncia el</dt>
+                    <dd>{{ s.date_iso }}{% if s.time %} · {{ s.time }}{% endif %}</dd>
+                  </dl>
+                {% else %}
+                  <div class="pms-need mb-2">
+                    <span class="pms-need__title">Nos falta</span>
+                    <div>El día (y la hora, si la hay) en que se anuncia.</div>
+                  </div>
+                {% endif %}
+                <div class="d-flex flex-wrap gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-primary"
+                          data-bs-toggle="modal" data-bs-target="#mdl-anuncio">
+                    <i class="fa fa-pen me-1"></i>{{ 'Cambiar la fecha' if s.date_iso else 'Cumplimentar' }}
+                  </button>
+                  {# ⚠️ Los CARTELES se suben en la página de siempre, que ya sabe hacerlo (arrastrar
+                     una carpeta entera, miniaturas y su validación): no hay un segundo sitio. #}
+                  {% if s.want_artwork and s.artwork_url %}
+                    <a class="btn btn-sm btn-outline-danger" href="{{ s.artwork_url }}">
+                      <i class="fa fa-image me-1"></i>Subir los carteles
+                    </a>
+                  {% endif %}
+                </div>
+
+              {# ---------- SALIDA A LA VENTA ---------- #}
+              {% elif s.key == 'venta' %}
+                <div class="text-muted small mb-2">{{ s.help }}</div>
+                {% if s.date_iso or s.links %}
+                  <dl class="pms-have mb-2">
+                    {% if s.date_iso %}<dt>Salen a la venta el</dt><dd>{{ s.date_iso }}</dd>{% endif %}
+                    {% if s.links %}
+                      <dt>Dónde se compran</dt>
+                      {% for l in s.links %}
+                        <dd>{{ l.name }}{% if l.url %} · <span class="text-muted fw-normal small">{{ l.url }}</span>{% endif %}</dd>
+                      {% endfor %}
+                    {% endif %}
+                  </dl>
+                {% endif %}
+                {% if not s.date_iso or not s.links %}
+                  <div class="pms-need mb-2">
+                    <span class="pms-need__title">Nos falta</span>
+                    {% if not s.date_iso %}<div>Cuándo salen las entradas a la venta.</div>{% endif %}
+                    {% if not s.links %}<div>Dónde se compran (la ticketera y su enlace).</div>{% endif %}
+                  </div>
+                {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-primary"
+                        data-bs-toggle="modal" data-bs-target="#mdl-venta">
+                  <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if (s.date_iso or s.links) else 'Cumplimentar' }}
+                </button>
+              {% endif %}
+
+            </div>
+          </div>
+        {% endfor %}
+
+        {# ═══════════ LOS POP-UPS · uno por cosa, y cada uno guarda al aceptar ═══════════ #}
+        {% for s in sections %}
+          {% if s.key == 'contactos' %}
+            {% for c in s.contacts %}
+              <div class="modal fade" id="mdl-c-{{ c.role }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                  <div class="modal-content">
+                    <form data-pms-form data-section="contactos">
+                      <input type="hidden" name="role" value="{{ c.role }}">
+                      <div class="modal-header">
+                        <h5 class="modal-title"><i class="fa {{ c.icon }} me-1"></i>{{ c.label }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                      </div>
+                      <div class="modal-body">
+                        <p class="text-muted small">{{ c.help }}</p>
+                        <label class="form-label small mb-1">Nombre y apellidos</label>
+                        <input class="form-control mb-2" name="name" value="{{ c.name }}" required>
+                        <label class="form-label small mb-1">Correo</label>
+                        <input class="form-control mb-2" name="email" type="email" value="{{ c.email }}">
+                        <label class="form-label small mb-1">Teléfono</label>
+                        <input class="form-control" name="phone" value="{{ c.phone }}">
+                        <div class="text-danger small mt-2 d-none" data-pms-error></div>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+
+          {% elif s.key == 'recinto' %}
+            <div class="modal fade" id="mdl-recinto" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content">
+                  <form data-pms-form data-section="recinto">
+                    <input type="hidden" name="venue_id" value="{{ s.venue_id }}" data-pms-venue-id>
+                    <div class="modal-header">
+                      <h5 class="modal-title"><i class="fa fa-location-dot me-1"></i>El recinto</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                      <label class="form-label small mb-1">Busca el recinto</label>
+                      <input class="form-control" data-pms-venue-q placeholder="Escribe su nombre o el municipio…"
+                             autocomplete="off">
+                      <div class="list-group mt-1 d-none" data-pms-venue-hits style="max-height:14rem;overflow:auto;"></div>
+                      <div class="form-text mb-3">Si no aparece, escríbelo abajo y lo damos de alta.</div>
+
+                      <div class="row g-2">
+                        <div class="col-12">
+                          <label class="form-label small mb-1">Nombre del recinto</label>
+                          <input class="form-control" name="name" value="{{ s.name }}" required data-pms-venue-name>
+                        </div>
+                        <div class="col-12">
+                          <label class="form-label small mb-1">Dirección</label>
+                          <input class="form-control" name="address" value="{{ s.address }}" data-pms-venue-address>
+                        </div>
+                        <div class="col-6 col-md-3">
+                          <label class="form-label small mb-1">C. postal</label>
+                          <input class="form-control" name="postal_code" value="{{ s.postal_code }}" data-pms-venue-cp>
+                        </div>
+                        <div class="col-6 col-md-5">
+                          <label class="form-label small mb-1">Municipio</label>
+                          <input class="form-control" name="municipality" value="{{ s.municipality }}" data-pms-venue-city>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label small mb-1">Provincia</label>
+                          <input class="form-control" name="province" value="{{ s.province }}" data-pms-venue-prov>
+                        </div>
+                      </div>
+                      <div class="text-danger small mt-2 d-none" data-pms-error></div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">Guardar</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+          {% elif s.key == 'anuncio' %}
+            <div class="modal fade" id="mdl-anuncio" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                  <form data-pms-form data-section="anuncio">
+                    <div class="modal-header">
+                      <h5 class="modal-title"><i class="fa fa-bullhorn me-1"></i>Fecha de anuncio</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                      <label class="form-label small mb-1">¿Qué día se anuncia?</label>
+                      <input class="form-control mb-2" type="date" name="date" value="{{ s.date_iso }}" required
+                             {% if concert.date %}max="{{ concert.date.isoformat() }}"{% endif %}>
+                      <label class="form-label small mb-1">Hora <span class="text-muted">(si hay una hora pactada)</span></label>
+                      <input class="form-control" type="time" name="time" value="{{ s.time }}">
+                      <div class="text-danger small mt-2 d-none" data-pms-error></div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">Guardar</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+          {% elif s.key == 'venta' %}
+            <div class="modal fade" id="mdl-venta" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content">
+                  <form data-pms-form data-section="venta">
+                    <div class="modal-header">
+                      <h5 class="modal-title"><i class="fa fa-ticket me-1"></i>Salida a la venta</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                      <label class="form-label small mb-1">¿Cuándo salen las entradas?</label>
+                      <input class="form-control mb-3" type="date" name="date" value="{{ s.date_iso }}">
+                      <label class="form-label small mb-1">¿Dónde se compran?</label>
+                      <div data-pms-links>
+                        {% for l in (s.links or [{'name': '', 'url': ''}]) %}
+                          <div class="d-flex gap-2 mb-2" data-pms-link-row>
+                            <input class="form-control" name="link_name[]" placeholder="Ticketera" value="{{ l.name }}"
+                                   style="flex:0 0 11rem;">
+                            <input class="form-control" name="link_url[]" placeholder="https://…" value="{{ l.url }}">
+                            <button type="button" class="btn btn-outline-secondary" data-pms-link-del
+                                    title="Quitar"><i class="fa fa-xmark"></i></button>
+                          </div>
+                        {% endfor %}
+                      </div>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" data-pms-link-add>
+                        <i class="fa fa-plus me-1"></i>Añadir otra
+                      </button>
+                      <div class="text-danger small mt-2 d-none" data-pms-error></div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">Guardar</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-success">
+        <i class="fa fa-circle-check me-1"></i>No nos falta nada por tu parte. ¡Gracias!
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.querySelector('[data-pms]');
+  if (!root) return;
+  var urlSave = root.getAttribute('data-url-save');
+  var urlVenues = root.getAttribute('data-url-venues');
+  var urlVenueNew = root.getAttribute('data-url-venue-new');
+
+  function error(form, msg) {
+    var caja = form.querySelector('[data-pms-error]');
+    if (!caja) { alert(msg); return; }
+    caja.textContent = msg;
+    caja.classList.remove('d-none');
+  }
+
+  // ⚠️ DELEGADO en `document`: los pop-ups se pintan de una vez, pero las filas de enlaces se
+  // añaden y se quitan, así que un listener pegado a un nodo moriría con él.
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target.closest('[data-pms-form]');
+    if (!form) return;
+    // ⚠️ `stopImmediatePropagation`: el loader y el motor de AJAX escuchan `submit` en document.
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    var caja = form.querySelector('[data-pms-error]');
+    if (caja) caja.classList.add('d-none');
+    var seccion = form.getAttribute('data-section');
+    var btn = form.querySelector('button[type="submit"]');
+    var previo = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Guardando…'; }
+
+    function guarda() {
+      var datos = new FormData(form);
+      datos.append('section', seccion);
+      return fetch(urlSave, { method: 'POST', body: datos })
+        .then(function (r) { return r.json().catch(function () { return null; }); })
+        .then(function (d) {
+          if (btn) { btn.disabled = false; btn.innerHTML = previo; }
+          if (!d || !d.ok) { error(form, (d && d.error) || 'No se pudo guardar.'); return; }
+          // ⚠️ Se recarga: así lo que se ve es EXACTAMENTE lo que hay guardado, sin una segunda
+          // verdad pintada por el navegador.
+          var u = new URL(window.location.href);
+          u.searchParams.set('ok', d.section || '1');
+          u.hash = d.section || '';
+          window.location.href = u.toString();
+        })
+        .catch(function () {
+          if (btn) { btn.disabled = false; btn.innerHTML = previo; }
+          error(form, 'No se pudo guardar.');
+        });
+    }
+
+    // ⚠️⚠️ UN RECINTO QUE NO ESTÁ EN NUESTRA BASE SE DA DE ALTA **ANTES** DE GUARDAR, y en serie: si
+    // el alta fuese en paralelo, el dato se guardaría sin su `venue_id` y el recinto nuevo quedaría
+    // suelto (creado pero sin atar a la actividad). Si el alta falla, se guarda igual con el nombre
+    // a mano: perder lo que ha escrito por eso sería lo peor.
+    var idRecinto = form.querySelector('[data-pms-venue-id]');
+    var nombreRecinto = form.querySelector('[data-pms-venue-name]');
+    if (seccion === 'recinto' && nombreRecinto && idRecinto && !idRecinto.value.trim()) {
+      var fd = new FormData();
+      fd.append('name', nombreRecinto.value);
+      fd.append('address', (form.querySelector('[data-pms-venue-address]') || {}).value || '');
+      fd.append('postal_code', (form.querySelector('[data-pms-venue-cp]') || {}).value || '');
+      fd.append('municipality', (form.querySelector('[data-pms-venue-city]') || {}).value || '');
+      fd.append('province', (form.querySelector('[data-pms-venue-prov]') || {}).value || '');
+      fetch(urlVenueNew, { method: 'POST', body: fd })
+        .then(function (r) { return r.json().catch(function () { return null; }); })
+        .then(function (d) {
+          if (d && d.ok && d.venue && d.venue.id) idRecinto.value = d.venue.id;
+        })
+        .catch(function () {})
+        .then(guarda);
+      return;
+    }
+    guarda();
+  }, true);
+
+  // ---------- Los ENLACES de venta: filas que se añaden y se quitan ----------
+  document.addEventListener('click', function (ev) {
+    var add = ev.target.closest('[data-pms-link-add]');
+    if (add) {
+      var zona = add.parentElement.querySelector('[data-pms-links]');
+      var fila = zona.querySelector('[data-pms-link-row]');
+      var nueva = fila.cloneNode(true);
+      nueva.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+      zona.appendChild(nueva);
+      return;
+    }
+    var del = ev.target.closest('[data-pms-link-del]');
+    if (del) {
+      var zona2 = del.closest('[data-pms-links]');
+      var filas = zona2.querySelectorAll('[data-pms-link-row]');
+      if (filas.length > 1) { del.closest('[data-pms-link-row]').remove(); }
+      else { filas[0].querySelectorAll('input').forEach(function (i) { i.value = ''; }); }
+      return;
+    }
+    // Elegir un recinto de los que salen al buscar.
+    var hit = ev.target.closest('[data-pms-venue-pick]');
+    if (hit) {
+      var caja = hit.closest('.modal');
+      var v = JSON.parse(hit.getAttribute('data-pms-venue-pick'));
+      caja.querySelector('[data-pms-venue-id]').value = v.id || '';
+      caja.querySelector('[data-pms-venue-name]').value = v.name || '';
+      caja.querySelector('[data-pms-venue-address]').value = v.address || '';
+      caja.querySelector('[data-pms-venue-cp]').value = v.postal_code || '';
+      caja.querySelector('[data-pms-venue-city]').value = v.municipality || '';
+      caja.querySelector('[data-pms-venue-prov]').value = v.province || '';
+      caja.querySelector('[data-pms-venue-hits]').classList.add('d-none');
+    }
+  });
+
+  // ---------- El BUSCADOR de recintos ----------
+  var q = document.querySelector('[data-pms-venue-q]');
+  if (q) {
+    var t = null;
+    q.addEventListener('input', function () {
+      clearTimeout(t);
+      var texto = q.value.trim();
+      var hits = document.querySelector('[data-pms-venue-hits]');
+      // Escribir a mano un recinto nuevo desata el vínculo con el de la base: si no, se guardaría
+      // el id de otro con el nombre cambiado.
+      if (texto.length < 2) { hits.classList.add('d-none'); return; }
+      t = setTimeout(function () {
+        var fd = new FormData(); fd.append('q', texto);
+        fetch(urlVenues, { method: 'POST', body: fd })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d || !d.ok) return;
+            if (!d.venues.length) {
+              hits.innerHTML = '<div class="list-group-item text-muted small">No lo tenemos. Escríbelo abajo y lo damos de alta.</div>';
+            } else {
+              hits.innerHTML = d.venues.map(function (v) {
+                var sitio = [v.municipality, v.province].filter(Boolean).join(' · ');
+                return '<button type="button" class="list-group-item list-group-item-action pms-venue-hit" ' +
+                  'data-pms-venue-pick=\'' + JSON.stringify(v).replace(/'/g, '&#39;') + '\'>' +
+                  '<strong>' + (v.name || '') + '</strong>' +
+                  (sitio ? '<span class="text-muted small"> · ' + sitio + '</span>' : '') +
+                  '</button>';
+              }).join('');
+            }
+            hits.classList.remove('d-none');
+          }).catch(function () {});
+      }, 300);
+    });
+  }
+
+  // ⚠️ Un recinto que NO está en nuestra base se da de alta al guardar: si el nombre escrito ya no
+  // es el del recinto elegido, se suelta el vínculo y se crea (o se reutiliza el que haya).
+  var nombre = document.querySelector('[data-pms-venue-name]');
+  if (nombre) {
+    var original = nombre.value;
+    nombre.addEventListener('input', function () {
+      if (nombre.value.trim() !== original.trim()) {
+        var id = document.querySelector('[data-pms-venue-id]');
+        if (id) id.value = '';
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

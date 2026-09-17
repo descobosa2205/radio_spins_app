@@ -163,6 +163,7 @@ from models import (
     ArtistEmail,
     ArtistNotificationContact,
     ConcertArtistNotification,
+    ConcertPromoterNotification,
     ensure_artist_notifications_schema,
     ArtistContract,
     ArtistContractCommitment,
@@ -532,6 +533,10 @@ _CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_
     "public_contract_sheet_draft",
     "public_contract_sheet_venues",
     "public_contract_sheet_venue_create",
+    # LA FICHA DEL PROMOTOR: sus tres POST son públicos (sin sesión de la casa).
+    "public_promoter_sheet_save",
+    "public_promoter_sheet_venues",
+    "public_promoter_sheet_venue_create",
     "public_contract_sheet_company",
     "public_bag_expense_document_upload",
     "public_invitation_guest_list_status",
@@ -982,7 +987,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -6920,6 +6925,9 @@ def _sheet_merge_candidates(data: dict) -> dict:
         'doors_time': (data.get('gala_doors_time') or '').strip() or None,
         'capacity': (data.get('gala_capacity') or '').strip() or None,
         'announcement_date': (data.get('promotion_announcement_date') or '').strip() or None,
+        # ⚠️ La HORA va con su fecha: son el mismo dato («Anuncio: 09/10/2026 · 12:00») y separarlas
+        # dejaría una hora de un plan que ya no existe.
+        'announcement_time': (data.get('promotion_announcement_time') or '').strip() or None,
         'sale_start_date': (data.get('promotion_sale_date') or '').strip() or None,
     }
 
@@ -6945,6 +6953,7 @@ def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[di
         'doors_time': (getattr(concert, 'doors_time', None) or '').strip() or None,
         'capacity': str(getattr(concert, 'capacity', None)) if getattr(concert, 'capacity', None) is not None else None,
         'announcement_date': concert.announcement_date.isoformat() if getattr(concert, 'announcement_date', None) else None,
+        'announcement_time': (getattr(concert, 'announcement_time', None) or '').strip() or None,
         'sale_start_date': concert.sale_start_date.isoformat() if getattr(concert, 'sale_start_date', None) else None,
     }
     labels = {
@@ -6959,6 +6968,7 @@ def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[di
         'doors_time': 'Hora apertura puertas',
         'capacity': 'Aforo',
         'announcement_date': 'Fecha de anuncio',
+        'announcement_time': 'Hora del anuncio',
         'sale_start_date': 'Fecha salida a la venta',
     }
     for field, new_value in candidates.items():
@@ -57000,11 +57010,13 @@ def _peticion_accept_tasks(session_db, r, concert=None, *, for_user=None) -> lis
     if falta_promotor:
         quien = _peticion_accept_contact(session_db, r, concert)
         libre = not falta_artista_ok
+        # ⚠️⚠️ SE LE CONFIRMA CON EL AVISO DE LA APP (sep 2026), no con un correo escueto: vista
+        # previa, canal, nota y —lo propio de este— las secciones de datos que se le piden. Marcarlo
+        # a mano sigue estando al lado, como acción secundaria (una llamada también vale).
         añade("promotor", who=quien.get("name") or "", contact=quien.get("contact") or "",
               blocked=bool(falta_artista_ok),
               blocked_reason=("Primero tiene que confirmar el artista." if falta_artista_ok else ""),
-              send_url=(url_for("booking_request_acceptance_send", rid=str(r.id))
-                        if (libre and (quien.get("email") or quien.get("phone"))) else ""),
+              notify_url=(url_for("concert_promoter_notice_view", cid=concert.id) if libre else ""),
               done_url=(url_for("booking_request_acceptance_notified", rid=str(r.id)) if libre else ""))
     # ---- 4 · LAS DOS ÚLTIMAS, a la par: se abren al confirmar al promotor.
     bloqueo4 = bool(falta_promotor or falta_artista_ok)
@@ -57540,7 +57552,7 @@ def _concert_task_board(session_db, concert) -> dict:
 
     def suelta(key, n, label, icon, url="", modal="", action_label="", hint="", do="",
                perm="concerts", area=CONCERT_TASK_AREA_CONTRATACION, ver_siempre=False,
-               blocked=False, blocked_reason=""):
+               blocked=False, blocked_reason="", done_url="", done_label=""):
         """Una tarea DEL DEPARTAMENTO (no es de nadie en concreto).
 
         ⚠️⚠️ **TODAS SE PUEDEN HACER DESDE AQUÍ**: cada una lleva cómo se resuelve —un `url` a donde
@@ -57562,6 +57574,10 @@ def _concert_task_board(session_db, concert) -> dict:
                       "blocked_reason": (blocked_reason or ""), "owner_nick": "",
                       "owner_user_id": "", "nudge_url": "", "url": url, "modal": modal,
                       "action_label": action_label, "hint": hint, "generic": True,
+                      # ⚠️ El SEGUNDO botón de una tarea: «ya está hecho» sin salir de aquí (lo que
+                      # se hace fuera de la app —una llamada— también cuenta). Su rótulo dice QUÉ se
+                      # da por hecho: «Ya está hecho» a secas no se entiende en una lista de pasos.
+                      "done_url": done_url, "done_label": done_label,
                       "do": do, "perm": perm})
 
     def ya_esta(key, n, label, icon, *, at=None, by="", nota=""):
@@ -57601,6 +57617,38 @@ def _concert_task_board(session_db, concert) -> dict:
                              if (_conf["asked"] and not _conf["answered"]) else
                              ("Dijo que NO: %s" % _conf["note"]) if (_conf["answered"] and _conf["note"])
                              else "La fecha y que lo quiere hacer"))
+        # ⚠️⚠️ «CONFIRMAR AL PROMOTOR» SALE EN TODAS las que tengan promotor (sep 2026, lo pidió
+        # Dani), no solo en las que vienen de una petición: el artista dice que sí y lo siguiente es
+        # confirmárselo a quien la compra. Dos botones, como se pidió: **notificárselo** desde la app
+        # (el aviso, con sus datos pendientes) o **marcar que ya se le ha confirmado** por teléfono.
+        # ⚠️ BLOQUEADA hasta que el artista haya dicho que sí: no se compromete una fecha con nadie
+        # de fuera antes. Si a esta actividad no le toca pedirle confirmación al artista (un evento,
+        # el histórico), no hay nada que esperar y sale libre.
+        if _promoter_notice_applies(session_db, concert):
+            _prom = _promoter_confirm_state(session_db, concert)
+            if _prom["notified"]:
+                ya_esta("promotor", 4, "Confirmar al promotor", "fa-handshake",
+                        at=_prom["at"], by=(_prom["by"] or ""),
+                        nota=("se le confirmó a mano" if _prom["manual"]
+                              else ("a %s" % _prom["to_label"] if _prom["to_label"] else "")))
+            else:
+                _falta_artista = (_artist_confirm_applies(session_db, concert)
+                                  and not _artist_confirmation_state(session_db, concert)["ok"])
+                suelta("promotor", 4, "Confirmar al promotor", "fa-handshake",
+                       url=url_for("concert_promoter_notice_view", cid=concert.id),
+                       action_label="Notificar al promotor",
+                       hint="Que la fecha sale adelante",
+                       blocked=_falta_artista,
+                       blocked_reason=("Primero tiene que confirmar el artista." if _falta_artista else ""),
+                       done_url=url_for("concert_promoter_notice_ack", cid=concert.id),
+                       done_label="Ya se lo he confirmado")
+        # ⚠️ Lo que ha subido el promotor por su ficha: revisarlo es un paso del proceso, no un
+        # aviso suelto. Desaparece solo al revisarlo (se mira el dato).
+        _rev = _promoter_sheet_pending(session_db, concert)
+        if _rev["pending"]:
+            suelta("revisar_promotor", 4, "Revisar los datos que ha subido el promotor",
+                   "fa-clipboard-check", url=_rev["url"], action_label="Revisarlos",
+                   hint=("%d %s" % (_rev["fields"], "dato" if _rev["fields"] == 1 else "datos")))
         if not confirmada:
             # Se confirma AQUÍ MISMO (el mismo camino que la etiqueta de estado, con su compuerta
             # del aviso al artista).
@@ -57912,62 +57960,11 @@ def booking_request_artist_agreed(rid):
     return redirect(next_url)
 
 
-@app.post("/peticiones/<rid>/confirmar-promotor", endpoint="booking_request_acceptance_send")
-@admin_required
-def booking_request_acceptance_send(rid):
-    """CONFIRMA al promotor (por su canal: correo o SMS) que la actividad sale adelante, y da la
-    subtarea por hecha. Comunicar y marcar son la misma cosa vista de dos formas: si el aviso sale,
-    la subtarea desaparece."""
-    session_db = db()
-    next_url = safe_next_or(url_for("home"))
-    try:
-        r = session_db.get(BookingRequest, to_uuid(rid))
-        if not r:
-            abort(404)
-        estado = _peticion_accept_owner_or_403(session_db, r)
-        if estado is None:
-            flash("Esa petición no la has hecho tú.", "danger")
-            return redirect(url_for("home"))
-        concert = session_db.get(Concert, r.concert_id) if r.concert_id else None
-        # ⚠️ PRIMERO EL ARTISTA: no se le confirma nada al promotor sin que el artista haya dicho que
-        # sí a la fecha. Lo comprueba el SERVIDOR (esconder el botón no basta).
-        if not getattr(r, "artist_agreed_at", None):
-            flash("Antes de confirmar al promotor tiene que confirmar el artista.", "warning")
-            return redirect(next_url)
-        quien = _peticion_accept_contact(session_db, r, concert)
-        if not quien.get("email") and not quien.get("phone"):
-            flash("No hay correo ni teléfono de quien la pidió: confírmaselo tú y marca la tarea.",
-                  "warning")
-            return redirect(next_url)
-        fila = (_notify_apply_prefs(session_db, [{
-            "name": quien.get("name") or "", "email": quien.get("email") or "",
-            "phone": quien.get("phone") or "",
-        }]) or [{}])[0]
-        asunto = "Confirmada · %s" % (r.subject or "Tu petición")
-        html_cuerpo = _peticion_acceptance_email_html(session_db, r, quien, concert)
-        fecha = ((concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "")
-                 or (r.requested_date.strftime("%d/%m/%Y") if r.requested_date else ""))
-        sms = "%s: confirmado, sale adelante%s." % ((r.subject or "Tu petición"),
-                                                    (" (%s)" % fecha if fecha else ""))
-        ok, err = _notify_send_row(session_db, fila, subject=asunto, html=html_cuerpo,
-                                   sms_text=sms, kind="PETICION")
-        if not ok:
-            flash("No se pudo confirmar: %s" % (err or "el aviso no salió"), "danger")
-            return redirect(next_url)
-        r.acceptance_notified_at = _now_madrid()
-        r.acceptance_notified_by_nick = estado.get("nick") or estado.get("email") or ""
-        _notify_resolve(session_db, "peticion_aceptada", str(r.id))
-        session_db.commit()
-        flash("Confirmado por %s." % (
-            "SMS" if (fila.get("channel") or "EMAIL") == "SMS" else "correo"), "success")
-    except Exception as exc:
-        session_db.rollback()
-        app.logger.exception("[peticiones] no se pudo confirmar al promotor")
-        flash(f"No se pudo confirmar: {exc}", "danger")
-    finally:
-        session_db.close()
-    return redirect(next_url)
-
+# ⚠️⚠️ EL CORREO ESCUETO DE «Confirmada · tu petición» SE RETIRÓ (sep 2026). Confirmarle la
+# actividad al promotor es ahora el AVISO de la app (`concert_promoter_notice_view`): mismo motor y
+# misma estética que el aviso al artista, con vista previa, canal, nota y las secciones de datos que
+# se le piden. Tener dos correos distintos para lo mismo era garantizar que acabaran diciendo cosas
+# distintas. El botón de «ya se lo he confirmado yo» se mantiene (aquí abajo).
 
 @app.post("/peticiones/<rid>/promotor-confirmado", endpoint="booking_request_acceptance_notified")
 @admin_required
@@ -70256,6 +70253,15 @@ def concert_detail_view(cid):
             # FASES de la petición de la que salió (si salió de una): confirmar con el artista y
             # confirmar al promotor, en ese orden. Las otras dos ya tienen su botón en la barra.
             peticion_phases=_concert_peticion_phases(session, c),
+            # ⚠️⚠️ CONFIRMAR AL PROMOTOR SALE EN TODAS las que tengan promotor (sep 2026, lo pidió
+            # Dani), no solo en las de petición. Punto único `_promoter_confirm_state`: el botón
+            # «Notificar al promotor» está en la barra HASTA que queda confirmado y entonces
+            # DESAPARECE de los destacados —queda la etiqueta verde—, que es la regla que ya siguen
+            # el aviso al artista y la ficha de contratación: lo hecho no ocupa sitio.
+            promoter_state=_promoter_confirm_state(session, c),
+            # Y si el promotor ha subido datos desde su ficha, hay que REVISARLOS antes de que se
+            # carguen: aviso y botón a la pantalla de comparación de siempre.
+            promoter_data_pending=_promoter_sheet_pending(session, c),
             # PESTAÑA «INICIO»: las tareas de la actividad paso a paso (solo se calcula en su
             # pestaña; recorre el estado de la actividad y de su petición).
             task_board=(_concert_task_board(session, c) if tab == "inicio" else None),
@@ -79695,6 +79701,9 @@ CONTRACT_SHEET_GROUPS = [
         ("promotion_sale_date", "Fecha de salida a la venta", "text"),
         ("ticketing_points_of_sale", "Puntos de venta", "long"),
         ("ticketing_ticketers", "Ticketeras", "list"),
+        # ⚠️ DÓNDE SE COMPRAN: la ticketera y su enlace, que es lo que le pedimos al promotor en su
+        # ficha de datos pendientes. Al consolidar se escriben en `ConcertTicketer.sale_url`.
+        ("ticketing_sale_links", "Enlaces de venta", "links"),
         ("ticketing_box_office", "Taquilla física", "bool"),
         ("ticketing_has_mg", "¿Hay entradas con M&G?", "bool"),
         ("ticketing_mg_qty", "Entradas con M&G", "text"),
@@ -79709,6 +79718,12 @@ CONTRACT_SHEET_GROUPS = [
         ("promotion_phone", "Teléfono", "text"),
     ]},
     {"key": "carteleria", "title": "Anuncio y cartelería", "icon": "fa-image", "fields": [
+        # ⚠️⚠️ LA FECHA DE ANUNCIO ESTABA EN LA FICHA PERO NO EN EL CATÁLOGO: se sembraba
+        # (`_concert_contract_sheet_seed`) y se consolidaba (`_sheet_merge_candidates`), pero al no
+        # estar aquí **no se comparaba en la pantalla de revisión**, así que lo que mandara el
+        # promotor no se podía aceptar. La hora es nueva y va con ella (`Concert.announcement_time`).
+        ("promotion_announcement_date", "Fecha de anuncio", "text"),
+        ("promotion_announcement_time", "Hora del anuncio", "text"),
         ("promotion_poster_logos", "Datos que deben aparecer en el cartel", "long"),
         ("poster_responsible", "Responsable de cartelería", "text"),
         ("poster_email", "Email", "text"),
@@ -79739,6 +79754,14 @@ CONTRACT_SHEET_GROUPS = [
 CONTRACT_SHEET_LABELS = {k: (lab, kind, g["title"])
                          for g in CONTRACT_SHEET_GROUPS for k, lab, kind in g["fields"]}
 
+# ⚠️⚠️ CAMPOS SATÉLITE: los que VIAJAN CON otro al aceptarlo en la pantalla de comparación, porque
+# no se pintan solos (un id no se le enseña a nadie) pero son parte del mismo dato.
+# Hoy solo uno: el RECINTO que el promotor ha elegido de NUESTRA base de datos (`gala_venue_id`) va
+# con su nombre (`gala_venue`). Sin esto se aceptaba el nombre y el vínculo con la ficha del recinto
+# se quedaba fuera —la actividad se quedaba con el recinto «a mano»—, que es justo lo que se
+# arregló para que el promotor pudiera elegirlo de la base (bug real, lo cazó `check_promotor.py`).
+CONTRACT_SHEET_SATELLITE_FIELDS = {"gala_venue": ("gala_venue_id",)}
+
 
 def _contract_sheet_choice_label(key: str, value) -> str:
     """La etiqueta legible de una opción («PROMOTER» → «El promotor»)."""
@@ -79757,6 +79780,17 @@ def _contract_sheet_show(key: str, value) -> str:
         return _contract_sheet_choice_label(key, value)
     if kind == "bool":
         return "Sí" if _truthy(value) else "No"
+    if kind == "links":
+        # [{"name": "Enterticket", "url": "https://…"}] → «Enterticket: https://…»
+        filas = []
+        for x in (value if isinstance(value, list) else []):
+            if not isinstance(x, dict):
+                continue
+            nombre, url = (x.get("name") or "").strip(), (x.get("url") or "").strip()
+            if not url:
+                continue
+            filas.append(("%s: %s" % (nombre, url)) if nombre else url)
+        return " · ".join(filas)
     if kind == "list":
         if isinstance(value, (list, tuple)):
             return ", ".join(str(x) for x in value if str(x or "").strip())
@@ -82511,6 +82545,9 @@ def concert_contract_sheet_review(cid):
                 if (request.form.get("pick_" + clave) or "").strip().lower() != "theirs":
                     continue
                 elegidos[clave] = suyo.get(clave)
+                # Y lo que viaja CON ese campo (el id del recinto con su nombre).
+                for satelite in CONTRACT_SHEET_SATELLITE_FIELDS.get(clave, ()):
+                    elegidos[satelite] = suyo.get(satelite)
                 cambiados.append(fila["label"])
             sheet.data = elegidos
             # Y lo que de esa ficha va al PROPIO CONCIERTO (fecha, recinto, aforo, horas…).
@@ -82521,6 +82558,8 @@ def concert_contract_sheet_review(cid):
             # Y los RESPONSABLES que ha dicho el promotor pasan a ser contactos de la actividad
             # (solo las funciones que estén vacías: lo puesto a mano no se pisa).
             _contactos = _activity_contacts_from_sheet(session, concert, elegidos)
+            # Y los ENLACES DE VENTA que haya dicho pasan a ser los de la actividad (los que falten).
+            _enlaces = _contract_sheet_apply_sale_links(session, concert, elegidos)
             try:
                 session.flush()
                 session.expire(concert, ['venue'])
@@ -82546,6 +82585,8 @@ def concert_contract_sheet_review(cid):
             aviso = "Ficha revisada."
             if _contactos:
                 aviso += " Y se ha puesto de contacto a quien dijo el promotor en: %s." % ", ".join(_contactos)
+            if _enlaces:
+                aviso += " Enlaces de venta puestos: %s." % ", ".join(_enlaces)
             if cambiados:
                 aviso += " Se ha quedado lo del promotor en: " + ", ".join(cambiados[:8])
                 if len(cambiados) > 8:
@@ -96429,7 +96470,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -99281,6 +99322,11 @@ CONTRACTING_TASK_META = {
     # El CONTACTO DE TICKETING del promotor de fuera: sin él no hay a quién pedirle las ventas.
     "TICKETING_CONTACT": ("Sin responsable de ticketing", "fa-address-book",
                           "text-bg-info text-dark", 4),
+    # ⚠️ LO QUE HA SUBIDO EL PROMOTOR desde su ficha: no se carga solo, alguien tiene que revisarlo
+    # y decidir qué se queda (lo pidió Dani). Se mira el DATO (`promoter_data` sin revisar), así que
+    # la tarea desaparece sola al revisarla.
+    "PROMOTER_DATA": ("Datos del promotor por revisar", "fa-clipboard-check",
+                      "text-bg-warning text-dark", 1),
     "INVOICE":    ("Pendiente de facturar", "fa-file-circle-plus", "text-bg-secondary", 5),
     "COLLECT":    ("Pendiente de cobrar", "fa-hourglass-half", "text-bg-warning text-dark", 6),
 }
@@ -99426,7 +99472,11 @@ def _contracting_tasks_data() -> dict:
         # los proveedores, cerrar la bolsa) es de producción y sale en su propia ficha.
         vivas = (session_db.query(Concert)
                  .options(joinedload(Concert.artist), joinedload(Concert.venue),
-                          joinedload(Concert.promoter))
+                          joinedload(Concert.promoter),
+                          # ⚠️ EN BLOQUE: la ficha hace falta para saber si el promotor ha subido
+                          # datos sin revisar, y una consulta por actividad se nota en cada carga de
+                          # Contratación (y en Inicio, y en el cuadro de dirección).
+                          selectinload(Concert.contract_sheet))
                  .filter(or_(Concert.date.is_(None), Concert.date >= hoy))
                  .filter(func.upper(func.coalesce(Concert.status, "")) != "CANCELADO")
                  .order_by(Concert.date.asc().nullslast())
@@ -99475,6 +99525,11 @@ def _contracting_tasks_data() -> dict:
                 if _concert_ticketing_contact_unset(session_db, c,
                                                    group_promoted=grupo_promueve.get(c.id)):
                     kinds.append("TICKETING_CONTACT")
+            # ⚠️ El promotor ha rellenado datos desde su ficha y nadie los ha mirado: hay que
+            # revisarlos ANTES de que se carguen. Va FUERA del `if` del estado: haya que confirmarla
+            # o no, si mandó datos hay que mirarlos igual.
+            if _promoter_sheet_pending(session_db, c)["pending"]:
+                kinds.append("PROMOTER_DATA")
             if not kinds:
                 continue
             tabs = _contracting_activity_tabs(c)
@@ -101298,7 +101353,7 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -101598,9 +101653,11 @@ REQUEST_ANY_ENDPOINTS = {
     # propia tarea desde Inicio. Los dos endpoints comprueban dentro que la petición es suya.
     "booking_request_rejection_send",
     "booking_request_rejection_notified",
-    # ⚠️ Y lo mismo con las subtareas de una petición ACEPTADA: confirmar al promotor es tarea de
-    # quien la pidió (los dos endpoints comprueban dentro que la petición es suya).
-    "booking_request_acceptance_send",
+    # ⚠️ Y lo mismo con las subtareas de una petición ACEPTADA: marcar que ya se le ha confirmado al
+    # promotor es tarea de quien la pidió (el endpoint comprueba dentro que la petición es suya).
+    # ⚠️ COMUNICÁRSELO va por el aviso de la actividad (`concert_promoter_notice_view`), que exige
+    # editar conciertos igual que el aviso al artista de la fase anterior: son la misma pantalla y
+    # el mismo permiso, así que no se pueden desparejar.
     "booking_request_acceptance_notified",
     "booking_request_artist_agreed",
     # ⚠️ MARCAR MONTADA la logística de un proyecto es la tarea de QUIEN LA LLEVA (producción), que no
@@ -123396,6 +123453,11 @@ ACTIVITY_NOTICE_MODULES = [
     ("anuncio", "El anuncio"),
     ("descripcion", "Descripción"),
     ("cache", "Caché"),
+    # ⚠️ EL CALENDARIO DE PAGOS DEL CACHÉ (sep 2026, lo pidió Dani): cuándo hay que pagar cada
+    # plazo. Solo se compone en el aviso AL PROMOTOR —es quien paga— y solo si hay caché de pago y
+    # está configurado (`_concert_cache_payment_state`); como cualquier otro módulo, se puede dejar
+    # fuera con su ojo.
+    ("pagos", "Calendario de pagos del caché"),
     ("comisiones", "Comisiones"),
     # ⚠️ Los «otros gastos» van aparte de las comisiones: no son lo mismo (sep 2026).
     ("gastos", "Otros gastos"),
@@ -125061,6 +125123,59 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
                    'Rechazar</span>')
                 + '</div>')
 
+    # ---- LO QUE NOS FALTA (solo en el aviso al PROMOTOR) -------------------------------------
+    # ⚠️⚠️ Cada sección enseña LO QUE YA TENEMOS y lo que falta, con su botón «Cumplimentar» a su
+    # ficha. Enseñar lo que ya sabemos no es relleno: es como se corrige un teléfono viejo sin tener
+    # que escribirlo todo otra vez, y es lo que pidió Dani («se mostrarán los contactos que ya
+    # tenemos en esas categorías y aparecerán los que están pendientes»).
+    # ⚠️ En la VISTA PREVIA los botones se pintan sin enlace (todavía no hay token) y cada sección
+    # lleva su ojo para dejarla fuera, igual que un módulo.
+    for _sec in (ctx.get("ask_sections") or []):
+        _clave = "ask:" + str(_sec.get("key") or "")
+        if _clave in ocultos and not preview:
+            continue
+        _op = "opacity:.35;" if (preview and _clave in ocultos) else ""
+        _oc = ' data-notice-hidden="1"' if _clave in ocultos else ""
+        _ico = _notice_icon(_sec.get("icon") or "", size=15, color=BRAND_BLUE_DARK)
+        _cuerpo = ""
+        # Lo que YA TENEMOS, para que lo vea (y lo corrija si hace falta).
+        if _sec.get("have_rows"):
+            _cuerpo += filas_html(_sec["have_rows"])
+        # Lo que FALTA, en ámbar: es lo que se le pide.
+        if _sec.get("missing_rows"):
+            _cuerpo += ('<div style="margin-top:10px;padding:10px 12px;border-radius:10px;'
+                        'background:#fff8e6;border:1px solid #f2d492;">'
+                        '<div style="font-size:12px;font-weight:700;color:#8a6100;margin-bottom:4px;">'
+                        + esc(_sec.get("missing_title") or "Nos falta") + '</div>'
+                        + "".join(
+                            '<div style="font-size:14px;color:#5c4200;padding:2px 0;">· %s</div>' % esc(x)
+                            for x in _sec["missing_rows"])
+                        + '</div>')
+        if (_sec.get("text") or "").strip():
+            _cuerpo += ('<div style="margin-top:8px;font-size:13px;color:#6b7683;">'
+                        + esc(_sec["text"]) + '</div>')
+        _url = (_sec.get("url") or "").strip()
+        _cuerpo += ('<div style="margin-top:12px;text-align:right;">'
+                    + (f'<a href="{esc(_url)}" style="display:inline-block;padding:10px 16px;'
+                       f'background:{BRAND_BLUE};color:#fff;text-decoration:none;border-radius:9px;'
+                       'font-weight:700;font-size:14px;">Cumplimentar</a>' if _url else
+                       f'<span style="display:inline-block;padding:10px 16px;background:{BRAND_BLUE};'
+                       'color:#fff;border-radius:9px;font-weight:700;font-size:14px;">Cumplimentar</span>')
+                    + '</div>')
+        _cab = (
+            f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            f'style="border-collapse:collapse;background:{BRAND_BLUE_SOFT};border-radius:10px;">'
+            f'<tr><td style="font-size:14px;font-weight:800;color:{BRAND_BLUE_DARK};padding:7px 10px;">'
+            + (('<span style="margin-right:6px;">%s</span>' % _ico) if _ico else "")
+            + esc(_sec.get("label") or "")
+            + '</td><td align="right" style="padding:7px 10px;">'
+            + ojo(_clave, _sec.get("label") or "") + '</td></tr></table>'
+        )
+        partes.append(f'<div class="an-module" data-notice-module="{esc(_clave)}"{_oc} '
+                      f'style="border:1px solid #e6e8eb;border-radius:14px;padding:6px 6px 12px;'
+                      f'margin:0 0 10px;background:#fff;{_op}">{_cab}'
+                      f'<div style="padding:0 8px;">{_cuerpo}</div></div>')
+
     # ---- BARRA DE BOTONES (de momento solo la hoja de ruta; los futuros van a su derecha) ----
     # ⚠️ Se puede dejar fuera con su OJO, como cualquier otro módulo: si se le manda la hoja de ruta
     # al artista se decide AL COMUNICARLE la actividad, no al crearla.
@@ -126432,6 +126547,1231 @@ def public_activity_notice_og_image(token):
     resp = send_file(BytesIO(data), mimetype="image/jpeg")
     resp.headers["Cache-Control"] = "public, max-age=21600"
     return resp
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CONFIRMARLE LA ACTIVIDAD AL PROMOTOR (y pedirle de paso lo que nos falta)
+#
+# ⚠️⚠️ Cuando el artista ya ha dicho que sí, al promotor hay que confirmarle que la fecha SALE
+# ADELANTE. Hasta ahora eso era una llamada de teléfono y un botón de «ya se lo he dicho». Ahora se
+# le puede comunicar desde la app con el MISMO patrón que el aviso al artista —vista previa, nota,
+# canal y ojos por módulo—, con dos diferencias:
+#   · **NO le pide respuesta** (no hay botones de confirmar/rechazar: se le comunica y ya está), y
+#   · **puede llevar una PETICIÓN DE DATOS**: en la vista previa se marcan las secciones de lo que
+#     nos falta y el correo se las enseña con su botón «Cumplimentar».
+#
+# ⚠️⚠️ LO QUE RELLENA NO SE CARGA SIN MÁS (lo pidió Dani): todo va a `ConcertContractSheet.
+# promoter_data` —el mismo sitio donde cae la ficha de contratación que manda él— y queda
+# **pendiente de revisar** (`promoter_reviewed_at = NULL`), así que sale la tarea «Revisar los datos
+# que ha subido el promotor» y se aplica desde la pantalla de comparación de siempre
+# (`concert_contract_sheet_review`), campo a campo. Nada toca la actividad por la espalda.
+#
+# ⚠️ Y SE VA GUARDANDO SOLO, cosa a cosa: en su ficha no hay botón de guardar ni de enviar (cada
+# pop-up guarda al cerrarse), puede volver a entrar a actualizar lo que sea y **el enlace se
+# desactiva a los 15 días** (`PROMOTER_LINK_DAYS`).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Los días que vale el enlace de la ficha del promotor (lo pidió Dani).
+PROMOTER_LINK_DAYS = 15
+
+# ⚠️⚠️ LO QUE SE LE PUEDE PEDIR, en el orden en que sale. Cada sección se marca (o se desmarca) en
+# la vista previa y **solo aparece si falta algo**: pedirle lo que ya nos ha dado es ruido, y es la
+# forma más rápida de que deje de leer estos correos.
+PROMOTER_ASK_SECTIONS = [
+    ("contactos", "Personas de contacto", "fa-address-book",
+     "Con quién hablamos de cada cosa."),
+    ("recinto", "El recinto", "fa-location-dot",
+     "Dónde se hace, con su dirección."),
+    ("anuncio", "Fecha de anuncio y cartelería", "fa-bullhorn",
+     "Cuándo se anuncia y con qué carteles."),
+    ("venta", "Salida a la venta", "fa-ticket",
+     "Cuándo salen las entradas y dónde se compran."),
+]
+PROMOTER_ASK_LABELS = {k: l for k, l, _i, _h in PROMOTER_ASK_SECTIONS}
+PROMOTER_ASK_ICONS = {k: i for k, _l, i, _h in PROMOTER_ASK_SECTIONS}
+PROMOTER_ASK_KEYS = [k for k, _l, _i, _h in PROMOTER_ASK_SECTIONS]
+
+# ⚠️⚠️ LO NUESTRO NO SALE DE SERIE. El motor del aviso es el MISMO que el del artista, así que trae
+# sus módulos; al promotor no se le manda de primeras lo que es dinero de la casa (el caché, las
+# comisiones, los otros gastos) ni lo que es interno (las notas de contratación). Se pueden encender
+# a propósito con su ojo —hay fechas en las que el caché se le repite adrede—, pero que salgan solas
+# sería mandarle sin querer lo que se apunta en casa. Misma idea que `ACTIVITY_NOTICE_OPT_IN_MODULES`.
+PROMOTER_NOTICE_OPT_IN_MODULES = {"notas", "cache", "comisiones", "gastos", "descripcion"}
+
+
+def _promoter_link_expires_at(desde=None):
+    """Cuándo caduca el enlace de la ficha del promotor."""
+    return (desde or _now_madrid()) + timedelta(days=PROMOTER_LINK_DAYS)
+
+
+def _promoter_notice_applies(session_db, concert) -> bool:
+    """¿Tiene sentido confirmarle la actividad al promotor?
+
+    Hace falta que HAYA promotor (si la promovemos nosotros no hay a quién confirmarle nada) y que
+    la actividad no esté en el histórico ni cancelada. Punto único: lo miran el tablero de tareas,
+    la barra de botones y el propio endpoint."""
+    if concert is None:
+        return False
+    try:
+        if not getattr(concert, "promoter_id", None):
+            return False
+        if _concert_is_legacy(concert):
+            return False
+        if (getattr(concert, "status", None) or "").strip().upper() in ("CANCELADO", "APLAZADO"):
+            return False
+        return True
+    except Exception:
+        app.logger.exception("[promotor] no se pudo mirar si aplica el aviso")
+        return False
+
+
+def _promoter_confirm_state(session_db, concert) -> dict:
+    """¿ESTÁ CONFIRMADO EL PROMOTOR? Punto ÚNICO: de aquí viven la barra de botones, el tablero de
+    tareas y la fase 4 de una petición, así que no pueden decir cosas distintas.
+
+    Se mira el DATO, nunca una marca aparte: vale el aviso que se le ha mandado desde la app
+    (`ConcertPromoterNotification`, con `channel='MANUAL'` cuando se marcó a mano) **y** el
+    `acceptance_notified_at` de la petición de la que salió la actividad, que es donde lo apuntaba
+    lo de antes. Así lo confirmado en su día sigue contando y nadie tiene que volver a marcarlo."""
+    vacio = {"applies": False, "notified": False, "at": None, "at_label": "", "by": "",
+             "manual": False, "to": [], "to_label": "", "token": "", "url": "",
+             "expires_at": None, "expires_label": "", "expired": False, "asked": []}
+    if concert is None:
+        return dict(vacio)
+    try:
+        aplica = _promoter_notice_applies(session_db, concert)
+        fila = (session_db.query(ConcertPromoterNotification)
+                .filter(ConcertPromoterNotification.concert_id == concert.id)
+                .order_by(ConcertPromoterNotification.sent_at.desc()).first())
+        at, por, manual, destinos, token, caduca, pedido = None, "", False, [], "", None, []
+        if fila is not None:
+            at = fila.sent_at
+            por = (fila.sent_by_nick or "")
+            manual = ((fila.channel or "").strip().upper() == "MANUAL")
+            destinos = [d for d in (fila.recipients or []) if isinstance(d, dict)]
+            token = (fila.public_token or "")
+            caduca = fila.expires_at
+            pedido = [str(x) for x in (fila.asked_sections or []) if str(x) in PROMOTER_ASK_LABELS]
+        # La petición de la que salió (donde lo apuntaba lo de antes). Manda lo más reciente.
+        try:
+            r = _peticion_of_concert(session_db, concert.id)
+        except Exception:
+            r = None
+        pet_at = getattr(r, "acceptance_notified_at", None) if r is not None else None
+        if pet_at and not (at and at >= pet_at):
+            at, por, manual, destinos, token, caduca, pedido = (
+                pet_at, (getattr(r, "acceptance_notified_by_nick", None) or ""), True, [], "", None, [])
+        expirado = bool(caduca and caduca <= _now_madrid())
+        return {
+            "applies": aplica,
+            "notified": bool(at),
+            "at": at,
+            "at_label": (at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if at else ""),
+            "by": por,
+            "manual": manual,
+            "to": destinos,
+            "to_label": ", ".join([(d.get("name") or d.get("email") or d.get("phone") or "")
+                                   for d in destinos if d]),
+            "token": token,
+            "url": (_external_url_for("public_promoter_sheet", token=token) if token else ""),
+            "expires_at": caduca,
+            "expires_label": (caduca.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if caduca else ""),
+            "expired": expirado,
+            "asked": pedido,
+        }
+    except Exception:
+        app.logger.exception("[promotor] no se pudo mirar si está confirmado")
+        return dict(vacio)
+
+
+def _promoter_ask_contacts(session_db, concert) -> dict:
+    """LOS CONTACTOS de las funciones preconfiguradas: los que YA TENEMOS y los que FALTAN.
+
+    ⚠️ «Otras personas de contacto» no entra: es el cajón de esa actividad (el técnico de ese día,
+    el del ayuntamiento), no una función que el promotor tenga que cubrir — no se puede decir que
+    «falta».
+    ⚠️ En una actividad GRATUITA no hay ticketing (`_activity_contact_roles_for`): no se venden
+    entradas, así que no hay a quién pedirle las ventas."""
+    hay, faltan = [], []
+    try:
+        for fila in _activity_contacts_context(session_db, concert):
+            if fila.get("role") == "OTROS":
+                continue
+            gente = [g for g in (fila.get("people") or []) if (g.get("name") or g.get("email"))]
+            item = {"role": fila.get("role"), "label": fila.get("label"),
+                    "icon": fila.get("icon"), "help": fila.get("help"),
+                    "people": [{"name": g.get("name") or "", "email": g.get("email") or "",
+                                "phone": g.get("phone") or ""} for g in gente]}
+            (hay if gente else faltan).append(item)
+    except Exception:
+        app.logger.exception("[promotor] no se pudieron leer los contactos")
+    # ⚠️⚠️ La lista se llama `missing_roles`, NO `missing`: en `_promoter_ask_state` **todas** las
+    # secciones llevan un `missing` que es «¿falta algo?» (booleano), y con el mismo nombre el
+    # booleano se comía la lista (bug real, lo cazó la prueba: `'bool' object is not iterable`).
+    # Es la regla de siempre de la casa llevada a un diccionario: una cosa, un nombre.
+    return {"have": hay, "missing_roles": faltan, "rows": hay + faltan}
+
+
+def _promoter_ask_sale_links(session_db, concert) -> list:
+    """LOS ENLACES DE VENTA que ya tenemos (ticketera + su enlace)."""
+    filas = []
+    try:
+        for row in (session_db.query(ConcertTicketer)
+                    .options(joinedload(ConcertTicketer.ticketer))
+                    .filter(ConcertTicketer.concert_id == concert.id).all()):
+            filas.append({"name": (getattr(row.ticketer, "name", None) or "").strip(),
+                          "url": (row.sale_url or "").strip()})
+    except Exception:
+        app.logger.exception("[promotor] no se pudieron leer los enlaces de venta")
+    return filas
+
+
+def _promoter_ask_state(session_db, concert) -> dict:
+    """QUÉ DATOS LE FALTAN A ESTA ACTIVIDAD y se le pueden pedir al promotor. Punto ÚNICO.
+
+    De aquí salen las casillas de la vista previa, los bloques del correo y las secciones de su
+    ficha pública, así que los tres dicen exactamente lo mismo. Cada sección trae:
+      · `missing` — ¿le falta algo? (si no, no se le ofrece: pedirle lo que ya nos dio es ruido)
+      · lo que YA TENEMOS, para que lo vea y lo corrija si hace falta.
+
+    ⚠️⚠️ **SI ES GRATUITA NO HAY SALIDA A LA VENTA** (la regla de siempre de la casa): no se venden
+    entradas, así que esa sección ni se pinta ni se pregunta."""
+    secciones = {}
+    try:
+        # ---- CONTACTOS de las funciones preconfiguradas.
+        contactos = _promoter_ask_contacts(session_db, concert)
+        secciones["contactos"] = dict(contactos, missing=bool(contactos["missing_roles"]))
+
+        # ---- EL RECINTO: el de la base de datos o, al menos, su nombre a mano.
+        nombre_recinto = ""
+        try:
+            nombre_recinto = (_concert_venue_name(concert) or "").strip()
+        except Exception:
+            nombre_recinto = ""
+        secciones["recinto"] = {
+            "missing": not (getattr(concert, "venue_id", None) or nombre_recinto),
+            "venue_id": (str(concert.venue_id) if getattr(concert, "venue_id", None) else ""),
+            "name": nombre_recinto,
+            "address": (_concert_venue_address(concert) or ""),
+            "municipality": (_concert_city(concert) or ""),
+            "province": (_concert_province_value(concert) or ""),
+            "in_database": bool(getattr(concert, "venue_id", None)),
+        }
+
+        # ---- FECHA DE ANUNCIO Y CARTELERÍA: el mismo punto único que el correo de siempre
+        # (`_announce_ask_state`), para no pedirle dos veces lo mismo por dos caminos.
+        anuncio = _announce_ask_state(session_db, concert)
+        secciones["anuncio"] = {
+            "missing": bool(anuncio.get("applies")),
+            "want_announce": bool(anuncio.get("want_announce")),
+            "want_artwork": bool(anuncio.get("want_artwork")),
+            "date": (concert.announcement_date.strftime("%d/%m/%Y")
+                     if getattr(concert, "announcement_date", None) else ""),
+            "time": (getattr(concert, "announcement_time", None) or ""),
+            "artwork_by_promoter": bool(anuncio.get("artwork_by_promoter")),
+        }
+
+        # ---- SALIDA A LA VENTA (nunca en una actividad gratuita).
+        if _concert_is_free(concert):
+            secciones["venta"] = {"missing": False, "applies": False, "links": [], "date": ""}
+        else:
+            enlaces = _promoter_ask_sale_links(session_db, concert)
+            con_enlace = [x for x in enlaces if x.get("url")]
+            fecha = getattr(concert, "sale_start_date", None)
+            secciones["venta"] = {
+                "missing": bool(not fecha or not con_enlace),
+                "applies": True,
+                "date": (fecha.strftime("%d/%m/%Y") if fecha else ""),
+                "tbc": bool(getattr(concert, "sale_start_tbc", False)),
+                "links": enlaces,
+                "has_links": bool(con_enlace),
+            }
+    except Exception:
+        app.logger.exception("[promotor] no se pudo calcular qué pedirle")
+    filas = []
+    for clave, etiqueta, icono, ayuda in PROMOTER_ASK_SECTIONS:
+        datos = secciones.get(clave) or {}
+        if clave == "venta" and not datos.get("applies", True):
+            continue
+        filas.append(dict(datos, key=clave, label=etiqueta, icon=icono, help=ayuda,
+                          missing=bool(datos.get("missing"))))
+    return {"sections": filas,
+            "by_key": {f["key"]: f for f in filas},
+            "missing_keys": [f["key"] for f in filas if f["missing"]],
+            "any_missing": any(f["missing"] for f in filas)}
+
+
+def _promoter_sheet_pending(session_db, concert, sheet=None) -> dict:
+    """¿HAY DATOS DEL PROMOTOR SIN REVISAR? (la tarea «Revisar los datos que ha subido»).
+
+    Se mira el DATO: hay `promoter_data` y no se ha revisado (`promoter_reviewed_at`). Cada vez que
+    el promotor guarda algo nuevo la marca de revisión vuelve a NULL, así que la tarea reaparece
+    sola — y al revisarla desaparece sola, sin que nadie la cierre a mano."""
+    vacio = {"pending": False, "at": None, "at_label": "", "fields": 0, "url": ""}
+    if concert is None:
+        return dict(vacio)
+    try:
+        if sheet is None:
+            sheet = getattr(concert, "contract_sheet", None)
+        if sheet is None:
+            return dict(vacio)
+        datos = sheet.promoter_data if isinstance(sheet.promoter_data, dict) else {}
+        # Solo cuenta lo que tiene valor: un diccionario con claves vacías no es nada que revisar.
+        puestos = [k for k, v in datos.items() if v not in (None, "", [], {})]
+        if not puestos or getattr(sheet, "promoter_reviewed_at", None):
+            return dict(vacio)
+        cuando = getattr(sheet, "updated_at", None)
+        return {"pending": True, "at": cuando,
+                "at_label": (cuando.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if cuando else ""),
+                "fields": len(puestos),
+                "url": url_for("concert_contract_sheet_review", cid=concert.id)}
+    except Exception:
+        app.logger.exception("[promotor] no se pudo mirar si hay datos por revisar")
+        return dict(vacio)
+
+
+# ⚠️ El título del aviso al promotor va APARTE de `ACTIVITY_NOTICE_KINDS` a propósito: ese catálogo
+# es el de los avisos AL ARTISTA y varios caminos validan contra él (`kind not in …`). Meter aquí una
+# clave suya dejaría pedir un aviso al artista de tipo «promotor».
+PROMOTER_NOTICE_TITLE = "Actividad confirmada"
+
+
+def _promoter_notice_intro(concert, *, asking: bool = True) -> str:
+    """EL TEXTO del aviso al promotor (lo dictó Dani, sep 2026).
+
+    ⚠️⚠️ **AL PROMOTOR NO SE LE DICE «EVENTO PROMOCIONAL»**: eso es como lo llamamos NOSOTROS. La
+    palabra sale del punto único `_artwork_activity_word` («el concierto», «el festival», «el
+    evento»…), el mismo que usan el correo de los carteles y la página del anuncio.
+    ⚠️ El GÉNERO se saca del artículo de ese catálogo («la acción» → «esta acción está confirmada»):
+    escrito a mano acabaría en «esta acción está confirmado».
+    ⚠️ Si no se le pide nada, la frase de los datos pendientes **no sale**: mandarle «cumpliméntalos»
+    sin nada que cumplimentar es decirle que haga algo que no existe."""
+    con_articulo = _artwork_activity_word(concert, articulo=True)
+    femenino = con_articulo.strip().lower().startswith("la ")
+    palabra = _artwork_activity_word(concert, articulo=False)
+    demostrativo = "esta" if femenino else "este"
+    confirmado = "confirmada" if femenino else "confirmado"
+    texto = ("Buenas, %s %s está %s, y la fecha reservada. Por favor revisa los datos por si "
+             "hubiera alguna información errónea" % (demostrativo, palabra, confirmado))
+    if asking:
+        texto += " y si hay datos pendientes por favor cumpliméntalos."
+    else:
+        texto += "."
+    # La despedida va siempre: es una carta a alguien de fuera, no un aviso del sistema.
+    return texto + "\n\nMuchas gracias"
+
+
+def _promoter_notice_payment_module(session_db, concert) -> dict | None:
+    """EL CALENDARIO DE PAGOS DEL CACHÉ para el aviso al promotor (lo pidió Dani, sep 2026).
+
+    Es lo que le toca a ÉL —cuándo paga cada plazo—, así que va ENCENDIDO de serie y se apaga con su
+    ojo si no procede. Solo se compone **si hay caché de pago y está configurado**
+    (`_concert_cache_payment_state`, el punto único que ya usan el aviso de la ficha y el tablero de
+    tareas): sin plazos apuntados no hay calendario que mandar, y un módulo vacío es ruido.
+
+    ⚠️ Los importes van con `format_eur`, el MISMO que usa el módulo de caché del aviso
+    (`_cache_row_readable`): escritos a mano, los dos módulos del mismo correo saldrían con formatos
+    distintos."""
+    try:
+        estado = _concert_cache_payment_state(session_db, concert)
+        if not estado.get("applies") or not estado.get("rows"):
+            return None
+        filas = []
+        for pago in _concert_payment_rows(concert):
+            cuando = pago.get("due_date")
+            etiqueta = (pago.get("concept") or "Pago")
+            try:
+                importe = format_eur(pago.get("amount"))
+            except Exception:
+                importe = str(pago.get("amount") or "")
+            filas.append({
+                "label": etiqueta,
+                "value": importe,
+                # La fecha límite con SU DÍA DE LA SEMANA: es lo primero que mira quien lo recibe.
+                "note": (("Fecha límite: %s" % format_date_long_es(cuando)) if cuando else ""),
+            })
+        if not filas:
+            return None
+        return {"key": "pagos", "label": "Calendario de pagos del caché",
+                "icon": "fa-calendar-check", "rows": filas}
+    except Exception:
+        app.logger.exception("[promotor] no se pudo componer el calendario de pagos")
+        return None
+
+
+def _promoter_notice_recipients(session_db, concert) -> list:
+    """A QUIÉN se le confirma la actividad: las personas del promotor que conocemos.
+
+    En cabeza va el contacto de **Contratación** (con quien se cierran el contrato y la facturación,
+    que es de serie el del promotor) y detrás el resto de funciones y el correo de su ficha. Todos
+    con nombre, correo y teléfono, para poder elegir el canal."""
+    filas, vistos = [], set()
+
+    def añade(nombre, correo, telefono, papel=""):
+        correo = (correo or "").strip()
+        telefono = (telefono or "").strip()
+        if not correo and not telefono:
+            return
+        clave = (correo.lower(), _norm_phone_key(telefono) if telefono else "")
+        if clave in vistos:
+            return
+        vistos.add(clave)
+        filas.append({"name": (nombre or "").strip(), "email": correo, "phone": telefono,
+                      "role": papel})
+
+    try:
+        orden = ["CONTRATACION", "PRODUCCION_LOCAL", "PRODUCCION", "TICKETING"]
+        por_rol = {f.get("role"): f for f in _activity_contacts_context(session_db, concert)}
+        for rol in orden:
+            fila = por_rol.get(rol) or {}
+            for g in (fila.get("people") or []):
+                añade(g.get("name"), g.get("email"), g.get("phone"), fila.get("label") or "")
+    except Exception:
+        app.logger.exception("[promotor] no se pudieron leer los contactos para el aviso")
+    try:
+        promotor = _concert_promoter(session_db, concert)
+        if promotor is not None:
+            correo, telefono = _promoter_email_phone(promotor)
+            añade((getattr(promotor, "name", None) or getattr(promotor, "nick", None) or ""),
+                  correo, telefono, "Promotor")
+    except Exception:
+        app.logger.exception("[promotor] no se pudo leer el correo del promotor")
+    return filas
+
+
+def _promoter_notice_ask_rows(session_db, concert, *, keys=(), sheet_url: str = "") -> list:
+    """LAS SECCIONES que van dentro del aviso, ya redactadas: lo que tenemos y lo que falta.
+
+    Punto único del CONTENIDO de la petición: lo usan el correo, la vista previa y la landing, así
+    que los tres enseñan lo mismo. `keys` son las secciones marcadas (si no se pasa ninguna, las
+    que faltan)."""
+    estado = _promoter_ask_state(session_db, concert)
+    elegidas = [k for k in (keys or estado["missing_keys"]) if k in PROMOTER_ASK_LABELS]
+    filas = []
+    for clave in PROMOTER_ASK_KEYS:
+        if clave not in elegidas:
+            continue
+        sec = estado["by_key"].get(clave)
+        if not sec:
+            continue
+        tengo, falta, texto = [], [], ""
+        if clave == "contactos":
+            for item in sec.get("have", []):
+                tengo.append({"label": item.get("label") or "",
+                              "value": " · ".join([p.get("name") or p.get("email") or ""
+                                                   for p in item.get("people", []) if p]),
+                              "note": " · ".join([x for x in [
+                                  (item.get("people") or [{}])[0].get("email") or "",
+                                  (item.get("people") or [{}])[0].get("phone") or ""] if x])})
+            falta = [item.get("label") or "" for item in sec.get("missing_roles", [])]
+            texto = ("Si alguno de los que tenemos ya no es el bueno, se cambia desde ahí."
+                     if tengo else "")
+        elif clave == "recinto":
+            if sec.get("name"):
+                tengo.append({"label": "Recinto", "value": sec["name"],
+                              "note": " · ".join([x for x in [sec.get("address") or "",
+                                                              sec.get("municipality") or ""] if x])})
+            else:
+                falta = ["El recinto donde se hace, con su dirección"]
+            texto = "Si no está en nuestra base de datos, se da de alta desde ahí mismo."
+        elif clave == "anuncio":
+            if sec.get("date"):
+                tengo.append({"label": "Fecha de anuncio", "value": sec["date"],
+                              "note": (("a las %s" % sec["time"]) if sec.get("time") else "")})
+            if sec.get("want_announce"):
+                falta.append("El día (y la hora, si la hay) en que se anuncia")
+            if sec.get("want_artwork"):
+                falta.append("Los carteles con los que se anuncia")
+        elif clave == "venta":
+            if sec.get("date"):
+                tengo.append({"label": "Salida a la venta", "value": sec["date"], "note": ""})
+            for enlace in sec.get("links", []):
+                if enlace.get("url"):
+                    tengo.append({"label": enlace.get("name") or "Venta",
+                                  "value": enlace["url"], "note": ""})
+            if not sec.get("date"):
+                falta.append("Cuándo salen las entradas a la venta")
+            if not sec.get("has_links"):
+                falta.append("Dónde se compran (la ticketera y su enlace)")
+        if not tengo and not falta:
+            continue
+        filas.append({
+            "key": clave, "label": sec.get("label") or "", "icon": sec.get("icon") or "",
+            "have_rows": tengo, "missing_rows": [x for x in falta if x],
+            "missing_title": ("Nos falta" if len(falta) != 1 else "Nos falta"),
+            "text": texto,
+            "url": ((sheet_url + "#" + clave) if sheet_url else ""),
+        })
+    return filas
+
+
+def _promoter_notice_context(session_db, concert, *, keys=(), sheet_url: str = "") -> dict:
+    """Todo lo que necesitan el correo, la vista previa y la ficha del promotor.
+
+    Parte del contexto del aviso de siempre (`_activity_notice_context`) —la misma cabecera, los
+    mismos módulos, la misma estética— y le cambia el título y le añade lo que le pedimos.
+    ⚠️ **No pide respuesta**: `ask=False` a propósito (los botones de Confirmar y Rechazar son del
+    artista; al promotor se le comunica y ya está)."""
+    ctx = _activity_notice_context(session_db, concert, kind="CONFIRMACION")
+    ctx["title"] = PROMOTER_NOTICE_TITLE
+    ctx["kind"] = "PROMOTOR"
+    ctx["ask"] = False
+    ctx["ask_confirm_url"] = ""
+    ctx["ask_reject_url"] = ""
+    ctx["ask_sections"] = _promoter_notice_ask_rows(session_db, concert, keys=keys,
+                                                    sheet_url=sheet_url)
+    # ⚠️ El CALENDARIO DE PAGOS es un módulo más de las condiciones (así se pinta, se oculta con su
+    # ojo y se cuenta igual que los demás, sin tocar el motor). Va justo detrás del caché, que es de
+    # lo que habla.
+    pagos = _promoter_notice_payment_module(session_db, concert)
+    if pagos:
+        condiciones = list(ctx.get("conditions") or [])
+        corte = next((i + 1 for i, m in enumerate(condiciones) if m.get("key") == "cache"), 0)
+        condiciones.insert(corte, pagos)
+        ctx["conditions"] = condiciones
+    return ctx
+
+
+def _promoter_notice_sheet(session_db, concert):
+    """La ficha de contratación donde escribe el promotor (se crea si no la había).
+
+    ⚠️ Es la MISMA fila de siempre (`ConcertContractSheet`): lo que rellene cae en `promoter_data`,
+    que es donde ya cae la ficha que manda él, y se revisa en la misma pantalla. Dos sitios para lo
+    mismo acabarían diciendo cosas distintas."""
+    sheet = getattr(concert, "contract_sheet", None)
+    if sheet is None:
+        sheet = _ensure_internal_contract_sheet(session_db, concert)
+    return sheet
+
+
+@app.get("/conciertos/<cid>/avisar-promotor", endpoint="concert_promoter_notice_view")
+@admin_required
+def concert_promoter_notice_view(cid):
+    """VISTA PREVIA del aviso al promotor: se ve tal como le va a llegar, se elige el canal y a
+    quién, se le añade una nota y **se marca qué datos se le piden**."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para avisar al promotor de una actividad.")
+    session_db = db()
+    try:
+        concert = _concert_for_notice(session_db, cid)
+        if not concert:
+            abort(404)
+        if not _promoter_notice_applies(session_db, concert):
+            flash("Esta actividad no tiene promotor a quien confirmársela.", "warning")
+            return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+        estado = _promoter_confirm_state(session_db, concert)
+        pedir = _promoter_ask_state(session_db, concert)
+        # La primera vista previa sale con lo que FALTA ya marcado: es lo que se va a pedir.
+        marcadas = pedir["missing_keys"]
+        ctx = _promoter_notice_context(session_db, concert, keys=marcadas)
+        historial = (session_db.query(ConcertPromoterNotification)
+                     .filter(ConcertPromoterNotification.concert_id == concert.id)
+                     .order_by(ConcertPromoterNotification.sent_at.desc()).limit(10).all())
+        try:
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+        return render_template(
+            "concert_promoter_notice.html",
+            concert=concert,
+            notice=ctx,
+            notice_channels=ACTIVITY_NOTICE_CHANNELS,
+            notice_modules=ACTIVITY_NOTICE_MODULES,
+            ask_sections=pedir["sections"],
+            ask_default=marcadas,
+            # ⚠️ EL TEXTO sale ESCRITO y se puede retocar, como en todas las previsualizaciones de
+            # la casa (lo pidió Dani). Va en la NOTA, que es lo que el motor pinta bajo el título.
+            default_note=_promoter_notice_intro(concert, asking=bool(marcadas)),
+            recipients=_promoter_notice_recipients(session_db, concert),
+            promoter_state=estado,
+            # ⚠️ Los módulos de dinero y las notas salen APAGADOS de serie: son de la casa. El ojo
+            # los enciende a propósito (misma idea que las notas en el aviso al artista).
+            opt_in_modules=sorted(PROMOTER_NOTICE_OPT_IN_MODULES),
+            preview_html=_promoter_notice_html(ctx, preview=True,
+                                               hidden=PROMOTER_NOTICE_OPT_IN_MODULES),
+            history=historial,
+            sms_gateway=_sms_available(),
+            link_days=PROMOTER_LINK_DAYS,
+            ack_url=url_for("concert_promoter_notice_ack", cid=concert.id),
+        )
+    finally:
+        session_db.close()
+
+
+def _promoter_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
+    """El HTML del aviso al promotor: el MISMO motor que el del artista (`_activity_notice_html`),
+    con sus secciones de «lo que nos falta» dentro. Un solo motor, una sola estética."""
+    return _activity_notice_html(ctx, note=note, hidden=hidden, preview=preview)
+
+
+def _promoter_notice_hidden_from(datos) -> list:
+    """Los módulos ocultos que manda la pantalla: los de siempre y las secciones (`ask:<clave>`)."""
+    crudos = (datos.getlist("hidden") if hasattr(datos, "getlist") else (datos.get("hidden") or []))
+    fuera = []
+    for x in crudos:
+        clave = str(x).strip().lower()
+        if clave in ACTIVITY_NOTICE_MODULE_LABELS:
+            fuera.append(clave)
+        elif clave.startswith("ask:") and clave[4:] in PROMOTER_ASK_LABELS:
+            fuera.append(clave)
+    return fuera
+
+
+@app.post("/conciertos/<cid>/avisar-promotor/previa", endpoint="concert_promoter_notice_preview")
+@admin_required
+def concert_promoter_notice_preview(cid):
+    """Repinta la vista previa al escribir la nota, cambiar los ojos o marcar qué se le pide."""
+    if not can_edit_concerts():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        concert = _concert_for_notice(session_db, cid)
+        if not concert:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        datos = request.get_json(silent=True) if request.is_json else None
+        datos = datos if isinstance(datos, dict) else request.form
+        nota = (datos.get("note") or "").strip()
+        ocultos = _promoter_notice_hidden_from(datos)
+        marcadas = [str(x) for x in (datos.get("sections") or []) if str(x) in PROMOTER_ASK_LABELS]
+        ctx = _promoter_notice_context(session_db, concert, keys=marcadas)
+        return jsonify({"ok": True,
+                        "html": _promoter_notice_html(ctx, note=nota, hidden=ocultos, preview=True)})
+    finally:
+        session_db.close()
+
+
+def _promoter_notice_mark_asked(session_db, concert, secciones, destinos, *, ahora=None) -> None:
+    """Deja apuntado QUÉ se le ha pedido en los sitios de siempre, para no pedírselo dos veces por
+    dos caminos distintos.
+
+    ⚠️⚠️ **EL ANUNCIO Y LOS CARTELES YA TIENEN SU PROPIO CAMINO** (el botón «Solicitar cartelería y
+    fecha de anuncio» de la ficha). Si se le piden desde aquí, se sellan `announce_ask_*` y —cuando
+    los carteles los hace él— se prepara la solicitud de siempre (`ConcertArtworkRequest` con
+    `handled_by='PROMOTER'`), que es la que valida y la que enseña la pestaña de Cartelería. Sin
+    esto, la ficha seguiría diciendo que no se le ha pedido nada y le llegaría un segundo correo
+    pidiéndole lo mismo."""
+    ahora = ahora or _now_madrid()
+    if "anuncio" not in (secciones or []):
+        return
+    try:
+        estado = _announce_ask_state(session_db, concert)
+        correos = [d.get("email") for d in (destinos or []) if d.get("email")]
+        if estado.get("want_artwork"):
+            row = getattr(concert, "artwork_request", None)
+            if not row:
+                row = ConcertArtworkRequest(concert_id=concert.id, public_token=uuid.uuid4().hex)
+                session_db.add(row)
+                session_db.flush()
+            row.handled_by = "PROMOTER"
+            row.status = "REQUESTED"
+            row.recipients_json = correos
+            row.requested_at = ahora
+            row.updated_at = ahora
+            row.event_snapshot = _concert_artwork_snapshot(concert)
+            row.needs_refresh = False
+        if estado.get("want_announce"):
+            _ensure_announce_ask_token(session_db, concert)
+        concert.announce_ask_at = ahora
+        concert.announce_ask_kind = estado.get("kind") or ""
+        concert.announce_ask_by_nick = ((_current_user_state() or {}).get("nick") or "").strip() or None
+        concert.announce_ask_recipients = correos
+    except Exception:
+        app.logger.exception("[promotor] no se pudo apuntar la petición de anuncio y carteles")
+
+
+def _promoter_confirm_apply(session_db, concert, *, nick="") -> None:
+    """Cuando el promotor queda confirmado, la FASE 4 de su petición también (si viene de una).
+
+    Punto único: las dos vías —el aviso desde la app y el «ya se lo he confirmado»— pasan por aquí,
+    así que la fase no se puede quedar colgada en una y cerrada en la otra."""
+    try:
+        r = _peticion_of_concert(session_db, concert.id)
+        if r is None or getattr(r, "acceptance_notified_at", None):
+            return
+        r.acceptance_notified_at = _now_madrid()
+        r.acceptance_notified_by_nick = (nick or "")
+        _notify_resolve(session_db, "peticion_aceptada", str(r.id))
+    except Exception:
+        app.logger.exception("[promotor] no se pudo cerrar la fase de la petición")
+
+
+@app.post("/conciertos/<cid>/avisar-promotor/enviar", endpoint="concert_promoter_notice_send")
+@admin_required
+def concert_promoter_notice_send(cid):
+    """Manda el aviso al promotor y lo deja apuntado (con lo que se le ha pedido).
+
+    ⚠️⚠️ **EL CUERPO SE COMPONE DESPUÉS DE CREAR LA FILA**: el botón «Cumplimentar» de cada sección
+    lleva al enlace de ESTE aviso, así que hace falta tener ya el token (la misma trampa que costó un
+    bug en los botones de confirmar del artista).
+    ⚠️ **NUNCA se dice que ha salido si no salió**: si el correo rebota no se apunta nada."""
+    if not can_edit_concerts():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    es_json = _wants_json_response() or _is_xhr_request()
+    session_db = db()
+    try:
+        concert = _concert_for_notice(session_db, cid)
+        if not concert:
+            return (jsonify({"ok": False, "error": "Actividad no encontrada."}), 404) if es_json else abort(404)
+        if not _promoter_notice_applies(session_db, concert):
+            msg = "Esta actividad no tiene promotor a quien confirmársela."
+            return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                flash(msg, "warning") or redirect(url_for("concert_detail_view", cid=cid, tab="general")))
+
+        datos = request.get_json(silent=True) if request.is_json else None
+        datos = datos if isinstance(datos, dict) else request.form
+        canal = (datos.get("channel") or "EMAIL").strip().upper()
+        if canal not in ACTIVITY_NOTICE_CHANNEL_KEYS:
+            canal = "EMAIL"
+        nota = (datos.get("note") or "").strip()
+        ocultos = _promoter_notice_hidden_from(datos)
+        secciones = [str(x) for x in (datos.get("sections") or []) if str(x) in PROMOTER_ASK_LABELS]
+        # ⚠️ Una sección apagada con el ojo NO se le pide, aunque estuviera marcada: lo que se ve en
+        # la vista previa es lo que se manda.
+        secciones = [k for k in secciones if ("ask:" + k) not in ocultos]
+
+        # A quién: lo elegido en la pantalla, o lo que se haya escrito a mano.
+        manual_correos = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("emails") or "")) if x.strip()]
+        manual_tel = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("phones") or "")) if x.strip()]
+        conocidos = _promoter_notice_recipients(session_db, concert)
+        if canal == "EMAIL":
+            destinos = manual_correos or [r["email"] for r in conocidos if r.get("email")]
+        else:
+            destinos = manual_tel or [r["phone"] for r in conocidos if r.get("phone")]
+        if not destinos:
+            falta = ("correo" if canal == "EMAIL" else "teléfono")
+            msg = ("No hay ningún %s del promotor para mandárselo. Añádelo en su ficha o escríbelo "
+                   "abajo." % falta)
+            return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                flash(msg, "warning") or redirect(url_for("concert_promoter_notice_view", cid=cid)))
+
+        ahora = _now_madrid()
+        # La ficha donde va a escribir: la MISMA de contratación (se crea si no la había).
+        sheet = _promoter_notice_sheet(session_db, concert)
+        aviso = ConcertPromoterNotification(
+            concert_id=concert.id,
+            channel=canal,
+            recipients=[({"email": d} if canal == "EMAIL" else {"phone": d}) for d in destinos],
+            note=nota or None,
+            hidden_modules=ocultos,
+            asked_sections=secciones,
+            snapshot={},
+            expires_at=_promoter_link_expires_at(ahora),
+            sent_by_user_id=to_uuid((_current_user_state() or {}).get("user_id") or "") or None,
+            sent_by_nick=((_current_user_state() or {}).get("nick") or None),
+        )
+        session_db.add(aviso)
+        session_db.flush()
+        aviso.public_token = _activity_notice_token()
+        enlace = _external_url_for("public_promoter_sheet", token=aviso.public_token)
+        ctx = _promoter_notice_context(session_db, concert, keys=secciones,
+                                       sheet_url=(enlace if secciones else ""))
+        cuerpo = _promoter_notice_html(ctx, note=nota, hidden=ocultos)
+        aviso.snapshot = {"context": dict(ctx), "html": cuerpo}
+
+        error, enviado = None, False
+        texto_corto = _activity_notice_sms_text(ctx, enlace)
+        if canal == "EMAIL":
+            asunto = "%s · %s" % (PROMOTER_NOTICE_TITLE, ctx["subject_name"])
+            ok, error = _send_optional_email(destinos, asunto, cuerpo)
+            if not ok:
+                session_db.rollback()
+                msg = "No se pudo enviar el correo: %s" % (error or "error desconocido")
+                return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                    flash(msg, "danger") or redirect(url_for("concert_promoter_notice_view", cid=cid)))
+            enviado = True
+        elif canal == "SMS" and _sms_available():
+            nombres = {(r.get("phone") or ""): (r.get("name") or "") for r in conocidos}
+            enviado, error = _activity_notice_send_sms(session_db, destinos, texto_corto, "PROMOTOR",
+                                                       nombres=nombres)
+            if not enviado:
+                # ⚠️ NO se hace rollback: `_sms_log` apunta el intento en ESTA sesión y se llevaría
+                # por delante el motivo del fallo. Se retira el aviso y se conserva el registro.
+                session_db.delete(aviso)
+                session_db.commit()
+                msg = "No se pudo mandar el SMS: %s" % (error or "error desconocido")
+                return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                    flash(msg, "danger") or redirect(url_for("concert_promoter_notice_view", cid=cid)))
+
+        # Queda apuntado dónde lo mira todo el mundo.
+        _promoter_notice_mark_asked(session_db, concert, secciones, aviso.recipients, ahora=ahora)
+        _promoter_confirm_apply(session_db, concert, nick=(aviso.sent_by_nick or ""))
+        concert.updated_at = ahora
+        session_db.commit()
+
+        if es_json:
+            return jsonify({"ok": True, "channel": canal, "url": enlace, "sent": enviado,
+                            "sms_text": texto_corto, "warning": (error or ""),
+                            "recipients": destinos, "asked": secciones})
+        flash(("Confirmado al promotor." if enviado else "El aviso queda registrado."), "success")
+        if enviado and error:
+            flash(error, "warning")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[promotor] no se pudo mandar el aviso")
+        msg = "No se pudo mandar el aviso: %s" % exc
+        return (jsonify({"ok": False, "error": msg}), 500) if es_json else (
+            flash(msg, "danger") or redirect(url_for("concert_promoter_notice_view", cid=cid)))
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/avisar-promotor/ya-confirmado", endpoint="concert_promoter_notice_ack")
+@admin_required
+def concert_promoter_notice_ack(cid):
+    """«Ya se lo he confirmado yo» (por teléfono): queda apuntado y no se manda nada.
+
+    Es el botón de siempre, que se mantiene. Se guarda como un aviso con canal **MANUAL**, que es
+    como el aviso al artista apunta lo que se hizo fuera de la app: así «el promotor está
+    confirmado» sale del DATO y no de una marca aparte."""
+    if not can_edit_concerts():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    es_json = _wants_json_response() or _is_xhr_request()
+    session_db = db()
+    destino = safe_next_or(url_for("concert_detail_view", cid=cid, tab="general"))
+    try:
+        concert = session_db.get(Concert, _safe_uuid(cid))
+        if not concert:
+            return (jsonify({"ok": False, "error": "Actividad no encontrada."}), 404) if es_json else abort(404)
+        estado = _current_user_state() or {}
+        nota = ((request.get_json(silent=True) or {}).get("note")
+                if request.is_json else request.form.get("note")) or ""
+        aviso = ConcertPromoterNotification(
+            concert_id=concert.id,
+            channel="MANUAL",
+            recipients=[],
+            note=(nota.strip() or "Se le confirmó fuera de la app."),
+            hidden_modules=[],
+            asked_sections=[],
+            snapshot={},
+            sent_by_user_id=to_uuid(estado.get("user_id") or "") or None,
+            sent_by_nick=(estado.get("nick") or estado.get("email") or None),
+        )
+        session_db.add(aviso)
+        _promoter_confirm_apply(session_db, concert, nick=(aviso.sent_by_nick or ""))
+        concert.updated_at = _now_madrid()
+        session_db.commit()
+        if es_json:
+            return jsonify({"ok": True, "manual": True})
+        flash("Anotado: el promotor ya está confirmado.", "success")
+        return redirect(destino)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[promotor] no se pudo apuntar la confirmación")
+        msg = "No se pudo apuntar: %s" % exc
+        return (jsonify({"ok": False, "error": msg}), 500) if es_json else (
+            flash(msg, "danger") or redirect(destino))
+    finally:
+        session_db.close()
+
+
+# ─── LA FICHA DEL PROMOTOR · los datos que le faltan, uno a uno ──────────────────────────────────
+# ⚠️⚠️ ES LA VÍA DE SIEMPRE DE LA CASA: se abre **sin identificarse**, lo autoriza su TOKEN y solo se
+# ve ESO. No mete a nadie en el portal de externos ni da acceso a la ficha de dentro.
+# ⚠️⚠️ **NO HAY BOTÓN DE GUARDAR NI DE ENVIAR** (lo pidió Dani): cada cosa se rellena en su pop-up y
+# **se guarda al aceptarlo**. Puede volver cuando quiera a actualizar lo que sea, hasta que el
+# enlace caduca a los 15 días.
+# ⚠️ Todo lo que escribe cae en `ConcertContractSheet.promoter_data` y queda **pendiente de
+# revisar**: no toca la actividad hasta que alguien de la casa lo acepta en la pantalla de
+# comparación de siempre.
+
+def _promoter_sheet_notice(session_db, token: str):
+    """El aviso al que pertenece este enlace (o None)."""
+    token = (token or "").strip()
+    if not token:
+        return None
+    return (session_db.query(ConcertPromoterNotification)
+            .filter(ConcertPromoterNotification.public_token == token).first())
+
+
+def _promoter_sheet_expired(aviso) -> bool:
+    """¿Se le ha pasado el plazo? (`PROMOTER_LINK_DAYS` desde que se le mandó)."""
+    caduca = getattr(aviso, "expires_at", None)
+    return bool(caduca and caduca <= _now_madrid())
+
+
+def _promoter_sheet_value(sheet, clave, por_defecto=""):
+    """Lo que hay que enseñar en un campo: **lo que él ya escribió** y, si no, lo nuestro.
+
+    ⚠️ Manda lo suyo: es su ficha y tiene que ver lo que dejó la última vez, no lo que teníamos
+    antes de que lo tocara."""
+    suyo = (getattr(sheet, "promoter_data", None) or {})
+    if isinstance(suyo, dict) and suyo.get(clave) not in (None, "", [], {}):
+        return suyo[clave]
+    return por_defecto
+
+
+def _promoter_sheet_sections(session_db, concert, sheet, aviso) -> list:
+    """LAS SECCIONES de su ficha, ya listas para pintar: lo que le pedimos, con lo que hay puesto.
+
+    Parte de `_promoter_ask_state` (el mismo punto único del correo y de la vista previa) y le pone
+    encima **lo que él ya haya guardado**, para que al volver siga donde lo dejó."""
+    pedidas = [str(x) for x in (getattr(aviso, "asked_sections", None) or [])
+               if str(x) in PROMOTER_ASK_LABELS]
+    estado = _promoter_ask_state(session_db, concert)
+    filas = []
+    for clave in PROMOTER_ASK_KEYS:
+        if clave not in pedidas:
+            continue
+        sec = estado["by_key"].get(clave)
+        if not sec:
+            continue
+        datos = dict(sec)
+        if clave == "contactos":
+            # Por función: lo que tenemos y lo que él haya escrito encima.
+            gente = []
+            for item in (sec.get("rows") or []):
+                rol = item.get("role") or ""
+                campos = CONTRACT_SHEET_CONTACT_FIELDS.get(rol) or ()
+                puesto = (sec.get("have") and item in sec["have"])
+                nombre_suyo = _promoter_sheet_value(sheet, campos[0]) if campos else ""
+                gente.append({
+                    "role": rol, "label": item.get("label") or "", "icon": item.get("icon") or "",
+                    "help": item.get("help") or "",
+                    "people": item.get("people") or [],
+                    "name": nombre_suyo or "",
+                    "email": (_promoter_sheet_value(sheet, campos[1]) if campos else ""),
+                    "phone": (_promoter_sheet_value(sheet, campos[2]) if campos else ""),
+                    # Está resuelto si ya lo teníamos o si él lo ha escrito.
+                    "done": bool(puesto or nombre_suyo),
+                })
+            datos["contacts"] = gente
+            datos["done"] = all(g["done"] for g in gente) if gente else True
+        elif clave == "recinto":
+            datos.update({
+                "venue_id": _promoter_sheet_value(sheet, "gala_venue_id", sec.get("venue_id") or ""),
+                "name": _promoter_sheet_value(sheet, "gala_venue", sec.get("name") or ""),
+                "address": _promoter_sheet_value(sheet, "gala_venue_address", sec.get("address") or ""),
+                "postal_code": _promoter_sheet_value(sheet, "gala_postal_code", ""),
+                "municipality": _promoter_sheet_value(sheet, "gala_municipality", sec.get("municipality") or ""),
+                "province": _promoter_sheet_value(sheet, "gala_province", sec.get("province") or ""),
+            })
+            datos["done"] = bool(datos["name"])
+        elif clave == "anuncio":
+            fecha = _promoter_sheet_value(sheet, "promotion_announcement_date", "")
+            datos.update({
+                "date_iso": _iso_date_str(fecha) or (
+                    concert.announcement_date.isoformat()
+                    if getattr(concert, "announcement_date", None) else ""),
+                "time": _promoter_sheet_value(sheet, "promotion_announcement_time",
+                                              getattr(concert, "announcement_time", None) or ""),
+                # Los CARTELES se suben en la página de siempre (`/carteleria/<token>`), que ya sabe
+                # hacerlo: arrastrar una carpeta entera, miniaturas y su validación. Un segundo
+                # sitio para lo mismo acabaría comportándose distinto.
+                "artwork_url": _promoter_sheet_artwork_url(concert),
+            })
+            datos["done"] = bool(datos["date_iso"]) and not (
+                sec.get("want_artwork") and not datos["artwork_url"])
+        elif clave == "venta":
+            fecha = _promoter_sheet_value(sheet, "promotion_sale_date", "")
+            enlaces = _promoter_sheet_value(sheet, "ticketing_sale_links", [])
+            if not isinstance(enlaces, list) or not enlaces:
+                enlaces = [x for x in (sec.get("links") or []) if x.get("url")]
+            datos.update({
+                "date_iso": _iso_date_str(fecha) or (
+                    concert.sale_start_date.isoformat()
+                    if getattr(concert, "sale_start_date", None) else ""),
+                "links": [{"name": (x.get("name") or ""), "url": (x.get("url") or "")}
+                          for x in enlaces if isinstance(x, dict)],
+            })
+            datos["done"] = bool(datos["date_iso"] and datos["links"])
+        filas.append(dict(datos, key=clave, label=sec.get("label") or "",
+                          icon=sec.get("icon") or "", help=sec.get("help") or ""))
+    return filas
+
+
+def _promoter_sheet_artwork_url(concert) -> str:
+    """El enlace donde SUBE LOS CARTELES: el de siempre (`/carteleria/<token>`), si se le han pedido."""
+    try:
+        row = getattr(concert, "artwork_request", None)
+        if row is None or (getattr(row, "handled_by", None) or "").strip().upper() != "PROMOTER":
+            return ""
+        token = (getattr(row, "public_token", None) or "").strip()
+        return _external_url_for("concert_artwork_public_upload", token=token) if token else ""
+    except Exception:
+        app.logger.exception("[promotor] no se pudo resolver el enlace de los carteles")
+        return ""
+
+
+def _iso_date_str(valor) -> str:
+    """Una fecha en ISO, venga como venga (texto o date). Cadena vacía si no se entiende."""
+    if not valor:
+        return ""
+    if hasattr(valor, "isoformat"):
+        return valor.isoformat()
+    texto = str(valor).strip()
+    try:
+        return parse_date(texto).isoformat()
+    except Exception:
+        return texto if re.match(r"^\d{4}-\d{2}-\d{2}$", texto) else ""
+
+
+@app.get("/promotor/<token>", endpoint="public_promoter_sheet")
+def public_promoter_sheet(token):
+    """LA FICHA DEL PROMOTOR: lo mismo que el correo, sin el texto del correo, y cada cosa se
+    rellena en su pop-up. Se abre sin identificarse: lo autoriza el token."""
+    session_db = db()
+    try:
+        aviso = _promoter_sheet_notice(session_db, token)
+        if not aviso:
+            abort(404)
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                            joinedload(Concert.promoter), joinedload(Concert.billing_company),
+                            selectinload(Concert.contract_sheet),
+                            selectinload(Concert.artwork_request))
+                   .filter(Concert.id == aviso.concert_id).first())
+        if not concert:
+            abort(404)
+        caducado = _promoter_sheet_expired(aviso)
+        sheet = getattr(concert, "contract_sheet", None)
+        ctx = _promoter_notice_context(session_db, concert,
+                                       keys=[str(x) for x in (aviso.asked_sections or [])])
+        try:
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+        return render_template(
+            "public_promoter_sheet.html",
+            concert=concert,
+            notice=ctx,
+            aviso=aviso,
+            expired=caducado,
+            # ⚠️ Con el enlace caducado la página SE SIGUE VIENDO (lo que se le comunicó no
+            # desaparece): lo que no se puede es escribir. Decirle «no existe» sería mentirle.
+            sections=([] if caducado else _promoter_sheet_sections(session_db, concert, sheet, aviso)),
+            save_url=url_for("public_promoter_sheet_save", token=token),
+            venues_url=url_for("public_promoter_sheet_venues", token=token),
+            venue_create_url=url_for("public_promoter_sheet_venue_create", token=token),
+            expires_label=(aviso.expires_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                           if aviso.expires_at else ""),
+            contact_roles=CONTRACT_SHEET_CONTACT_FIELDS,
+        )
+    finally:
+        session_db.close()
+
+
+def _promoter_sheet_write(session_db, concert, sheet, cambios: dict) -> None:
+    """Escribe en `promoter_data` y lo deja PENDIENTE DE REVISAR.
+
+    ⚠️⚠️ Se FUSIONA, nunca se reemplaza: cada pop-up guarda lo suyo y no puede llevarse por delante
+    lo que se guardó en otro (la trampa de los 16 campos de la ficha de contratación).
+    ⚠️⚠️ **JSONB: leer-copiar-reasignar no basta** — sin `flag_modified` el segundo guardado de la
+    misma petición sale «unchanged» y no se escribe, sin dar ningún error."""
+    from sqlalchemy.orm.attributes import flag_modified
+    datos = dict(getattr(sheet, "promoter_data", None) or {})
+    datos.update(cambios)
+    sheet.promoter_data = datos
+    flag_modified(sheet, "promoter_data")
+    # Vuelve a quedar pendiente de revisar: ha entrado algo nuevo que nadie ha mirado.
+    sheet.promoter_reviewed_at = None
+    sheet.updated_at = _now_madrid()
+    concert.updated_at = _now_madrid()
+
+
+def _promoter_sheet_notify_data(session_db, concert, seccion: str) -> None:
+    """Avisa a QUIEN GESTIONA LA ACTIVIDAD de que hay datos nuevos que revisar.
+
+    ⚠️ Es contratación o la persona del SELLO que la lleva, según quién creara la actividad
+    (`_announce_alert_owner_ids`, el punto único que ya usan los recordatorios del anuncio y la
+    recepción de carteles): en un evento promocional del sello, contratación no pinta nada.
+    ⚠️ **No se repite** mientras el aviso siga sin leer (`ref_type='PROMOTER_DATA'`): el promotor
+    rellena cuatro cosas en cinco minutos y serían cuatro avisos de lo mismo.
+    ⚠️ Esto corre en una PETICIÓN PÚBLICA (sin sesión de la casa), así que va con `actor_user_id=""`:
+    lo dispara alguien de fuera, no una persona de dentro."""
+    try:
+        etiqueta = PROMOTER_ASK_LABELS.get(seccion, seccion)
+        # ⚠️⚠️ ¿YA ESTÁ AVISADO Y SIN LEER? Entonces no se repite (bug real, visto en el navegador:
+        # rellenó dos secciones seguidas y salieron DOS franjas diciendo lo mismo). El promotor
+        # rellena cuatro cosas en cinco minutos y eso serían cuatro avisos del mismo trabajo: hay
+        # que revisar SU ficha, no cada campo. Es el patrón de `_artist_notice_missing`.
+        ya = (session_db.query(AppNotification.id)
+              .filter(AppNotification.ref_type == "PROMOTER_DATA",
+                      AppNotification.ref_id == str(concert.id),
+                      AppNotification.read_at.is_(None)).first())
+        if ya:
+            return
+        for uid in (_announce_alert_owner_ids(session_db, concert) or []):
+            _notify_user(
+                session_db, uid,
+                kind="PROMOTER_DATA",
+                title="El promotor ha rellenado datos de %s" % (_concert_title_for_notice(concert)),
+                body=("Ha empezado por «%s». Revisa lo que ha subido antes de que se cargue."
+                      % etiqueta),
+                url=url_for("concert_contract_sheet_review", cid=concert.id),
+                ref_type="PROMOTER_DATA", ref_id=str(concert.id),
+                actor_user_id="", email=False)
+    except Exception:
+        app.logger.exception("[promotor] no se pudo avisar de los datos nuevos")
+
+
+@app.post("/promotor/<token>/guardar", endpoint="public_promoter_sheet_save")
+def public_promoter_sheet_save(token):
+    """Guarda UNA sección de la ficha del promotor. Se llama al aceptar cada pop-up.
+
+    ⚠️ Devuelve JSON: la página no recarga, repinta la tarjeta que se acaba de guardar."""
+    session_db = db()
+    try:
+        aviso = _promoter_sheet_notice(session_db, token)
+        if not aviso:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        if _promoter_sheet_expired(aviso):
+            return jsonify({"ok": False, "error": "Este enlace ya no admite cambios"}), 409
+        concert = (session_db.query(Concert)
+                   .options(selectinload(Concert.contract_sheet))
+                   .filter(Concert.id == aviso.concert_id).first())
+        if not concert:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        seccion = (request.form.get("section") or "").strip().lower()
+        if seccion not in PROMOTER_ASK_LABELS:
+            return jsonify({"ok": False, "error": "No sé qué se está guardando"}), 400
+        if seccion not in [str(x) for x in (aviso.asked_sections or [])]:
+            return jsonify({"ok": False, "error": "Eso no se te ha pedido"}), 403
+        sheet = _promoter_notice_sheet(session_db, concert)
+        cambios = {}
+
+        if seccion == "contactos":
+            rol = (request.form.get("role") or "").strip().upper()
+            campos = CONTRACT_SHEET_CONTACT_FIELDS.get(rol)
+            if not campos:
+                return jsonify({"ok": False, "error": "Esa función no existe"}), 400
+            nombre = " ".join((request.form.get("name") or "").split())
+            if not nombre:
+                return jsonify({"ok": False, "error": "Escribe el nombre de la persona"}), 400
+            cambios[campos[0]] = nombre
+            cambios[campos[1]] = (request.form.get("email") or "").strip()
+            cambios[campos[2]] = (request.form.get("phone") or "").strip()
+        elif seccion == "recinto":
+            nombre = " ".join((request.form.get("name") or "").split())
+            if not nombre:
+                return jsonify({"ok": False, "error": "Dinos en qué recinto se hace"}), 400
+            cambios["gala_venue"] = nombre
+            cambios["gala_venue_id"] = (request.form.get("venue_id") or "").strip()
+            cambios["gala_venue_address"] = (request.form.get("address") or "").strip()
+            cambios["gala_postal_code"] = (request.form.get("postal_code") or "").strip()
+            cambios["gala_municipality"] = (request.form.get("municipality") or "").strip()
+            cambios["gala_province"] = (request.form.get("province") or "").strip()
+        elif seccion == "anuncio":
+            fecha = (request.form.get("date") or "").strip()
+            if not fecha:
+                return jsonify({"ok": False, "error": "Dinos qué día se anuncia"}), 400
+            try:
+                dia = parse_date(fecha)
+            except Exception:
+                return jsonify({"ok": False, "error": "Esa fecha no se entiende"}), 400
+            # ⚠️ El SERVIDOR vuelve a validar el rango: de hoy al día de la actividad. Una fecha de
+            # anuncio posterior a la actividad no anuncia nada.
+            if dia < today_local():
+                return jsonify({"ok": False, "error": "Esa fecha ya ha pasado"}), 400
+            if getattr(concert, "date", None) and dia > concert.date:
+                return jsonify({"ok": False,
+                                "error": "El anuncio tiene que ser antes de la actividad"}), 400
+            cambios["promotion_announcement_date"] = dia.isoformat()
+            hora = (request.form.get("time") or "").strip()
+            cambios["promotion_announcement_time"] = hora if re.match(r"^\d{1,2}:\d{2}$", hora) else ""
+        elif seccion == "venta":
+            fecha = (request.form.get("date") or "").strip()
+            if fecha:
+                try:
+                    cambios["promotion_sale_date"] = parse_date(fecha).isoformat()
+                except Exception:
+                    return jsonify({"ok": False, "error": "Esa fecha no se entiende"}), 400
+            enlaces = []
+            nombres = request.form.getlist("link_name[]")
+            urls = request.form.getlist("link_url[]")
+            for i, url in enumerate(urls or []):
+                url = (url or "").strip()
+                if not url:
+                    continue
+                if not re.match(r"^https?://", url, re.I):
+                    url = "https://" + url
+                enlaces.append({"name": ((nombres[i] if i < len(nombres) else "") or "").strip(),
+                                "url": url})
+            if not fecha and not enlaces:
+                return jsonify({"ok": False, "error": "Dinos cuándo salen o dónde se compran"}), 400
+            if enlaces:
+                cambios["ticketing_sale_links"] = enlaces
+
+        _promoter_sheet_write(session_db, concert, sheet, cambios)
+        _promoter_sheet_notify_data(session_db, concert, seccion)
+        session_db.commit()
+        return jsonify({"ok": True, "section": seccion})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[promotor] no se pudo guardar la sección")
+        return jsonify({"ok": False, "error": "No se pudo guardar: %s" % exc}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/promotor/<token>/recintos", endpoint="public_promoter_sheet_venues")
+def public_promoter_sheet_venues(token):
+    """LOS RECINTOS que se le ofrecen al escribir en la barra de su ficha.
+
+    ⚠️ Solo responde con su token: es un enlace público, no un buscador abierto de nuestra base de
+    datos. Mismo criterio que el de la ficha de contratación (`_norm_text_key`: sin acentos ni
+    mayúsculas, contra el nombre y el municipio)."""
+    session_db = db()
+    try:
+        aviso = _promoter_sheet_notice(session_db, token)
+        if not aviso:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        texto = _norm_text_key((request.form.get("q") or "").strip())
+        if len(texto) < 2:
+            return jsonify({"ok": True, "venues": []})
+        filas = []
+        for v in session_db.query(Venue).order_by(Venue.name.asc()).all():
+            nombre = _norm_text_key(v.name or "")
+            sitio = _norm_text_key(" ".join([(v.municipality or ""), (v.province or "")]))
+            if texto in nombre or texto in sitio:
+                filas.append((0 if nombre.startswith(texto) else 1, _contract_sheet_venue_payload(v)))
+            if len(filas) > 60:
+                break
+        filas.sort(key=lambda x: (x[0], x[1]["name"].lower()))
+        return jsonify({"ok": True, "venues": [f[1] for f in filas[:12]]})
+    finally:
+        session_db.close()
+
+
+@app.post("/promotor/<token>/recinto-nuevo", endpoint="public_promoter_sheet_venue_create")
+def public_promoter_sheet_venue_create(token):
+    """DA DE ALTA UN RECINTO desde la ficha del promotor, si el suyo no está en nuestra base.
+
+    ⚠️⚠️ NO SE DUPLICA: si ya tenemos uno con ese nombre en ese municipio se reutiliza el que hay
+    (mismo criterio que el alta rápida de dentro y que la ficha de contratación), y se dice."""
+    session_db = db()
+    try:
+        aviso = _promoter_sheet_notice(session_db, token)
+        if not aviso:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        if _promoter_sheet_expired(aviso):
+            return jsonify({"ok": False, "error": "Este enlace ya no admite cambios"}), 409
+        nombre = " ".join((request.form.get("name") or "").split())
+        if not nombre:
+            return jsonify({"ok": False, "error": "Escribe el nombre del recinto"}), 400
+        municipio = (request.form.get("municipality") or "").strip()
+        for v in session_db.query(Venue).all():
+            if _norm_text_key(v.name or "") != _norm_text_key(nombre):
+                continue
+            if municipio and _norm_text_key(v.municipality or "") not in ("", _norm_text_key(municipio)):
+                continue
+            return jsonify({"ok": True, "reused": True, "venue": _contract_sheet_venue_payload(v)})
+        venue = Venue(
+            name=nombre,
+            address=(request.form.get("address") or "").strip() or None,
+            postal_code=(request.form.get("postal_code") or "").strip() or None,
+            municipality=municipio or None,
+            province=(request.form.get("province") or "").strip() or None,
+        )
+        session_db.add(venue)
+        session_db.commit()
+        return jsonify({"ok": True, "reused": False, "venue": _contract_sheet_venue_payload(venue)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[promotor] no se pudo crear el recinto")
+        return jsonify({"ok": False, "error": "No se pudo crear: %s" % exc}), 500
+    finally:
+        session_db.close()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -129789,6 +131129,50 @@ CONTRACT_SHEET_CONTACT_FIELDS = {
     "CONTRATACION": ("company_representative", "company_representative_email",
                      "company_representative_phone"),
 }
+
+
+def _contract_sheet_apply_sale_links(session_db, concert, datos: dict) -> list:
+    """LOS ENLACES DE VENTA de la ficha pasan a ser los de la actividad. Devuelve qué se ha puesto.
+
+    Es el hermano de `_activity_contacts_from_sheet`: lo que dice el promotor en su ficha no se
+    queda ahí dentro, se convierte en el dato de la actividad (`ConcertTicketer.sale_url`), que es
+    de donde vive todo lo demás (el recordatorio del día del anuncio, la página de ventas…).
+
+    ⚠️ **Solo se ponen los que FALTAN**: un enlace que ya tenemos no se pisa con el suyo (puede ser
+    el de la integración de la ticketera, que es el bueno).
+    ⚠️ En una actividad GRATUITA no se pone nada: no se venden entradas."""
+    puestos = []
+    if concert is None or not isinstance(datos, dict) or _concert_is_free(concert):
+        return puestos
+    enlaces = datos.get("ticketing_sale_links")
+    if not isinstance(enlaces, list):
+        return puestos
+    for item in enlaces:
+        if not isinstance(item, dict):
+            continue
+        nombre = (item.get("name") or "").strip()
+        url = (item.get("url") or "").strip()
+        if not url or not nombre:
+            continue
+        if not re.match(r"^https?://", url, re.I):
+            url = "https://" + url
+        try:
+            tick = _ensure_ticketer_by_name(session_db, nombre)
+            if tick is None:
+                continue
+            fila = (session_db.query(ConcertTicketer)
+                    .filter(ConcertTicketer.concert_id == concert.id,
+                            ConcertTicketer.ticketer_id == tick.id).first())
+            if fila is None:
+                fila = ConcertTicketer(concert_id=concert.id, ticketer_id=tick.id)
+                session_db.add(fila)
+            if (fila.sale_url or "").strip():
+                continue                      # ya teníamos enlace: no se pisa
+            fila.sale_url = url
+            puestos.append(nombre)
+        except Exception:
+            app.logger.exception("[ficha] no se pudo aplicar el enlace de venta de %s", nombre)
+    return puestos
 
 
 def _activity_contacts_from_sheet(session_db, concert, datos: dict) -> list:

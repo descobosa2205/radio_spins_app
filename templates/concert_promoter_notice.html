@@ -1,0 +1,332 @@
+{% extends "layout.html" %}
+{% block content %}
+{# AVISO AL PROMOTOR · vista previa.
+   Se ve TAL COMO le va a llegar (el mismo HTML que el correo y que su ficha). Se le puede retocar
+   el texto, ocultar módulos con el ojo, elegir el canal y —lo propio de este aviso— MARCAR QUÉ
+   DATOS SE LE PIDEN. No le pide respuesta: se le comunica y ya está. #}
+<div class="mb-2">
+  <a class="btn-volver" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"
+     title="Volver a la actividad" aria-label="Volver a la actividad">←</a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+  <div>
+    <h4 class="m-0">Confirmarle la actividad al promotor</h4>
+    <div class="text-muted small">
+      Se le comunica que sale adelante
+      {% if ask_sections %} y se le piden los datos que faltan{% endif %}.
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    {% if promoter_state and promoter_state.notified %}
+      <span class="badge text-bg-success" data-bs-toggle="tooltip"
+            title="{{ 'Se marcó a mano' if promoter_state.manual else 'Se le mandó' }}{% if promoter_state.by %} por {{ promoter_state.by }}{% endif %}">
+        <i class="fa fa-circle-check me-1"></i>Promotor confirmado el {{ promoter_state.at_label }}
+      </span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3" data-promoter-notice
+     data-url-preview="{{ url_for('concert_promoter_notice_preview', cid=concert.id) }}"
+     data-url-send="{{ url_for('concert_promoter_notice_send', cid=concert.id) }}"
+     data-url-ficha="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
+
+  {# ---------- IZQUIERDA: lo que se manda ---------- #}
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-paper-plane me-1 text-muted"></i>¿Cómo se lo mandamos?</h6>
+        <div class="an-channels">
+          {% for key, label, icon in notice_channels %}
+            <label class="an-channel{% if loop.first %} is-on{% endif %}">
+              <input type="radio" name="channel" value="{{ key }}" {% if loop.first %}checked{% endif %} class="visually-hidden">
+              <i class="fa {{ icon }}"></i><span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        {# Qué va a pasar de verdad con el canal elegido: elegir un canal tiene que significar lo
+           que se ve (la misma regla que el aviso al artista). #}
+        <div class="small text-muted mt-2" data-an-hint
+             data-hint-email="Lo manda la app, con el aviso entero dentro del correo."
+             data-hint-sms="{{ 'Lo manda la app por SMS (la pasarela de Integraciones → SMS).' if sms_gateway else 'Se abrirá TU app de mensajes con el texto y el enlace: el SMS lo mandas tú.' }}"
+             data-hint-whatsapp="Se abrirá WhatsApp con el texto y el enlace: el mensaje lo mandas tú."></div>
+
+        <div class="mt-3">
+          <div class="fw-semibold small mb-1">A quién</div>
+          {% if recipients %}
+            <ul class="list-unstyled small mb-2">
+              {% for r in recipients %}
+                <li class="an-recipient">
+                  <span class="fw-semibold">{{ r.name or r.email or r.phone }}</span>
+                  {% if r.role %}<span class="badge text-bg-light text-dark ms-1">{{ r.role }}</span>{% endif %}
+                  <span class="text-muted">
+                    {% if r.email %}<span data-an-has="EMAIL">{{ r.email }}</span>{% endif %}
+                    {% if r.phone %}<span data-an-has="PHONE"> · {{ r.phone }}</span>{% endif %}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="alert alert-warning py-2 px-3 small">
+              No conocemos ningún contacto del promotor. Escribe abajo a quién se lo mandamos.
+            </div>
+          {% endif %}
+          <label class="form-label small mb-1" data-an-manual="EMAIL">Otros correos <span class="text-muted">(opcional)</span></label>
+          <input class="form-control form-control-sm" name="emails" data-an-emails placeholder="correo@ejemplo.com, otro@ejemplo.com">
+          <label class="form-label small mb-1 mt-2 d-none" data-an-manual="PHONE">Otros teléfonos <span class="text-muted">(opcional)</span></label>
+          <input class="form-control form-control-sm d-none" name="phones" data-an-phones placeholder="+34 600 00 00 00">
+        </div>
+
+        <div class="mt-3">
+          <label class="form-label small mb-1">El texto <span class="text-muted">(se puede cambiar)</span></label>
+          <textarea class="form-control form-control-sm" rows="5" data-an-note>{{ default_note or '' }}</textarea>
+        </div>
+      </div>
+    </div>
+
+    {# ---------- QUÉ LE PEDIMOS: solo sale lo que falta ---------- #}
+    {% if ask_sections %}
+      <div class="card mb-3 border-primary">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="fa fa-list-check me-1 text-primary"></i>¿Qué le pedimos?</h6>
+          <div class="text-muted small mb-2">
+            Cada cosa marcada sale en el correo con su botón «Cumplimentar». Él las rellena una a una
+            en su ficha y <strong>nada se carga hasta que lo revisamos</strong>.
+          </div>
+          <div class="d-flex flex-column gap-1">
+            {% for s in ask_sections %}
+              <label class="an-mod-toggle" data-an-sec-row="{{ s.key }}">
+                <input class="form-check-input m-0" type="checkbox" data-an-sec="{{ s.key }}"
+                       {% if s.key in ask_default %}checked{% endif %}>
+                <span>
+                  <i class="fa {{ s.icon }} me-1 text-muted"></i>{{ s.label }}
+                  {% if not s.missing %}<span class="badge text-bg-light text-dark ms-1">ya lo tenemos</span>{% endif %}
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="form-text mt-2">
+            <i class="fa fa-clock me-1"></i>Su enlace se desactiva a los <strong>{{ link_days }} días</strong>.
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-eye-slash me-1 text-muted"></i>Qué se ve</h6>
+        <div class="text-muted small mb-2">Pincha el ojo de cada módulo para dejarlo fuera del aviso.</div>
+        <div class="d-flex flex-column gap-1">
+          {% for key, label in notice_modules %}
+            <label class="an-mod-toggle" data-an-mod-row="{{ key }}">
+              {# ⚠️ Lo que es DINERO de la casa y lo INTERNO salen apagados de serie: el ojo los
+                 enciende a propósito. El calendario de pagos NO está ahí: es lo que le toca a él. #}
+              <input class="form-check-input m-0" type="checkbox" data-an-mod="{{ key }}"
+                     {% if key not in opt_in_modules %}checked{% endif %}>
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="d-grid gap-2">
+      <button class="btn btn-primary" type="button" data-an-send>
+        <i class="fa fa-paper-plane me-1"></i>Confirmar al promotor
+      </button>
+      {# El botón de SIEMPRE: se lo he confirmado yo por teléfono. No manda nada. #}
+      <button class="btn btn-outline-success" type="button" data-an-ack data-url="{{ ack_url }}">
+        <i class="fa fa-check me-1"></i>Ya se lo he confirmado yo
+      </button>
+      <div class="small text-muted">Queda apuntado con tu nombre y la fecha, y no se le manda nada.</div>
+      <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Cancelar</a>
+    </div>
+
+    {% if history %}
+      <div class="card mt-3">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="fa fa-clock-rotate-left me-1 text-muted"></i>Lo anterior</h6>
+          <ul class="list-unstyled small mb-0">
+            {% for h in history %}
+              <li class="an-history">
+                <span class="badge text-bg-light text-dark">{{ 'A mano' if h.channel == 'MANUAL' else h.channel }}</span>
+                {{ h.sent_at.strftime('%d/%m/%Y %H:%M') if h.sent_at }}
+                {% if h.sent_by_nick %} · {{ h.sent_by_nick }}{% endif %}
+                {% if h.public_token %}
+                  · <a href="{{ url_for('public_promoter_sheet', token=h.public_token) }}" target="_blank" rel="noopener">ver su ficha</a>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {# ---------- DERECHA: la vista previa ---------- #}
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+          <span class="text-muted small">Igual por correo, WhatsApp y SMS</span>
+        </div>
+        <div class="an-preview" data-an-preview>{{ preview_html|safe }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.querySelector('[data-promoter-notice]');
+  if (!root) return;
+  var preview = root.querySelector('[data-an-preview]');
+  var note = root.querySelector('[data-an-note]');
+  var timer = null;
+
+  function hidden() {
+    var fuera = Array.prototype.slice.call(root.querySelectorAll('[data-an-mod]'))
+      .filter(function (c) { return !c.checked; })
+      .map(function (c) { return c.getAttribute('data-an-mod'); });
+    // Una sección DESMARCADA no se pide: viaja como módulo oculto («ask:<clave>»), que es lo que
+    // entiende el motor del aviso.
+    Array.prototype.slice.call(root.querySelectorAll('[data-an-sec]'))
+      .filter(function (c) { return !c.checked; })
+      .forEach(function (c) { fuera.push('ask:' + c.getAttribute('data-an-sec')); });
+    return fuera;
+  }
+  function sections() {
+    return Array.prototype.slice.call(root.querySelectorAll('[data-an-sec]'))
+      .filter(function (c) { return c.checked; })
+      .map(function (c) { return c.getAttribute('data-an-sec'); });
+  }
+  function channel() {
+    var r = root.querySelector('input[name="channel"]:checked');
+    return r ? r.value : 'EMAIL';
+  }
+  var hint = root.querySelector('[data-an-hint]');
+  function pintaHint() {
+    if (!hint) return;
+    hint.textContent = hint.getAttribute('data-hint-' + channel().toLowerCase()) || '';
+  }
+  pintaHint();
+
+  function repaint() {
+    fetch(root.getAttribute('data-url-preview'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: note ? note.value : '', hidden: hidden(), sections: sections() })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok && preview) preview.innerHTML = d.html;
+    }).catch(function () {});
+  }
+  function repaintSoon() { clearTimeout(timer); timer = setTimeout(repaint, 350); }
+
+  // El OJO de la vista previa y la casilla de la izquierda son lo mismo (módulos y secciones).
+  root.addEventListener('click', function (ev) {
+    var eye = ev.target.closest('[data-notice-eye]');
+    if (!eye) return;
+    ev.preventDefault();
+    var key = eye.getAttribute('data-notice-eye');
+    var box = root.querySelector('[data-an-mod="' + key + '"]');
+    if (!box && key.indexOf('ask:') === 0) {
+      box = root.querySelector('[data-an-sec="' + key.slice(4) + '"]');
+    }
+    if (box) { box.checked = !box.checked; repaint(); }
+  });
+  root.addEventListener('change', function (ev) {
+    if (ev.target.matches('[data-an-mod]') || ev.target.matches('[data-an-sec]')) return repaint();
+    if (ev.target.matches('input[name="channel"]')) {
+      root.querySelectorAll('.an-channel').forEach(function (l) {
+        l.classList.toggle('is-on', !!l.querySelector('input:checked'));
+      });
+      var esCorreo = channel() === 'EMAIL';
+      root.querySelectorAll('[data-an-manual="EMAIL"], [data-an-emails]').forEach(function (el) {
+        el.classList.toggle('d-none', !esCorreo);
+      });
+      root.querySelectorAll('[data-an-manual="PHONE"], [data-an-phones]').forEach(function (el) {
+        el.classList.toggle('d-none', esCorreo);
+      });
+      pintaHint();
+    }
+  });
+  if (note) note.addEventListener('input', repaintSoon);
+
+  // «Ya se lo he confirmado yo»: no manda nada, solo lo apunta.
+  var ack = root.querySelector('[data-an-ack]');
+  if (ack) ack.addEventListener('click', function () {
+    if (!confirm('Queda apuntado que el promotor ya está confirmado, con tu nombre y la fecha. No se le manda nada. ¿Seguimos?')) return;
+    var btn = ack, previo = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Apuntando…';
+    fetch(btn.getAttribute('data-url'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ note: '' })
+    }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+      if (!d || !d.ok) {
+        btn.disabled = false; btn.innerHTML = previo;
+        alert((d && d.error) || 'No se pudo apuntar.');
+        return;
+      }
+      window.location.href = root.getAttribute('data-url-ficha');
+    }).catch(function () {
+      btn.disabled = false; btn.innerHTML = previo;
+      alert('No se pudo apuntar.');
+    });
+  });
+
+  root.querySelector('[data-an-send]').addEventListener('click', function () {
+    var btn = this, previo = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+    fetch(root.getAttribute('data-url-send'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: channel(),
+        note: note ? note.value : '',
+        hidden: hidden(),
+        sections: sections(),
+        emails: (root.querySelector('[data-an-emails]') || {}).value || '',
+        phones: (root.querySelector('[data-an-phones]') || {}).value || ''
+      })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.ok) {
+        btn.disabled = false; btn.innerHTML = previo;
+        alert((d && d.error) || 'No se pudo enviar el aviso.');
+        return;
+      }
+      var ficha = root.getAttribute('data-url-ficha');
+      if (d.warning) alert(d.warning);
+      // ⚠️ SI LO HA MANDADO LA APP no se abre nada: `d.sent` lo dice el servidor, que es el único
+      // que sabe si salió de verdad.
+      if (d.sent) { window.location.href = ficha; return; }
+      var texto = d.sms_text || (d.url || '');
+      var tel = ((d.recipients && d.recipients[0]) || '').replace(/[^0-9+]/g, '');
+      if (d.channel === 'WHATSAPP') {
+        window.open('https://wa.me/' + tel.replace('+', '') + '?text=' + encodeURIComponent(texto), '_blank');
+        window.location.href = ficha;
+        return;
+      }
+      if (d.channel === 'SMS') {
+        // ⚠️ NO se redirige después: el sms: se lo lleva el sistema y una segunda navegación lo anula.
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-check me-1"></i>Aviso registrado · <span class="small">volver a la actividad</span>';
+        btn.onclick = function () { window.location.href = ficha; };
+        window.location.href = 'sms:' + tel + '?&body=' + encodeURIComponent(texto);
+        return;
+      }
+      window.location.href = ficha;
+    }).catch(function () {
+      btn.disabled = false; btn.innerHTML = previo;
+      alert('No se pudo enviar el aviso.');
+    });
+  });
+})();
+</script>
+{% endblock %}

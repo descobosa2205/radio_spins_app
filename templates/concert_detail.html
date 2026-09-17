@@ -205,40 +205,35 @@
         <i class="fa fa-hourglass-half me-1"></i>Falta que confirme el artista
       </span>
     {% endif %}
-    {% if pf.promotor.done %}
+  {% endif %}
+
+  {# ⚠️⚠️ CONFIRMAR AL PROMOTOR · EN TODAS LAS QUE TENGAN PROMOTOR (sep 2026, lo pidió Dani), no solo
+     en las que vienen de una petición — igual que se hizo con la confirmación del artista.
+     ⚠️⚠️ Y **EL BOTÓN DESAPARECE DE LOS DESTACADOS EN CUANTO ESTÁ CONFIRMADO** («para que no se
+     queden cosas ahí»): entonces solo queda la etiqueta verde, y volver a mandárselo está en la rueda.
+     Es la misma regla que el aviso al artista y la ficha de contratación: lo hecho no ocupa sitio.
+     ⚠️ Va FUERA de `{% if peticion_phases %}`: metido dentro solo salía en las de petición, que es el
+     bug real que ya costó esta misma épica con el bloque del artista. #}
+  {% if promoter_state and promoter_state.applies %}
+    {% if promoter_state.notified %}
       <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
-            title="Promotor confirmado{% if pf.promotor.at_label %} el {{ pf.promotor.at_label }}{% endif %}{% if pf.promotor.by %} por {{ pf.promotor.by }}{% endif %}">
+            title="{{ 'Se marcó a mano' if promoter_state.manual else 'Se le comunicó' }}{% if promoter_state.at_label %} el {{ promoter_state.at_label }}{% endif %}{% if promoter_state.by %} por {{ promoter_state.by }}{% endif %}{% if promoter_state.to_label %} · a {{ promoter_state.to_label }}{% endif %}">
         <i class="fa fa-handshake me-1"></i>Promotor confirmado
       </span>
-    {% elif pf.promotor.blocked %}
-      <span class="badge text-bg-light border text-muted align-self-center" data-bs-toggle="tooltip"
-            title="{{ pf.promotor.blocked_reason }}">
-        <i class="fa fa-lock me-1"></i>Confirmar al promotor
-      </span>
-    {% elif pf.promotor.mine %}
-      {% if pf.promotor.send_url %}
-      <form method="post" action="{{ pf.promotor.send_url }}" class="d-inline">
-        <input type="hidden" name="next" value="{{ request.full_path }}">
-        <button class="btn btn-outline-warning btn-sm"
-                data-confirm="Se le va a confirmar a {{ pf.promotor.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
-          <i class="fa fa-handshake me-1"></i>Confirmar al promotor
-        </button>
-      </form>
-      {% endif %}
-      {% if pf.promotor.done_url %}
-      <form method="post" action="{{ pf.promotor.done_url }}" class="d-inline">
-        <input type="hidden" name="next" value="{{ request.full_path }}">
-        <button class="btn btn-outline-secondary btn-sm" title="Ya se lo he confirmado yo">
-          <i class="fa fa-check"></i>
-        </button>
-      </form>
-      {% endif %}
-    {% else %}
-      <span class="badge text-bg-light border text-muted align-self-center" data-bs-toggle="tooltip"
-            title="Lo tiene que confirmar {{ pf.promotor.owner_nick }}">
-        <i class="fa fa-hourglass-half me-1"></i>Falta confirmar al promotor
-      </span>
+    {% elif CAN_EDIT_CONCERTS %}
+      <a class="btn btn-outline-warning btn-sm" href="{{ url_for('concert_promoter_notice_view', cid=concert.id) }}">
+        <i class="fa fa-handshake me-1"></i>Notificar al promotor
+      </a>
     {% endif %}
+  {% endif %}
+
+  {# ⚠️ LO QUE HA SUBIDO EL PROMOTOR NO SE CARGA SIN MÁS: hasta que alguien lo revisa, aquí queda el
+     botón (y la tarea en su Inicio). Se mira el DATO: en cuanto se revisa, desaparece solo. #}
+  {% if promoter_data_pending and promoter_data_pending.pending and CAN_EDIT_CONCERTS %}
+    <a class="btn btn-warning btn-sm" href="{{ promoter_data_pending.url }}">
+      <i class="fa fa-clipboard-check me-1"></i>Revisar los datos del promotor
+      <span class="badge text-bg-light text-dark ms-1">{{ promoter_data_pending.fields }}</span>
+    </a>
   {% endif %}
   {# SALIDA A LA VENTA. Tres pasos y tres dueños, y NO tiene nada que ver con activar la producción:
      contratación ACTIVA la venta → ticketing la saca a la venta (la etiqueta de la cabecera) →
@@ -546,18 +541,18 @@
                       <i class="fa fa-check"></i></button>
                   </form>
                 {% elif t.key == 'promotor' %}
-                  {% if t.send_url %}
-                  <form method="post" action="{{ t.send_url }}" class="d-inline">
-                    <input type="hidden" name="next" value="{{ request.full_path }}">
-                    <button class="btn btn-sm btn-warning"
-                            data-confirm="Se le va a confirmar a {{ t.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
-                      <i class="fa fa-paper-plane me-1"></i>Confirmar</button>
-                  </form>
+                  {# ⚠️ LAS DOS OPCIONES, como pidió Dani: NOTIFICÁRSELO desde la app (el aviso, con
+                     los datos que le faltan) o marcar que ya se le ha confirmado por teléfono. #}
+                  {% if t.notify_url %}
+                    <a class="btn btn-sm btn-warning" href="{{ t.notify_url }}">
+                      <i class="fa fa-paper-plane me-1"></i>Notificar al promotor</a>
                   {% endif %}
                   {% if t.done_url %}
                   <form method="post" action="{{ t.done_url }}" class="d-inline">
                     <input type="hidden" name="next" value="{{ request.full_path }}">
-                    <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
+                    <button class="btn btn-sm btn-outline-warning"
+                            data-confirm="Queda apuntado que el promotor ya está confirmado. No se le manda nada. ¿Seguimos?">
+                      <i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
                   </form>
                   {% endif %}
                 {% elif t.url %}
@@ -581,6 +576,16 @@
                     <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Configurarlo' }}</button>
                 {% elif t.generic and t.url %}
                   <a class="btn btn-sm btn-warning" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Hacerlo' }}</a>
+                  {# El SEGUNDO botón: «ya está hecho» (se hizo fuera de la app). Solo lo llevan las
+                     tareas que lo admiten, como confirmar al promotor por teléfono. #}
+                  {% if t.done_url %}
+                    <form method="post" action="{{ t.done_url }}" class="d-inline">
+                      <input type="hidden" name="next" value="{{ request.full_path }}">
+                      <button class="btn btn-sm btn-outline-warning"
+                              data-confirm="Queda apuntado que ya está hecho. No se manda nada. ¿Seguimos?">
+                        <i class="fa fa-check me-1"></i>{{ t.done_label or 'Ya está hecho' }}</button>
+                    </form>
+                  {% endif %}
                 {% elif t.do == 'confirmar' %}
                   {# El MISMO camino que la etiqueta de estado (handler global `[data-status-option]`),
                      así que pasa por su compuerta: si falta avisar al artista, sale su pop-up. #}

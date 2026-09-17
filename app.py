@@ -162284,7 +162284,9 @@ def _staff_pass_photo(persona: dict, lado: int):
     """La foto de la persona como cuadrado de `lado` px (None si no hay o no se pudo bajar: la
     tarjeta sale entonces con sus iniciales, nunca rota)."""
     url = (persona.get("photo_url") or "").strip()
-    if not url or not PILLOW_AVAILABLE:
+    # Solo se baja una URL https de verdad (la foto viene de Storage): nunca un `file:` ni un host
+    # interno que alguien pudiera colar en el campo.
+    if not url or not url.lower().startswith("https://") or not PILLOW_AVAILABLE:
         return None
     try:
         data, _ct = _download_remote_content(url, timeout=12)
@@ -162662,7 +162664,7 @@ def staff_pass_view(user_id):
         anulados = (session_db.query(StaffPass)
                     .filter(StaffPass.user_id == user.id, StaffPass.status != "ACTIVE")
                     .order_by(StaffPass.serial.desc()).limit(6).all())
-        return render_template(
+        salida = make_response(render_template(
             "staff_pass.html",
             user=user, persona=persona,
             pase=(_staff_pass_row(actual, persona) if actual else None),
@@ -162675,7 +162677,10 @@ def staff_pass_view(user_id):
             historial=[_staff_pass_row(x, persona) for x in anulados],
             cliente=_staff_pass_client(),
             file_slug=_staff_pass_slug(persona.get("nick") or persona.get("name") or ""),
-        )
+        ))
+        # Lleva el DNI y el QR: que no se quede en la caché del navegador de un móvil compartido.
+        salida.headers["Cache-Control"] = "private, no-store"
+        return salida
     finally:
         session_db.close()
 
@@ -162855,22 +162860,34 @@ def staff_pass_check_view(token):
             p.checks_count = int(p.checks_count or 0) + 1
             p.last_checked_at = ahora
         estado = _current_user_state() or {}
+        quien = (estado.get("nick") or "").strip()
+        if session.get("impersonator_id"):
+            # En «Ver como», el rastro dice quién era DE VERDAD el que comprobaba.
+            try:
+                quien = f"{_impersonator_nick()} (viendo como {quien})"
+            except Exception:
+                pass
         session_db.add(StaffPassCheck(
             pass_id=(p.id if p is not None else None),
             token_seen=token[:80],
             result=resultado,
             checked_by_user_id=_safe_uuid(estado.get("user_id")),
-            checked_by_nick=((estado.get("nick") or "").strip()[:120] or None),
+            checked_by_nick=(quien[:120] or None),
             checked_at=ahora,
         ))
         session_db.commit()
-        return render_template(
+        salida = make_response(render_template(
             "staff_pass_check.html",
             resultado=resultado, persona=persona, pase=fila,
             comprobado_label=ahora.strftime("%d/%m/%Y %H:%M"),
             comprobado_por=(estado.get("nick") or ""),
             can_open_ficha=(persona is not None and _personnel_tab_grant("personal.usuarios.datos")),
-        )
+        ))
+        # Enseña el DNI de otra persona: ni caché ni «atrás» en un móvil que se pasa de mano en mano
+        # en la puerta, y el token de la URL no viaja como Referer a ningún sitio.
+        salida.headers["Cache-Control"] = "private, no-store"
+        salida.headers["Referrer-Policy"] = "no-referrer"
+        return salida
     except Exception:
         session_db.rollback()
         raise

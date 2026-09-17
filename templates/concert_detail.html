@@ -3,8 +3,11 @@
 {% import '_artwork_media.html' as artm with context %}
 {% block content %}
 <div class="mb-2">
-  {% set _from_media = request.args.get('back') == 'media' %}
-  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('media_gallery_view') if _from_media else url_for('concerts_view', tab='vista') }}" title="{{ 'Volver a Fotos / Vídeos' if _from_media else 'Volver a conciertos' }}" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+  {# A DÓNDE VUELVE LA FLECHA lo decide el servidor (`_concert_back_context`): el listado del que se
+     vino (`?back=` en la fila, recordado en la sesión). Con origen conocido va SIEMPRE ahí
+     (`data-no-smart-back`): retroceder por el historial te dejaba en la pestaña anterior de la misma
+     ficha o en la vista previa de la que acababas de volver. #}
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ back_url }}" title="{{ back_title }}" aria-label="{{ back_title }}"{% if back_known %} data-no-smart-back{% endif %}><i class="fa fa-arrow-left"></i></a>
 </div>
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>

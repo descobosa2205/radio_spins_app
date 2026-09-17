@@ -60,7 +60,7 @@
 
   {% if concert_rows %}
   <div class="card"><div class="list-group list-group-flush">
-    {% for r in concert_rows %}{{ concert_row(r) }}{% endfor %}
+    {% for r in concert_rows %}{{ concert_row(r, back='contratacion') }}{% endfor %}
   </div></div>
   {% else %}
   <div class="alert alert-light border">No hay conciertos con estos filtros.</div>

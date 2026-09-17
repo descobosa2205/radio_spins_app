@@ -232,6 +232,11 @@
   actual** (tras un POST+redirect el referrer es la propia ficha, y ahí retroceder no serviría).
   Si no hay de dónde volver (enlace directo, pestaña nueva) se sigue el `href`, que es el destino
   «padre» de esa pantalla. Opt-out: `data-no-smart-back`. Cmd/Ctrl/⇧/clic central no lo interceptan.
+  ⚠️ **Un referrer de la MISMA pantalla con otra query no cuenta** (sep 2026): otra pestaña de la
+  ficha o otro filtro no es «la página de la que venías», y retroceder ahí era el lío de la flecha de
+  la ficha de una actividad. Se compara el `pathname`; si coincide, se sigue el `href`. Las fichas
+  que saben de dónde se vino lo dicen en el `href` y ponen `data-no-smart-back`
+  (`_concert_back_context`, en `docs/app/actividades.md`).
 
 - ⚠️⚠️ **`shown.bs.modal` NO ES FIABLE en esta app** (ago 2026, bug real): con `modal_stack.js` por
   medio llega `show.bs.modal` pero **nunca `shown`**, así que cualquier cosa que se construya en ese

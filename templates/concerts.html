@@ -173,7 +173,7 @@
         <summary class="h6 mb-2">{{ titles[key] }} <span class="text-muted">({{ group|length }})</span></summary>
 
         {% for c in group %}
-          <div class="card mb-2 clickable-row" id="concert-{{ c.id }}" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
+          <div class="card mb-2 clickable-row" id="concert-{{ c.id }}" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id, back='contratacion') }}">
             <div class="card-body">
 
               <div class="d-flex justify-content-between gap-3">
@@ -497,7 +497,7 @@
 
                 {% if CAN_EDIT_CONCERTS %}
                 <div class="d-flex gap-2">
-                  <a class="btn btn-sm btn-primary" href="{{ url_for('concert_detail_view', cid=c.id) }}">
+                  <a class="btn btn-sm btn-primary" href="{{ url_for('concert_detail_view', cid=c.id, back='contratacion') }}">
                     <i class="fa fa-pen"></i> Editar
                   </a>
                   <form method="post" action="{{ url_for('concert_delete', cid=c.id) }}" onsubmit="return confirm('¿Eliminar este concierto?');" class="d-inline">
@@ -766,7 +766,7 @@
                 </div>
                 <div class="flex-grow-1" style="min-width:0;">
                   <div class="fw-semibold text-truncate">
-                    <a class="text-reset text-decoration-none" href="{{ url_for('concert_detail_view', cid=c.id) }}">{{ c.festival_name or (c.venue.name if c.venue else 'Actividad') }}</a>
+                    <a class="text-reset text-decoration-none" href="{{ url_for('concert_detail_view', cid=c.id, back='contratacion') }}">{{ c.festival_name or (c.venue.name if c.venue else 'Actividad') }}</a>
                   </div>
                   <div class="small text-muted text-truncate">{{ c.location_summary or '' }}</div>
                 </div>

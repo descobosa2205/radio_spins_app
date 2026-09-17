@@ -130,7 +130,7 @@
   {# La fila es la MISMA que en Conciertos y que en la ficha del artista (parcial único). Va SIN
      nombre ni foto de artista: aquí ya se sabe de quién es. #}
   <div class="card"><div class="list-group list-group-flush">
-    {% for it in items %}{{ concert_row(it) }}{% endfor %}
+    {% for it in items %}{{ concert_row(it, back='actividades') }}{% endfor %}
   </div></div>
   {% else %}
   <div class="alert alert-light border">No hay actividades con estos filtros.</div>

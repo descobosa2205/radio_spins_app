@@ -1182,6 +1182,27 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   (personal con departamento; dirección solo si tiene además otro) y `_detect_invoice_meta` lee el
   nº y la fecha de emisión del PDF para que el proveedor los confirme antes de enviar.
 
+- ⚠️⚠️ **LA FLECHA DE «VOLVER» DE LA FICHA DE UNA ACTIVIDAD VUELVE AL LISTADO DEL QUE SE VINO** (sep
+  2026, lo pidió Dani: «si venías de Contratación vuelves a la contratación del artista en el que
+  estuvieras, y si vienes de Actividades, a las actividades de ese artista; ahora hace un lío»). El
+  lío era el «volver inteligente» (`history.back()`): tras cambiar de pestaña dentro de la ficha te
+  devolvía a la pestaña anterior, y tras un POST+redirect o al volver de una vista previa, al sitio
+  equivocado. Punto único **`_concert_back_context`** (app.py):
+  · la fila del listado lleva **`?back=`** (`concert_row(r, back='contratacion'|'actividades'|'artista')`
+    en `_concert_row.html`; las tres tarjetas de `concerts.html` van con `back='contratacion'`; el
+    `back=media` de la galería ya existía);
+  · la ficha lo **RECUERDA en la sesión** (`session['concert_back']`, por ficha, las últimas ocho),
+    porque las pestañas y los redirects no lo traen;
+  · destinos: `contratacion` → Contratación → Conciertos **con el artista en el filtro** (`artist=`;
+    una actividad de EVENTO no filtra por su artista espejo) · `actividades` → `/actividades` con
+    `artist_id=` (o `event_id=`) · `artista` → la ficha del artista, pestaña Conciertos;
+  · con origen conocido la flecha lleva **`data-no-smart-back`** (va siempre ahí, sin retroceder por
+    el historial); sin origen, el listado de conciertos y el «volver inteligente» de siempre.
+  ⚠️ Y el propio «volver inteligente» (`scripts.js`) ya no retrocede a **la misma pantalla con otra
+  query** (otra pestaña de la ficha, otro filtro): sigue el `href`, que es el destino padre.
+  Probado con la app real: cada `?back=` da su enlace y su título, la otra pestaña sin `back` lo
+  conserva, un `back` inventado cae al recordado, una sesión nueva da el listado de conciertos sin
+  `data-no-smart-back`, y las tres pantallas de origen pintan el `back` en sus filas.
 - **Ficha de la empresa del grupo** (`company_detail`, `/empresas/<cid>`): pestaña **Datos** (datos de
   `GroupCompany` inline + bloque **Logos** —descarga PNG por `company_logo_png`, que baja el original y
   lo convierte con Pillow, + compartir correo/WhatsApp/SMS— + enlace `/facturacion_<slug>` con copiar,

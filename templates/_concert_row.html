@@ -14,8 +14,10 @@
    el desplegable de estado, SIN dar ningún error.
    El dict `r` lo arma `_concert_row` (o `_action_row`) en app.py.
    ================================================================================================= #}
-{% macro concert_row(r) %}
-<a href="{{ r.url }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+{# `back`: DE DÓNDE SE VIENE (contratacion · actividades · artista), para que la flecha de volver de la
+   ficha lleve al listado de origen y no a cualquier sitio (`_concert_back_context`, app.py). #}
+{% macro concert_row(r, back=None) %}
+<a href="{{ r.url }}{% if back and r.kind == 'concert' %}{{ '&' if '?' in r.url else '?' }}back={{ back }}{% endif %}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
   <div class="text-center flex-shrink-0" style="width:52px;">
     {% if r.date %}
       <div class="fw-bold" style="font-size:1.15rem;line-height:1;">{{ r.day }}</div>

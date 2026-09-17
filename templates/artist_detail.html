@@ -619,7 +619,7 @@
        no es un tipo): la lista va plana y por fecha, y cada fila enseña el tipo real más la etiqueta
        «Gratuito» cuando la entrada es gratis. Es la MISMA fila que en Conciertos y en Actividades. #}
     <div class="card"><div class="list-group list-group-flush">
-      {% for r in concert_rows %}{{ concert_row(r) }}{% endfor %}
+      {% for r in concert_rows %}{{ concert_row(r, back='artista') }}{% endfor %}
     </div></div>
   {% endif %}
 

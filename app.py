@@ -69948,6 +69948,68 @@ def concerts_page():
 
 
 
+# ══ LA FLECHA DE «VOLVER» DE LA FICHA DE UNA ACTIVIDAD ═══════════════════════════════════════════
+# ⚠️ Lo pidió Dani (sep 2026): «si venías de Contratación vuelves a la contratación del artista en el
+# que estuvieras, y si vienes de Actividades, a las actividades de ese artista; ahora hace un lío».
+# El lío era el «volver inteligente» (`history.back()`): tras cambiar de pestaña dentro de la ficha
+# te devolvía a la pestaña anterior, y tras un POST+redirect (o al volver de una vista previa) al
+# sitio equivocado. Ahora el LISTADO DE ORIGEN viaja en el enlace de la fila (`?back=`), la ficha lo
+# RECUERDA en la sesión (las pestañas y los redirects no lo traen) y la flecha lleva SIEMPRE ahí, sin
+# retroceder por el historial (`data-no-smart-back`). Sin origen conocido, todo sigue como antes.
+CONCERT_BACK_KINDS = ("contratacion", "actividades", "artista", "media")
+CONCERT_BACK_SESSION_KEY = "concert_back"
+
+
+def _concert_back_context(concert) -> dict:
+    """{url, title, known} de la flecha de volver de la ficha de `concert`.
+
+    · `?back=` en la URL manda y se apunta en la sesión (por ficha, las últimas ocho);
+    · sin él, se usa lo apuntado para ESTA ficha;
+    · sin nada, el listado de conciertos (y el «volver inteligente» del navegador sigue activo)."""
+    cid = str(getattr(concert, "id", "") or "")
+    kind = (request.args.get("back") or "").strip().lower()
+    try:
+        recordados = session.get(CONCERT_BACK_SESSION_KEY) or {}
+        if not isinstance(recordados, dict):
+            recordados = {}
+        if kind in CONCERT_BACK_KINDS and cid:
+            recordados = {k: v for k, v in recordados.items() if k != cid}
+            recordados[cid] = kind
+            # Solo las últimas: la cookie de sesión son 4 KB.
+            for viejo in list(recordados.keys())[:-8]:
+                recordados.pop(viejo, None)
+            session[CONCERT_BACK_SESSION_KEY] = recordados
+        elif cid:
+            kind = recordados.get(cid) or ""
+    except Exception:
+        app.logger.exception("[actividad] no se pudo leer/apuntar de dónde se viene a la ficha")
+    artist_id = getattr(concert, "artist_id", None)
+    event_id = getattr(concert, "event_id", None)
+    try:
+        if kind == "media":
+            return {"url": url_for("media_gallery_view"), "title": "Volver a Fotos / Vídeos", "known": True}
+        if kind == "contratacion":
+            # A Contratación → Conciertos, con el artista de la actividad puesto en el filtro. Una
+            # actividad de EVENTO no filtra por su artista espejo.
+            extra = {"artist": str(artist_id)} if (artist_id and not event_id) else {}
+            return {"url": url_for("concerts_view", tab="vista", **extra),
+                    "title": "Volver a Contratación", "known": True}
+        if kind == "actividades":
+            if event_id:
+                extra = {"event_id": str(event_id)}
+            elif artist_id:
+                extra = {"artist_id": str(artist_id)}
+            else:
+                extra = {}
+            return {"url": url_for("activities_view", **extra), "title": "Volver a Actividades", "known": True}
+        if kind == "artista" and artist_id:
+            return {"url": url_for("artist_detail_view", artist_id=str(artist_id), tab="conciertos"),
+                    "title": "Volver a la ficha del artista", "known": True}
+    except Exception:
+        app.logger.exception("[actividad] no se pudo construir el enlace de volver")
+    return {"url": url_for("concerts_view", tab="vista"), "title": "Volver a conciertos", "known": False}
+
+
 # ---------- FICHA CONCIERTO ----------
 @app.get("/conciertos/<cid>", endpoint="concert_detail_view")
 @admin_required
@@ -70275,11 +70337,16 @@ def concert_detail_view(cid):
 
         # A quién se le ha comunicado ya la actividad (para el pop-up de «Eliminar actividad»).
         _notified = _concert_notified_parties(session, c)
+        # De dónde se viene (Contratación, Actividades, la ficha del artista…): a ahí vuelve la flecha.
+        _back = _concert_back_context(c)
 
         return render_template(
             "concert_detail.html",
             concert=c,
             tab=tab,
+            back_url=_back["url"],
+            back_title=_back["title"],
+            back_known=_back["known"],
             setlist=setlist_ctx,
             today=today,
             capacity_sale=capacity_sale,

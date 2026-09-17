@@ -2309,6 +2309,10 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
       var u = new URL(document.referrer);
       if (u.origin !== window.location.origin) return '';
       if (u.href === window.location.href) return '';
+      // ⚠️ La MISMA pantalla con otra query (otra pestaña de la ficha, otro filtro) tampoco sirve:
+      // retroceder te dejaría en la pestaña anterior de donde ya estás, no «en la página de la que
+      // venías» (bug real, sep 2026: la flecha de la ficha de una actividad hacía un lío).
+      if (u.pathname === window.location.pathname) return '';
       // ⚠️ Si de lo que venimos es un PASO DE FORMULARIO, retroceder llevaría a rellenarlo otra vez:
       // ahí se sigue el href (la pantalla padre).
       if (esFormulario(u.href)) return '';

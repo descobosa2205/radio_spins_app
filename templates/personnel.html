@@ -21,6 +21,9 @@
         {% endif %}
       </form>
     {% endif %}
+    {# VALIDAR UN PASE: comprobar el QR de un pase de personal. Lo puede hacer cualquiera que vea el
+       listado (es el control, no un permiso). #}
+    <a class="btn btn-outline-secondary" href="{{ url_for('staff_pass_scan_view') }}" title="Escanear el QR de un pase de personal y ver si es legítimo"><i class="fa fa-qrcode me-1"></i> Validar un pase</a>
     {% if IS_MASTER %}
     <a class="btn btn-outline-primary" href="{{ url_for('personnel_bulk_access') }}"><i class="fa fa-users-gear me-1"></i> Accesos en bloque</a>
     {% endif %}

@@ -29,6 +29,8 @@
 - Descarga de documentos generados (static/js/doc_download.js, GLOBAL, cargado en layout.html
 - EL LECTOR DE DNI, NIE Y PASAPORTE: LEE LAS DOS CARAS Y NO SE LE PIDE «LA PARTE DE ATRÁS»
 - UN BOTÓN DENTRO DE UNA ZONA data-inline-zone NECESITA DELEGACIÓN (bug real repetido,
+- PASE DE PERSONAL (sep 2026): la acreditación en el móvil (Apple Wallet · Google Wallet · imagen)
+  con un QR que cualquiera de la casa comprueba
 
 ---
 
@@ -674,3 +676,58 @@
   · **Al tocar plantillas, pasarla**: hoy quedan **0 botones muertos** (los cuatro que encontró
   —copiar en la ficha de empresa, probar Cabify y los dos de Registros— están arreglados).
 
+
+- **PASE DE PERSONAL · la acreditación en el móvil** (sep 2026, lo pidió Dani: «cada personal tiene
+  una identificación física que se puede perder; quiero un pase para Wallet con nombre, DNI y un QR,
+  y que cualquiera con acceso a la web pueda validar si es legítimo»). Punto de entrada:
+  **`/personal/<user_id>/pase`** (`staff_pass_view`), con el atajo **«Mi pase de personal»** del menú
+  personal (`/mi-pase` → `my_pass_view`) y la tarjeta «Pase de personal» de la pestaña **Datos** de
+  la ficha. Bloque «PASE DE PERSONAL» en `app.py` (tras Instrucciones); plantillas `staff_pass.html`
+  (la tarjeta y cómo añadirla), `staff_pass_check.html` (la comprobación) y `staff_pass_scan.html`
+  (el escáner); estilos `.sp-*`. Cómo activar Wallet: **`DEPLOY_WALLET.md`**.
+  · **Modelos** `StaffPass` (`staff_passes`: UN pase vigente por persona, `token` OPACO de 24
+  caracteres —`secrets.token_urlsafe(18)`—, `serial`, `status` ACTIVE/REVOKED, la FOTO de los datos
+  con los que se emitió `holder_name`/`holder_dni`, quién lo emitió y el contador de comprobaciones) y
+  `StaffPassCheck` (`staff_pass_checks`: cada comprobación, con quién y el resultado; también los
+  códigos que no son de la casa, con `pass_id` vacío). `ensure_staff_pass_schema`.
+  · **El QR lleva la URL de comprobación** `https://app.33producciones.es/pase/<token>`
+  (`_staff_pass_url`, dominio canónico): así vale escaneado con la cámara del móvil (pasa por el
+  login y vuelve) o desde el escáner de la app (`/pase/validar`, `DocCamera.open({qr:true})`, el
+  mismo lector del control de menores; el JS saca el token de la URL o del texto pegado y abre la
+  comprobación EN ESTE dominio). La comprobación (`staff_pass_check_view`) la abre **cualquiera con
+  sesión** (es el control) y dice: **válido** (con foto, nombre, DNI y departamentos ACTUALES para
+  contrastar), **anulado** (se renovó), **no válido** (bloqueado o eliminado en `UserSecurity`: la
+  validez se DECIDE al comprobar mirando la ficha, no se guarda) o **no es de la casa**. Si el
+  nombre o el DNI cambiaron desde que se emitió (`stale`), sigue siendo válido pero avisa
+  (resultado `STALE`) y en la página del pase se sugiere renovar.
+  · **Emitir exige nombre y DNI en la ficha** (`_staff_pass_missing`): es lo que se contrasta con el
+  documento. **Renovar** (`staff_pass_issue`, móvil perdido o datos cambiados) pone el vigente en
+  REVOKED y emite el siguiente serial: el QR viejo pasa a decir «anulado». No se borra nada.
+  · **Permisos**: el pase propio lo abre y lo renueva cualquiera; el de OTRA persona, quien pueda
+  VER sus Datos (`personal.usuarios.datos`, que es el permiso que ya enseña su DNI) y renovarlo quien
+  pueda EDITARLOS. ⚠️ Los endpoints cuelgan de `/personal/…` pero NO tienen recurso propio, y un GET
+  sin recurso pasa con cualquier sesión: por eso se deciden **y se deniegan** en
+  `_support_endpoint_decision` (`STAFF_PASS_ENDPOINTS` + `_staff_pass_request_allowed`, un 403 con
+  motivo), y van en `_access_exempt_endpoints` para que Accesos no los saque como «Función nueva».
+  `my_pass_view` está en `PERSONAL_ENDPOINTS`; el escáner y la comprobación, exentos (cualquier sesión).
+  · **La tarjeta** es UNA (`_staff_pass_card_png`, Pillow 1080×1620: banda roja con el logo en
+  BLANCO —el logo es rojo y sobre rojo desaparece: se pinta su silueta por el canal alfa—, foto en
+  círculo o iniciales, nombre, DNI, departamentos, QR a módulo exacto y pie) y es la misma que la de
+  la pantalla (`.sp-card`, con `filter:brightness(0) invert(1)` para el logo) y la del PDF (90×135 mm,
+  la imagen a sangre). La imagen se abre en otra pestaña (en el iPhone: mantener pulsado → Fotos);
+  `?dl=1` la baja como adjunto.
+  · **Apple Wallet** (`_staff_pass_pkpass_bytes`): zip con `pass.json` (estilo `generic`, colores de
+  la casa, nombre grande, DNI y departamento, miniatura con la foto, QR con la URL), `icon`/`logo`/
+  `thumbnail` en 1x/2x/3x, `manifest.json` (SHA-1) y la **firma PKCS#7 detached** del manifest con el
+  certificado del Pass Type ID + WWDR (`cryptography.pkcs7`, `Binary` + `DetachedSignature`; openssl
+  la verifica). **Google Wallet** (`_staff_pass_google_save_url`): enlace `pay.google.com/gp/v/save/`
+  con un **JWT RS256** firmado a mano (`_jwt_rs256`, sin librería) que lleva la clase y el objeto
+  genéricos. Los dos se activan por variables de entorno (`_apple_wallet_config` /
+  `_google_wallet_config`); sin ellas los botones salen APAGADOS y explicados, nunca desaparecen.
+  ⚠️ `_staff_pass_secret` admite el PEM pegado (con `\n` escapados) o la RUTA de un Secret File; un
+  JSON se devuelve TAL CUAL (cambiarle los `\n` rompía la clave de la cuenta de servicio: bug de la
+  prueba). Renovar NO actualiza el pase ya guardado en el móvil (no hay `webServiceURL`): queda uno
+  de más que al escanearlo dice «anulado».
+  · Prueba de punta a punta (emitir, imagen/PDF/QR, comprobar los cuatro resultados, renovar,
+  bloqueado, permisos con y sin grant, .pkpass con certificado autofirmado verificado por openssl,
+  JWT de Google verificado con PyJWT): `test_pases.py` del kit local (60 comprobaciones).

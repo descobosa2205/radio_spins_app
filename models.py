@@ -7836,6 +7836,92 @@ def ensure_manuals_schema():
 
 
 # ---------------------------------------------------------------------------
+# PASE DE PERSONAL (la acreditación en el móvil: Apple Wallet / Google Wallet / imagen)
+# ---------------------------------------------------------------------------
+class StaffPass(Base):
+    """La acreditación de una persona de la casa: UN pase vigente por persona, con un `token` OPACO
+    e imposible de adivinar que es lo que lleva el código QR (`/pase/<token>`).
+
+    · Regenerar el pase (móvil perdido, cambio de datos) ANULA el anterior (`status` REVOKED) y
+      emite otro con `serial` + 1: el QR viejo pasa a decir «anulado» en el control.
+    · `holder_name` / `holder_dni` son la FOTO de los datos con los que se emitió: si después
+      cambian en la ficha, la comprobación avisa de que el pase se quedó atrás y toca renovarlo.
+    · La validez NUNCA se guarda aquí: se decide al comprobar mirando la ficha (bloqueado o
+      eliminado en `UserSecurity` = no válido), que es el dato, no una marca aparte."""
+
+    __tablename__ = "staff_passes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    serial = Column(Integer, nullable=False, server_default=text("1"))
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))   # ACTIVE · REVOKED
+    holder_name = Column(Text)
+    holder_dni = Column(Text)
+    issued_at = Column(DateTime(timezone=True), server_default=func.now())
+    issued_by_user_id = Column(PGUUID(as_uuid=True))
+    issued_by_nick = Column(Text)
+    revoked_at = Column(DateTime(timezone=True))
+    revoked_reason = Column(Text)
+    checks_count = Column(Integer, nullable=False, server_default=text("0"))
+    last_checked_at = Column(DateTime(timezone=True))
+
+    user = relationship("User")
+
+
+class StaffPassCheck(Base):
+    """Cada COMPROBACIÓN de un pase en el control (quién escaneó qué y con qué resultado). Deja
+    rastro también de los códigos que no son de la casa (`pass_id` vacío, `token_seen`)."""
+
+    __tablename__ = "staff_pass_checks"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    pass_id = Column(PGUUID(as_uuid=True), ForeignKey("staff_passes.id", ondelete="CASCADE"))
+    token_seen = Column(Text)
+    result = Column(Text, nullable=False)          # OK · REVOKED · INACTIVE · UNKNOWN · STALE
+    checked_by_user_id = Column(PGUUID(as_uuid=True))
+    checked_by_nick = Column(Text)
+    checked_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+def ensure_staff_pass_schema():
+    """Las tablas del pase de personal (idempotente, sin Alembic). ⚠️ Ni un `%` en el DDL."""
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS staff_passes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token text NOT NULL UNIQUE,
+            serial integer NOT NULL DEFAULT 1,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            holder_name text,
+            holder_dni text,
+            issued_at timestamptz DEFAULT now(),
+            issued_by_user_id uuid,
+            issued_by_nick text,
+            revoked_at timestamptz,
+            revoked_reason text,
+            checks_count integer NOT NULL DEFAULT 0,
+            last_checked_at timestamptz
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_staff_passes_user ON staff_passes(user_id, status);",
+        """
+        CREATE TABLE IF NOT EXISTS staff_pass_checks (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            pass_id uuid REFERENCES staff_passes(id) ON DELETE CASCADE,
+            token_seen text,
+            result text NOT NULL,
+            checked_by_user_id uuid,
+            checked_by_nick text,
+            checked_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_staff_pass_checks_pass ON staff_pass_checks(pass_id, checked_at);",
+    ], "staff_passes")
+
+
+# ---------------------------------------------------------------------------
 # VERSIÓN WEB de un vídeo (la copia con la que se REPRODUCE)
 # ---------------------------------------------------------------------------
 class VideoWebVersion(Base):

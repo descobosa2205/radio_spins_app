@@ -147,6 +147,7 @@ from models import (
     ensure_distributors_schema,
     ensure_artist_calendar_schema,
     ensure_manuals_schema,
+    ensure_staff_pass_schema,
     ensure_performance_indexes,
     SessionLocal,
     User,
@@ -159,7 +160,7 @@ from models import (
     ArtistPerson,
     ArtistAgendaItem,
     ArtistCalendarImport,
-    ArtistCalendarLink, ArtistCalendarAccount, AppManual,
+    ArtistCalendarLink, ArtistCalendarAccount, AppManual, StaffPass, StaffPassCheck,
     ArtistEmail,
     ArtistNotificationContact,
     ConcertArtistNotification,
@@ -85355,6 +85356,7 @@ def _bootstrap_schema_bg():
         (ensure_distributors_schema, "ensure_distributors_schema"),
         (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
         (ensure_manuals_schema, "ensure_manuals_schema"),
+        (ensure_staff_pass_schema, "ensure_staff_pass_schema"),
         # OJO: ensure_personnel_and_operations_schema NO va aquí. Lo ejecuta (serializado, con lock) el
         # before_request `ensure_personnel_bootstrap` -> _bootstrap_access_and_personnel. Ejecutarlo
         # TAMBIÉN aquí, a la vez, provocaba un interbloqueo (deadlock) con las peticiones -> la web se
@@ -97143,7 +97145,8 @@ def _access_exempt_endpoints() -> set:
                # subirlos, editarlos y borrarlos es de dirección (`_manual_can_edit`). Ni lo uno ni lo
                # otro es una sección que se conceda en Accesos.
                "manuals_view", "manual_file", "manual_download",
-               "manual_create", "manual_update", "manual_delete"})
+               "manual_create", "manual_update", "manual_delete"}
+            | set(STAFF_PASS_ENDPOINTS) | {"staff_pass_scan_view", "staff_pass_check_view"})
 
 
 def _build_access_resources_from_app() -> list[dict]:
@@ -101650,7 +101653,9 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       # se llame `vacation_*`, no puede exigir el permiso de la sección de gestión
                       # (si no, la persona a la que se avisa se come un 403 al pinchar su propio
                       # aviso). Dentro se comprueba que los días son suyos.
-                      "vacation_notice_view"}
+                      "vacation_notice_view",
+                      # MI PASE: el atajo a la acreditación propia (lleva a la ficha de uno mismo).
+                      "my_pass_view"}
 
 
 # PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
@@ -101868,6 +101873,14 @@ def _support_endpoint_decision(endpoint: str):
         return (True, None)
     if endpoint in ("personnel_contract_save", "personnel_contract_delete") and _can_view_person_contract():
         return (True, None)
+    # EL PASE DE PERSONAL de la ficha: el suyo lo abre (y lo renueva) cualquiera; el de otra persona,
+    # quien pueda ver sus Datos (renovarlo, quien pueda editarlos). ⚠️ Se decide AQUÍ y se deniega
+    # aquí: por la ruta `/personal/…` estos endpoints no tienen recurso propio y un GET sin recurso
+    # pasaría con cualquier sesión, que es justo lo que no puede ser con el DNI de otra persona.
+    if endpoint in STAFF_PASS_ENDPOINTS:
+        if _staff_pass_request_allowed(endpoint):
+            return (True, None)
+        return (True, forbid("Solo puedes ver tu propio pase de personal (o el de quien tengas permiso para ver sus datos)."))
     # GESTIONAR VACACIONES: su llave es la responsabilidad (o ser de administración), no un permiso
     # de sección que hay que acordarse de conceder. La decisión fina la sigue tomando la vista.
     if (endpoint == "vacaciones_view" or endpoint.startswith("vacation_")) and _can_manage_vacations():
@@ -115613,6 +115626,9 @@ def personnel_detail_view(user_id):
             # la que decide las vacaciones que le corresponden, de ahí el resumen al lado.
             can_view_contract=tab_access["contrato"],
             tab_access=tab_access,
+            # PASE DE PERSONAL (tarjeta de la pestaña Datos): su estado, para abrirlo o emitirlo.
+            staff_pass=(_staff_pass_summary(session_db, user, profile=profile, security=security)
+                        if tab == "datos" else None),
             # Pestaña VACACIONES: la ve la propia persona, dirección y quien las gestione.
             can_view_vacations=puede_ver_vacaciones,
             can_manage_vacations=_can_manage_vacations(),
@@ -161990,6 +162006,876 @@ def manual_file(manual_id):
 @admin_required
 def manual_download(manual_id):
     return _manual_serve(manual_id, attachment=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# PASE DE PERSONAL · la acreditación de cada persona en el móvil
+#   · UN pase vigente por persona con un token OPACO (imposible de adivinar): el QR lleva la URL
+#     `/pase/<token>`, que abre la COMPROBACIÓN (cualquiera con sesión ve si es legítimo).
+#   · Se añade a Apple Wallet (.pkpass FIRMADO con el certificado de Apple) o a Google Wallet (enlace
+#     «Guardar» firmado con la cuenta de servicio). Los dos se activan con variables de entorno
+#     (ver DEPLOY_WALLET.md); mientras no estén —o para quien prefiera— se guarda como IMAGEN o PDF
+#     con el MISMO QR, así que nadie se queda sin pase.
+#   · La validez NO se guarda: se decide al comprobar mirando la ficha (bloqueado/eliminado = no
+#     válido) y el estado del pase (renovar ANULA el anterior: el QR viejo pasa a decir «anulado»).
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+STAFF_PASS_ENDPOINTS = {"staff_pass_view", "staff_pass_issue", "staff_pass_png", "staff_pass_pdf",
+                        "staff_pass_qr_png", "staff_pass_apple", "staff_pass_google"}
+STAFF_PASS_ORG = "33 Producciones"
+STAFF_PASS_ORG_SUB = "Pies Records"
+STAFF_PASS_RGB_RED = (227, 61, 72)       # #E33D48 (--brand-primary)
+STAFF_PASS_RGB_DARK = (17, 24, 32)       # #111820 (el oscuro del QR)
+STAFF_PASS_RGB_GREY = (108, 117, 125)
+STAFF_PASS_RGB_LINE = (233, 236, 239)
+STAFF_PASS_CARD_W, STAFF_PASS_CARD_H = 1080, 1620   # la imagen: proporción 2:3, va bien en cualquier móvil
+
+
+def _staff_pass_secret(name: str) -> str:
+    """Un secreto de Wallet tal como llegue: el PEM/JSON en la propia variable (con los saltos de
+    línea reales o escapados como `\\n`) o la RUTA de un fichero (un *Secret File* de Render)."""
+    valor = (os.getenv(name) or "").strip()
+    if not valor:
+        return ""
+    if valor.startswith("-----BEGIN"):
+        return valor.replace("\\n", "\n")
+    if valor.startswith("{"):
+        # ⚠️ Un JSON se devuelve TAL CUAL: sus `\n` (los de la clave privada de la cuenta de servicio)
+        # los resuelve `json.loads`; cambiarlos aquí por saltos reales rompe el JSON.
+        return valor
+    try:
+        if os.path.exists(valor):
+            with open(valor, "r", encoding="utf-8") as fh:
+                return fh.read()
+    except Exception:
+        return ""
+    return valor
+
+
+def _apple_wallet_config() -> dict | None:
+    """Lo que hace falta para FIRMAR un .pkpass. Sin todo, Apple Wallet queda desactivado y la
+    pantalla lo dice (el botón no desaparece en silencio)."""
+    cfg = {
+        "pass_type_id": (os.getenv("APPLE_PASS_TYPE_ID") or "").strip(),
+        "team_id": (os.getenv("APPLE_TEAM_ID") or "").strip(),
+        "cert_pem": _staff_pass_secret("APPLE_PASS_CERT_PEM"),
+        "key_pem": _staff_pass_secret("APPLE_PASS_KEY_PEM"),
+        "wwdr_pem": _staff_pass_secret("APPLE_WWDR_PEM"),
+        "key_password": (os.getenv("APPLE_PASS_KEY_PASSWORD") or "").strip() or None,
+    }
+    if not all([cfg["pass_type_id"], cfg["team_id"], cfg["cert_pem"], cfg["key_pem"], cfg["wwdr_pem"]]):
+        return None
+    return cfg
+
+
+def _google_wallet_config() -> dict | None:
+    """El emisor de Google Wallet y la cuenta de servicio con la que se firma el enlace «Guardar»."""
+    issuer = (os.getenv("GOOGLE_WALLET_ISSUER_ID") or "").strip()
+    crudo = _staff_pass_secret("GOOGLE_WALLET_SERVICE_ACCOUNT_JSON")
+    if not issuer or not crudo:
+        return None
+    try:
+        cuenta = json.loads(crudo)
+    except Exception:
+        return None
+    email = (cuenta.get("client_email") or "").strip()
+    clave = (cuenta.get("private_key") or "").strip()
+    if not email or not clave:
+        return None
+    return {"issuer_id": issuer, "client_email": email, "private_key": clave}
+
+
+def _staff_pass_person(session_db, user, profile=None, security=None) -> dict:
+    """Los datos de la persona que van en el pase y en la comprobación (un punto único)."""
+    profile = profile or _ensure_user_profile(session_db, user, legacy_full_seed=False)
+    security = security or _ensure_user_security(session_db, user)
+    nombre = _profile_full_name(profile)
+    bloqueado = bool(getattr(security, "is_blocked", False))
+    eliminado = bool(getattr(security, "is_deleted", False))
+    return {
+        "user_id": str(user.id),
+        "nick": (profile.nick or "").strip(),
+        "name": nombre or (profile.nick or "").strip(),
+        "has_name": bool(nombre),
+        "dni": (profile.dni or "").strip().upper(),
+        "photo_url": (profile.photo_url or "").strip(),
+        "departments": _profile_departments(profile),
+        "email": (user.email or "").strip(),
+        "blocked": bloqueado,
+        "deleted": eliminado,
+        "active": not (bloqueado or eliminado),
+    }
+
+
+def _staff_pass_missing(persona: dict) -> list[str]:
+    """Qué le falta a la ficha para poder emitir el pase: el nombre real y el DNI, que es lo que se
+    contrasta con el documento en el control."""
+    faltan = []
+    if not persona.get("has_name"):
+        faltan.append("el nombre y los apellidos")
+    if not persona.get("dni"):
+        faltan.append("el DNI")
+    return faltan
+
+
+def _staff_pass_current(session_db, user_id) -> StaffPass | None:
+    uid = _safe_uuid(str(user_id))
+    if not uid:
+        return None
+    return (session_db.query(StaffPass)
+            .filter(StaffPass.user_id == uid, StaffPass.status == "ACTIVE")
+            .order_by(StaffPass.serial.desc()).first())
+
+
+def _staff_pass_issue(session_db, user, persona: dict, *, reason: str = "") -> StaffPass:
+    """Emite el pase o lo RENUEVA: el vigente pasa a REVOKED (su QR deja de valer) y el nuevo lleva
+    el siguiente número de serie. No se borra nada: el historial es el rastro."""
+    ahora = datetime.now(TZ_MADRID)
+    ultimo = (session_db.query(StaffPass).filter(StaffPass.user_id == user.id)
+              .order_by(StaffPass.serial.desc()).first())
+    serial = int(getattr(ultimo, "serial", 0) or 0) + 1
+    for viejo in (session_db.query(StaffPass)
+                  .filter(StaffPass.user_id == user.id, StaffPass.status == "ACTIVE").all()):
+        viejo.status = "REVOKED"
+        viejo.revoked_at = ahora
+        viejo.revoked_reason = ((reason or "").strip() or "Renovado")[:200]
+    estado = _current_user_state() or {}
+    nuevo = StaffPass(
+        user_id=user.id,
+        token=secrets.token_urlsafe(18),
+        serial=serial,
+        status="ACTIVE",
+        holder_name=(persona.get("name") or "").strip() or None,
+        holder_dni=(persona.get("dni") or "").strip() or None,
+        issued_at=ahora,
+        issued_by_user_id=_safe_uuid(estado.get("user_id")),
+        issued_by_nick=((estado.get("nick") or "").strip()[:120] or None),
+    )
+    session_db.add(nuevo)
+    session_db.flush()
+    return nuevo
+
+
+def _staff_pass_url(token: str) -> str:
+    """Lo que lleva el QR: la comprobación en el dominio canónico (vale desde cualquier móvil)."""
+    base = _public_base_url() or "https://app.33producciones.es"
+    return f"{base}/pase/{token}"
+
+
+def _staff_pass_fecha(dt) -> str:
+    if not dt:
+        return ""
+    try:
+        if getattr(dt, "tzinfo", None) is not None:
+            dt = dt.astimezone(TZ_MADRID)
+        return dt.strftime("%d/%m/%Y")
+    except Exception:
+        return ""
+
+
+def _staff_pass_row(p: StaffPass, persona: dict) -> dict:
+    """El pase tal como lo pintan las plantillas (la tarjeta, la comprobación y la ficha)."""
+    url = _staff_pass_url(p.token)
+    serial = int(p.serial or 1)
+    return {
+        "id": str(p.id),
+        "token": p.token,
+        "serial": serial,
+        "serial_label": f"{serial:03d}",
+        "status": p.status,
+        "url": url,
+        "issued_label": _staff_pass_fecha(p.issued_at),
+        "issued_by": p.issued_by_nick or "",
+        "revoked_label": _staff_pass_fecha(p.revoked_at),
+        "revoked_reason": p.revoked_reason or "",
+        "qr_data_uri": _qr_data_uri(url, scale=7),
+        # Los datos con los que se EMITIÓ ya no son los de la ficha: el pase del móvil se quedó atrás.
+        "stale": bool(((p.holder_name or "").strip() != (persona.get("name") or "").strip())
+                      or ((p.holder_dni or "").strip().upper() != (persona.get("dni") or "").strip().upper())),
+        "checks_count": int(p.checks_count or 0),
+        "last_checked_label": _staff_pass_fecha(p.last_checked_at),
+        "alt_text": f"{serial:02d}-{(p.token or '')[:6].upper()}",
+    }
+
+
+def _staff_pass_summary(session_db, user, profile=None, security=None) -> dict | None:
+    """El pase vigente de una persona tal como lo pinta la ficha (None si no tiene)."""
+    actual = _staff_pass_current(session_db, user.id)
+    if actual is None:
+        return None
+    return _staff_pass_row(actual, _staff_pass_person(session_db, user, profile=profile, security=security))
+
+
+def _staff_pass_request_allowed(endpoint: str) -> bool:
+    """¿Puede quien pide abrir (o renovar) el pase de la persona de la URL?
+
+    El SUYO, cualquiera. El de otra persona, quien pueda ver sus Datos en la ficha de personal
+    (renovarlo, quien pueda editarlos): el pase lleva su DNI, así que es el mismo permiso que
+    hoy ya enseña ese dato."""
+    try:
+        mio = str((_current_user_state() or {}).get("user_id") or "")
+        suyo = str((request.view_args or {}).get("user_id") or "")
+    except Exception:
+        return False
+    if not suyo:
+        return False
+    if mio and mio == suyo:
+        return True
+    return _personnel_tab_grant("personal.usuarios.datos", edit=(endpoint == "staff_pass_issue"))
+
+
+def _staff_pass_slug(texto: str) -> str:
+    import unicodedata
+    plano = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode("ascii")
+    plano = re.sub(r"[^a-zA-Z0-9]+", "-", plano).strip("-").lower()
+    return plano or "personal"
+
+
+# ------------------------------- imágenes: la tarjeta, el logo, la foto -------------------------------
+def _staff_pass_font(size: int, bold: bool = False):
+    """Una tipografía de verdad para la tarjeta (las Vera de ReportLab, como las miniaturas de prensa)."""
+    from PIL import ImageFont
+    ruta = _press_font_path(bold)
+    try:
+        return ImageFont.truetype(ruta, size) if ruta else ImageFont.load_default()
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _staff_pass_logo_image(max_w: int, max_h: int, color=None):
+    """El logo del grupo (`logo_33_producciones.png`) recortado a su contenido y encajado en
+    `max_w`×`max_h`. Con `color` se pinta como SILUETA de ese color (blanco sobre la banda roja:
+    el logo es rojo y sobre rojo desaparecería). Devuelve una imagen RGBA."""
+    ruta = os.path.join(app.static_folder or "static", "img", "logo_33_producciones.png")
+    with PILImage.open(ruta) as im:
+        im = im.convert("RGBA")
+        caja = im.getbbox()
+        if caja:
+            im = im.crop(caja)
+        if color is not None:
+            alfa = im.getchannel("A")
+            im = PILImage.new("RGBA", im.size, tuple(color) + (0,))
+            im.putalpha(alfa)
+        im.thumbnail((max_w, max_h), PILImage.LANCZOS)
+        return im.copy()
+
+
+def _staff_pass_logo_png(w: int, h: int, color=None, margen: int = 0) -> bytes:
+    """El logo centrado en un lienzo transparente de `w`×`h` (lo que pide Apple para `logo.png`)."""
+    logo = _staff_pass_logo_image(w - 2 * margen, h - 2 * margen, color=color)
+    lienzo = PILImage.new("RGBA", (w, h), (0, 0, 0, 0))
+    lienzo.paste(logo, ((w - logo.size[0]) // 2, (h - logo.size[1]) // 2), logo)
+    buf = io.BytesIO()
+    lienzo.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _staff_pass_icon_png(lado: int) -> bytes:
+    """El icono cuadrado de la casa (`Icono.jpg`) al tamaño que pide Apple (29 · 58 · 87 px)."""
+    ruta = os.path.join(app.static_folder or "static", "img", "Icono.jpg")
+    with PILImage.open(ruta) as im:
+        im = ImageOps.fit(im.convert("RGB"), (lado, lado), method=PILImage.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        return buf.getvalue()
+
+
+def _staff_pass_photo(persona: dict, lado: int):
+    """La foto de la persona como cuadrado de `lado` px (None si no hay o no se pudo bajar: la
+    tarjeta sale entonces con sus iniciales, nunca rota)."""
+    url = (persona.get("photo_url") or "").strip()
+    if not url or not PILLOW_AVAILABLE:
+        return None
+    try:
+        data, _ct = _download_remote_content(url, timeout=12)
+        with PILImage.open(io.BytesIO(data)) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            return ImageOps.fit(im, (lado, lado), method=PILImage.LANCZOS, centering=(0.5, 0.4))
+    except Exception:
+        return None
+
+
+def _staff_pass_initials_square(persona: dict, lado: int):
+    """Un cuadrado con las iniciales, para quien no tiene foto."""
+    from PIL import ImageDraw
+    im = PILImage.new("RGB", (lado, lado), (0, 124, 162))     # el azul de la casa
+    d = ImageDraw.Draw(im)
+    partes = [x for x in re.split(r"\s+", (persona.get("name") or persona.get("nick") or "").strip()) if x]
+    iniciales = "".join(x[0] for x in partes[:2]).upper() or "33"
+    f = _staff_pass_font(int(lado * 0.42), True)
+    caja = d.textbbox((0, 0), iniciales, font=f)
+    d.text(((lado - (caja[2] - caja[0])) / 2 - caja[0], (lado - (caja[3] - caja[1])) / 2 - caja[1]),
+           iniciales, font=f, fill=(255, 255, 255))
+    return im
+
+
+def _staff_pass_circle(im_sq):
+    """Un cuadrado recortado en círculo (borde suavizado). Devuelve RGBA."""
+    from PIL import ImageDraw
+    lado = im_sq.size[0]
+    mascara = PILImage.new("L", (lado * 4, lado * 4), 0)
+    ImageDraw.Draw(mascara).ellipse((0, 0, lado * 4 - 1, lado * 4 - 1), fill=255)
+    mascara = mascara.resize((lado, lado), PILImage.LANCZOS)
+    salida = PILImage.new("RGBA", (lado, lado), (0, 0, 0, 0))
+    salida.paste(im_sq.convert("RGB"), (0, 0), mascara)
+    return salida
+
+
+def _staff_pass_qr_image(url: str, lado: int):
+    """El QR a un tamaño EXACTO de módulo (sin reescalar: un QR reescalado a medias se lee peor)."""
+    import segno
+    qr = segno.make(url, error="m")
+    ancho_unidad, _alto = qr.symbol_size(scale=1, border=1)
+    escala = max(1, lado // ancho_unidad)
+    buf = io.BytesIO()
+    qr.save(buf, kind="png", scale=escala, border=1, dark="#111820", light="#ffffff")
+    buf.seek(0)
+    return PILImage.open(buf).convert("RGB")
+
+
+def _staff_pass_text_lines(d, texto: str, font, max_w: int, max_lines: int = 2) -> list[str]:
+    """Parte un texto en líneas que quepan en `max_w` (la última con «…» si sobra)."""
+    palabras = [x for x in (texto or "").split() if x]
+    lineas, actual = [], ""
+    for p in palabras:
+        prueba = (actual + " " + p).strip()
+        if d.textlength(prueba, font=font) <= max_w or not actual:
+            actual = prueba
+        else:
+            lineas.append(actual)
+            actual = p
+    if actual:
+        lineas.append(actual)
+    if len(lineas) > max_lines:
+        lineas = lineas[:max_lines]
+        while lineas[-1] and d.textlength(lineas[-1] + "…", font=font) > max_w:
+            lineas[-1] = lineas[-1][:-1].rstrip()
+        lineas[-1] += "…"
+    return lineas
+
+
+def _staff_pass_card_png(p: StaffPass, persona: dict) -> bytes:
+    """LA TARJETA como imagen (la que se guarda en el móvil cuando no hay Wallet, y la del PDF):
+    banda roja con el logo en blanco, la foto en círculo, el nombre, el DNI, los departamentos y el
+    QR de comprobación. La misma estética que la tarjeta de la pantalla (`.sp-card`)."""
+    if not PILLOW_AVAILABLE:
+        raise RuntimeError("Pillow no está disponible para pintar la tarjeta.")
+    from PIL import ImageDraw
+    W, H = STAFF_PASS_CARD_W, STAFF_PASS_CARD_H
+    im = PILImage.new("RGB", (W, H), (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    banda = 400
+    d.rectangle((0, 0, W, banda), fill=STAFF_PASS_RGB_RED)
+    d.rectangle((0, banda, W, banda + 8), fill=STAFF_PASS_RGB_DARK)
+
+    # El logo en blanco, arriba a la izquierda; el rótulo debajo.
+    try:
+        logo = _staff_pass_logo_image(440, 150, color=(255, 255, 255))
+        im.paste(logo, (60, 56), logo)
+    except Exception:
+        d.text((60, 70), STAFF_PASS_ORG, font=_staff_pass_font(64, True), fill=(255, 255, 255))
+    d.text((60, 250), "PASE DE PERSONAL", font=_staff_pass_font(32, True), fill=(255, 236, 238))
+    d.text((60, 298), f"Nº {int(p.serial or 1):03d}", font=_staff_pass_font(28), fill=(255, 224, 228))
+
+    # La foto en círculo, a caballo de la banda.
+    r = 150
+    cx, cy = W // 2, banda
+    d.ellipse((cx - r - 12, cy - r - 12, cx + r + 12, cy + r + 12), fill=(255, 255, 255))
+    foto = _staff_pass_photo(persona, r * 2) or _staff_pass_initials_square(persona, r * 2)
+    circulo = _staff_pass_circle(foto)
+    im.paste(circulo, (cx - r, cy - r), circulo)
+
+    # Nombre (hasta dos líneas), DNI y departamentos.
+    y = cy + r + 44
+    f_nombre = _staff_pass_font(62, True)
+    lineas = _staff_pass_text_lines(d, persona.get("name") or "", f_nombre, W - 120, max_lines=2)
+    if len(lineas) == 2:
+        f_nombre = _staff_pass_font(54, True)
+        lineas = _staff_pass_text_lines(d, persona.get("name") or "", f_nombre, W - 120, max_lines=2)
+    for linea in lineas:
+        ancho = d.textlength(linea, font=f_nombre)
+        d.text(((W - ancho) / 2, y), linea, font=f_nombre, fill=STAFF_PASS_RGB_DARK)
+        y += int(f_nombre.size * 1.18)
+    y += 18
+    f_lbl, f_dni = _staff_pass_font(26, True), _staff_pass_font(52, True)
+    etiqueta, dni = "DNI", (persona.get("dni") or "—")
+    ancho = d.textlength(etiqueta, font=f_lbl) + 22 + d.textlength(dni, font=f_dni)
+    x0 = (W - ancho) / 2
+    d.text((x0, y + 20), etiqueta, font=f_lbl, fill=STAFF_PASS_RGB_GREY)
+    d.text((x0 + d.textlength(etiqueta, font=f_lbl) + 22, y), dni, font=f_dni, fill=STAFF_PASS_RGB_DARK)
+    y += 84
+    deptos = list(persona.get("departments") or [])[:4]
+    if deptos:
+        f_chip = _staff_pass_font(27, True)
+        anchos = [d.textlength(x, font=f_chip) + 44 for x in deptos]
+        total = sum(anchos) + 16 * (len(anchos) - 1)
+        if total > W - 120:      # no caben: se dejan los que quepan
+            while deptos and total > W - 120:
+                deptos.pop(); anchos.pop()
+                total = sum(anchos) + 16 * (len(anchos) - 1)
+        x = (W - total) / 2
+        for texto, ancho in zip(deptos, anchos):
+            d.rounded_rectangle((x, y, x + ancho, y + 52), radius=26, fill=(253, 236, 237))
+            d.text((x + 22, y + 11), texto, font=f_chip, fill=STAFF_PASS_RGB_RED)
+            x += ancho + 16
+        y += 76
+
+    # El QR, en su caja, y el pie.
+    lado_caja = 600
+    top_qr = max(y + 10, H - 760)
+    caja = ((W - lado_caja) // 2, top_qr, (W + lado_caja) // 2, top_qr + lado_caja)
+    d.rounded_rectangle(caja, radius=32, outline=STAFF_PASS_RGB_LINE, width=4, fill=(255, 255, 255))
+    qr = _staff_pass_qr_image(_staff_pass_url(p.token), lado_caja - 60)
+    im.paste(qr, (caja[0] + (lado_caja - qr.size[0]) // 2, caja[1] + (lado_caja - qr.size[1]) // 2))
+    f_pie = _staff_pass_font(27)
+    texto = "Escanea el código para comprobar que el pase es válido"
+    d.text(((W - d.textlength(texto, font=f_pie)) / 2, caja[3] + 26), texto, font=f_pie, fill=STAFF_PASS_RGB_GREY)
+    f_pie2 = _staff_pass_font(24)
+    pie = f"{STAFF_PASS_ORG} · {STAFF_PASS_ORG_SUB} · emitido el {_staff_pass_fecha(p.issued_at)}"
+    d.text(((W - d.textlength(pie, font=f_pie2)) / 2, H - 70), pie, font=f_pie2, fill=STAFF_PASS_RGB_GREY)
+
+    buf = io.BytesIO()
+    im.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def _staff_pass_card_pdf(png: bytes) -> bytes:
+    """La misma tarjeta en un PDF del tamaño de una tarjeta (90 × 135 mm), para imprimir o guardar."""
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.utils import ImageReader
+    W, H = 90 * mm, 135 * mm
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(W, H))
+    c.drawImage(ImageReader(io.BytesIO(png)), 0, 0, W, H)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+# ------------------------------------- Apple Wallet (.pkpass) -------------------------------------
+def _staff_pass_apple_json(cfg: dict, p: StaffPass, persona: dict, url: str) -> dict:
+    """El `pass.json` de un pase GENÉRICO de Apple: colores de la casa, el nombre grande, el DNI y
+    el departamento debajo, la foto como miniatura y el QR de comprobación."""
+    deptos = ", ".join(list(persona.get("departments") or [])[:3]) or "Personal"
+    fila = _staff_pass_row(p, persona)
+    codigo = {"format": "PKBarcodeFormatQR", "message": url, "messageEncoding": "iso-8859-1",
+              "altText": fila["alt_text"]}
+    return {
+        "formatVersion": 1,
+        "passTypeIdentifier": cfg["pass_type_id"],
+        "teamIdentifier": cfg["team_id"],
+        "serialNumber": f"{p.id}-{int(p.serial or 1)}",
+        "organizationName": STAFF_PASS_ORG,
+        "description": f"Pase de personal · {STAFF_PASS_ORG}",
+        "logoText": STAFF_PASS_ORG,
+        "foregroundColor": "rgb(255, 255, 255)",
+        "backgroundColor": "rgb(%d, %d, %d)" % STAFF_PASS_RGB_RED,
+        "labelColor": "rgb(255, 228, 231)",
+        "sharingProhibited": True,
+        "barcode": codigo,
+        "barcodes": [codigo],
+        "generic": {
+            "headerFields": [{"key": "serial", "label": "PASE", "value": f"Nº {fila['serial_label']}"}],
+            "primaryFields": [{"key": "name", "label": "PERSONAL", "value": persona.get("name") or ""}],
+            "secondaryFields": [
+                {"key": "dni", "label": "DNI", "value": persona.get("dni") or ""},
+                {"key": "dept", "label": "DEPARTAMENTO", "value": deptos, "textAlignment": "PKTextAlignmentRight"},
+            ],
+            "auxiliaryFields": [
+                {"key": "issued", "label": "EMITIDO", "value": fila["issued_label"]},
+                {"key": "org", "label": "EMPRESA", "value": f"{STAFF_PASS_ORG} · {STAFF_PASS_ORG_SUB}",
+                 "textAlignment": "PKTextAlignmentRight"},
+            ],
+            "backFields": [
+                {"key": "check", "label": "Comprobar la validez", "value": url},
+                {"key": "rules", "label": "Uso",
+                 "value": "Pase personal e intransferible. Cualquier persona de la casa puede comprobar su "
+                          "validez escaneando el código con la app. Si pierdes el móvil, renueva el pase "
+                          "desde tu ficha: este dejará de valer."},
+                {"key": "issuer", "label": "Emitido por", "value": f"{STAFF_PASS_ORG} · {STAFF_PASS_ORG_SUB}"},
+            ],
+        },
+    }
+
+
+def _staff_pass_pkpass_bytes(p: StaffPass, persona: dict) -> bytes:
+    """El .pkpass: pass.json + imágenes + manifest (SHA-1 de cada fichero) + firma PKCS#7 DETACHED
+    del manifest con el certificado del Pass Type ID (y el WWDR de Apple en la cadena), todo en un
+    zip. Es lo que Apple exige para que Wallet lo acepte: sin la firma, el iPhone lo rechaza."""
+    cfg = _apple_wallet_config()
+    if not cfg:
+        raise RuntimeError("Apple Wallet no está configurado (faltan el certificado o la clave).")
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.serialization import pkcs7
+
+    url = _staff_pass_url(p.token)
+    ficheros = {
+        "pass.json": json.dumps(_staff_pass_apple_json(cfg, p, persona, url), ensure_ascii=False, indent=2).encode("utf-8"),
+        "icon.png": _staff_pass_icon_png(29),
+        "icon@2x.png": _staff_pass_icon_png(58),
+        "icon@3x.png": _staff_pass_icon_png(87),
+        "logo.png": _staff_pass_logo_png(160, 50, color=(255, 255, 255), margen=4),
+        "logo@2x.png": _staff_pass_logo_png(320, 100, color=(255, 255, 255), margen=8),
+        "logo@3x.png": _staff_pass_logo_png(480, 150, color=(255, 255, 255), margen=12),
+    }
+    foto = _staff_pass_photo(persona, 270)
+    if foto is not None:
+        for nombre, lado in (("thumbnail.png", 90), ("thumbnail@2x.png", 180), ("thumbnail@3x.png", 270)):
+            buf = io.BytesIO()
+            foto.resize((lado, lado), PILImage.LANCZOS).save(buf, format="PNG")
+            ficheros[nombre] = buf.getvalue()
+    manifest = json.dumps({nombre: hashlib.sha1(data).hexdigest() for nombre, data in ficheros.items()},
+                          indent=2).encode("utf-8")
+
+    cert = x509.load_pem_x509_certificate(cfg["cert_pem"].encode("utf-8"))
+    clave = serialization.load_pem_private_key(
+        cfg["key_pem"].encode("utf-8"),
+        password=(cfg["key_password"].encode("utf-8") if cfg["key_password"] else None))
+    wwdr = x509.load_pem_x509_certificate(cfg["wwdr_pem"].encode("utf-8"))
+    firma = (pkcs7.PKCS7SignatureBuilder()
+             .set_data(manifest)
+             .add_signer(cert, clave, hashes.SHA256())
+             .add_certificate(wwdr)
+             .sign(serialization.Encoding.DER, [pkcs7.PKCS7Options.DetachedSignature, pkcs7.PKCS7Options.Binary]))
+
+    salida = io.BytesIO()
+    with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as zf:
+        for nombre, data in ficheros.items():
+            zf.writestr(nombre, data)
+        zf.writestr("manifest.json", manifest)
+        zf.writestr("signature", firma)
+    return salida.getvalue()
+
+
+# --------------------------------------- Google Wallet ---------------------------------------
+def _jwt_rs256(claims: dict, private_key_pem: str) -> str:
+    """Un JWT RS256 firmado con la clave de la cuenta de servicio (sin librerías extra:
+    `cryptography` ya viene con el push)."""
+    import base64
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    def b64(datos: bytes) -> str:
+        return base64.urlsafe_b64encode(datos).rstrip(b"=").decode("ascii")
+
+    cabecera = b64(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode("utf-8"))
+    cuerpo = b64(json.dumps(claims, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    clave = serialization.load_pem_private_key(private_key_pem.encode("utf-8"), password=None)
+    firma = clave.sign(f"{cabecera}.{cuerpo}".encode("ascii"), padding.PKCS1v15(), hashes.SHA256())
+    return f"{cabecera}.{cuerpo}.{b64(firma)}"
+
+
+def _staff_pass_google_payload(cfg: dict, p: StaffPass, persona: dict, url: str) -> dict:
+    """La clase y el objeto GENÉRICOS de Google Wallet. La clase va incrustada en el mismo JWT, así
+    que se crea sola la primera vez que alguien guarda un pase (no hay que darla de alta a mano)."""
+    base = _public_base_url() or "https://app.33producciones.es"
+    issuer = cfg["issuer_id"]
+    fila = _staff_pass_row(p, persona)
+    deptos = ", ".join(list(persona.get("departments") or [])[:3]) or "Personal"
+    clase_id = f"{issuer}.pase_personal_33producciones"
+    objeto_id = f"{issuer}.{str(p.id).replace('-', '')}_{int(p.serial or 1)}"
+
+    def texto(valor: str) -> dict:
+        return {"defaultValue": {"language": "es", "value": valor}}
+
+    objeto = {
+        "id": objeto_id,
+        "classId": clase_id,
+        "state": "ACTIVE",
+        "cardTitle": texto(STAFF_PASS_ORG),
+        "header": texto(persona.get("name") or ""),
+        "subheader": texto("Pase de personal"),
+        "hexBackgroundColor": "#E33D48",
+        "logo": {"sourceUri": {"uri": base + url_for("static", filename="img/Icono.jpg")},
+                 "contentDescription": texto(STAFF_PASS_ORG)},
+        "barcode": {"type": "QR_CODE", "value": url, "alternateText": fila["alt_text"]},
+        "textModulesData": [
+            {"id": "dni", "header": "DNI", "body": persona.get("dni") or ""},
+            {"id": "dept", "header": "Departamento", "body": deptos},
+            {"id": "serial", "header": "Pase", "body": f"Nº {fila['serial_label']} · emitido el {fila['issued_label']}"},
+        ],
+        "linksModuleData": {"uris": [{"id": "check", "uri": url, "description": "Comprobar la validez del pase"}]},
+    }
+    if persona.get("photo_url"):
+        objeto["imageModulesData"] = [{"id": "photo", "mainImage": {"sourceUri": {"uri": persona["photo_url"]},
+                                                                    "contentDescription": texto("Foto")}}]
+    return {"genericClasses": [{"id": clase_id}], "genericObjects": [objeto]}
+
+
+def _staff_pass_google_save_url(p: StaffPass, persona: dict) -> str:
+    """El enlace «Guardar en Google Wallet»: un JWT firmado con la cuenta de servicio del emisor."""
+    cfg = _google_wallet_config()
+    if not cfg:
+        raise RuntimeError("Google Wallet no está configurado (faltan el emisor o la cuenta de servicio).")
+    import time as _time
+    url = _staff_pass_url(p.token)
+    claims = {
+        "iss": cfg["client_email"],
+        "aud": "google",
+        "typ": "savetowallet",
+        "iat": int(_time.time()),
+        "origins": [_public_base_url() or "https://app.33producciones.es"],
+        "payload": _staff_pass_google_payload(cfg, p, persona, url),
+    }
+    return "https://pay.google.com/gp/v/save/" + _jwt_rs256(claims, cfg["private_key"])
+
+
+# ------------------------------------------- Rutas -------------------------------------------
+def _staff_pass_load(session_db, user_id):
+    """La persona de la URL con su pase vigente (404 si no existe)."""
+    uid = _safe_uuid(user_id)
+    user = session_db.get(User, uid) if uid else None
+    if user is None:
+        abort(404)
+    persona = _staff_pass_person(session_db, user)
+    return user, persona, _staff_pass_current(session_db, user.id)
+
+
+def _staff_pass_client() -> dict:
+    """Qué móvil es (para ordenar los botones: el suyo primero)."""
+    ua = (request.headers.get("User-Agent") or "").lower()
+    ios = ("iphone" in ua) or ("ipad" in ua) or ("ipod" in ua)
+    return {"ios": ios, "android": ("android" in ua) and not ios}
+
+
+@app.get("/mi-pase", endpoint="my_pass_view")
+@admin_required
+def my_pass_view():
+    """El atajo del menú personal: el pase de uno mismo."""
+    uid = (_current_user_state() or {}).get("user_id")
+    if not uid:
+        return redirect(url_for("home"))
+    return redirect(url_for("staff_pass_view", user_id=uid))
+
+
+@app.get("/personal/<user_id>/pase", endpoint="staff_pass_view")
+@admin_required
+def staff_pass_view(user_id):
+    """La página del pase: la tarjeta, los botones para añadirlo al móvil, el estado y renovar."""
+    session_db = db()
+    try:
+        user, persona, actual = _staff_pass_load(session_db, user_id)
+        session_db.commit()      # el perfil o la seguridad pueden haberse creado al vuelo
+        mio = str((_current_user_state() or {}).get("user_id") or "") == str(user.id)
+        anulados = (session_db.query(StaffPass)
+                    .filter(StaffPass.user_id == user.id, StaffPass.status != "ACTIVE")
+                    .order_by(StaffPass.serial.desc()).limit(6).all())
+        return render_template(
+            "staff_pass.html",
+            user=user, persona=persona,
+            pase=(_staff_pass_row(actual, persona) if actual else None),
+            faltan=_staff_pass_missing(persona),
+            is_own=mio,
+            can_issue=(mio or _personnel_tab_grant("personal.usuarios.datos", edit=True)),
+            can_open_ficha=_personnel_tab_grant("personal.usuarios.datos"),
+            apple_ready=bool(_apple_wallet_config()),
+            google_ready=bool(_google_wallet_config()),
+            historial=[_staff_pass_row(x, persona) for x in anulados],
+            cliente=_staff_pass_client(),
+            file_slug=_staff_pass_slug(persona.get("nick") or persona.get("name") or ""),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/personal/<user_id>/pase/emitir", endpoint="staff_pass_issue")
+@admin_required
+def staff_pass_issue(user_id):
+    """Emitir el pase (o renovarlo: el anterior queda anulado y su QR deja de valer)."""
+    session_db = db()
+    try:
+        user, persona, actual = _staff_pass_load(session_db, user_id)
+        faltan = _staff_pass_missing(persona)
+        if faltan:
+            session_db.rollback()
+            flash("Para emitir el pase hacen falta %s en la ficha (pestaña Datos)." % " y ".join(faltan), "warning")
+            return redirect(url_for("staff_pass_view", user_id=user.id))
+        motivo = (request.form.get("motivo") or "").strip()
+        nuevo = _staff_pass_issue(session_db, user, persona, reason=motivo)
+        session_db.commit()
+        if actual is not None:
+            flash("Pase renovado: el nº %03d sustituye al anterior, que queda anulado. Hay que añadir el nuevo al móvil."
+                  % int(nuevo.serial or 1), "success")
+        else:
+            flash("Pase emitido. Ya se puede añadir al móvil.", "success")
+        return redirect(url_for("staff_pass_view", user_id=user.id))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[pase] no se pudo emitir el pase de %s", user_id)
+        flash("No se ha podido emitir el pase. Inténtalo de nuevo.", "danger")
+        return redirect(url_for("staff_pass_view", user_id=user_id))
+    finally:
+        session_db.close()
+
+
+def _staff_pass_need(session_db, user_id):
+    """La persona y su pase vigente para descargar algo; sin pase se vuelve a la página con aviso."""
+    user, persona, actual = _staff_pass_load(session_db, user_id)
+    if actual is None:
+        flash("Primero hay que emitir el pase.", "warning")
+        return user, persona, None, redirect(url_for("staff_pass_view", user_id=user.id))
+    return user, persona, actual, None
+
+
+@app.get("/personal/<user_id>/pase/imagen.png", endpoint="staff_pass_png")
+@admin_required
+def staff_pass_png(user_id):
+    session_db = db()
+    try:
+        user, persona, actual, salida = _staff_pass_need(session_db, user_id)
+        if salida is not None:
+            return salida
+        png = _staff_pass_card_png(actual, persona)
+        nombre = f"pase-personal-{_staff_pass_slug(persona.get('nick') or persona.get('name'))}.png"
+        disposicion = "attachment" if (request.args.get("dl") or "") == "1" else "inline"
+        return Response(png, mimetype="image/png",
+                        headers={"Content-Disposition": f'{disposicion}; filename="{nombre}"',
+                                 "Cache-Control": "private, no-store"})
+    finally:
+        session_db.close()
+
+
+@app.get("/personal/<user_id>/pase/pase.pdf", endpoint="staff_pass_pdf")
+@admin_required
+def staff_pass_pdf(user_id):
+    session_db = db()
+    try:
+        user, persona, actual, salida = _staff_pass_need(session_db, user_id)
+        if salida is not None:
+            return salida
+        pdf = _staff_pass_card_pdf(_staff_pass_card_png(actual, persona))
+        nombre = f"pase-personal-{_staff_pass_slug(persona.get('nick') or persona.get('name'))}.pdf"
+        disposicion = "attachment" if (request.args.get("dl") or "") == "1" else "inline"
+        return Response(pdf, mimetype="application/pdf",
+                        headers={"Content-Disposition": f'{disposicion}; filename="{nombre}"',
+                                 "Cache-Control": "private, no-store"})
+    finally:
+        session_db.close()
+
+
+@app.get("/personal/<user_id>/pase/qr.png", endpoint="staff_pass_qr_png")
+@admin_required
+def staff_pass_qr_png(user_id):
+    session_db = db()
+    try:
+        user, persona, actual, salida = _staff_pass_need(session_db, user_id)
+        if salida is not None:
+            return salida
+        return Response(_qr_png_bytes(_staff_pass_url(actual.token), scale=10), mimetype="image/png",
+                        headers={"Cache-Control": "private, no-store"})
+    finally:
+        session_db.close()
+
+
+@app.get("/personal/<user_id>/pase/apple.pkpass", endpoint="staff_pass_apple")
+@admin_required
+def staff_pass_apple(user_id):
+    """El pase para Apple Wallet. Safari en el iPhone abre la hoja «Añadir» al recibir el tipo
+    `application/vnd.apple.pkpass`."""
+    session_db = db()
+    try:
+        user, persona, actual, salida = _staff_pass_need(session_db, user_id)
+        if salida is not None:
+            return salida
+        if not _apple_wallet_config():
+            flash("Apple Wallet todavía no está activado (falta el certificado de Apple). Mientras tanto, guarda el pase como imagen.", "warning")
+            return redirect(url_for("staff_pass_view", user_id=user.id))
+        try:
+            datos = _staff_pass_pkpass_bytes(actual, persona)
+        except Exception:
+            app.logger.exception("[pase] no se pudo firmar el .pkpass de %s", user_id)
+            flash("No se ha podido generar el pase de Apple Wallet. Revisa el certificado (Integraciones → Wallet) o guarda el pase como imagen.", "danger")
+            return redirect(url_for("staff_pass_view", user_id=user.id))
+        nombre = f"pase-personal-{_staff_pass_slug(persona.get('nick') or persona.get('name'))}.pkpass"
+        return Response(datos, mimetype="application/vnd.apple.pkpass",
+                        headers={"Content-Disposition": f'attachment; filename="{nombre}"',
+                                 "Cache-Control": "private, no-store"})
+    finally:
+        session_db.close()
+
+
+@app.get("/personal/<user_id>/pase/google", endpoint="staff_pass_google")
+@admin_required
+def staff_pass_google(user_id):
+    """«Guardar en Google Wallet»: se redirige al enlace firmado; Google enseña el pase y lo guarda."""
+    session_db = db()
+    try:
+        user, persona, actual, salida = _staff_pass_need(session_db, user_id)
+        if salida is not None:
+            return salida
+        if not _google_wallet_config():
+            flash("Google Wallet todavía no está activado (falta la cuenta de servicio de Google). Mientras tanto, guarda el pase como imagen.", "warning")
+            return redirect(url_for("staff_pass_view", user_id=user.id))
+        try:
+            return redirect(_staff_pass_google_save_url(actual, persona))
+        except Exception:
+            app.logger.exception("[pase] no se pudo firmar el enlace de Google Wallet de %s", user_id)
+            flash("No se ha podido generar el enlace de Google Wallet. Revisa la cuenta de servicio o guarda el pase como imagen.", "danger")
+            return redirect(url_for("staff_pass_view", user_id=user.id))
+    finally:
+        session_db.close()
+
+
+@app.get("/pase/validar", endpoint="staff_pass_scan_view")
+@admin_required
+def staff_pass_scan_view():
+    """El escáner: la cámara lee el QR del pase y abre su comprobación. Cualquiera con sesión."""
+    return render_template("staff_pass_scan.html")
+
+
+@app.get("/pase/<token>", endpoint="staff_pass_check_view")
+@admin_required
+def staff_pass_check_view(token):
+    """LA COMPROBACIÓN (a donde apunta el QR). Exige sesión: quien escanea sin estar dentro pasa por
+    el login y vuelve aquí. Dice si el pase es válido, anulado, de alguien que ya no está o si el
+    código no es de la casa, y deja rastro de quién lo comprobó."""
+    session_db = db()
+    try:
+        token = (token or "").strip()
+        p = (session_db.query(StaffPass).filter(StaffPass.token == token).first()
+             if token and len(token) <= 80 else None)
+        resultado, persona, fila = "UNKNOWN", None, None
+        ahora = datetime.now(TZ_MADRID)
+        if p is not None:
+            user = session_db.get(User, p.user_id)
+            persona = _staff_pass_person(session_db, user) if user is not None else None
+            if persona is None or persona.get("deleted"):
+                resultado = "INACTIVE"
+            elif (p.status or "") != "ACTIVE":
+                resultado = "REVOKED"
+            elif not persona.get("active"):
+                resultado = "INACTIVE"
+            else:
+                resultado = "OK"
+            fila = _staff_pass_row(p, persona or {})
+            if resultado == "OK" and fila["stale"]:
+                resultado = "STALE"      # válido, pero los datos de la ficha cambiaron: se avisa
+            p.checks_count = int(p.checks_count or 0) + 1
+            p.last_checked_at = ahora
+        estado = _current_user_state() or {}
+        session_db.add(StaffPassCheck(
+            pass_id=(p.id if p is not None else None),
+            token_seen=token[:80],
+            result=resultado,
+            checked_by_user_id=_safe_uuid(estado.get("user_id")),
+            checked_by_nick=((estado.get("nick") or "").strip()[:120] or None),
+            checked_at=ahora,
+        ))
+        session_db.commit()
+        return render_template(
+            "staff_pass_check.html",
+            resultado=resultado, persona=persona, pase=fila,
+            comprobado_label=ahora.strftime("%d/%m/%Y %H:%M"),
+            comprobado_por=(estado.get("nick") or ""),
+            can_open_ficha=(persona is not None and _personnel_tab_grant("personal.usuarios.datos")),
+        )
+    except Exception:
+        session_db.rollback()
+        raise
+    finally:
+        session_db.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════

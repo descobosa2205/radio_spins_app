@@ -1,0 +1,138 @@
+{% extends "layout.html" %}
+{% block content %}
+{# PASE DE PERSONAL · la acreditación de una persona para el móvil.
+   La tarjeta de la izquierda es la MISMA que la imagen que se guarda (`_staff_pass_card_png`): banda
+   roja con el logo, la foto, el nombre, el DNI, los departamentos y el QR de comprobación. A la
+   derecha, cómo añadirla al móvil (Apple Wallet · Google Wallet · imagen · PDF), el estado y renovar.
+   ⚠️ Los botones de Wallet NO desaparecen cuando no están configurados: se enseñan apagados y se
+   dice por qué (que el que lo mire sepa que existe y qué falta). #}
+<div class="sp-page">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2">
+      {% if can_open_ficha %}
+        <a href="{{ url_for('personnel_detail_view', user_id=user.id, tab='datos') }}" class="btn btn-outline-secondary btn-volver" title="Volver a la ficha" aria-label="Volver a la ficha"><i class="fa fa-arrow-left"></i></a>
+      {% else %}
+        <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-volver" title="Volver a Inicio" aria-label="Volver a Inicio"><i class="fa fa-arrow-left"></i></a>
+      {% endif %}
+      <div>
+        <h4 class="m-0"><i class="fa fa-id-badge text-danger me-2"></i>{% if is_own %}Mi pase de personal{% else %}Pase de personal · {{ persona.nick or persona.name }}{% endif %}</h4>
+        <div class="text-muted small">La acreditación para el móvil: se enseña, y cualquiera de la casa comprueba el código QR con la app.</div>
+      </div>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('staff_pass_scan_view') }}"><i class="fa fa-qrcode me-1"></i>Validar un pase</a>
+  </div>
+
+  {% if faltan %}
+    <div class="alert alert-warning d-flex align-items-start gap-2">
+      <i class="fa fa-triangle-exclamation mt-1"></i>
+      <div>
+        <strong>Para {% if pase %}renovar{% else %}emitir{% endif %} el pase hacen falta {{ faltan|join(' y ') }}</strong> en la ficha (pestaña Datos): es lo que se contrasta con el documento en el control.
+        {% if can_open_ficha %}
+          <a class="alert-link" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='datos') }}">Completar la ficha</a>.
+        {% else %}
+          Pídeselo a dirección o a quien lleve el personal.
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if pase %}
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <div class="sp-card">
+        <div class="sp-card__band">
+          <img class="sp-card__logo" src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
+          <div class="sp-card__kicker">Pase de personal</div>
+          <div class="sp-card__serial">Nº {{ pase.serial_label }}</div>
+        </div>
+        <div class="sp-card__photo"><img src="{{ persona.photo_url or DEFAULT_AVATAR_URL }}" alt=""></div>
+        <div class="sp-card__name">{{ persona.name }}</div>
+        <div class="sp-card__dni"><span>DNI</span><strong>{{ persona.dni or '—' }}</strong></div>
+        {% if persona.departments %}
+          <div class="sp-card__depts">{% for d in persona.departments %}<span>{{ d }}</span>{% endfor %}</div>
+        {% endif %}
+        <div class="sp-card__qr"><img src="{{ pase.qr_data_uri }}" alt="Código QR del pase"></div>
+        <div class="sp-card__hint">Escanea el código para comprobar que el pase es válido</div>
+        <div class="sp-card__foot">33 Producciones · Pies Records · emitido el {{ pase.issued_label }}</div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card mb-3"><div class="card-body">
+        <h5 class="mb-3"><i class="fa fa-mobile-screen-button text-danger me-2"></i>Añadir al móvil</h5>
+        <div class="sp-wallet">
+          {# El botón del móvil que está mirando va primero. #}
+          {% set apple_btn %}
+            {% if apple_ready %}
+              <a class="btn btn-dark" href="{{ url_for('staff_pass_apple', user_id=user.id) }}"><i class="fa-brands fa-apple"></i>Añadir a Apple Wallet</a>
+            {% else %}
+              <button class="btn btn-dark" type="button" disabled><i class="fa-brands fa-apple"></i>Añadir a Apple Wallet</button>
+              <div class="sp-wallet__off"><i class="fa fa-circle-info me-1"></i>Pendiente de activar: falta el certificado de Apple (lo configura dirección; ver <code>DEPLOY_WALLET.md</code>). Mientras, guarda la imagen.</div>
+            {% endif %}
+          {% endset %}
+          {% set google_btn %}
+            {% if google_ready %}
+              <a class="btn btn-outline-dark" href="{{ url_for('staff_pass_google', user_id=user.id) }}" target="_blank" rel="noopener"><i class="fa-brands fa-google"></i>Añadir a Google Wallet</a>
+            {% else %}
+              <button class="btn btn-outline-dark" type="button" disabled><i class="fa-brands fa-google"></i>Añadir a Google Wallet</button>
+              <div class="sp-wallet__off"><i class="fa fa-circle-info me-1"></i>Pendiente de activar: falta la cuenta de servicio de Google Wallet (lo configura dirección). Mientras, guarda la imagen.</div>
+            {% endif %}
+          {% endset %}
+          {% if cliente.android %}{{ google_btn }}{{ apple_btn }}{% else %}{{ apple_btn }}{{ google_btn }}{% endif %}
+          <a class="btn btn-outline-danger" href="{{ url_for('staff_pass_png', user_id=user.id) }}" target="_blank" rel="noopener"><i class="fa fa-image"></i>Guardar como imagen</a>
+          <div class="sp-wallet__off">
+            {% if cliente.ios %}En el iPhone: se abre la imagen, mantén pulsada y «Guardar en Fotos». Vale igual que el pase de Wallet: el QR es el mismo.
+            {% elif cliente.android %}Se abre la imagen: mantén pulsada y «Descargar imagen». Vale igual que el pase de Wallet: el QR es el mismo.
+            {% else %}Se abre la imagen en otra pestaña (en el móvil se guarda en Fotos). Vale igual que el pase de Wallet: el QR es el mismo.{% endif %}
+          </div>
+          <a class="btn btn-outline-secondary" href="{{ url_for('staff_pass_pdf', user_id=user.id, dl=1) }}"><i class="fa fa-file-pdf"></i>Descargar en PDF</a>
+        </div>
+      </div></div>
+
+      <div class="card"><div class="card-body">
+        <h5 class="mb-3"><i class="fa fa-circle-info text-danger me-2"></i>Estado del pase</h5>
+        <div class="d-flex flex-column gap-1 small">
+          <div><span class="text-muted">Pase</span> · <strong>nº {{ pase.serial_label }}</strong>, emitido el {{ pase.issued_label }}{% if pase.issued_by %} por {{ pase.issued_by }}{% endif %}</div>
+          <div><span class="text-muted">Comprobaciones</span> · {% if pase.checks_count %}{{ pase.checks_count }}{% if pase.last_checked_label %} (la última el {{ pase.last_checked_label }}){% endif %}{% else %}todavía ninguna{% endif %}</div>
+          <div><span class="text-muted">Comprobación</span> · <a href="{{ pase.url }}" target="_blank" rel="noopener" class="text-break">{{ pase.url }}</a></div>
+        </div>
+        {% if pase.stale %}
+          <div class="alert alert-warning mt-3 mb-0 small"><i class="fa fa-triangle-exclamation me-1"></i>El nombre o el DNI de la ficha han cambiado desde que se emitió: el pase del móvil lleva los datos antiguos. Conviene <strong>renovarlo</strong> y añadir el nuevo.</div>
+        {% endif %}
+        {% if can_issue %}
+          <form method="post" action="{{ url_for('staff_pass_issue', user_id=user.id) }}" class="mt-3"
+                data-confirm="Se anula el pase actual: el QR que ya esté en el móvil dejará de valer y habrá que añadir el nuevo. ¿Renovar el pase?">
+            <input type="hidden" name="motivo" value="Renovado desde la app">
+            <button class="btn btn-outline-danger btn-sm" {% if faltan %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Renovar el pase</button>
+            <div class="form-text">Para un móvil perdido o un cambio de datos. El anterior queda anulado: si alguien lo escanea, verá «anulado».</div>
+          </form>
+        {% endif %}
+        {% if historial %}
+          <hr>
+          <div class="small text-muted mb-1">Pases anulados</div>
+          <ul class="list-unstyled small mb-0">
+            {% for h in historial %}
+              <li><i class="fa fa-ban text-muted me-1"></i>Nº {{ h.serial_label }} · emitido el {{ h.issued_label }}{% if h.revoked_label %} · anulado el {{ h.revoked_label }}{% endif %}{% if h.checks_count %} · {{ h.checks_count }} comprobaciones{% endif %}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div></div>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="card"><div class="card-body text-center py-5">
+    <div class="display-6 mb-2"><i class="fa fa-id-badge text-danger"></i></div>
+    <h4 class="mb-1">{% if is_own %}Todavía no tienes pase{% else %}Todavía no tiene pase{% endif %}</h4>
+    <p class="text-muted mb-3">El pase lleva el nombre, el DNI y un código QR con el que cualquiera de la casa comprueba que es legítimo.<br>Se emite aquí y se añade al móvil (Apple Wallet, Google Wallet o como imagen).</p>
+    {% if can_issue %}
+      <form method="post" action="{{ url_for('staff_pass_issue', user_id=user.id) }}" class="d-inline">
+        <button class="btn btn-danger" {% if faltan %}disabled{% endif %}><i class="fa fa-id-badge me-1"></i>Emitir el pase</button>
+      </form>
+    {% else %}
+      <div class="small text-muted">Lo emite la propia persona desde «Mi pase de personal» o quien pueda editar sus datos.</div>
+    {% endif %}
+  </div></div>
+  {% endif %}
+</div>
+{% endblock %}

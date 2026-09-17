@@ -221,6 +221,28 @@
     </form>
   </div></div>
 
+  {# PASE DE PERSONAL: la acreditación para el móvil (Apple Wallet · Google Wallet · imagen) con su QR
+     de comprobación. Se emite y se gestiona en su propia página; aquí solo su estado y el acceso. #}
+  <div class="card mt-3"><div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="d-flex align-items-center gap-3">
+        <div class="sp-mini-ico"><i class="fa fa-id-badge"></i></div>
+        <div>
+          <h5 class="m-0">Pase de personal</h5>
+          <div class="small text-muted">
+            {% if staff_pass %}
+              Pase nº {{ staff_pass.serial_label }} · emitido el {{ staff_pass.issued_label }}{% if staff_pass.checks_count %} · comprobado {{ staff_pass.checks_count }} {% if staff_pass.checks_count == 1 %}vez{% else %}veces{% endif %}{% endif %}
+              {% if staff_pass.stale %}<span class="text-warning-emphasis"> · <i class="fa fa-triangle-exclamation me-1"></i>los datos han cambiado: conviene renovarlo</span>{% endif %}
+            {% else %}
+              Todavía no tiene pase. Lleva el nombre, el DNI y un QR con el que cualquiera de la casa comprueba que es legítimo; se añade al móvil (Apple Wallet, Google Wallet o como imagen).
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <a class="btn btn-outline-primary" href="{{ url_for('staff_pass_view', user_id=user.id) }}"><i class="fa fa-wallet me-1"></i>{% if staff_pass %}Abrir el pase{% else %}Emitir el pase{% endif %}</a>
+    </div>
+  </div></div>
+
 {# ⚠️ ESTE CARTEL ES SOLO DE LA PESTAÑA «ACCESOS». Estaba en la cadena SIN mirar la pestaña, así
    que en la ficha de alguien de dirección se comía TODAS las demás: quien lleva los contratos o las
    vacaciones abría su pestaña y se encontraba «no es posible configurar sus accesos» (bug real). #}

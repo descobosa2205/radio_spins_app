@@ -492,9 +492,11 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 - **Holded**: se implementó **sin poder probar contra la API real** (no había cuenta y sus docs
   están cerradas). La **primera subida real** confirma los nombres de los campos; si algo falla, el
   motivo de Holded sale tal cual en la fila del gasto. → `docs/app/administracion-pagos.md`
-- **Apple/Google Wallet** (autorizaciones de menores): un `.pkpass` de verdad necesita certificado de
-  Apple (Pass Type ID + clave + WWDR), que no tenemos; mientras tanto los botones bajan el **PDF**
-  con el mismo QR. → `docs/app/recintos-mapas.md`
+- **Apple/Google Wallet**: el **pase de personal** (sep 2026) ya genera el `.pkpass` firmado y el
+  enlace de Google Wallet, pero se activan con variables de entorno que faltan (certificado del Pass
+  Type ID + WWDR de Apple; emisor + cuenta de servicio de Google) — pasos en **`DEPLOY_WALLET.md`**.
+  Hasta entonces los botones salen apagados y el pase se guarda como imagen/PDF con el mismo QR.
+  Las autorizaciones de menores siguen bajando el **PDF** (→ `docs/app/recintos-mapas.md`).
 - **Vídeos**: la copia web la hace ffmpeg con **libx264**; confirmar con el primer vídeo real que el
   binario Linux de Render lo trae. → `docs/app/ui-plantillas.md`
 - **Portal de externos**: el **autorrelleno del código por SMS** (WebOTP) está según especificación
@@ -567,7 +569,7 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 ### Bases de datos y transversales
 - **`terceros-medios.md`** — terceros, artistas, medios, fusión de duplicados e importaciones.
 - **`personal-vacaciones.md`** — personal, vacaciones y días libres, documentos (DNI/pasaporte), PRL,
-  contratos, el escáner de documentos.
+  contratos, el escáner de documentos y el **pase de personal** (Wallet + QR de comprobación).
 - **`agenda-calendarios.md`** — agenda, calendarios (Inicio, artista, oficina), iCal y CalDAV.
 - **`permisos.md`** — el catálogo, los grants, el enforcement y cómo no dejar a nadie con un 403.
   ⚠️ *Retirar un recurso se lleva sus grants en cascada: hay que trasladarlos.*

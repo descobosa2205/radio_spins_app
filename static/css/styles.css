@@ -8257,3 +8257,41 @@ a.ac-row__t:hover{ color:var(--brand-accent,#007CA2); text-decoration:underline;
   .ac-row{ padding-left:.1rem; }
   .ac-row__nums{ width:100%; text-align:left; }
 }
+
+/* ---------- PASE DE PERSONAL (.sp-*): la tarjeta, añadir al móvil y la comprobación ---------- */
+.sp-page{ max-width:1080px; margin:0 auto; }
+.sp-page--check{ max-width:560px; }
+.sp-card{ background:#fff; border:1px solid #e9ecef; border-radius:22px; overflow:hidden; max-width:420px;
+  margin:0 auto; box-shadow:0 10px 30px rgba(17,24,32,.08); }
+.sp-card__band{ background:linear-gradient(135deg,#E33D48 0%,#c9303b 100%); color:#fff; padding:1.1rem 1.25rem 3.4rem;
+  border-bottom:6px solid #111820; }
+.sp-card__logo{ display:block; height:44px; max-width:62%; object-fit:contain; object-position:left;
+  filter:brightness(0) invert(1); }   /* el logo es rojo: sobre la banda roja va en BLANCO */
+.sp-card__kicker{ margin-top:.95rem; font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; font-weight:700; opacity:.92; }
+.sp-card__serial{ font-size:.8rem; opacity:.85; }
+.sp-card__photo{ width:124px; height:124px; border-radius:50%; margin:-62px auto 0; border:6px solid #fff; overflow:hidden;
+  background:#007CA2; box-shadow:0 4px 14px rgba(0,0,0,.14); position:relative; }
+.sp-card__photo img{ width:100%; height:100%; object-fit:cover; display:block; }
+.sp-card__name{ text-align:center; font-weight:800; font-size:1.35rem; margin:.8rem 1.25rem 0; line-height:1.15; color:#111820; }
+.sp-card__dni{ text-align:center; margin:.35rem 0 0; }
+.sp-card__dni span{ font-size:.72rem; letter-spacing:.08em; color:#6c757d; font-weight:700; margin-right:.45rem; }
+.sp-card__dni strong{ font-size:1.25rem; color:#111820; letter-spacing:.02em; }
+.sp-card__depts{ display:flex; flex-wrap:wrap; justify-content:center; gap:.35rem; padding:.7rem 1.25rem 0; }
+.sp-card__depts span{ background:#fdeced; color:#E33D48; font-weight:700; font-size:.75rem; padding:.25rem .7rem; border-radius:999px; }
+.sp-card__qr{ text-align:center; padding:1.1rem 1.25rem .3rem; }
+.sp-card__qr img{ width:236px; height:236px; max-width:100%; border:1px solid #e9ecef; border-radius:16px; padding:.4rem; background:#fff; }
+.sp-card__hint{ text-align:center; font-size:.78rem; color:#6c757d; padding:0 1.25rem .5rem; }
+.sp-card__foot{ text-align:center; font-size:.7rem; color:#868e96; padding:.45rem 1.25rem 1rem; border-top:1px dashed #e9ecef; margin-top:.5rem; }
+.sp-card--void{ filter:grayscale(1); opacity:.7; }
+.sp-wallet{ display:grid; gap:.6rem; }
+.sp-wallet .btn{ display:flex; align-items:center; justify-content:center; gap:.55rem; padding:.7rem 1rem; font-weight:600; }
+.sp-wallet .btn i.fa-brands{ font-size:1.15rem; }
+.sp-wallet__off{ font-size:.78rem; color:#868e96; margin-top:-.2rem; }
+.sp-mini-ico{ width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  background:#fdeced; color:#E33D48; font-size:1.2rem; flex:0 0 44px; }
+.sp-verdict{ display:flex; gap:.9rem; align-items:center; border-radius:18px; padding:1.1rem 1.25rem; margin-bottom:1rem; }
+.sp-verdict > i{ font-size:2.4rem; flex:0 0 auto; }
+.sp-verdict strong{ display:block; font-size:1.25rem; line-height:1.2; }
+.sp-verdict span{ display:block; font-size:.9rem; opacity:.9; margin-top:.15rem; }
+.sp-verdict--ok{ background:#e6f6ec; color:#0f5132; }
+.sp-verdict--ko{ background:#fbe3e5; color:#842029; }

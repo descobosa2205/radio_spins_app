@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+{% block content %}
+{# COMPROBACIÓN DE UN PASE · a donde apunta el QR. Lo primero es el VEREDICTO, grande y de color;
+   debajo la persona (foto, nombre, DNI) para contrastarla con quien enseña el pase. Cualquiera con
+   sesión llega aquí (quien no la tenga pasa por el login y vuelve). #}
+<div class="sp-page sp-page--check">
+  {% if resultado in ('OK', 'STALE') %}
+    <div class="sp-verdict sp-verdict--ok">
+      <i class="fa fa-circle-check"></i>
+      <div><strong>Pase válido</strong><span>Es personal de 33 Producciones · Pies Records. Compara la foto y el DNI con la persona que lo enseña.</span></div>
+    </div>
+  {% elif resultado == 'REVOKED' %}
+    <div class="sp-verdict sp-verdict--ko">
+      <i class="fa fa-circle-xmark"></i>
+      <div><strong>Pase anulado</strong><span>Este pase se renovó{% if pase and pase.revoked_label %} el {{ pase.revoked_label }}{% endif %} y su código ya no vale. La persona tiene que enseñar el pase nuevo.</span></div>
+    </div>
+  {% elif resultado == 'INACTIVE' %}
+    <div class="sp-verdict sp-verdict--ko">
+      <i class="fa fa-user-slash"></i>
+      <div><strong>Pase no válido</strong><span>Esta persona ya no está en activo en la casa.</span></div>
+    </div>
+  {% else %}
+    <div class="sp-verdict sp-verdict--ko">
+      <i class="fa fa-circle-question"></i>
+      <div><strong>No es un pase de la casa</strong><span>Este código no corresponde a ningún pase de personal emitido por la app.</span></div>
+    </div>
+  {% endif %}
+
+  {% if resultado == 'STALE' %}
+    <div class="alert alert-warning small"><i class="fa fa-triangle-exclamation me-1"></i>El pase es válido, pero el nombre o el DNI de la ficha han cambiado desde que se emitió: lo que se ve abajo es lo ACTUAL. Conviene que renueve el pase.</div>
+  {% endif %}
+
+  {% if persona and resultado != 'UNKNOWN' %}
+    <div class="sp-card {% if resultado not in ('OK', 'STALE') %}sp-card--void{% endif %}">
+      <div class="sp-card__band">
+        <img class="sp-card__logo" src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
+        <div class="sp-card__kicker">Pase de personal</div>
+        <div class="sp-card__serial">Nº {{ pase.serial_label }}{% if resultado == 'REVOKED' %} · ANULADO{% endif %}</div>
+      </div>
+      <div class="sp-card__photo"><img src="{{ persona.photo_url or DEFAULT_AVATAR_URL }}" alt=""></div>
+      <div class="sp-card__name">{{ persona.name }}</div>
+      <div class="sp-card__dni"><span>DNI</span><strong>{{ persona.dni or '—' }}</strong></div>
+      {% if persona.departments %}
+        <div class="sp-card__depts">{% for d in persona.departments %}<span>{{ d }}</span>{% endfor %}</div>
+      {% endif %}
+      <div class="sp-card__foot">Emitido el {{ pase.issued_label }}{% if pase.checks_count %} · comprobado {{ pase.checks_count }} {% if pase.checks_count == 1 %}vez{% else %}veces{% endif %}{% endif %}</div>
+    </div>
+  {% endif %}
+
+  <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
+    <a class="btn btn-danger" href="{{ url_for('staff_pass_scan_view') }}"><i class="fa fa-qrcode me-1"></i>Escanear otro pase</a>
+    {% if can_open_ficha and persona %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('personnel_detail_view', user_id=persona.user_id, tab='datos') }}"><i class="fa fa-user me-1"></i>Abrir su ficha</a>
+    {% endif %}
+  </div>
+  <div class="text-center text-muted small mt-3"><i class="fa fa-clipboard-check me-1"></i>Comprobación registrada el {{ comprobado_label }}{% if comprobado_por %} por {{ comprobado_por }}{% endif %}.</div>
+</div>
+{% endblock %}

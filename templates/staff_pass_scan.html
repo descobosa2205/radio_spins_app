@@ -1,0 +1,98 @@
+{% extends "layout.html" %}
+{% block content %}
+{# VALIDAR UN PASE · el escáner. Un solo botón: la cámara lee el QR y se abre la comprobación.
+   Reutiliza el lector de la casa (`DocCamera` en modo `qr: true`, el del control de acceso de
+   menores). Si el móvil no puede abrir la cámara (o el QR se ha leído con la app de la cámara),
+   se puede pegar el enlace o el código a mano. #}
+<div class="ma-page ma-page--val" data-sp-scan
+     data-check-url="{{ url_for('staff_pass_check_view', token='__TOKEN__') }}">
+  <div class="mv-head">
+    <div>
+      <div class="mv-head__t"><i class="fa fa-qrcode me-2"></i>Validar un pase de personal</div>
+      <div class="mv-head__s">Escanea el código QR del pase y la app dice si es legítimo, de quién es y si sigue vigente.</div>
+    </div>
+    <img class="mv-head__logo" src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="">
+  </div>
+
+  <div class="mv-tools">
+    <button class="mv-big" type="button" data-sp-scan-btn>
+      <i class="fa fa-expand"></i>
+      <span>Escanear el QR</span>
+      <small>Apunta con la cámara al código del pase (en Wallet, en la imagen o impreso)</small>
+    </button>
+  </div>
+
+  <div class="mv-manual">
+    <div class="input-group">
+      <span class="input-group-text"><i class="fa fa-link"></i></span>
+      <input class="form-control" data-sp-q placeholder="O pega aquí el enlace o el código del pase" autocomplete="off">
+      <button class="btn btn-danger" type="button" data-sp-go>Comprobar</button>
+    </div>
+    <div class="form-text">También vale escanear el QR con la cámara del móvil: abre la misma comprobación (pide entrar en la app si no has entrado).</div>
+  </div>
+
+  <div data-sp-result></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.querySelector('[data-sp-scan]');
+  if (!root) return;
+  var PLANTILLA = root.getAttribute('data-check-url');
+  var caja = root.querySelector('[data-sp-result]');
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  // Del QR llega la URL entera (https://app…/pase/<token>) o, pegado a mano, puede llegar solo el
+  // token. Se saca el token y se abre la comprobación EN ESTE dominio: así vale aunque el QR apunte
+  // al dominio canónico y se esté mirando desde otro.
+  function tokenDe(texto) {
+    var t = String(texto || '').trim();
+    if (!t) return '';
+    var m = t.match(/\/pase\/([A-Za-z0-9_-]{8,80})\b/);
+    if (m) return m[1];
+    if (/^[A-Za-z0-9_-]{8,80}$/.test(t)) return t;
+    return '';
+  }
+
+  function ir(texto) {
+    var token = tokenDe(texto);
+    if (!token) {
+      caja.innerHTML = '<div class="mv-ko"><i class="fa fa-circle-xmark"></i><div><strong>Eso no es un pase de la casa</strong>' +
+        '<div class="mv-ko__s">El código leído no es un pase de personal: ' + esc(String(texto || '').slice(0, 80)) + '</div></div></div>';
+      return;
+    }
+    caja.innerHTML = '<div class="mv-load"><i class="fa fa-spinner fa-spin me-2"></i>Comprobando…</div>';
+    window.location.href = PLANTILLA.replace('__TOKEN__', encodeURIComponent(token));
+  }
+
+  root.querySelector('[data-sp-scan-btn]').addEventListener('click', function () {
+    if (!window.DocCamera) { alert('Este navegador no puede abrir la cámara. Pega el enlace del pase a mano.'); return; }
+    window.DocCamera.open({
+      title: 'Escanear el QR del pase',
+      qr: true,
+      onRead: function (res) {
+        if (res && res.qr) { ir(res.qr); return; }
+        // Le han puesto un documento delante, no un QR: se dice, sin más.
+        caja.innerHTML = '<div class="mv-ko"><i class="fa fa-circle-xmark"></i><div><strong>No se ha leído ningún QR</strong>' +
+          '<div class="mv-ko__s">Apunta al código del pase, no al documento.</div></div></div>';
+      }
+    });
+  });
+
+  function aMano() {
+    var inp = root.querySelector('[data-sp-q]');
+    ir(inp.value);
+  }
+  root.querySelector('[data-sp-go]').addEventListener('click', aMano);
+  root.querySelector('[data-sp-q]').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); aMano(); }
+  });
+})();
+</script>
+{% endblock %}

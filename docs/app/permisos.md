@@ -141,6 +141,14 @@ con la clave y otro sin ella; `tools/check_permisos.py` cubre lo demás.
   que no hacían nada) y, al quitarlos, la auditoría los daba por «sin cobertura» — las dos cosas leen
   ahora la misma lista. `expense_template_create/save/update_items` pasan a `SUPPORT_ACTION_ENDPOINTS`
   con sus hermanas, y `/integraciones` se resuelve también por RUTA.
+  · **El PASE DE PERSONAL** (sep 2026) es el ejemplo de un endpoint que cuelga de `/personal/…` pero
+  cuya llave no es un recurso: el pase PROPIO lo abre cualquiera y el de otro, quien pueda ver sus
+  Datos. `STAFF_PASS_ENDPOINTS` se decide en `_support_endpoint_decision`
+  (`_staff_pass_request_allowed`) **y se deniega allí mismo con un 403 con motivo**: ⚠️ si solo se
+  devolviera «no es de apoyo», la resolución por sección no encontraría recurso para esos endpoints
+  y un GET sin recurso PASA con cualquier sesión — el DNI de otra persona a la vista de todos. La
+  regla: un endpoint exento que tiene condición la comprueba **y** la deniega en la misma capa.
+  → `docs/app/personal-vacaciones.md`
   ⚠️ La **red de seguridad sigue puesta**: una función de escritura nueva que no se mapee sigue
   entrando en el catálogo **desactivada** bajo «Otras funciones» (comprobado), así que nada queda
   solo-dirección en silencio.

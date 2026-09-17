@@ -193,6 +193,10 @@
               {# INSTRUCCIONES: los manuales de la app. Ayuda para cualquiera con sesión, también aquí
                  para que se encuentre siempre (en el menú de secciones puede caer en «más»). #}
               <li><a class="dropdown-item" href="{{ url_for('manuals_view') }}"><i class="fa fa-circle-question me-2"></i> Instrucciones</a></li>
+              {# MI PASE DE PERSONAL: la acreditación de cada uno para el móvil (cualquiera con sesión), y
+                 VALIDAR UN PASE: comprobar el QR de otra persona (también cualquiera: es el control). #}
+              <li><a class="dropdown-item" href="{{ url_for('my_pass_view') }}"><i class="fa fa-id-badge me-2"></i> Mi pase de personal</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('staff_pass_scan_view') }}"><i class="fa fa-qrcode me-2"></i> Validar un pase</a></li>
               {# ORDENAR MI MENÚ: cada uno se coloca sus secciones arrastrándolas. #}
 
               {# ORDENAR MI INICIO: lo mismo con los MÓDULOS de la portada. Solo se ordena lo que esa

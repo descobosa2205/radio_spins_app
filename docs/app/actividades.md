@@ -2079,9 +2079,10 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   opciones**: «Notificar al promotor» y «Ya se lo he confirmado». ⚠️ **Bloqueado** mientras el
   artista no haya confirmado: no se compromete una fecha con nadie de fuera antes.
   · **EL TEXTO lo dictó Dani** y sale **ESCRITO Y EDITABLE** en el cuadro de la nota, como en todas
-    las previsualizaciones de la casa: *«Buenas, este concierto está confirmado, y la fecha
-    reservada. Por favor revisa los datos por si hubiera alguna información errónea y si hay datos
-    pendientes por favor cumpliméntalos. / Muchas gracias»*.
+    las previsualizaciones de la casa: *«Buenas, este concierto está confirmado y la fecha
+    reservada. Por favor revisa los datos por si hubiera alguna información errónea o datos
+    pendientes de cumplimentar. / Muchas gracias.»* (redacción de Dani, sep 2026; antes decía «…y si
+    hay datos pendientes por favor cumpliméntalos»).
     ⚠️⚠️ **AL PROMOTOR NO SE LE DICE «EVENTO PROMOCIONAL»**: la palabra sale del punto único
     **`_artwork_activity_word`** (el mismo del correo de los carteles), y el **GÉNERO** se saca de su
     artículo («la acción» → «esta acción está confirmada»): escrito a mano acaba en «esta acción

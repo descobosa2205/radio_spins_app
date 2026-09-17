@@ -127321,14 +127321,17 @@ def _promoter_notice_intro(concert, *, asking: bool = True) -> str:
     palabra = _artwork_activity_word(concert, articulo=False)
     demostrativo = "esta" if femenino else "este"
     confirmado = "confirmada" if femenino else "confirmado"
-    texto = ("Buenas, %s %s está %s, y la fecha reservada. Por favor revisa los datos por si "
+    # ⚠️ Redacción de Dani (sep 2026): «Buenas, este evento está confirmado y la fecha reservada. Por
+    # favor revisa los datos por si hubiera alguna información errónea o datos pendientes de
+    # cumplimentar. / Muchas gracias.» — con la palabra de la actividad en vez de «evento» a secas.
+    texto = ("Buenas, %s %s está %s y la fecha reservada. Por favor revisa los datos por si "
              "hubiera alguna información errónea" % (demostrativo, palabra, confirmado))
     if asking:
-        texto += " y si hay datos pendientes por favor cumpliméntalos."
+        texto += " o datos pendientes de cumplimentar."
     else:
         texto += "."
     # La despedida va siempre: es una carta a alguien de fuera, no un aviso del sistema.
-    return texto + "\n\nMuchas gracias"
+    return texto + "\n\nMuchas gracias."
 
 
 def _promoter_notice_payment_module(session_db, concert) -> dict | None:

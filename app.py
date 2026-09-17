@@ -168488,7 +168488,14 @@ def _buyer_list_legacy(session_db, bl) -> dict:
                 out["subject_name"], out["image"] = (ev.name or ""), (ev.logo_url or "")
         elif out["subject_kind"] == "ARTIST" and bl.subject_id:
             a = session_db.get(Artist, bl.subject_id)
-            if a is not None:
+            if a is not None and getattr(a, "event_id", None):
+                # ⚠️ El artista ESPEJO de un evento no debe verse nunca: la base es del EVENTO (su
+                # nombre y su logo ACTUAL, no la copia que guardaba el espejo).
+                ev = session_db.get(AppEvent, a.event_id)
+                out["subject_kind"], out["subject_id"] = "EVENT", str(a.event_id)
+                if ev is not None:
+                    out["subject_name"], out["image"] = (ev.name or ""), (ev.logo_url or "")
+            elif a is not None:
                 out["subject_name"], out["image"] = (a.name or ""), (a.photo_url or "")
         if bl.legacy_date:
             out["date"] = bl.legacy_date.strftime("%d/%m/%Y")
@@ -168548,7 +168555,8 @@ def _buyer_sources_list(session_db) -> list[dict]:
     if agg_ev:
         for ev in (session_db.query(EnterticketEvent)
                    .options(joinedload(EnterticketEvent.concert).joinedload(Concert.artist),
-                            joinedload(EnterticketEvent.concert).joinedload(Concert.venue))
+                            joinedload(EnterticketEvent.concert).joinedload(Concert.venue),
+                            joinedload(EnterticketEvent.concert).joinedload(Concert.cycle_festival))
                    .filter(EnterticketEvent.id.in_(list(agg_ev.keys())))
                    .order_by(EnterticketEvent.event_date.desc().nullslast()).all()):
             r = agg_ev[ev.id]
@@ -168568,7 +168576,8 @@ def _buyer_sources_list(session_db) -> list[dict]:
     # tienen que poder verse para completarlos.
     for bl in (session_db.query(BuyerList)
                .options(joinedload(BuyerList.concert).joinedload(Concert.artist),
-                        joinedload(BuyerList.concert).joinedload(Concert.venue))
+                        joinedload(BuyerList.concert).joinedload(Concert.venue),
+                        joinedload(BuyerList.concert).joinedload(Concert.cycle_festival))
                .order_by(BuyerList.created_at.desc()).all()):
         r = agg_li.get(bl.id)
         c = bl.concert
@@ -168605,17 +168614,34 @@ def _buyer_subject_keys(concert, legacy: dict | None) -> list[str]:
     de un ciclo nuestro también — el mismo criterio que una actividad de un ciclo, que sale en
     Conciertos y en Festivales/Ciclos. ⚠️ Una actividad de EVENTO va bajo el evento, nunca bajo su
     artista ESPEJO (que no debe verse en ningún sitio). Sin actividad registrada manda lo apuntado en
-    el propio listado (`subject_kind`/`subject_id`); sin nada, «otros»."""
+    el propio listado (`subject_kind`/`subject_id`); sin nada, «otros».
+    ⚠️⚠️ **EL CONTENEDOR DE UN EVENTO ES EL EVENTO** (bug real, sep 2026: «La Ruta del Aguilar» salía
+    DOS veces en la rejilla, una con la foto antigua y otra con la actualizada). La gira, el ciclo o
+    el festival PROPIOS de un evento (`CycleFestival.event_id`) colgaban además bajo `cycle:<id>`, con
+    el logo del contenedor —el que se le puso al crearlo— mientras `event:<id>` enseñaba el logo
+    actual del evento: el mismo sujeto, dos tarjetas. Ahora ese contenedor se pliega en su evento."""
     keys: list[str] = []
     if concert is not None:
         art = getattr(concert, "artist", None)
         ev_id = getattr(concert, "event_id", None) or (getattr(art, "event_id", None) if art is not None else None)
+        cf = getattr(concert, "cycle_festival", None) if getattr(concert, "cycle_festival_id", None) else None
+        cf_event_id = getattr(cf, "event_id", None) if cf is not None else None
         if ev_id:
             keys.append(f"event:{ev_id}")
         elif getattr(concert, "artist_id", None):
             keys.append(f"artist:{concert.artist_id}")
+            # Un artista de verdad en la gira propia de un evento: la base es suya Y del evento.
+            if cf_event_id:
+                keys.append(f"event:{cf_event_id}")
+        elif cf_event_id:
+            keys.append(f"event:{cf_event_id}")
         if getattr(concert, "cycle_festival_id", None):
-            keys.append(f"cycle:{concert.cycle_festival_id}")
+            if cf_event_id:
+                # El contenedor de un evento no es un sujeto aparte: es el evento (ya está arriba).
+                if f"event:{cf_event_id}" not in keys:
+                    keys.append(f"event:{cf_event_id}")
+            else:
+                keys.append(f"cycle:{concert.cycle_festival_id}")
         if getattr(concert, "purchased_tour_id", None):
             keys.append(f"tour:{concert.purchased_tour_id}")
     elif legacy:

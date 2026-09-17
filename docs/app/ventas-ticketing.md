@@ -9,6 +9,8 @@
 - RECAUDACIÓN del reporte de ventas = el interruptor ECONÓMICO de «Reporte de ventas»
 - Integración Enterticket (ticketing en tiempo casi real): cliente HTTP en enterticket_utils.py
 - COMPRADORES · listados, categorías, importación a mano y ENVÍOS. La base de
+- COMPRADORES · EL CONTENEDOR DE UN EVENTO ES EL EVENTO: la gira, el ciclo o el festival propios de un
+  evento no son un sujeto aparte en la rejilla (salía dos veces, con dos fotos) (sep 2026)
 - TICKETING · volcar la configuración de Enterticket a la actividad — ago 2026. Botón «Volcar
 - SALIDA A LA VENTA · activar la venta y COMUNICARLA. Sacar una actividad a la venta
 - UN BUSCADOR TIENE QUE NORMALIZAR LOS DOS LADOS (bug real, ago 2026): en el reporte de ventas
@@ -1084,3 +1086,24 @@ el cartel dependía de ese número, cuando lo que decía era cómo iba la venta 
   siempre), y **todas** —las venda quien las venda— conservan el pop-up de **actualizar a mano**
   (se escribe el TOTAL y la app calcula la diferencia).
 
+
+- ⚠️⚠️ **COMPRADORES · EL CONTENEDOR DE UN EVENTO ES EL EVENTO** (bug real, sep 2026, lo vio Dani: «en
+  Compradores aparece duplicada La Ruta del Aguilar, como si estuviera dos veces, una con una foto
+  antigua y otra con la actualizada»). La rejilla de «de quién son las bases» cuelga cada listado de
+  sus claves (`_buyer_subject_keys`: `artist:` · `event:` · `cycle:` · `tour:`). La gira, el ciclo o el
+  festival **propios de un evento** (`CycleFestival.event_id`) añadían además `cycle:<id>`, con **el
+  logo del contenedor** —el que se le puso al crearlo—, mientras `event:<id>` enseñaba **el logo
+  actual del evento**: el mismo sujeto, dos tarjetas con el mismo nombre y dos fotos.
+  · Ahora ese contenedor **se pliega en su evento**: sus fechas cuelgan de `event:` (y de su artista
+  de verdad, si lo hay: una base de un invitado en la gira del evento es suya Y del evento), y
+  `cycle:` queda solo para los ciclos y festivales que no son de un evento.
+  · Una base de una **actividad no registrada** apuntada al **artista ESPEJO** de un evento también es
+  del evento (`_buyer_list_legacy`): con su nombre y su logo actual, no la copia del espejo.
+  · El contenedor se carga **en bloque** con las fuentes (`joinedload(Concert.cycle_festival)`), nada
+  de una consulta por listado.
+  ⚠️ Si aun así un evento saliera dos veces, es que hay **dos fichas de evento** con el mismo nombre
+  (dos `AppEvent`): eso ya no es la rejilla, es un duplicado que hay que fundir.
+  Probado con la app real: evento con logo nuevo + espejo + gira propia con el logo antiguo + una
+  fecha del evento, una de un artista invitado y una base antigua apuntada al espejo → **una** tarjeta
+  «La Ruta del Aguilar» con el logo actual, las tres bases cuelgan del evento y la pantalla no enseña
+  el logo antiguo en ningún sitio.

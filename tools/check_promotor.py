@@ -149,8 +149,9 @@ def main() -> int:
         pedir = A._promoter_ask_state(s, c)
     comprueba("de entrada NO está confirmado", not estado["notified"])
     comprueba("y aplica (hay promotor)", estado["applies"])
-    comprueba("faltan las CUATRO secciones",
-              set(pedir["missing_keys"]) == {"contactos", "recinto", "anuncio", "venta"},
+    comprueba("faltan las SEIS secciones",
+              set(pedir["missing_keys"]) == {"promotor", "contactos", "recinto", "anuncio",
+                                             "carteles", "venta"},
               pedir["missing_keys"])
 
     # Sin promotor no hay a quién confirmarle nada.
@@ -176,20 +177,34 @@ def main() -> int:
               and "cumpliméntalos" in previa)
     comprueba("se despide", "Muchas gracias" in previa)
     comprueba("el texto es EDITABLE (va en el cuadro de la nota)", "data-an-note" in previa)
-    comprueba("las cuatro secciones se pueden marcar",
+    comprueba("las seis secciones se pueden marcar",
               all(('data-an-sec="%s"' % k) in previa for k in
-                  ("contactos", "recinto", "anuncio", "venta")))
+                  ("promotor", "contactos", "recinto", "anuncio", "carteles", "venta")))
+    comprueba("y salen agrupadas por módulo",
+              all(('data-an-mod-group="%s"' % k) in previa
+                  for k in ("descripcion", "carteles", "venta")))
     comprueba("dice que el enlace caduca a los 15 días", "15 días" in previa)
 
     d = cli.post("/conciertos/%s/avisar-promotor/previa" % cid, json={
         "note": "Texto de prueba", "hidden": list(A.PROMOTER_NOTICE_OPT_IN_MODULES),
-        "sections": ["contactos", "recinto", "anuncio", "venta"]}).get_json() or {}
+        "sections": ["promotor", "contactos", "recinto", "anuncio", "carteles", "venta"]}).get_json() or {}
     cuerpo = d.get("html") or ""
     comprueba("la previa se compone", bool(d.get("ok")), d.get("error"))
     comprueba("título «Actividad confirmada»", "Actividad confirmada" in cuerpo)
     comprueba("lleva la cabecera de la actividad", A.format_date_long_es(fecha) in cuerpo)
-    comprueba("cada sección lleva su botón «Cumplimentar»", cuerpo.count("Cumplimentar") == 4,
+    # ⚠️ Los botones ya no son uno por sección: van por MÓDULO (y las galletas de contacto
+    # pendientes llevan el suyo), que es como se ve en el aviso.
+    comprueba("hay botones «Cumplimentar»", cuerpo.count("Cumplimentar") >= 3,
               cuerpo.count("Cumplimentar"))
+    comprueba("los módulos van DEBAJO del botón de la hoja de ruta",
+              cuerpo.index("Ver hoja de ruta") < cuerpo.index('data-notice-module="ask:descripcion"'))
+    comprueba("«Descripción» lleva el promotor, los contactos, el recinto y la fecha",
+              'data-notice-module="ask:descripcion"' in cuerpo
+              and "Sociedad" in cuerpo or "Con qué sociedad" in cuerpo)
+    comprueba("la cartelería va en su propio módulo",
+              'data-notice-module="ask:carteles"' in cuerpo)
+    comprueba("cada función de contacto sale con su GALLETA",
+              cuerpo.count("Pendiente de contacto") >= 3, cuerpo.count("Pendiente de contacto"))
     comprueba("enseña lo que FALTA en ámbar", "Nos falta" in cuerpo)
     comprueba("NO pide respuesta (no hay Confirmar/Rechazar)",
               "¿Confirmas esta actividad?" not in cuerpo)
@@ -243,7 +258,7 @@ def main() -> int:
     r = cli.post("/conciertos/%s/avisar-promotor/enviar" % cid, json={
         "channel": "EMAIL", "note": "Texto de prueba",
         "hidden": list(A.PROMOTER_NOTICE_OPT_IN_MODULES),
-        "sections": ["contactos", "recinto", "anuncio", "venta"]}).get_json() or {}
+        "sections": ["promotor", "contactos", "recinto", "anuncio", "carteles", "venta"]}).get_json() or {}
     comprueba("se manda", bool(r.get("ok")) and r.get("sent"), r.get("error"))
     comprueba("el correo sale una vez", len(correos) == 1, len(correos))
     comprueba("al correo del promotor", correos and prom.contact_email in correos[0][0], correos)
@@ -252,8 +267,8 @@ def main() -> int:
     comprueba("lo APAGADO no viaja en el correo (ni el caché ni las notas internas)",
               'data-notice-module="cache"' not in enviado
               and 'data-notice-module="notas"' not in enviado)
-    comprueba("y las secciones que se piden SÍ, con su botón",
-              enviado.count("Cumplimentar") == 4, enviado.count("Cumplimentar"))
+    comprueba("y los módulos que se piden SÍ, con su botón",
+              enviado.count("Cumplimentar") >= 3, enviado.count("Cumplimentar"))
 
     s.expire_all()
     aviso = (s.query(models.ConcertPromoterNotification)
@@ -261,7 +276,8 @@ def main() -> int:
                  models.ConcertPromoterNotification.sent_at.desc()).first())
     comprueba("queda apuntado el aviso", aviso is not None)
     comprueba("con lo que se le ha pedido",
-              aviso is not None and set(aviso.asked_sections) == {"contactos", "recinto", "anuncio", "venta"},
+              aviso is not None and set(aviso.asked_sections) == {
+                  "promotor", "contactos", "recinto", "anuncio", "carteles", "venta"},
               getattr(aviso, "asked_sections", None))
     comprueba("y con su caducidad a los 15 días",
               aviso is not None and aviso.expires_at is not None
@@ -420,6 +436,63 @@ def main() -> int:
     comprueba("sin nombre no se crea nada",
               not (anon.post("/promotor/%s/recinto-nuevo" % token,
                              data={"name": "  "}).get_json() or {}).get("ok"))
+
+    # ── 9 bis · LA SOCIEDAD DEL PROMOTOR ───────────────────────────────────────────────────
+    print("\n9 bis · La sociedad con la que factura")
+    # Sin sociedad, se le pide.
+    r = anon.post("/promotor/%s/sociedad-buscar" % token,
+                  data={"tax_id": "B00000000"}).get_json() or {}
+    comprueba("buscar por CIF responde", bool(r.get("ok")), r)
+    comprueba("y dice que no la tenemos", r.get("found") is False, r)
+
+    nombre_soc = "Promotora SL %s" % suf
+    r = anon.post("/promotor/%s/sociedad-nueva" % token, data={
+        "legal_name": nombre_soc, "tax_id": "B12345674",
+        "address": "C/ Gran Vía 1", "city": "Madrid"}).get_json() or {}
+    comprueba("se da de alta la sociedad", r.get("ok") and not r.get("reused"), r)
+    soc_id = ((r.get("company") or {}).get("id") or "")
+    s.expire_all()
+    soc = s.get(models.PromoterCompany, A._safe_uuid(soc_id)) if soc_id else None
+    # ⚠️ LO IMPORTANTE: queda colgada de SU FICHA, para las próximas actividades.
+    comprueba("y queda VINCULADA a la ficha del promotor",
+              soc is not None and str(soc.promoter_id) == str(prom.id),
+              getattr(soc, "promoter_id", None))
+    r2 = anon.post("/promotor/%s/sociedad-nueva" % token, data={
+        "legal_name": nombre_soc, "tax_id": "B12345674"}).get_json() or {}
+    comprueba("crearla dos veces NO la duplica", r2.get("ok") and r2.get("reused"), r2)
+    r3 = anon.post("/promotor/%s/sociedad-buscar" % token,
+                   data={"tax_id": "B12345674"}).get_json() or {}
+    comprueba("ahora la encuentra por CIF y dice que ya es suya",
+              r3.get("found") and r3.get("own"), r3)
+    comprueba("sin razón social no se crea nada",
+              not (anon.post("/promotor/%s/sociedad-nueva" % token,
+                             data={"legal_name": " "}).get_json() or {}).get("ok"))
+
+    # Se elige, y la próxima vez ya sale para elegir (está en sus opciones).
+    r = anon.post("/promotor/%s/guardar" % token, data={
+        "section": "promotor", "company_id": soc_id}).get_json() or {}
+    comprueba("se guarda la sociedad elegida", bool(r.get("ok")), r.get("error"))
+    s.expire_all()
+    sheet = s.query(models.ConcertContractSheet).filter_by(concert_id=c.id).first()
+    comprueba("queda apuntada en la ficha, pendiente de revisar",
+              (sheet.promoter_data or {}).get("company_promoter_company_id") == soc_id
+              and sheet.promoter_reviewed_at is None,
+              (sheet.promoter_data or {}).get("company_promoter_company_id"))
+    c_ahora = s.get(models.Concert, c.id)
+    comprueba("y la ACTIVIDAD sigue sin ella hasta que se revise",
+              c_ahora.promoter_company_id is None, c_ahora.promoter_company_id)
+    with A.app.test_request_context():
+        empresas = A._promoter_ask_companies(s, c_ahora)
+    comprueba("la siguiente vez ya sale para ELEGIR",
+              any(o["id"] == soc_id for o in empresas["options"]), empresas["options"])
+    # Y la de otro promotor no se puede colar con este token.
+    otro_prom = models.Promoter(nick="Otra %s" % suf)
+    s.add(otro_prom); s.flush()
+    ajena = models.PromoterCompany(promoter_id=otro_prom.id, legal_name="Ajena %s" % suf)
+    s.add(ajena); s.commit()
+    r = anon.post("/promotor/%s/guardar" % token, data={
+        "section": "promotor", "company_id": str(ajena.id)})
+    comprueba("la sociedad de OTRO promotor se rechaza", r.status_code == 403, r.status_code)
 
     # ── 10 · EL ENLACE CADUCA ──────────────────────────────────────────────────────────────
     print("\n10 · El enlace caduca a los 15 días")

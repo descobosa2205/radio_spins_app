@@ -94,18 +94,25 @@
             Cada cosa marcada sale en el correo con su botón «Cumplimentar». Él las rellena una a una
             en su ficha y <strong>nada se carga hasta que lo revisamos</strong>.
           </div>
-          <div class="d-flex flex-column gap-1">
-            {% for s in ask_sections %}
-              <label class="an-mod-toggle" data-an-sec-row="{{ s.key }}">
-                <input class="form-check-input m-0" type="checkbox" data-an-sec="{{ s.key }}"
-                       {% if s.key in ask_default %}checked{% endif %}>
-                <span>
-                  <i class="fa {{ s.icon }} me-1 text-muted"></i>{{ s.label }}
-                  {% if not s.missing %}<span class="badge text-bg-light text-dark ms-1">ya lo tenemos</span>{% endif %}
-                </span>
-              </label>
-            {% endfor %}
-          </div>
+          {# ⚠️ Agrupado por MÓDULO (Descripción · Cartelería · Salida a la venta), que es como se
+             ve en el aviso: debajo del botón de la hoja de ruta y con la pinta de los demás. #}
+          {% for m in ask_modules %}
+            <div class="fw-semibold small text-muted text-uppercase mt-2 mb-1" style="letter-spacing:.4px;">
+              <i class="fa {{ m.icon }} me-1"></i>{{ m.label }}
+            </div>
+            <div class="d-flex flex-column gap-1 ps-2" data-an-mod-group="{{ m.key }}">
+              {% for s in m.sections %}
+                <label class="an-mod-toggle" data-an-sec-row="{{ s.key }}">
+                  <input class="form-check-input m-0" type="checkbox" data-an-sec="{{ s.key }}"
+                         {% if s.key in ask_default %}checked{% endif %}>
+                  <span>
+                    <i class="fa {{ s.icon }} me-1 text-muted"></i>{{ s.label }}
+                    {% if not s.missing %}<span class="badge text-bg-light text-dark ms-1">ya lo tenemos</span>{% endif %}
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+          {% endfor %}
           <div class="form-text mt-2">
             <i class="fa fa-clock me-1"></i>Su enlace se desactiva a los <strong>{{ link_days }} días</strong>.
           </div>
@@ -233,10 +240,17 @@
     ev.preventDefault();
     var key = eye.getAttribute('data-notice-eye');
     var box = root.querySelector('[data-an-mod="' + key + '"]');
-    if (!box && key.indexOf('ask:') === 0) {
-      box = root.querySelector('[data-an-sec="' + key.slice(4) + '"]');
+    if (box) { box.checked = !box.checked; repaint(); return; }
+    // ⚠️ El ojo de un módulo de datos (`ask:descripcion`) apaga TODAS sus secciones: lo que se ve
+    // es el módulo, así que taparlo es no pedir nada de lo que hay dentro.
+    if (key.indexOf('ask:') === 0) {
+      var mod = root.querySelector('[data-an-mod-group="' + key.slice(4) + '"]');
+      if (!mod) return;
+      var cajas = mod.querySelectorAll('[data-an-sec]');
+      var encender = !Array.prototype.some.call(cajas, function (c) { return c.checked; });
+      Array.prototype.forEach.call(cajas, function (c) { c.checked = encender; });
+      repaint();
     }
-    if (box) { box.checked = !box.checked; repaint(); }
   });
   root.addEventListener('change', function (ev) {
     if (ev.target.matches('[data-an-mod]') || ev.target.matches('[data-an-sec]')) return repaint();

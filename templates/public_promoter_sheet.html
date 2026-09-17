@@ -13,6 +13,20 @@
   .pms-have { font-size:.9rem; }
   .pms-have dt { color:#6b7683; font-weight:600; font-size:.78rem; }
   .pms-have dd { margin:0 0 .4rem; font-weight:700; }
+  .pms-block__title { font-size:.78rem; font-weight:700; color:#6b7683; text-transform:uppercase;
+                      letter-spacing:.4px; }
+  /* LA GALLETA de una función de contacto: la misma idea que en la app (borde, foto redonda y el
+     nombre en negrita). Si está PENDIENTE, en ámbar, para que se vea de un vistazo y se pinche. */
+  .pms-chip { border:1px solid #e6e8eb; border-radius:12px; background:#fff; padding:.55rem .7rem; }
+  .pms-chip.is-pending { border-color:#f2d492; background:#fff8e6; }
+  .pms-chip__role { font-size:.7rem; font-weight:700; color:#6b7683; text-transform:uppercase;
+                    letter-spacing:.3px; }
+  .pms-chip__pending { font-size:.85rem; font-weight:700; color:#8a6100; margin-top:.15rem; }
+  /* ⚠️ Lo de tamaño FIJO no se encoge en un flex: sin `flex:0 0 auto` la foto sale ovalada. */
+  .pms-chip__photo { flex:0 0 auto; width:34px; height:34px; border-radius:50%; object-fit:cover;
+                     border:1px solid #e6e8eb; }
+  .pms-art { width:100%; max-height:84px; object-fit:contain; border:1px solid #e6e8eb;
+             border-radius:8px; background:#fff; }
   .pms-venue-hit { cursor:pointer; }
   .pms-venue-hit:hover { background:#f5f7f9; }
   .pms-save { position:sticky; bottom:0; background:#fff; border-top:1px solid #e6e8eb; }
@@ -72,133 +86,261 @@
       </p>
 
       <div data-pms data-url-save="{{ save_url }}" data-url-venues="{{ venues_url }}"
-           data-url-venue-new="{{ venue_create_url }}">
-        {% for s in sections %}
-          <div class="pms-card p-2 mb-3" id="{{ s.key }}">
+           data-url-venue-new="{{ venue_create_url }}"
+           data-url-company-find="{{ company_find_url }}"
+           data-url-company-new="{{ company_create_url }}">
+        {# ⚠️ AGRUPADO POR MÓDULOS, igual que en el correo: Descripción (el promotor con su
+           sociedad, sus contactos, el recinto y la fecha de anuncio), Cartelería y Salida a la
+           venta. Dentro de cada uno, sus bloques. #}
+        {% for m in sections %}
+          <div class="pms-card p-2 mb-3" id="{{ m.key }}">
             <div class="pms-head d-flex justify-content-between align-items-center">
-              <h6><i class="fa {{ s.icon }} me-1"></i>{{ s.label }}</h6>
-              {% if s.done %}
+              <h6><i class="fa {{ m.icon }} me-1"></i>{{ m.label }}</h6>
+              {% if m.done %}
                 <span class="badge text-bg-success"><i class="fa fa-check me-1"></i>Completo</span>
               {% else %}
                 <span class="badge text-bg-warning text-dark">Pendiente</span>
               {% endif %}
             </div>
             <div class="px-2 pt-2 pb-1">
+              {% for s in m.sections %}
+                <div class="pms-block{{ '' if loop.first else ' mt-3' }}" id="{{ s.key }}">
+                  <div class="pms-block__title">
+                    <i class="fa {{ s.icon }} me-1"></i>{{ s.label }}
+                  </div>
+                  <div class="text-muted small mb-2">{{ s.help }}</div>
 
-              {# ---------- CONTACTOS: una tarjeta por función ---------- #}
-              {% if s.key == 'contactos' %}
-                <div class="text-muted small mb-2">{{ s.help }}</div>
-                <div class="row g-2">
-                  {% for c in s.contacts %}
-                    <div class="col-12 col-md-6">
-                      <div class="border rounded p-2 h-100 d-flex flex-column">
-                        <div class="fw-semibold small"><i class="fa {{ c.icon }} me-1 text-muted"></i>{{ c.label }}</div>
-                        <div class="text-muted" style="font-size:.78rem;">{{ c.help }}</div>
-                        <div class="mt-1 flex-grow-1">
-                          {% if c.name %}
-                            <div class="fw-bold">{{ c.name }}</div>
-                            <div class="text-muted small">{{ c.email }}{% if c.phone %} · {{ c.phone }}{% endif %}</div>
-                          {% elif c.people %}
-                            {% for p in c.people %}
-                              <div class="fw-bold">{{ p.name }}</div>
-                              <div class="text-muted small">{{ p.email }}{% if p.phone %} · {{ p.phone }}{% endif %}</div>
-                            {% endfor %}
-                          {% else %}
-                            <div class="pms-need mt-1"><span class="pms-need__title">Nos falta</span></div>
-                          {% endif %}
-                        </div>
-                        <button type="button" class="btn btn-sm btn-outline-primary mt-2"
-                                data-bs-toggle="modal" data-bs-target="#mdl-c-{{ c.role }}">
-                          <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if (c.name or c.people) else 'Cumplimentar' }}
-                        </button>
+                  {# ---------- EL PROMOTOR Y SU SOCIEDAD ---------- #}
+                  {% if s.key == 'promotor' %}
+                    <dl class="pms-have mb-2">
+                      {% if s.name %}<dt>Promotor</dt><dd>{{ s.name }}</dd>{% endif %}
+                      {% if s.legal_name %}
+                        <dt>Sociedad que factura</dt>
+                        <dd>{{ s.legal_name }}{% if s.tax_id %} <span class="text-muted fw-normal small">· CIF {{ s.tax_id }}</span>{% endif %}</dd>
+                      {% endif %}
+                    </dl>
+                    {% if not s.legal_name %}
+                      <div class="pms-need mb-2">
+                        <span class="pms-need__title">Nos falta</span>
+                        <div>Con qué sociedad se factura.</div>
                       </div>
-                    </div>
-                  {% endfor %}
-                </div>
-
-              {# ---------- RECINTO ---------- #}
-              {% elif s.key == 'recinto' %}
-                <div class="text-muted small mb-2">{{ s.help }}</div>
-                {% if s.name %}
-                  <dl class="pms-have mb-2">
-                    <dt>Recinto</dt><dd>{{ s.name }}</dd>
-                    {% if s.address or s.municipality %}
-                      <dt>Dirección</dt><dd>{{ s.address }}{% if s.municipality %}{% if s.address %} · {% endif %}{{ s.municipality }}{% endif %}</dd>
                     {% endif %}
-                  </dl>
-                {% else %}
-                  <div class="pms-need mb-2">
-                    <span class="pms-need__title">Nos falta</span>
-                    <div>El recinto donde se hace, con su dirección.</div>
-                  </div>
-                {% endif %}
-                <button type="button" class="btn btn-sm btn-outline-primary"
-                        data-bs-toggle="modal" data-bs-target="#mdl-recinto">
-                  <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if s.name else 'Cumplimentar' }}
-                </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            data-bs-toggle="modal" data-bs-target="#mdl-sociedad">
+                      <i class="fa fa-pen me-1"></i>{{ 'Cambiarla' if s.legal_name else 'Cumplimentar' }}
+                    </button>
 
-              {# ---------- ANUNCIO Y CARTELERÍA ---------- #}
-              {% elif s.key == 'anuncio' %}
-                <div class="text-muted small mb-2">{{ s.help }}</div>
-                {% if s.date_iso %}
-                  <dl class="pms-have mb-2">
-                    <dt>Se anuncia el</dt>
-                    <dd>{{ s.date_iso }}{% if s.time %} · {{ s.time }}{% endif %}</dd>
-                  </dl>
-                {% else %}
-                  <div class="pms-need mb-2">
-                    <span class="pms-need__title">Nos falta</span>
-                    <div>El día (y la hora, si la hay) en que se anuncia.</div>
-                  </div>
-                {% endif %}
-                <div class="d-flex flex-wrap gap-2">
-                  <button type="button" class="btn btn-sm btn-outline-primary"
-                          data-bs-toggle="modal" data-bs-target="#mdl-anuncio">
-                    <i class="fa fa-pen me-1"></i>{{ 'Cambiar la fecha' if s.date_iso else 'Cumplimentar' }}
-                  </button>
-                  {# ⚠️ Los CARTELES se suben en la página de siempre, que ya sabe hacerlo (arrastrar
-                     una carpeta entera, miniaturas y su validación): no hay un segundo sitio. #}
-                  {% if s.want_artwork and s.artwork_url %}
-                    <a class="btn btn-sm btn-outline-danger" href="{{ s.artwork_url }}">
-                      <i class="fa fa-image me-1"></i>Subir los carteles
-                    </a>
+                  {# ---------- CONTACTOS · una GALLETA por función ---------- #}
+                  {% elif s.key == 'contactos' %}
+                    <div class="row g-2">
+                      {% for c in s.contacts %}
+                        <div class="col-12 col-md-6">
+                          {# ⚠️ Las que NO están cubiertas salen marcadas en ámbar («Pendiente de
+                             contacto»), para que se vea de un vistazo y se pinche ahí. #}
+                          <div class="pms-chip h-100 d-flex flex-column{{ '' if c.done else ' is-pending' }}">
+                            <div class="pms-chip__role">
+                              <i class="fa {{ c.icon }} me-1"></i>{{ c.label }}
+                            </div>
+                            <div class="mt-1 flex-grow-1">
+                              {% if c.name %}
+                                <div class="fw-bold">{{ c.name }}</div>
+                                <div class="text-muted small">{{ c.email }}{% if c.phone %} · {{ c.phone }}{% endif %}</div>
+                              {% elif c.people %}
+                                {% for p in c.people %}
+                                  <div class="d-flex align-items-center gap-2 mt-1">
+                                    {% if p.photo %}
+                                      <img src="{{ p.photo }}" alt="" class="pms-chip__photo">
+                                    {% endif %}
+                                    <div style="min-width:0;">
+                                      <div class="fw-bold">{{ p.name }}</div>
+                                      <div class="text-muted small">{{ p.email }}{% if p.phone %} · {{ p.phone }}{% endif %}</div>
+                                    </div>
+                                  </div>
+                                {% endfor %}
+                              {% else %}
+                                <div class="pms-chip__pending">Pendiente de contacto</div>
+                              {% endif %}
+                            </div>
+                            <button type="button" class="btn btn-sm mt-2 {{ 'btn-outline-secondary' if c.done else 'btn-primary' }}"
+                                    data-bs-toggle="modal" data-bs-target="#mdl-c-{{ c.role }}">
+                              <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if c.done else 'Cumplimentar' }}
+                            </button>
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+
+                  {# ---------- RECINTO ---------- #}
+                  {% elif s.key == 'recinto' %}
+                    {% if s.name %}
+                      <dl class="pms-have mb-2">
+                        <dt>Recinto</dt><dd>{{ s.name }}</dd>
+                        {% if s.address or s.municipality %}
+                          <dt>Dirección</dt><dd>{{ s.address }}{% if s.municipality %}{% if s.address %} · {% endif %}{{ s.municipality }}{% endif %}</dd>
+                        {% endif %}
+                      </dl>
+                    {% else %}
+                      <div class="pms-need mb-2">
+                        <span class="pms-need__title">Nos falta</span>
+                        <div>El recinto donde se hace, con su dirección.</div>
+                      </div>
+                    {% endif %}
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            data-bs-toggle="modal" data-bs-target="#mdl-recinto">
+                      <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if s.name else 'Cumplimentar' }}
+                    </button>
+
+                  {# ---------- FECHA DE ANUNCIO ---------- #}
+                  {% elif s.key == 'anuncio' %}
+                    {% if s.date_iso %}
+                      <dl class="pms-have mb-2">
+                        <dt>Se anuncia el</dt>
+                        <dd>{{ s.date_iso }}{% if s.time %} · {{ s.time }}{% endif %}</dd>
+                      </dl>
+                    {% else %}
+                      <div class="pms-need mb-2">
+                        <span class="pms-need__title">Nos falta</span>
+                        <div>El día (y la hora, si la hay) en que se anuncia.</div>
+                      </div>
+                    {% endif %}
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            data-bs-toggle="modal" data-bs-target="#mdl-anuncio">
+                      <i class="fa fa-pen me-1"></i>{{ 'Cambiar la fecha' if s.date_iso else 'Cumplimentar' }}
+                    </button>
+
+                  {# ---------- CARTELERÍA · lo que ya esté subido se ve ---------- #}
+                  {% elif s.key == 'carteles' %}
+                    {% if s.rows %}
+                      <div class="d-flex flex-wrap gap-2 mb-2">
+                        {% for a in s.rows %}
+                          <div class="text-center" style="flex:0 0 auto;width:110px;">
+                            {% if a.image %}
+                              <img src="{{ a.image }}" alt="" class="pms-art">
+                            {% endif %}
+                            <div class="text-muted" style="font-size:.72rem;">{{ a.name }}</div>
+                            {% if a.status %}<div class="text-muted" style="font-size:.68rem;">{{ a.status }}</div>{% endif %}
+                          </div>
+                        {% endfor %}
+                      </div>
+                      {% if s.count > s.rows|length %}
+                        <div class="text-muted small mb-2">y {{ s.count - s.rows|length }} más</div>
+                      {% endif %}
+                    {% endif %}
+                    {% if s.missing %}
+                      <div class="pms-need mb-2">
+                        <span class="pms-need__title">Nos falta</span>
+                        <div>Los carteles con los que se anuncia.</div>
+                      </div>
+                    {% endif %}
+                    {% if s.upload_url %}
+                      <a class="btn btn-sm {{ 'btn-outline-secondary' if s.count else 'btn-primary' }}"
+                         href="{{ s.upload_url }}">
+                        <i class="fa fa-image me-1"></i>{{ 'Subir más carteles' if s.count else 'Subir los carteles' }}
+                      </a>
+                    {% endif %}
+
+                  {# ---------- SALIDA A LA VENTA ---------- #}
+                  {% elif s.key == 'venta' %}
+                    {% if s.date_iso or s.links %}
+                      <dl class="pms-have mb-2">
+                        {% if s.date_iso %}<dt>Salen a la venta el</dt><dd>{{ s.date_iso }}</dd>{% endif %}
+                        {% if s.links %}
+                          <dt>Dónde se compran</dt>
+                          {% for l in s.links %}
+                            <dd>{{ l.name }}{% if l.url %} · <span class="text-muted fw-normal small">{{ l.url }}</span>{% endif %}</dd>
+                          {% endfor %}
+                        {% endif %}
+                      </dl>
+                    {% endif %}
+                    {% if not s.date_iso or not s.links %}
+                      <div class="pms-need mb-2">
+                        <span class="pms-need__title">Nos falta</span>
+                        {% if not s.date_iso %}<div>Cuándo salen las entradas a la venta.</div>{% endif %}
+                        {% if not s.links %}<div>Dónde se compran (la ticketera y su enlace).</div>{% endif %}
+                      </div>
+                    {% endif %}
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            data-bs-toggle="modal" data-bs-target="#mdl-venta">
+                      <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if (s.date_iso or s.links) else 'Cumplimentar' }}
+                    </button>
                   {% endif %}
                 </div>
-
-              {# ---------- SALIDA A LA VENTA ---------- #}
-              {% elif s.key == 'venta' %}
-                <div class="text-muted small mb-2">{{ s.help }}</div>
-                {% if s.date_iso or s.links %}
-                  <dl class="pms-have mb-2">
-                    {% if s.date_iso %}<dt>Salen a la venta el</dt><dd>{{ s.date_iso }}</dd>{% endif %}
-                    {% if s.links %}
-                      <dt>Dónde se compran</dt>
-                      {% for l in s.links %}
-                        <dd>{{ l.name }}{% if l.url %} · <span class="text-muted fw-normal small">{{ l.url }}</span>{% endif %}</dd>
-                      {% endfor %}
-                    {% endif %}
-                  </dl>
-                {% endif %}
-                {% if not s.date_iso or not s.links %}
-                  <div class="pms-need mb-2">
-                    <span class="pms-need__title">Nos falta</span>
-                    {% if not s.date_iso %}<div>Cuándo salen las entradas a la venta.</div>{% endif %}
-                    {% if not s.links %}<div>Dónde se compran (la ticketera y su enlace).</div>{% endif %}
-                  </div>
-                {% endif %}
-                <button type="button" class="btn btn-sm btn-outline-primary"
-                        data-bs-toggle="modal" data-bs-target="#mdl-venta">
-                  <i class="fa fa-pen me-1"></i>{{ 'Cambiarlo' if (s.date_iso or s.links) else 'Cumplimentar' }}
-                </button>
-              {% endif %}
-
+              {% endfor %}
             </div>
           </div>
         {% endfor %}
 
         {# ═══════════ LOS POP-UPS · uno por cosa, y cada uno guarda al aceptar ═══════════ #}
-        {% for s in sections %}
-          {% if s.key == 'contactos' %}
+        {% for m in sections %}{% for s in m.sections %}
+          {% if s.key == 'promotor' %}
+            <div class="modal fade" id="mdl-sociedad" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content">
+                  <form data-pms-form data-section="promotor">
+                    <input type="hidden" name="company_id" value="{{ s.company_id }}" data-pms-soc-id>
+                    <div class="modal-header">
+                      <h5 class="modal-title"><i class="fa fa-user-tie me-1"></i>La sociedad que factura</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                      {# Si ya tiene sociedades dadas de alta, se elige entre ellas. #}
+                      {% if s.options %}
+                        <label class="form-label small mb-1">Elige la sociedad</label>
+                        <div class="list-group mb-3">
+                          {% for o in s.options %}
+                            <button type="button" class="list-group-item list-group-item-action pms-venue-hit{{ ' active' if o.id == s.company_id }}"
+                                    data-pms-soc-pick="{{ o.id }}">
+                              <strong>{{ o.legal_name }}</strong>
+                              {% if o.tax_id %}<span class="text-muted small"> · CIF {{ o.tax_id }}</span>{% endif %}
+                            </button>
+                          {% endfor %}
+                        </div>
+                      {% endif %}
+                      <div class="pms-soc-new">
+                        <div class="fw-semibold small mb-1">
+                          {{ '¿Es otra? Búscala por CIF' if s.options else 'Búscala por CIF' }}
+                        </div>
+                        <div class="d-flex gap-2 mb-2">
+                          <input class="form-control" data-pms-soc-cif placeholder="B12345678" autocomplete="off">
+                          <button type="button" class="btn btn-outline-secondary" data-pms-soc-find>Buscar</button>
+                        </div>
+                        <div class="small mb-2 d-none" data-pms-soc-hint></div>
+                        <div class="row g-2">
+                          <div class="col-12">
+                            <label class="form-label small mb-1">Razón social</label>
+                            <input class="form-control" data-pms-soc-name>
+                          </div>
+                          <div class="col-12">
+                            <label class="form-label small mb-1">Dirección fiscal</label>
+                            <input class="form-control" data-pms-soc-address>
+                          </div>
+                          <div class="col-6 col-md-3">
+                            <label class="form-label small mb-1">C. postal</label>
+                            <input class="form-control" data-pms-soc-cp>
+                          </div>
+                          <div class="col-6 col-md-5">
+                            <label class="form-label small mb-1">Municipio</label>
+                            <input class="form-control" data-pms-soc-city>
+                          </div>
+                          <div class="col-12 col-md-4">
+                            <label class="form-label small mb-1">Provincia</label>
+                            <input class="form-control" data-pms-soc-prov>
+                          </div>
+                        </div>
+                        <div class="form-text">Se queda guardada en tu ficha: la próxima vez ya sale para elegir.</div>
+                      </div>
+                      <div class="text-danger small mt-2 d-none" data-pms-error></div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <button type="submit" class="btn btn-primary">Guardar</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+          {% elif s.key == 'contactos' %}
             {% for c in s.contacts %}
               <div class="modal fade" id="mdl-c-{{ c.role }}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-dialog-centered">
@@ -343,7 +485,7 @@
               </div>
             </div>
           {% endif %}
-        {% endfor %}
+        {% endfor %}{% endfor %}
       </div>
     {% else %}
       <div class="alert alert-success">
@@ -410,6 +552,40 @@
     // el alta fuese en paralelo, el dato se guardaría sin su `venue_id` y el recinto nuevo quedaría
     // suelto (creado pero sin atar a la actividad). Si el alta falla, se guarda igual con el nombre
     // a mano: perder lo que ha escrito por eso sería lo peor.
+    // La SOCIEDAD: si no se ha elegido una suya, se crea antes con lo escrito.
+    var idSoc = form.querySelector('[data-pms-soc-id]');
+    var nombreSoc = form.querySelector('[data-pms-soc-name]');
+    if (seccion === 'promotor' && idSoc && !idSoc.value.trim()) {
+      if (!nombreSoc || !nombreSoc.value.trim()) {
+        if (btn) { btn.disabled = false; btn.innerHTML = previo; }
+        error(form, 'Elige una sociedad o escribe su razón social.');
+        return;
+      }
+      var fdSoc = new FormData();
+      fdSoc.append('legal_name', nombreSoc.value);
+      fdSoc.append('tax_id', (form.querySelector('[data-pms-soc-cif]') || {}).value || '');
+      fdSoc.append('address', (form.querySelector('[data-pms-soc-address]') || {}).value || '');
+      fdSoc.append('postal_code', (form.querySelector('[data-pms-soc-cp]') || {}).value || '');
+      fdSoc.append('city', (form.querySelector('[data-pms-soc-city]') || {}).value || '');
+      fdSoc.append('province', (form.querySelector('[data-pms-soc-prov]') || {}).value || '');
+      fetch(root.getAttribute('data-url-company-new'), { method: 'POST', body: fdSoc })
+        .then(function (r) { return r.json().catch(function () { return null; }); })
+        .then(function (d) {
+          if (!d || !d.ok || !d.company || !d.company.id) {
+            if (btn) { btn.disabled = false; btn.innerHTML = previo; }
+            error(form, (d && d.error) || 'No se pudo crear la sociedad.');
+            return null;
+          }
+          idSoc.value = d.company.id;
+          return guarda();
+        })
+        .catch(function () {
+          if (btn) { btn.disabled = false; btn.innerHTML = previo; }
+          error(form, 'No se pudo crear la sociedad.');
+        });
+      return;
+    }
+
     var idRecinto = form.querySelector('[data-pms-venue-id]');
     var nombreRecinto = form.querySelector('[data-pms-venue-name]');
     if (seccion === 'recinto' && nombreRecinto && idRecinto && !idRecinto.value.trim()) {
@@ -463,6 +639,58 @@
       caja.querySelector('[data-pms-venue-prov]').value = v.province || '';
       caja.querySelector('[data-pms-venue-hits]').classList.add('d-none');
     }
+  });
+
+  // ---------- LA SOCIEDAD: elegir una suya, buscarla por CIF o crearla ----------
+  // ⚠️⚠️ Igual que el recinto: si no se ha elegido una de las suyas, **se crea ANTES de guardar y en
+  // serie**, para que el dato se guarde ya con su id. Y la nueva queda colgada de su ficha de
+  // tercero, que es el sentido de pedírsela: la próxima vez ya sale para elegir.
+  document.addEventListener('click', function (ev) {
+    var pick = ev.target.closest('[data-pms-soc-pick]');
+    if (pick) {
+      var caja = pick.closest('.modal');
+      caja.querySelector('[data-pms-soc-id]').value = pick.getAttribute('data-pms-soc-pick');
+      caja.querySelectorAll('[data-pms-soc-pick]').forEach(function (b) { b.classList.remove('active'); });
+      pick.classList.add('active');
+      // Elegida una de las suyas, el alta de una nueva sobra: se limpia para no crear un duplicado.
+      ['name', 'address', 'cp', 'city', 'prov', 'cif'].forEach(function (k) {
+        var el = caja.querySelector('[data-pms-soc-' + k + ']');
+        if (el) el.value = '';
+      });
+      return;
+    }
+    var find = ev.target.closest('[data-pms-soc-find]');
+    if (!find) return;
+    var caja2 = find.closest('.modal');
+    var cif = (caja2.querySelector('[data-pms-soc-cif]') || {}).value || '';
+    var hint = caja2.querySelector('[data-pms-soc-hint]');
+    var fd = new FormData(); fd.append('tax_id', cif);
+    fetch(root.getAttribute('data-url-company-find'), { method: 'POST', body: fd })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (d) {
+        if (!hint) return;
+        hint.classList.remove('d-none', 'text-success', 'text-muted', 'text-danger');
+        if (!d || !d.ok) { hint.classList.add('text-danger'); hint.textContent = (d && d.error) || 'No se pudo buscar.'; return; }
+        if (!d.found) {
+          hint.classList.add('text-muted');
+          hint.textContent = 'No la tenemos. Rellena los datos de abajo y la damos de alta.';
+          return;
+        }
+        var c = d.company || {};
+        var pon = function (k, v) { var el = caja2.querySelector('[data-pms-soc-' + k + ']'); if (el) el.value = v || ''; };
+        pon('name', c.legal_name); pon('address', c.address); pon('cp', c.postal_code);
+        pon('city', c.city); pon('prov', c.province);
+        if (d.own && c.id) {
+          // Ya es suya: se elige directamente, sin crear nada.
+          caja2.querySelector('[data-pms-soc-id]').value = c.id;
+          hint.classList.add('text-success');
+          hint.textContent = 'Ya la tenemos en tu ficha: queda elegida.';
+        } else {
+          caja2.querySelector('[data-pms-soc-id]').value = '';
+          hint.classList.add('text-success');
+          hint.textContent = 'La tenemos. Comprueba los datos y guarda.';
+        }
+      }).catch(function () {});
   });
 
   // ---------- El BUSCADOR de recintos ----------

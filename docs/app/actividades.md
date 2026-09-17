@@ -2080,11 +2080,44 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
     configurado (`_concert_cache_payment_state`), y se puede omitir con su ojo como los demás.
     ⚠️ Se mete **entre las condiciones** (`_promoter_notice_payment_module`, detrás del caché), no
     tocando el motor: así se pinta, se oculta y se cuenta igual que los otros.
-  · **QUÉ SE LE PUEDE PEDIR** (`PROMOTER_ASK_SECTIONS`, y **solo sale lo que falta**): los
-    **contactos** de las cuatro funciones preconfiguradas · el **recinto** · la **fecha de anuncio y
-    la cartelería** · la **salida a la venta y su enlace**. Punto único `_promoter_ask_state`, del
-    que viven las casillas, el correo y su ficha. ⚠️ **En una actividad GRATUITA no hay salida a la
-    venta** ni contacto de ticketing (la regla de siempre).
+  · **QUÉ SE LE PUEDE PEDIR** (`PROMOTER_ASK_SECTIONS`, y **solo sale lo que falta**): el
+    **promotor** con su **sociedad** · los **contactos** de las cuatro funciones · el **recinto** ·
+    la **fecha de anuncio** · la **cartelería** · la **salida a la venta y su enlace**. Punto único
+    `_promoter_ask_state`, del que viven las casillas, el correo y su ficha. ⚠️ **En una actividad
+    GRATUITA no hay salida a la venta** ni contacto de ticketing (la regla de siempre).
+  ⚠️⚠️ **Y SE AGRUPA EN MÓDULOS, DEBAJO DEL BOTÓN DE LA HOJA DE RUTA, COMO TODOS LOS DEMÁS** (sep
+  2026, lo pidió Dani: antes se pintaban ENCIMA de la barra de botones y se leían como si fueran
+  otra cosa). `PROMOTER_ASK_MODULES`:
+    · **Descripción** → el promotor con su sociedad, sus **contactos**, el recinto y la fecha de
+      anuncio; · **Cartelería** → los carteles (y **lo que ya esté subido se ve**, con su estado);
+    · **Salida a la venta** → cuándo salen y dónde se compran.
+  ⚠️ El **OJO actúa sobre el MÓDULO** (`ask:descripcion`), que es lo que se ve; las casillas de
+  «¿qué le pedimos?» siguen siendo por sección, que es lo que se le pide. Apagar un módulo apaga
+  todas sus secciones.
+  ⚠️⚠️ **AQUÍ «DESCRIPCIÓN» ES OTRA COSA**: es ese módulo de datos, no la del aviso al ARTISTA (lo
+  que tiene que hacer sobre el escenario). En el aviso al promotor la del artista **no se compone**
+  (`ctx["description"] = None`) y su ojo no se ofrece: dos módulos con el mismo rótulo en la misma
+  pantalla es la trampa de siempre —una cosa, un nombre—.
+  · ⚠️⚠️ **CADA FUNCIÓN DE CONTACTO CON SU GALLETA**, como se ve en la app (foto redonda, la función
+    arriba y el nombre en negrita), y **las que no están cubiertas salen en ÁMBAR como «Pendiente de
+    contacto»** con su propio botón: se aprecia de un vistazo lo que falta y se pincha ahí mismo.
+    ⚠️ En el correo la foto va con `width` en su celda **y `max-width:none`** en el `<img>`: con el
+    `img{max-width:100%}` de la app, dentro de una celda estrecha el ancho computado sale **0 px**.
+  · ⚠️⚠️ **LA SOCIEDAD CON LA QUE FACTURA** (lo pidió Dani). Si no consta, se le pide: **elegir entre
+    las suyas** (si tiene varias), **buscarla por CIF** (`public_promoter_sheet_company_find`, que
+    mira las sociedades de cualquier tercero y también las fichas con ese CIF) o **crearla**
+    (`public_promoter_sheet_company_create`). ⚠️⚠️ **LA QUE CREA QUEDA VINCULADA A SU FICHA DE
+    TERCERO** (`PromoterCompany.promoter_id`), que es el sentido de pedírsela: **la próxima actividad
+    ya la ofrece para elegir** en vez de volver a preguntar lo mismo. No se duplica (mismo CIF o
+    misma razón social → se reutiliza la que hay) y **la sociedad de OTRO promotor se rechaza con un
+    403**: el token es de esta actividad, no una llave para tocar fichas ajenas.
+    ⚠️ Como el recinto, **se crea ANTES de guardar y en serie**: en paralelo el dato se guardaría sin
+    su id y la sociedad quedaría creada pero suelta. Su id viaja con la razón social por
+    `CONTRACT_SHEET_SATELLITE_FIELDS` y al aceptarlo se pone en `Concert.promoter_company_id`.
+  ⚠️ **LA CARTELERÍA VA APARTE DE LA FECHA**: son dos módulos, y en el suyo se ven las miniaturas de
+  lo que ya haya subido con su estado (`_promoter_ask_artwork`; pendiente = le falta alguno de los
+  DOS vistos buenos). ⚠️ Un cartel puede ser un **VÍDEO**: entonces la miniatura es su `poster_url`,
+  no el `file_url` (que es el mp4 y en un correo no se vería nada).
   ⚠️⚠️ **EL ANUNCIO Y LOS CARTELES YA TIENEN SU PROPIO CAMINO** (el botón «Solicitar cartelería y
   fecha de anuncio»): si se le piden desde aquí se sellan `announce_ask_*` y se prepara la solicitud
   de siempre (`ConcertArtworkRequest` con `handled_by='PROMOTER'`), para **no pedirle lo mismo por
@@ -2126,5 +2159,5 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   object is not iterable» → 500 en la vista previa). En `_promoter_ask_state` **todas** las secciones
   llevan un `missing` que es «¿falta algo?»; la lista de funciones sin cubrir se llama ahora
   **`missing_roles`**. Es la regla de siempre —una cosa, un nombre— dentro de un diccionario.
-  · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_promotor.py`** (95 comprobaciones con
+  · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_promotor.py`** (112 comprobaciones con
     la app real, de punta a punta). Es **idempotente**. Al tocar esto, en verde.

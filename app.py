@@ -537,6 +537,8 @@ _CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_
     "public_promoter_sheet_save",
     "public_promoter_sheet_venues",
     "public_promoter_sheet_venue_create",
+    "public_promoter_sheet_company_find",
+    "public_promoter_sheet_company_create",
     "public_contract_sheet_company",
     "public_bag_expense_document_upload",
     "public_invitation_guest_list_status",
@@ -987,7 +989,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -6919,6 +6921,8 @@ def _sheet_merge_candidates(data: dict) -> dict:
         'manual_venue_name': (data.get('gala_venue') or '').strip() or None,
         # El RECINTO de la base de datos que ha elegido el promotor (no solo su nombre a mano).
         'venue_id': (data.get('gala_venue_id') or '').strip() or None,
+        # Y la SOCIEDAD con la que factura, que es una ficha nuestra (`PromoterCompany`).
+        'promoter_company_id': (data.get('company_promoter_company_id') or '').strip() or None,
         'manual_venue_address': (data.get('gala_venue_address') or '').strip() or None,
         'manual_postal_code': (data.get('gala_postal_code') or '').strip() or None,
         'show_time': (data.get('gala_show_time') or '').strip() or None,
@@ -6947,6 +6951,8 @@ def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[di
         'manual_province': _concert_province_value(concert) or None,
         'manual_venue_name': _concert_venue_name(concert) or None,
         'venue_id': (str(concert.venue_id) if getattr(concert, 'venue_id', None) else None),
+        'promoter_company_id': (str(concert.promoter_company_id)
+                                if getattr(concert, 'promoter_company_id', None) else None),
         'manual_venue_address': _concert_venue_address(concert) or None,
         'manual_postal_code': (getattr(concert, 'manual_postal_code', None) or '').strip() or None,
         'show_time': (getattr(concert, 'show_time', None) or '').strip() or None,
@@ -6962,6 +6968,7 @@ def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[di
         'manual_province': 'Provincia',
         'manual_venue_name': 'Recinto',
         'venue_id': 'Recinto (de la base de datos)',
+        'promoter_company_id': 'Sociedad que factura',
         'manual_venue_address': 'Dirección recinto',
         'manual_postal_code': 'Código postal',
         'show_time': 'Hora del show',
@@ -7000,7 +7007,7 @@ def _apply_contract_sheet_merge(concert: Concert, updates: list[dict], decisions
                 value = max(0, int(value))
             except Exception:
                 continue
-        elif field == 'venue_id':
+        elif field in ('venue_id', 'promoter_company_id'):
             value = _safe_uuid(value)
             if not value:
                 continue
@@ -79760,7 +79767,12 @@ CONTRACT_SHEET_LABELS = {k: (lab, kind, g["title"])
 # con su nombre (`gala_venue`). Sin esto se aceptaba el nombre y el vínculo con la ficha del recinto
 # se quedaba fuera —la actividad se quedaba con el recinto «a mano»—, que es justo lo que se
 # arregló para que el promotor pudiera elegirlo de la base (bug real, lo cazó `check_promotor.py`).
-CONTRACT_SHEET_SATELLITE_FIELDS = {"gala_venue": ("gala_venue_id",)}
+CONTRACT_SHEET_SATELLITE_FIELDS = {
+    "gala_venue": ("gala_venue_id",),
+    # La SOCIEDAD con la que factura el promotor: su razón social es lo que se ve y se compara, y
+    # el vínculo con su ficha (`PromoterCompany`) viaja con ella.
+    "company_legal_name": ("company_promoter_company_id",),
+}
 
 
 def _contract_sheet_choice_label(key: str, value) -> str:
@@ -96470,7 +96482,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -101353,7 +101365,7 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -125123,59 +125135,6 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
                    'Rechazar</span>')
                 + '</div>')
 
-    # ---- LO QUE NOS FALTA (solo en el aviso al PROMOTOR) -------------------------------------
-    # ⚠️⚠️ Cada sección enseña LO QUE YA TENEMOS y lo que falta, con su botón «Cumplimentar» a su
-    # ficha. Enseñar lo que ya sabemos no es relleno: es como se corrige un teléfono viejo sin tener
-    # que escribirlo todo otra vez, y es lo que pidió Dani («se mostrarán los contactos que ya
-    # tenemos en esas categorías y aparecerán los que están pendientes»).
-    # ⚠️ En la VISTA PREVIA los botones se pintan sin enlace (todavía no hay token) y cada sección
-    # lleva su ojo para dejarla fuera, igual que un módulo.
-    for _sec in (ctx.get("ask_sections") or []):
-        _clave = "ask:" + str(_sec.get("key") or "")
-        if _clave in ocultos and not preview:
-            continue
-        _op = "opacity:.35;" if (preview and _clave in ocultos) else ""
-        _oc = ' data-notice-hidden="1"' if _clave in ocultos else ""
-        _ico = _notice_icon(_sec.get("icon") or "", size=15, color=BRAND_BLUE_DARK)
-        _cuerpo = ""
-        # Lo que YA TENEMOS, para que lo vea (y lo corrija si hace falta).
-        if _sec.get("have_rows"):
-            _cuerpo += filas_html(_sec["have_rows"])
-        # Lo que FALTA, en ámbar: es lo que se le pide.
-        if _sec.get("missing_rows"):
-            _cuerpo += ('<div style="margin-top:10px;padding:10px 12px;border-radius:10px;'
-                        'background:#fff8e6;border:1px solid #f2d492;">'
-                        '<div style="font-size:12px;font-weight:700;color:#8a6100;margin-bottom:4px;">'
-                        + esc(_sec.get("missing_title") or "Nos falta") + '</div>'
-                        + "".join(
-                            '<div style="font-size:14px;color:#5c4200;padding:2px 0;">· %s</div>' % esc(x)
-                            for x in _sec["missing_rows"])
-                        + '</div>')
-        if (_sec.get("text") or "").strip():
-            _cuerpo += ('<div style="margin-top:8px;font-size:13px;color:#6b7683;">'
-                        + esc(_sec["text"]) + '</div>')
-        _url = (_sec.get("url") or "").strip()
-        _cuerpo += ('<div style="margin-top:12px;text-align:right;">'
-                    + (f'<a href="{esc(_url)}" style="display:inline-block;padding:10px 16px;'
-                       f'background:{BRAND_BLUE};color:#fff;text-decoration:none;border-radius:9px;'
-                       'font-weight:700;font-size:14px;">Cumplimentar</a>' if _url else
-                       f'<span style="display:inline-block;padding:10px 16px;background:{BRAND_BLUE};'
-                       'color:#fff;border-radius:9px;font-weight:700;font-size:14px;">Cumplimentar</span>')
-                    + '</div>')
-        _cab = (
-            f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
-            f'style="border-collapse:collapse;background:{BRAND_BLUE_SOFT};border-radius:10px;">'
-            f'<tr><td style="font-size:14px;font-weight:800;color:{BRAND_BLUE_DARK};padding:7px 10px;">'
-            + (('<span style="margin-right:6px;">%s</span>' % _ico) if _ico else "")
-            + esc(_sec.get("label") or "")
-            + '</td><td align="right" style="padding:7px 10px;">'
-            + ojo(_clave, _sec.get("label") or "") + '</td></tr></table>'
-        )
-        partes.append(f'<div class="an-module" data-notice-module="{esc(_clave)}"{_oc} '
-                      f'style="border:1px solid #e6e8eb;border-radius:14px;padding:6px 6px 12px;'
-                      f'margin:0 0 10px;background:#fff;{_op}">{_cab}'
-                      f'<div style="padding:0 8px;">{_cuerpo}</div></div>')
-
     # ---- BARRA DE BOTONES (de momento solo la hoja de ruta; los futuros van a su derecha) ----
     # ⚠️ Se puede dejar fuera con su OJO, como cualquier otro módulo: si se le manda la hoja de ruta
     # al artista se decide AL COMUNICARLE la actividad, no al crearla.
@@ -125192,6 +125151,125 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
             + ojo("hoja_ruta", "Hoja de ruta") +
             '</div>'
         )
+
+    # ---- LO QUE NOS FALTA · los módulos del aviso al PROMOTOR --------------------------------
+    # ⚠️⚠️ VAN AQUÍ, **debajo del botón de la hoja de ruta y como todos los demás módulos** (sep
+    # 2026, lo pidió Dani): antes se pintaban encima de la barra de botones y se leían como si
+    # fueran otra cosa. Cada módulo agrupa sus bloques (`PROMOTER_ASK_MODULES`): Descripción lleva
+    # el promotor con su sociedad, los CONTACTOS, el recinto y la fecha de anuncio; la Cartelería y
+    # la Salida a la venta van en el suyo.
+    for _mod in (ctx.get("ask_sections") or []):
+        _clave = "ask:" + str(_mod.get("key") or "")
+        if _clave in ocultos and not preview:
+            continue
+        _cuerpo = ""
+        for _b in (_mod.get("blocks") or []):
+            # El rótulo del bloque, con su icono, y a la derecha si está pendiente.
+            _bico = _notice_icon(_b.get("icon") or "", size=13, color="#6b7683")
+            _cuerpo += ('<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+                        'style="border-collapse:collapse;margin:12px 0 2px;"><tr>'
+                        '<td style="font-size:12px;font-weight:700;color:#6b7683;'
+                        'text-transform:uppercase;letter-spacing:.4px;">'
+                        + (('<span style="margin-right:5px;">%s</span>' % _bico) if _bico else "")
+                        + esc(_b.get("label") or "") + '</td></tr></table>')
+            if _b.get("rows"):
+                _cuerpo += filas_html(_b["rows"])
+            # ⚠️⚠️ LAS GALLETAS DE CONTACTO, como en la app: una por función, y **las que no están
+            # cubiertas salen marcadas** para que se vea de un vistazo y se pinche ahí.
+            if _b.get("cards"):
+                _cuerpo += '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" ' \
+                           'style="border-collapse:separate;border-spacing:0 6px;margin-top:4px;">'
+                for _c in _b["cards"]:
+                    _pend = bool(_c.get("pending"))
+                    _borde = "#f2d492" if _pend else "#e6e8eb"
+                    _fondo = "#fff8e6" if _pend else "#ffffff"
+                    _ico = _notice_icon(_c.get("icon") or "", size=14, color=BRAND_BLUE_DARK)
+                    _quien = ""
+                    for _p in (_c.get("people") or []):
+                        _foto = (_absolute_media_url(_p.get("photo") or "")
+                                 if (_p.get("photo") or "") else "")
+                        _datos = " · ".join([x for x in [(_p.get("email") or ""),
+                                                         (_p.get("phone") or "")] if x])
+                        _quien += (
+                            '<table role="presentation" cellspacing="0" cellpadding="0" '
+                            'style="border-collapse:collapse;margin-top:3px;"><tr>'
+                            # ⚠️ La foto es de tamaño FIJO: `width` en la celda y `max-width:none`
+                            # en el <img>, o el `img{max-width:100%}` de la app la deja en 0 px.
+                            + ((f'<td width="34" style="width:34px;padding-right:8px;">'
+                                f'<img src="{esc(_foto)}" alt="" width="34" height="34" '
+                                'style="width:34px;height:34px;max-width:none;border-radius:50%;'
+                                'object-fit:cover;border:1px solid #e6e8eb;display:block;"></td>')
+                               if _foto else "")
+                            + '<td style="vertical-align:middle;">'
+                            + f'<div style="font-size:14px;font-weight:700;color:#212529;">{esc(_p.get("name") or "")}</div>'
+                            + ((f'<div style="font-size:12px;color:#6b7683;">{esc(_datos)}</div>')
+                               if _datos else "")
+                            + '</td></tr></table>')
+                    if _pend:
+                        _quien = ('<div style="font-size:13px;font-weight:700;color:#8a6100;'
+                                  'margin-top:2px;">Pendiente de contacto</div>')
+                    _url_c = (_c.get("url") or "").strip()
+                    _cuerpo += (
+                        f'<tr><td style="border:1px solid {_borde};border-radius:12px;'
+                        f'background:{_fondo};padding:9px 11px;">'
+                        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+                        'style="border-collapse:collapse;"><tr><td style="vertical-align:top;">'
+                        + '<div style="font-size:11px;font-weight:700;color:#6b7683;'
+                          'text-transform:uppercase;letter-spacing:.3px;">'
+                        + (('<span style="margin-right:5px;">%s</span>' % _ico) if _ico else "")
+                        + esc(_c.get("label") or "") + '</div>'
+                        + _quien
+                        + '</td>'
+                        + ((f'<td align="right" width="1%" style="white-space:nowrap;'
+                            f'vertical-align:middle;padding-left:10px;">'
+                            f'<a href="{esc(_url_c)}" style="display:inline-block;padding:7px 12px;'
+                            f'background:{BRAND_BLUE};color:#fff;text-decoration:none;'
+                            'border-radius:8px;font-weight:700;font-size:12px;">Cumplimentar</a></td>')
+                           if (_pend and _url_c) else "")
+                        + '</tr></table></td></tr>')
+                _cuerpo += '</table>'
+            # Las miniaturas de lo que ya esté subido (los carteles).
+            if _b.get("images"):
+                _cuerpo += ('<table role="presentation" cellspacing="0" cellpadding="0" '
+                            'style="border-collapse:collapse;margin-top:6px;"><tr>')
+                for _pieza in _b["images"]:
+                    _img = (_absolute_media_url(_pieza.get("image") or "")
+                            if (_pieza.get("image") or "") else "")
+                    _cuerpo += ('<td style="padding:0 10px 0 0;text-align:center;vertical-align:top;">'
+                                + ((f'<img src="{esc(_img)}" alt="" style="max-width:110px;'
+                                    'max-height:110px;border-radius:8px;border:1px solid #e6e8eb;'
+                                    'display:block;">') if _img else "")
+                                + f'<div style="font-size:11px;color:#6b7683;margin-top:4px;'
+                                  f'max-width:110px;">{esc(_pieza.get("name") or "")}</div>'
+                                + '</td>')
+                _cuerpo += '</tr></table>'
+            if _b.get("need"):
+                _cuerpo += ('<div style="margin-top:8px;padding:10px 12px;border-radius:10px;'
+                            'background:#fff8e6;border:1px solid #f2d492;">'
+                            '<div style="font-size:12px;font-weight:700;color:#8a6100;'
+                            'margin-bottom:4px;">Nos falta</div>'
+                            + "".join(
+                                '<div style="font-size:14px;color:#5c4200;padding:2px 0;">· %s</div>' % esc(x)
+                                for x in _b["need"])
+                            + '</div>')
+            if (_b.get("text") or "").strip():
+                _cuerpo += ('<div style="margin-top:6px;font-size:13px;color:#6b7683;">'
+                            + esc(_b["text"]) + '</div>')
+        # El botón del módulo: solo si hay algo que rellenar en él.
+        _url = (_mod.get("url") or "").strip()
+        if _mod.get("pending"):
+            _cuerpo += ('<div style="margin-top:12px;text-align:right;">'
+                        + (f'<a href="{esc(_url)}" style="display:inline-block;padding:10px 16px;'
+                           f'background:{BRAND_BLUE};color:#fff;text-decoration:none;'
+                           'border-radius:9px;font-weight:700;font-size:14px;">Cumplimentar</a>'
+                           if _url else
+                           f'<span style="display:inline-block;padding:10px 16px;background:{BRAND_BLUE};'
+                           'color:#fff;border-radius:9px;font-weight:700;font-size:14px;">'
+                           'Cumplimentar</span>')
+                        + '</div>')
+        _bloque = modulo(_clave, _mod.get("label") or "", _cuerpo, _mod.get("icon") or "")
+        if _bloque:
+            partes.append(_bloque)
 
     # ---- LA CARTELERÍA con la que se anuncia (solo en el aviso de ANUNCIO) ----
     # ⚠️ Las miniaturas van en una `<table>` con URLs ABSOLUTAS: esto se ve en un cliente de correo.
@@ -126578,18 +126656,43 @@ PROMOTER_LINK_DAYS = 15
 # la vista previa y **solo aparece si falta algo**: pedirle lo que ya nos ha dado es ruido, y es la
 # forma más rápida de que deje de leer estos correos.
 PROMOTER_ASK_SECTIONS = [
+    # ⚠️ EL PROMOTOR Y SU SOCIEDAD: quién es y con qué empresa factura. Si no consta sociedad se le
+    # pide que la elija (entre las suyas o buscándola por CIF) o que la cree, y **queda vinculada a
+    # su ficha** para las siguientes actividades.
+    ("promotor", "El promotor", "fa-user-tie",
+     "Quién promueve y con qué sociedad factura."),
     ("contactos", "Personas de contacto", "fa-address-book",
      "Con quién hablamos de cada cosa."),
     ("recinto", "El recinto", "fa-location-dot",
      "Dónde se hace, con su dirección."),
-    ("anuncio", "Fecha de anuncio y cartelería", "fa-bullhorn",
-     "Cuándo se anuncia y con qué carteles."),
+    ("anuncio", "Fecha de anuncio", "fa-bullhorn",
+     "Cuándo se anuncia."),
+    # ⚠️ LA CARTELERÍA VA APARTE de la fecha (sep 2026, lo pidió Dani): es otro módulo, y si ya hay
+    # carteles subidos se ven ahí.
+    ("carteles", "Cartelería", "fa-image",
+     "Los carteles con los que se anuncia."),
     ("venta", "Salida a la venta", "fa-ticket",
      "Cuándo salen las entradas y dónde se compran."),
 ]
 PROMOTER_ASK_LABELS = {k: l for k, l, _i, _h in PROMOTER_ASK_SECTIONS}
 PROMOTER_ASK_ICONS = {k: i for k, _l, i, _h in PROMOTER_ASK_SECTIONS}
 PROMOTER_ASK_KEYS = [k for k, _l, _i, _h in PROMOTER_ASK_SECTIONS]
+
+# ⚠️⚠️ CÓMO SE AGRUPAN EN EL AVISO (sep 2026, lo pidió Dani). Lo que se le pide no son seis cajas
+# sueltas: son los MÓDULOS de siempre del aviso, **debajo del botón de la hoja de ruta** y con la
+# misma pinta que los demás.
+#   · **Descripción** → el promotor (con su sociedad), sus CONTACTOS, el recinto y la fecha de anuncio.
+#   · **Cartelería** → los carteles (y lo que ya esté subido).
+#   · **Salida a la venta** → cuándo salen y dónde se compran.
+# ⚠️ El OJO actúa sobre el MÓDULO (`ask:descripcion`), que es lo que se ve; las casillas de «¿qué le
+# pedimos?» siguen siendo por sección, que es lo que se le pide.
+PROMOTER_ASK_MODULES = [
+    ("descripcion", "Descripción", "fa-circle-info",
+     ("promotor", "contactos", "recinto", "anuncio")),
+    ("carteles", "Cartelería", "fa-image", ("carteles",)),
+    ("venta", "Salida a la venta", "fa-ticket", ("venta",)),
+]
+PROMOTER_ASK_MODULE_OF = {sec: mod for mod, _l, _i, secs in PROMOTER_ASK_MODULES for sec in secs}
 
 # ⚠️⚠️ LO NUESTRO NO SALE DE SERIE. El motor del aviso es el MISMO que el del artista, así que trae
 # sus módulos; al promotor no se le manda de primeras lo que es dinero de la casa (el caché, las
@@ -126726,10 +126829,37 @@ def _promoter_ask_sale_links(session_db, concert) -> list:
     return filas
 
 
+def _promoter_ask_companies(session_db, concert) -> dict:
+    """LA SOCIEDAD con la que factura el promotor: la que consta y las que tiene en su ficha.
+
+    ⚠️⚠️ Si no consta ninguna se le pide que la elija (entre las suyas, si tiene varias), que la
+    busque por CIF o que la cree — y **la que cree queda vinculada a su ficha de tercero**
+    (`PromoterCompany.promoter_id`), así que la próxima vez ya sale para elegir. Ése es el punto:
+    no volver a preguntar lo mismo en cada actividad."""
+    salida = {"company_id": "", "legal_name": "", "tax_id": "", "options": [], "has_company": False}
+    if concert is None:
+        return salida
+    try:
+        soc = getattr(concert, "promoter_company", None)
+        if soc is not None:
+            salida.update({"company_id": str(soc.id), "legal_name": (soc.legal_name or ""),
+                           "tax_id": (soc.tax_id or ""), "has_company": True})
+        promotor = _concert_promoter(session_db, concert)
+        if promotor is not None:
+            for c in (session_db.query(PromoterCompany)
+                      .filter(PromoterCompany.promoter_id == promotor.id)
+                      .order_by(PromoterCompany.legal_name.asc()).all()):
+                salida["options"].append({"id": str(c.id), "legal_name": (c.legal_name or ""),
+                                          "tax_id": (c.tax_id or "")})
+    except Exception:
+        app.logger.exception("[promotor] no se pudieron leer sus sociedades")
+    return salida
+
+
 def _promoter_ask_state(session_db, concert) -> dict:
     """QUÉ DATOS LE FALTAN A ESTA ACTIVIDAD y se le pueden pedir al promotor. Punto ÚNICO.
 
-    De aquí salen las casillas de la vista previa, los bloques del correo y las secciones de su
+    De aquí salen las casillas de la vista previa, los módulos del correo y las secciones de su
     ficha pública, así que los tres dicen exactamente lo mismo. Cada sección trae:
       · `missing` — ¿le falta algo? (si no, no se le ofrece: pedirle lo que ya nos dio es ruido)
       · lo que YA TENEMOS, para que lo vea y lo corrija si hace falta.
@@ -126738,6 +126868,20 @@ def _promoter_ask_state(session_db, concert) -> dict:
     entradas, así que esa sección ni se pinta ni se pregunta."""
     secciones = {}
     try:
+        # ---- EL PROMOTOR y la SOCIEDAD con la que factura.
+        quien = _concert_promoter_display(concert) or {}
+        empresas = _promoter_ask_companies(session_db, concert)
+        promotor = _concert_promoter(session_db, concert)
+        correo, telefono = _promoter_email_phone(promotor) if promotor is not None else ("", "")
+        secciones["promotor"] = dict(empresas, **{
+            # Lo único que se le pide aquí es la SOCIEDAD: quién promueve ya lo sabemos.
+            "missing": not empresas["has_company"],
+            "name": (quien.get("name") or ""),
+            "logo": (quien.get("logo") or ""),
+            "tax_id_promoter": ((getattr(promotor, "tax_id", None) or "") if promotor is not None else ""),
+            "email": correo, "phone": telefono,
+        })
+
         # ---- CONTACTOS de las funciones preconfiguradas.
         contactos = _promoter_ask_contacts(session_db, concert)
         secciones["contactos"] = dict(contactos, missing=bool(contactos["missing_roles"]))
@@ -126758,18 +126902,19 @@ def _promoter_ask_state(session_db, concert) -> dict:
             "in_database": bool(getattr(concert, "venue_id", None)),
         }
 
-        # ---- FECHA DE ANUNCIO Y CARTELERÍA: el mismo punto único que el correo de siempre
-        # (`_announce_ask_state`), para no pedirle dos veces lo mismo por dos caminos.
+        # ---- FECHA DE ANUNCIO y CARTELERÍA, cada una por su lado (son dos módulos distintos). El
+        # punto único sigue siendo `_announce_ask_state`, el mismo del correo de siempre, para no
+        # pedirle dos veces lo mismo por dos caminos.
         anuncio = _announce_ask_state(session_db, concert)
         secciones["anuncio"] = {
-            "missing": bool(anuncio.get("applies")),
-            "want_announce": bool(anuncio.get("want_announce")),
-            "want_artwork": bool(anuncio.get("want_artwork")),
+            "missing": bool(anuncio.get("want_announce")),
             "date": (concert.announcement_date.strftime("%d/%m/%Y")
                      if getattr(concert, "announcement_date", None) else ""),
             "time": (getattr(concert, "announcement_time", None) or ""),
-            "artwork_by_promoter": bool(anuncio.get("artwork_by_promoter")),
         }
+        arte = _promoter_ask_artwork(session_db, concert)
+        secciones["carteles"] = dict(arte, missing=bool(anuncio.get("want_artwork")),
+                                     by_promoter=bool(anuncio.get("artwork_by_promoter")))
 
         # ---- SALIDA A LA VENTA (nunca en una actividad gratuita).
         if _concert_is_free(concert):
@@ -126794,11 +126939,51 @@ def _promoter_ask_state(session_db, concert) -> dict:
         if clave == "venta" and not datos.get("applies", True):
             continue
         filas.append(dict(datos, key=clave, label=etiqueta, icon=icono, help=ayuda,
+                          module=PROMOTER_ASK_MODULE_OF.get(clave, clave),
                           missing=bool(datos.get("missing"))))
     return {"sections": filas,
             "by_key": {f["key"]: f for f in filas},
             "missing_keys": [f["key"] for f in filas if f["missing"]],
             "any_missing": any(f["missing"] for f in filas)}
+
+
+def _promoter_ask_artwork(session_db, concert) -> dict:
+    """LOS CARTELES que ya hay subidos, para enseñárselos en su módulo.
+
+    ⚠️ **PENDIENTE es que le falte alguno de los DOS vistos buenos** (diseño y contratación): lo
+    subido cuenta como subido aunque todavía no valga para publicar, que es justo lo que él necesita
+    saber («ya los tenemos, están en revisión»)."""
+    salida = {"count": 0, "rows": [], "approved": 0, "waiting": 0, "upload_url": ""}
+    if concert is None:
+        return salida
+    try:
+        salida["upload_url"] = _promoter_sheet_artwork_url(concert)
+        row = getattr(concert, "artwork_request", None)
+        if row is None:
+            return salida
+        for a in (getattr(row, "assets", None) or []):
+            fase = _artwork_asset_phase(a)
+            if fase == "REJECTED":
+                continue
+            salida["count"] += 1
+            if fase == "APPROVED":
+                salida["approved"] += 1
+            else:
+                salida["waiting"] += 1
+            if len(salida["rows"]) < 4:
+                salida["rows"].append({
+                    "name": (getattr(a, "format_label", None)
+                             or getattr(a, "original_name", None) or "Cartel"),
+                    # ⚠️ Un cartel puede ser un VÍDEO: entonces la miniatura es su `poster_url`
+                    # (el `file_url` es el mp4 y en un correo no se vería nada).
+                    "image": ((getattr(a, "poster_url", None) or "")
+                              if (getattr(a, "kind", "") or "").upper() == "VIDEO"
+                              else (getattr(a, "file_url", None) or "")),
+                    "status": ARTWORK_PHASE_LABELS.get(fase, ""),
+                })
+    except Exception:
+        app.logger.exception("[promotor] no se pudieron leer los carteles")
+    return salida
 
 
 def _promoter_sheet_pending(session_db, concert, sheet=None) -> dict:
@@ -126940,69 +127125,114 @@ def _promoter_notice_recipients(session_db, concert) -> list:
 
 
 def _promoter_notice_ask_rows(session_db, concert, *, keys=(), sheet_url: str = "") -> list:
-    """LAS SECCIONES que van dentro del aviso, ya redactadas: lo que tenemos y lo que falta.
+    """LOS MÓDULOS que van dentro del aviso, ya redactados: lo que tenemos y lo que falta.
 
     Punto único del CONTENIDO de la petición: lo usan el correo, la vista previa y la landing, así
-    que los tres enseñan lo mismo. `keys` son las secciones marcadas (si no se pasa ninguna, las
-    que faltan)."""
+    que los tres enseñan lo mismo. `keys` son las **secciones** marcadas (si no se pasa ninguna, las
+    que faltan) y aquí se agrupan en los **módulos** de `PROMOTER_ASK_MODULES`, que es como se ven:
+    debajo del botón de la hoja de ruta y con la misma pinta que el resto del aviso.
+
+    Cada módulo trae `blocks`, y cada bloque es una de estas formas:
+      · `cards`  — las GALLETAS de contacto (como en la app), con las pendientes marcadas;
+      · `rows`   — filas etiqueta/valor;
+      · `images` — miniaturas (los carteles ya subidos);
+      · `need`   — lo que falta, en ámbar.
+    """
     estado = _promoter_ask_state(session_db, concert)
     elegidas = [k for k in (keys or estado["missing_keys"]) if k in PROMOTER_ASK_LABELS]
-    filas = []
-    for clave in PROMOTER_ASK_KEYS:
-        if clave not in elegidas:
+    modulos = []
+    for mod, etiqueta_mod, icono_mod, claves in PROMOTER_ASK_MODULES:
+        bloques = []
+        for clave in claves:
+            if clave not in elegidas:
+                continue
+            sec = estado["by_key"].get(clave)
+            if not sec:
+                continue
+            bloque = {"key": clave, "label": sec.get("label") or "", "icon": sec.get("icon") or "",
+                      "rows": [], "cards": [], "images": [], "need": [], "text": "",
+                      "url": ((sheet_url + "#" + clave) if sheet_url else ""),
+                      "done": not sec.get("missing")}
+
+            if clave == "promotor":
+                if sec.get("name"):
+                    bloque["rows"].append({"label": "Promotor", "value": sec["name"],
+                                           "note": " · ".join([x for x in [sec.get("email") or "",
+                                                                           sec.get("phone") or ""] if x])})
+                if sec.get("legal_name"):
+                    bloque["rows"].append({"label": "Sociedad", "value": sec["legal_name"],
+                                           "note": (("CIF %s" % sec["tax_id"]) if sec.get("tax_id") else "")})
+                else:
+                    bloque["need"].append("Con qué sociedad se factura")
+                    bloque["text"] = ("Elige una de las tuyas, búscala por CIF o créala: se queda "
+                                      "guardada para las próximas."
+                                      if sec.get("options") else
+                                      "Búscala por CIF o créala: se queda guardada para las próximas.")
+
+            elif clave == "contactos":
+                # ⚠️⚠️ CADA FUNCIÓN CON SU GALLETA, como en la app (sep 2026, lo pidió Dani): las que
+                # tienen a alguien enseñan su tarjeta y **las que no, salen como PENDIENTE**, para
+                # que se vea de un vistazo lo que hay que rellenar y se pinche ahí mismo.
+                for item in (sec.get("rows") or []):
+                    gente = item.get("people") or []
+                    bloque["cards"].append({
+                        "label": item.get("label") or "", "icon": item.get("icon") or "",
+                        "people": [{"name": (g.get("name") or ""), "email": (g.get("email") or ""),
+                                    "phone": (g.get("phone") or ""), "photo": (g.get("photo") or "")}
+                                   for g in gente],
+                        "pending": not gente,
+                        "url": ((sheet_url + "#contactos") if sheet_url else ""),
+                    })
+
+            elif clave == "recinto":
+                if sec.get("name"):
+                    bloque["rows"].append({"label": "Recinto", "value": sec["name"],
+                                           "note": " · ".join([x for x in [sec.get("address") or "",
+                                                                           sec.get("municipality") or ""] if x])})
+                else:
+                    bloque["need"].append("El recinto donde se hace, con su dirección")
+                    bloque["text"] = "Si no está en nuestra base de datos, se da de alta desde ahí mismo."
+
+            elif clave == "anuncio":
+                if sec.get("date"):
+                    bloque["rows"].append({"label": "Fecha de anuncio", "value": sec["date"],
+                                           "note": (("a las %s" % sec["time"]) if sec.get("time") else "")})
+                else:
+                    bloque["need"].append("El día (y la hora, si la hay) en que se anuncia")
+
+            elif clave == "carteles":
+                # Lo que YA hay subido se ve, con su estado (lo pidió Dani).
+                for pieza in (sec.get("rows") or []):
+                    bloque["images"].append(pieza)
+                if sec.get("count"):
+                    bloque["text"] = ("%d %s · %s" % (
+                        sec["count"], "cartel" if sec["count"] == 1 else "carteles",
+                        ("todos aprobados" if not sec.get("waiting") else "en revisión")))
+                if sec.get("missing"):
+                    bloque["need"].append("Los carteles con los que se anuncia")
+
+            elif clave == "venta":
+                if sec.get("date"):
+                    bloque["rows"].append({"label": "Salida a la venta", "value": sec["date"], "note": ""})
+                for enlace in (sec.get("links") or []):
+                    if enlace.get("url"):
+                        bloque["rows"].append({"label": enlace.get("name") or "Venta",
+                                               "value": enlace["url"], "note": ""})
+                if not sec.get("date"):
+                    bloque["need"].append("Cuándo salen las entradas a la venta")
+                if not sec.get("has_links"):
+                    bloque["need"].append("Dónde se compran (la ticketera y su enlace)")
+
+            if not (bloque["rows"] or bloque["cards"] or bloque["images"] or bloque["need"]):
+                continue
+            bloques.append(bloque)
+        if not bloques:
             continue
-        sec = estado["by_key"].get(clave)
-        if not sec:
-            continue
-        tengo, falta, texto = [], [], ""
-        if clave == "contactos":
-            for item in sec.get("have", []):
-                tengo.append({"label": item.get("label") or "",
-                              "value": " · ".join([p.get("name") or p.get("email") or ""
-                                                   for p in item.get("people", []) if p]),
-                              "note": " · ".join([x for x in [
-                                  (item.get("people") or [{}])[0].get("email") or "",
-                                  (item.get("people") or [{}])[0].get("phone") or ""] if x])})
-            falta = [item.get("label") or "" for item in sec.get("missing_roles", [])]
-            texto = ("Si alguno de los que tenemos ya no es el bueno, se cambia desde ahí."
-                     if tengo else "")
-        elif clave == "recinto":
-            if sec.get("name"):
-                tengo.append({"label": "Recinto", "value": sec["name"],
-                              "note": " · ".join([x for x in [sec.get("address") or "",
-                                                              sec.get("municipality") or ""] if x])})
-            else:
-                falta = ["El recinto donde se hace, con su dirección"]
-            texto = "Si no está en nuestra base de datos, se da de alta desde ahí mismo."
-        elif clave == "anuncio":
-            if sec.get("date"):
-                tengo.append({"label": "Fecha de anuncio", "value": sec["date"],
-                              "note": (("a las %s" % sec["time"]) if sec.get("time") else "")})
-            if sec.get("want_announce"):
-                falta.append("El día (y la hora, si la hay) en que se anuncia")
-            if sec.get("want_artwork"):
-                falta.append("Los carteles con los que se anuncia")
-        elif clave == "venta":
-            if sec.get("date"):
-                tengo.append({"label": "Salida a la venta", "value": sec["date"], "note": ""})
-            for enlace in sec.get("links", []):
-                if enlace.get("url"):
-                    tengo.append({"label": enlace.get("name") or "Venta",
-                                  "value": enlace["url"], "note": ""})
-            if not sec.get("date"):
-                falta.append("Cuándo salen las entradas a la venta")
-            if not sec.get("has_links"):
-                falta.append("Dónde se compran (la ticketera y su enlace)")
-        if not tengo and not falta:
-            continue
-        filas.append({
-            "key": clave, "label": sec.get("label") or "", "icon": sec.get("icon") or "",
-            "have_rows": tengo, "missing_rows": [x for x in falta if x],
-            "missing_title": ("Nos falta" if len(falta) != 1 else "Nos falta"),
-            "text": texto,
-            "url": ((sheet_url + "#" + clave) if sheet_url else ""),
-        })
-    return filas
+        modulos.append({"key": mod, "label": etiqueta_mod, "icon": icono_mod, "blocks": bloques,
+                        # El botón del módulo lleva a su ancla en la ficha.
+                        "url": ((sheet_url + "#" + mod) if sheet_url else ""),
+                        "pending": any(b["need"] for b in bloques)})
+    return modulos
 
 
 def _promoter_notice_context(session_db, concert, *, keys=(), sheet_url: str = "") -> dict:
@@ -127020,6 +127250,12 @@ def _promoter_notice_context(session_db, concert, *, keys=(), sheet_url: str = "
     ctx["ask_reject_url"] = ""
     ctx["ask_sections"] = _promoter_notice_ask_rows(session_db, concert, keys=keys,
                                                     sheet_url=sheet_url)
+    # ⚠️⚠️ AQUÍ «DESCRIPCIÓN» ES OTRA COSA (sep 2026, lo pidió Dani): es el módulo con el promotor,
+    # sus contactos, el recinto y la fecha de anuncio. La «Descripción» del aviso al ARTISTA (lo que
+    # tiene que hacer sobre el escenario: M&G, canciones, formación) no pinta nada en un correo al
+    # promotor, y dejarla sería tener DOS módulos con el mismo rótulo en la misma pantalla — la
+    # trampa de siempre: una cosa, un nombre.
+    ctx["description"] = None
     # ⚠️ El CALENDARIO DE PAGOS es un módulo más de las condiciones (así se pinta, se oculta con su
     # ojo y se cuenta igual que los demás, sin tocar el motor). Va justo detrás del caché, que es de
     # lo que habla.
@@ -127076,8 +127312,17 @@ def concert_promoter_notice_view(cid):
             concert=concert,
             notice=ctx,
             notice_channels=ACTIVITY_NOTICE_CHANNELS,
-            notice_modules=ACTIVITY_NOTICE_MODULES,
+            # ⚠️ «Descripción» NO se ofrece aquí: en el aviso al promotor esa etiqueta es la del
+            # módulo de datos (promotor, contactos, recinto y anuncio), y la del ARTISTA no se
+            # compone (`ctx["description"] = None`). Un ojo que no apaga nada es ruido.
+            notice_modules=[(k, l) for k, l in ACTIVITY_NOTICE_MODULES if k != "descripcion"],
             ask_sections=pedir["sections"],
+            # Los MÓDULOS en los que se agrupan (Descripción · Cartelería · Salida a la venta): son
+            # los que llevan el ojo, porque son lo que se ve en el aviso.
+            ask_modules=[{"key": k, "label": l, "icon": i,
+                          "sections": [x for x in pedir["sections"] if x["key"] in secs]}
+                         for k, l, i, secs in PROMOTER_ASK_MODULES
+                         if any(x["key"] in secs for x in pedir["sections"])],
             ask_default=marcadas,
             # ⚠️ EL TEXTO sale ESCRITO y se puede retocar, como en todas las previsualizaciones de
             # la casa (lo pidió Dani). Va en la NOTA, que es lo que el motor pinta bajo el título.
@@ -127405,7 +127650,10 @@ def _promoter_sheet_sections(session_db, concert, sheet, aviso) -> list:
     """LAS SECCIONES de su ficha, ya listas para pintar: lo que le pedimos, con lo que hay puesto.
 
     Parte de `_promoter_ask_state` (el mismo punto único del correo y de la vista previa) y le pone
-    encima **lo que él ya haya guardado**, para que al volver siga donde lo dejó."""
+    encima **lo que él ya haya guardado**, para que al volver siga donde lo dejó.
+
+    ⚠️ Van **agrupadas por módulo** (`PROMOTER_ASK_MODULES`), igual que en el correo: Descripción
+    (promotor, contactos, recinto y fecha de anuncio), Cartelería y Salida a la venta."""
     pedidas = [str(x) for x in (getattr(aviso, "asked_sections", None) or [])
                if str(x) in PROMOTER_ASK_LABELS]
     estado = _promoter_ask_state(session_db, concert)
@@ -127417,13 +127665,22 @@ def _promoter_sheet_sections(session_db, concert, sheet, aviso) -> list:
         if not sec:
             continue
         datos = dict(sec)
-        if clave == "contactos":
-            # Por función: lo que tenemos y lo que él haya escrito encima.
+        if clave == "promotor":
+            # La sociedad que él haya elegido manda sobre la que consta en la actividad.
+            suya = _promoter_sheet_value(sheet, "company_promoter_company_id", "")
+            nombre = _promoter_sheet_value(sheet, "company_legal_name", sec.get("legal_name") or "")
+            datos.update({
+                "company_id": (suya or sec.get("company_id") or ""),
+                "legal_name": nombre,
+                "tax_id": _promoter_sheet_value(sheet, "company_tax_id", sec.get("tax_id") or ""),
+            })
+            datos["done"] = bool(datos["company_id"])
+        elif clave == "contactos":
             gente = []
             for item in (sec.get("rows") or []):
                 rol = item.get("role") or ""
                 campos = CONTRACT_SHEET_CONTACT_FIELDS.get(rol) or ()
-                puesto = (sec.get("have") and item in sec["have"])
+                puesto = bool(item.get("people"))
                 nombre_suyo = _promoter_sheet_value(sheet, campos[0]) if campos else ""
                 gente.append({
                     "role": rol, "label": item.get("label") or "", "icon": item.get("icon") or "",
@@ -127432,7 +127689,6 @@ def _promoter_sheet_sections(session_db, concert, sheet, aviso) -> list:
                     "name": nombre_suyo or "",
                     "email": (_promoter_sheet_value(sheet, campos[1]) if campos else ""),
                     "phone": (_promoter_sheet_value(sheet, campos[2]) if campos else ""),
-                    # Está resuelto si ya lo teníamos o si él lo ha escrito.
                     "done": bool(puesto or nombre_suyo),
                 })
             datos["contacts"] = gente
@@ -127455,13 +127711,13 @@ def _promoter_sheet_sections(session_db, concert, sheet, aviso) -> list:
                     if getattr(concert, "announcement_date", None) else ""),
                 "time": _promoter_sheet_value(sheet, "promotion_announcement_time",
                                               getattr(concert, "announcement_time", None) or ""),
-                # Los CARTELES se suben en la página de siempre (`/carteleria/<token>`), que ya sabe
-                # hacerlo: arrastrar una carpeta entera, miniaturas y su validación. Un segundo
-                # sitio para lo mismo acabaría comportándose distinto.
-                "artwork_url": _promoter_sheet_artwork_url(concert),
             })
-            datos["done"] = bool(datos["date_iso"]) and not (
-                sec.get("want_artwork") and not datos["artwork_url"])
+            datos["done"] = bool(datos["date_iso"])
+        elif clave == "carteles":
+            # ⚠️ Los carteles se suben en la página de siempre (`/carteleria/<token>`), que ya sabe
+            # hacerlo: arrastrar una carpeta entera, miniaturas y su validación. Un segundo sitio
+            # para lo mismo acabaría comportándose distinto.
+            datos["done"] = bool(sec.get("count"))
         elif clave == "venta":
             fecha = _promoter_sheet_value(sheet, "promotion_sale_date", "")
             enlaces = _promoter_sheet_value(sheet, "ticketing_sale_links", [])
@@ -127477,7 +127733,17 @@ def _promoter_sheet_sections(session_db, concert, sheet, aviso) -> list:
             datos["done"] = bool(datos["date_iso"] and datos["links"])
         filas.append(dict(datos, key=clave, label=sec.get("label") or "",
                           icon=sec.get("icon") or "", help=sec.get("help") or ""))
-    return filas
+
+    # Y se agrupan en MÓDULOS, como en el correo.
+    por_clave = {f["key"]: f for f in filas}
+    modulos = []
+    for mod, etiqueta, icono, claves in PROMOTER_ASK_MODULES:
+        dentro = [por_clave[k] for k in claves if k in por_clave]
+        if not dentro:
+            continue
+        modulos.append({"key": mod, "label": etiqueta, "icon": icono, "sections": dentro,
+                        "done": all(x.get("done") for x in dentro)})
+    return modulos
 
 
 def _promoter_sheet_artwork_url(concert) -> str:
@@ -127543,6 +127809,8 @@ def public_promoter_sheet(token):
             save_url=url_for("public_promoter_sheet_save", token=token),
             venues_url=url_for("public_promoter_sheet_venues", token=token),
             venue_create_url=url_for("public_promoter_sheet_venue_create", token=token),
+            company_find_url=url_for("public_promoter_sheet_company_find", token=token),
+            company_create_url=url_for("public_promoter_sheet_company_create", token=token),
             expires_label=(aviso.expires_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
                            if aviso.expires_at else ""),
             contact_roles=CONTRACT_SHEET_CONTACT_FIELDS,
@@ -127630,7 +127898,24 @@ def public_promoter_sheet_save(token):
         sheet = _promoter_notice_sheet(session_db, concert)
         cambios = {}
 
-        if seccion == "contactos":
+        if seccion == "promotor":
+            # ⚠️⚠️ LA SOCIEDAD SE VINCULA A SU FICHA DE TERCERO, no solo a esta actividad: es el
+            # sentido de pedírsela (lo dijo Dani, «quedaría vinculada al promotor para futuras
+            # ocasiones»). Aquí se apunta CUÁL es; el alta de una nueva va por su propio endpoint,
+            # que ya la deja colgada del promotor.
+            cid_soc = (request.form.get("company_id") or "").strip()
+            if not cid_soc:
+                return jsonify({"ok": False, "error": "Elige o crea la sociedad"}), 400
+            soc = session_db.get(PromoterCompany, _safe_uuid(cid_soc))
+            if soc is None:
+                return jsonify({"ok": False, "error": "Esa sociedad no existe"}), 400
+            # ⚠️ Y que sea SUYA: con el token de otro no se puede apuntar la sociedad de un tercero.
+            if str(getattr(soc, "promoter_id", "")) != str(getattr(concert, "promoter_id", "")):
+                return jsonify({"ok": False, "error": "Esa sociedad no es tuya"}), 403
+            cambios["company_legal_name"] = (soc.legal_name or "")
+            cambios["company_tax_id"] = (soc.tax_id or "")
+            cambios["company_promoter_company_id"] = str(soc.id)
+        elif seccion == "contactos":
             rol = (request.form.get("role") or "").strip().upper()
             campos = CONTRACT_SHEET_CONTACT_FIELDS.get(rol)
             if not campos:
@@ -127700,6 +127985,106 @@ def public_promoter_sheet_save(token):
         session_db.rollback()
         app.logger.exception("[promotor] no se pudo guardar la sección")
         return jsonify({"ok": False, "error": "No se pudo guardar: %s" % exc}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/promotor/<token>/sociedad-buscar", endpoint="public_promoter_sheet_company_find")
+def public_promoter_sheet_company_find(token):
+    """¿TENEMOS YA ESTA SOCIEDAD? Se busca por CIF desde su ficha.
+
+    Mira las sociedades de **cualquier** tercero (una empresa puede estar dada de alta colgando de
+    otra ficha) y también las fichas de tercero con ese CIF, que es de donde salen sus datos.
+    ⚠️ Devuelve solo lo que hace falta para rellenar el alta —razón social y dirección fiscal—, NUNCA
+    la lista entera: es un enlace público, no un buscador abierto de nuestra base de datos.
+    ⚠️ `own` dice si esa sociedad ya es SUYA: entonces se puede elegir directamente, sin crear nada."""
+    session_db = db()
+    try:
+        aviso = _promoter_sheet_notice(session_db, token)
+        if not aviso:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        concert = session_db.get(Concert, aviso.concert_id)
+        norm = _prl_norm_dni((request.form.get("tax_id") or "").strip())
+        if not norm:
+            return jsonify({"ok": False, "error": "Escribe el CIF"}), 400
+        mio = str(getattr(concert, "promoter_id", "") or "")
+        for c in (session_db.query(PromoterCompany)
+                  .filter(PromoterCompany.tax_id.isnot(None)).all()):
+            if _prl_norm_dni(c.tax_id) != norm:
+                continue
+            return jsonify({"ok": True, "found": True,
+                            "own": (str(c.promoter_id) == mio),
+                            "company": {"id": (str(c.id) if str(c.promoter_id) == mio else ""),
+                                        "legal_name": (c.legal_name or ""),
+                                        "tax_id": (c.tax_id or ""),
+                                        "address": (c.fiscal_address or ""),
+                                        "postal_code": (c.fiscal_postal_code or ""),
+                                        "city": (c.fiscal_city or ""),
+                                        "province": (c.fiscal_province or "")}})
+        # ¿Es el CIF de una ficha de tercero? Entonces se ofrecen sus datos para crear la sociedad.
+        for pr in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
+            if _prl_norm_dni(pr.tax_id) != norm:
+                continue
+            return jsonify({"ok": True, "found": True, "own": False,
+                            "company": {"id": "",
+                                        "legal_name": (_promoter_display_name(pr) or pr.nick or ""),
+                                        "tax_id": (pr.tax_id or ""),
+                                        "address": (pr.fiscal_address or ""),
+                                        "postal_code": (pr.fiscal_postal_code or ""),
+                                        "city": (pr.fiscal_city or ""),
+                                        "province": (pr.fiscal_province or "")}})
+        return jsonify({"ok": True, "found": False, "company": {}})
+    finally:
+        session_db.close()
+
+
+@app.post("/promotor/<token>/sociedad-nueva", endpoint="public_promoter_sheet_company_create")
+def public_promoter_sheet_company_create(token):
+    """DA DE ALTA LA SOCIEDAD con la que factura, **colgada de su ficha de tercero**.
+
+    ⚠️⚠️ Ése es el punto de pedírsela (lo dijo Dani): queda **vinculada al promotor** y la próxima
+    actividad ya la ofrece para elegir, en vez de volver a preguntar lo mismo cada vez.
+    ⚠️ NO SE DUPLICA: si ya tiene una con ese CIF (o con esa razón social) se reutiliza la que hay."""
+    session_db = db()
+    try:
+        aviso = _promoter_sheet_notice(session_db, token)
+        if not aviso:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        if _promoter_sheet_expired(aviso):
+            return jsonify({"ok": False, "error": "Este enlace ya no admite cambios"}), 409
+        concert = session_db.get(Concert, aviso.concert_id)
+        pid = getattr(concert, "promoter_id", None)
+        if not pid:
+            return jsonify({"ok": False, "error": "Esta actividad no tiene promotor"}), 400
+        nombre = " ".join((request.form.get("legal_name") or "").split())
+        if not nombre:
+            return jsonify({"ok": False, "error": "Escribe la razón social"}), 400
+        cif = (request.form.get("tax_id") or "").strip()
+        norm = _prl_norm_dni(cif)
+        for c in session_db.query(PromoterCompany).filter(PromoterCompany.promoter_id == pid).all():
+            mismo_cif = bool(norm) and _prl_norm_dni(c.tax_id) == norm
+            if mismo_cif or _norm_text_key(c.legal_name or "") == _norm_text_key(nombre):
+                return jsonify({"ok": True, "reused": True,
+                                "company": {"id": str(c.id), "legal_name": (c.legal_name or ""),
+                                            "tax_id": (c.tax_id or "")}})
+        soc = PromoterCompany(
+            promoter_id=pid,
+            legal_name=nombre,
+            tax_id=(cif or None),
+            fiscal_address=((request.form.get("address") or "").strip() or None),
+            fiscal_postal_code=((request.form.get("postal_code") or "").strip() or None),
+            fiscal_city=((request.form.get("city") or "").strip() or None),
+            fiscal_province=((request.form.get("province") or "").strip() or None),
+        )
+        session_db.add(soc)
+        session_db.commit()
+        return jsonify({"ok": True, "reused": False,
+                        "company": {"id": str(soc.id), "legal_name": (soc.legal_name or ""),
+                                    "tax_id": (soc.tax_id or "")}})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[promotor] no se pudo crear la sociedad")
+        return jsonify({"ok": False, "error": "No se pudo crear: %s" % exc}), 500
     finally:
         session_db.close()
 

@@ -704,6 +704,9 @@
     }
     else if (tipo === 'files') { b.ref = {}; b.opts = { title: 'Archivos adjuntos', color: (corporate[0] || '#E33D48') }; b.h = 96; }
     else if (tipo === 'playlist') { b.ref = (extra && extra.ref) || {}; b.opts = {}; b.h = 120; }
+    /* Los DATOS DE LA ACTIVIDAD: el cartel a la izquierda y los datos a la derecha, así que nace
+       ancho (el alto lo calcula su contenido, como todos los módulos). */
+    else if (tipo === 'activity') { b.ref = (extra && extra.ref) || {}; b.opts = {}; b.h = 170; }
     else { b.ref = (extra && extra.ref) || {}; b.opts = { download: false, align: 'center' }; b.h = 90; }
     if (y == null) { var abajo = Math.max(bgH() * 0.55, 0); design.blocks.forEach(function (o) { abajo = Math.max(abajo, o.y + o.h + 16); }); b.y = abajo; }
     design.blocks.push(b);
@@ -744,7 +747,8 @@
     var box = root.querySelector('[data-pr-modules]');
     fetch(root.getAttribute('data-assets-url')).then(function (r) { return r.json(); }).then(function (js) {
       assets = js || {};
-      var grupos = [['logos', 'Logos (se arrastran como una imagen)', 'fa-building'], ['artwork', 'Cartelería', 'fa-clapperboard'],
+      var grupos = [['activities', 'Datos de la actividad', 'fa-calendar-day'],
+                    ['logos', 'Logos (se arrastran como una imagen)', 'fa-building'], ['artwork', 'Cartelería', 'fa-clapperboard'],
                     ['audios', 'Audio (escuchar / descargar)', 'fa-music'], ['albums', 'Repertorio del disco', 'fa-compact-disc'], ['videos', 'Videoclip', 'fa-film'],
                     ['links', 'Enlaces de plataformas', 'fa-link'], ['photos', 'Fotos', 'fa-images'], ['playlists', 'Playlists', 'fa-list-ul'],
                     ['contact', 'Contactos', 'fa-address-card']];
@@ -752,9 +756,11 @@
          pueden poner todos los que hagan falta). Debajo siguen los concretos, para arrastrar
          directamente el que se quiere. */
       // Qué grupo de la paleta lleva su módulo VACÍO arriba, y cómo se llama.
-      var GENERICO = { audios: 'audio', albums: 'album', videos: 'video', links: 'links', playlists: 'playlist' };
+      var GENERICO = { audios: 'audio', albums: 'album', videos: 'video', links: 'links', playlists: 'playlist',
+                       activities: 'activity' };
       var VACIO_LABEL = { audio: 'Un single', album: 'Un disco', video: 'Un videoclip',
-                          links: 'Unos enlaces', playlist: 'Una playlist' };
+                          links: 'Unos enlaces', playlist: 'Una playlist',
+                          activity: 'Una actividad' };
       var html = '';
       grupos.forEach(function (g) {
         var items = assets[g[0]] || [];
@@ -881,6 +887,10 @@
     video:    { grupo: 'videos',    titulo: 'Elegir el videoclip', vacio: 'No hay ningún single con videoclip subido.' },
     links:    { grupo: 'links',     titulo: 'Elegir los enlaces', vacio: 'Ningún single ni disco tiene enlaces de plataforma configurados.' },
     playlist: { grupo: 'playlists', titulo: 'Elegir la playlist', vacio: 'Todavía no hay ninguna playlist.' },
+    /* Los DATOS DE UNA ACTIVIDAD: qué es, el artista con su foto, la fecha, el recinto y la hora de
+       comienzo, con su cartel si lo hay. Solo se ofrecen las que están POR VENIR. */
+    activity: { grupo: 'activities', titulo: 'Elegir la actividad', icon: 'fa-calendar-day',
+                vacio: 'No hay ninguna actividad por venir.' },
   };
   function opcionesDe(tipo) {
     var cfg = PICK[tipo]; if (!cfg) return [];
@@ -888,7 +898,7 @@
   }
   function mismoRef(a, b) {
     a = a || {}; b = b || {};
-    return ['song_id', 'album_id', 'playlist_id'].every(function (k) { return (a[k] || '') === (b[k] || ''); });
+    return ['song_id', 'album_id', 'playlist_id', 'concert_id'].every(function (k) { return (a[k] || '') === (b[k] || ''); });
   }
   function pintaPick(filtro) {
     if (!pickModal || !pickTarget) return;
@@ -904,7 +914,7 @@
       ? items.map(function (it, i) {
           var on = mismoRef(it.ref, b.ref) ? ' is-on' : '';
           return '<button type="button" class="pr-pick' + on + '" data-pr-pick-item="' + i + '">' +
-            (it.cover ? '<img src="' + esc(it.cover) + '" alt="" loading="lazy">' : '<span class="pr-pick__ph"><i class="fa fa-music"></i></span>') +
+            (it.cover ? '<img src="' + esc(it.cover) + '" alt="" loading="lazy">' : '<span class="pr-pick__ph"><i class="fa ' + esc(cfg.icon || 'fa-music') + '"></i></span>') +
             '<span class="pr-pick__t">' + esc(it.label || '') + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</span></button>';
         }).join('')
       : '<div class="text-muted small">' + esc(q ? 'Nada con ese nombre.' : (cfg.vacio || 'No hay nada que elegir.')) + '</div>';
@@ -943,7 +953,7 @@
   });
   function refPuesta(b) {
     var r = (b && b.ref) || {};
-    return !!(r.song_id || r.album_id || r.playlist_id);
+    return !!(r.song_id || r.album_id || r.playlist_id || r.concert_id);
   }
 
   function abreImagen(b) {

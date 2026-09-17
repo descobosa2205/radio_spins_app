@@ -17,7 +17,7 @@
      data-tpl-apply-url="{{ url_for('promo_press_template_apply', release_id=pr.id) }}"
      data-tpl-new-url="{{ url_for('promo_press_template_new') }}"
      data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-image-crop-url="{{ image_crop_url }}" data-photos-url="{{ photos_url_tpl }}"
-     data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if campaign else '' }}"
+     data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if (campaign or invite) else '' }}"
      data-thumb-url="{{ thumb_save_url }}"
      data-design-asset="{{ design_asset|tojson|forceescape }}" data-corporate="{{ palette_corporate|tojson|forceescape }}"
      data-text-defaults="{{ text_defaults|tojson|forceescape }}"
@@ -28,6 +28,8 @@
       <a href="{{ url_for('promo_press_templates_view') }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a Plantillas (se guarda)" aria-label="Volver a Plantillas"><i class="fa fa-arrow-left"></i></a>
     {% elif campaign %}
       <a href="{{ campaign.return_url }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver al envío (el correo se guarda)" aria-label="Volver al envío"><i class="fa fa-arrow-left"></i></a>
+    {% elif invite %}
+      <a href="{{ invite.return_url }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la invitación (el correo se guarda)" aria-label="Volver a la invitación"><i class="fa fa-arrow-left"></i></a>
     {% else %}
       <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la nota (se guarda como borrador)" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
     {% endif %}
@@ -40,9 +42,10 @@
         <span class="small text-muted">Los módulos que pongas saldrán en blanco en cada nota.</span>
       {% else %}
         {% if campaign %}<span class="badge text-bg-danger"><i class="fa fa-envelope me-1"></i>Envío a compradores</span>{% endif %}
+        {% if invite %}<span class="badge text-bg-danger"><i class="fa fa-envelope-circle-check me-1"></i>Invitación corporativa</span>{% endif %}
         {% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}
         <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
-        {% if not campaign %}<span class="badge text-bg-light border">{{ row.status_label }}</span>{% endif %}
+        {% if not campaign and not invite %}<span class="badge text-bg-light border">{{ row.status_label }}</span>{% endif %}
       {% endif %}
     </div>
     <div class="pr-editor__actions">
@@ -74,6 +77,8 @@
         <button class="btn btn-primary" type="button" data-pr-next title="Guardar la plantilla y volver a Plantillas"><i class="fa fa-floppy-disk me-1"></i>Guardar plantilla<i class="fa fa-arrow-right ms-2"></i></button>
       {% elif campaign %}
         <button class="btn btn-primary" type="button" data-pr-next title="Guardar el correo y volver al envío (a quién y enviar)"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
+      {% elif invite %}
+        <button class="btn btn-primary" type="button" data-pr-next title="Guardar el correo y volver a la invitación (a quién y enviar)"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
       {% else %}
         <button class="btn btn-primary" type="button" data-pr-next title="Guardar y pasar a enviar la nota"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
       {% endif %}
@@ -87,7 +92,7 @@
           <div class="pr-canvas__empty" data-pr-empty>
             <i class="fa fa-image"></i>
             <div class="fw-semibold mt-2">Sube la imagen de fondo</div>
-            <div class="small text-muted">{% if campaign %}La imagen de fondo del correo. Después arrastra el titular, el texto, el logo y la cartelería encima.{% else %}La cabecera con los logos y el hueco para los textos. Después arrastra el titular, el texto y los módulos encima.{% endif %}</div>
+            <div class="small text-muted">{% if campaign or invite %}La imagen de fondo del correo. Después arrastra el titular, el texto, los datos de la actividad y el logo encima.{% else %}La cabecera con los logos y el hueco para los textos. Después arrastra el titular, el texto y los módulos encima.{% endif %}</div>
             <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
               <label class="btn btn-primary btn-sm mb-0"><i class="fa fa-upload me-1"></i>Subir el fondo<input type="file" accept="image/*" class="d-none" data-pr-bg-file></label>
               {% if design_asset.available and design_asset.is_image %}

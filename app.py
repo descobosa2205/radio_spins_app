@@ -365,6 +365,11 @@ from models import (
     ensure_vacations_schema,
     ensure_syncros_schema,
     ensure_afavor_schema,
+    CorporateGuestList,
+    CorporateGuest,
+    CorporateInvite,
+    CorporateInviteRecipient,
+    ensure_corporate_invites_schema,
     ensure_expense_split_schema,
     ensure_song_demos_schema,
     ensure_song_genres_schema,
@@ -508,7 +513,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_corporate_invite_open", 
     "concert_artwork_public_upload",
     # La MINIATURA de un cartel recién subido, por nuestro dominio (la ve quien está subiendo).
     "concert_artwork_public_file", "public_announce_confirm",
@@ -990,7 +995,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_corporate_invite_open", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -59493,9 +59498,16 @@ def _press_template_blank_design(design: dict) -> dict:
 def _press_edit_ok(pr) -> bool:
     """QUIÉN puede editar este diseño: una nota de prensa, quien edita Promoción; el correo de un
     envío a compradores, quien manda envíos a compradores (ticketing), que no tiene por qué tener
-    Promoción. Punto único de los endpoints del editor."""
+    Promoción; y el de una INVITACIÓN CORPORATIVA, **quien la manda** (es una función personal: la
+    tiene cualquiera, y solo sobre la suya). Punto único de los endpoints del editor."""
     if pr is not None and _press_is_campaign(pr):
         return can_edit_buyers()
+    if pr is not None and _press_is_invite(pr):
+        session_db = db()
+        try:
+            return _corp_design_is_mine(session_db, pr)
+        finally:
+            session_db.close()
     return can_edit_promo()
 
 
@@ -59851,7 +59863,12 @@ def _press_icons() -> dict:
     ico = _press_icon_png
     return {"play": ico("play", "ffffff"), "download": ico("download", "E33D48"), "download_white": ico("download", "ffffff"),
             "calendar": ico("calendar-days", "6b7280"), "list": ico("list-ol", "6b7280"), "images": ico("images", "ffffff"),
-            "envelope": ico("envelope", "007CA2"), "phone": ico("phone", "007CA2")}
+            "envelope": ico("envelope", "007CA2"), "phone": ico("phone", "007CA2"),
+            # El módulo «Datos de la actividad»: qué es, el artista, la fecha, el recinto y la hora.
+            # ⚠️ `fa-user-music` y `fa-calendar-star` NO EXISTEN en esta versión de Font Awesome
+            # (salían vacíos): el artista es `fa-guitar` y el evento `fa-calendar-day`.
+            "activity": ico("calendar-day", "E33D48"), "artist": ico("guitar", "6b7280"),
+            "venue": ico("location-dot", "6b7280"), "clock": ico("clock", "6b7280")}
 
 
 # ── RESOLVER los módulos del diseño (lo que hay que ENSEÑAR de cada uno) ─────────────────────
@@ -59997,6 +60014,61 @@ def _press_artwork_data(session_db, ref: dict, *, editing_hint: bool = False) ->
             "gallery_url": gallery, "download_url": zip_url, "pending": not carteles}
 
 
+def _press_activity_data(session_db, ref: dict) -> dict:
+    """LOS DATOS DE UNA ACTIVIDAD para su módulo: qué es (concierto, festival…), el ARTISTA con su
+    foto, la FECHA con su día de la semana, el RECINTO y la HORA DE COMIENZO — y su CARTEL si lo
+    tiene aprobado. `ref` = {"concert_id"}.
+
+    ⚠️ Punto ÚNICO: lo usan la paleta del editor, el correo, la página y el PDF, así que no pueden
+    decir cosas distintas. Y cada dato sale de donde ya vive (`_activity_kind_label`,
+    `_concert_venue_name`, `format_date_long_es`), no de una copia.
+    ⚠️ De un EVENTO se enseña el evento, nunca su artista ESPEJO (que no debe verse en ningún sitio).
+    """
+    ref = ref if isinstance(ref, dict) else {}
+    cid = _safe_uuid(ref.get("concert_id"))
+    if not cid:
+        return {"pending": True}
+    c = session_db.get(Concert, cid)
+    if c is None:
+        return {"pending": True}
+    nombre, foto = "", ""
+    ev_id = getattr(c, "event_id", None) or getattr(getattr(c, "artist", None), "event_id", None)
+    if ev_id:
+        ev = session_db.get(AppEvent, ev_id)
+        if ev is not None:
+            nombre, foto = (ev.name or ""), (ev.logo_url or "")
+    if not nombre and getattr(c, "artist", None) is not None:
+        nombre, foto = (c.artist.name or ""), (c.artist.photo_url or "")
+    if not nombre:
+        nombre = (getattr(c, "festival_name", None) or "").strip()
+    # El CARTEL: el primero de los aprobados de la actividad (y si no tiene, el de su gira, ciclo o
+    # evento). Sin cartel, la viñeta sale solo con los datos.
+    cartel = ""
+    try:
+        for a in _concert_artwork_share_assets(session_db, c):
+            if _artwork_asset_category(a) == "POSTER":
+                cartel = _absolute_media_url(_artwork_image_src(a) or "")
+                if cartel:
+                    break
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudo leer el cartel de la actividad")
+    lugar = " · ".join([x for x in [_concert_venue_name(c), _place_label(_concert_city(c) or "")] if x])
+    hora = "" if getattr(c, "show_time_tbc", False) else ((getattr(c, "show_time", None) or "").strip())
+    return {
+        "concert_id": str(c.id),
+        "kind_label": _activity_kind_label(getattr(c, "activity_type", None)),
+        "artist_name": nombre,
+        "artist_photo": _absolute_media_url(foto) if foto else "",
+        # ⚠️ LA FECHA DE ALGO QUE SALE DE CASA LLEVA SU DÍA DE LA SEMANA: es lo primero que mira
+        # quien lo recibe (punto único `format_date_long_es`).
+        "date_label": format_date_long_es(c.date) if getattr(c, "date", None) else "",
+        "venue_label": lugar,
+        "time_label": ("%s h" % hora) if hora else ("Hora por confirmar" if getattr(c, "show_time_tbc", False) else ""),
+        "poster_url": cartel,
+        "pending": False,
+    }
+
+
 def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
     """Rellena `data` en cada MÓDULO del diseño con lo que hay que enseñar (portadas, nombres,
     enlaces con el `token` que toque). Los textos van tal cual (los sanea el motor)."""
@@ -60073,6 +60145,8 @@ def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
                 data["contacts"] = _press_contact_rows(session_db, pr, ref)
             elif tipo == "artwork":
                 data.update(_press_artwork_data(session_db, ref))
+            elif tipo == "activity":
+                data.update(_press_activity_data(session_db, ref))
             elif tipo == "photos" and ref.get("album_id"):
                 # ⚠️ La referencia puede ser un ÁLBUM o el DUEÑO de las fotos (`o-CONCERT-<uuid>`):
                 # lo resuelve el punto único, porque la mayoría de las fotos no están en un álbum.
@@ -60606,8 +60680,41 @@ def _press_assets(session_db, pr) -> dict:
                            "html": pinta("playlist", {"playlist_id": str(pl.id)})})
     except Exception:
         app.logger.exception("[notas de prensa] no se pudieron leer las playlists")
+    # LAS ACTIVIDADES para el módulo «Datos de la actividad»: la de la nota (si la tiene) primero y
+    # después las que están POR VENIR, de la más próxima a la más lejana. Una actividad ya pasada no
+    # se ofrece (a nadie se le invita a lo que ya fue) y las CANCELADAS y APLAZADAS tampoco.
+    actividades = []
+    try:
+        vistos_c = set()
+        candidatas = []
+        if kind == "ACTIVITY" and about is not None and isinstance(about, Concert):
+            candidatas.append(about)
+        q_act = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(Concert.date >= (date.today() - timedelta(days=1)),
+                         func.coalesce(Concert.status, "") .notin_(["CANCELADO", "APLAZADO"]))
+                 .order_by(Concert.date.asc()).limit(40).all())
+        candidatas.extend(q_act)
+        for c in candidatas:
+            if str(c.id) in vistos_c:
+                continue
+            vistos_c.add(str(c.id))
+            datos = _press_activity_data(session_db, {"concert_id": str(c.id)})
+            if datos.get("pending"):
+                continue
+            actividades.append({
+                "kind": "activity", "ref": {"concert_id": str(c.id)},
+                "label": datos.get("artist_name") or "Actividad",
+                "cover": datos.get("poster_url") or datos.get("artist_photo") or "",
+                "sub": " · ".join([x for x in [datos.get("kind_label"), datos.get("date_label"),
+                                               datos.get("venue_label")] if x]),
+                "html": pinta("activity", {"concert_id": str(c.id)}),
+            })
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudieron leer las actividades para el editor")
     return {"audios": audios, "albums": discos, "videos": clips, "links": enlaces, "photos": fotos, "contact": contacto,
             "artwork": carteles, "logos": logos, "playlists": listas, "images": imagenes,
+            "activities": actividades,
             "fonts": [{"css": css, "label": label} for css, label in press_render.FONTS]}
 
 
@@ -61797,11 +61904,15 @@ def _press_editor_context(s, pr) -> dict:
         "press_contact": {"name": PRESS_CONTACT_NAME, "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE},
         # Si este diseño es el CORREO de un ENVÍO A COMPRADORES: de qué envío, y a dónde se vuelve.
         "campaign": _press_campaign_context(s, pr),
+        # Y si es el de una INVITACIÓN CORPORATIVA, lo mismo (se vuelve a mandarla).
+        "invite": _press_invite_context(s, pr),
         # ¿Es una PLANTILLA? Entonces no hay nada que enviar: se guarda y se vuelve a Plantillas.
         "is_template": _press_is_template(pr),
     }
     if ctx["campaign"]:
         ctx["next_url"] = ctx["campaign"]["return_url"]
+    if ctx["invite"]:
+        ctx["next_url"] = ctx["invite"]["return_url"]
     if ctx["is_template"]:
         ctx["next_url"] = url_for("promo_press_templates_view")
     return ctx
@@ -63046,11 +63157,15 @@ def public_press_release(token):
         tipo, nombre, _img = _press_kind_and_name(s, pr, rows=filas)
         titular = press_render.headline_of(pr.design or {})
         fecha = (pr.sent_at or pr.scheduled_at or pr.created_at)
-        og_title = "%s · %s · %s" % (("Comunicación" if _press_is_campaign(pr) else "Nota de prensa"),
-                                     _press_subject_label(s, pr, filas),
+        # Cómo se presenta la página: una nota de prensa, una «Comunicación» (envío a compradores) o
+        # una «Invitación» — quien la abre tiene que saber qué está mirando.
+        que_es = ("Invitación" if _press_is_invite(pr) else
+                  ("Comunicación" if _press_is_campaign(pr) else "Nota de prensa"))
+        og_title = "%s · %s · %s" % (que_es, _press_subject_label(s, pr, filas),
                                      fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else "")
         return render_template(
-            "public_press_release.html", pr=pr, embed=_truthy(request.args.get("embed")), is_campaign=_press_is_campaign(pr),
+            "public_press_release.html", pr=pr, embed=_truthy(request.args.get("embed")),
+            is_campaign=_press_is_campaign(pr), what_label=que_es,
             web_html=_press_web_html(s, pr, token),
             og_title=og_title, og_description=(titular or " ".join([x for x in [tipo, nombre] if x]))[:180],
             og_image_url=_external_url_for("public_press_og_image", token=pr.public_token or token,
@@ -85689,6 +85804,7 @@ def _bootstrap_schema_bg():
         (ensure_vacations_schema, "ensure_vacations_schema"),
         (ensure_syncros_schema, "ensure_syncros_schema"),
         (ensure_afavor_schema, "ensure_afavor_schema"),
+        (ensure_corporate_invites_schema, "ensure_corporate_invites_schema"),
         (ensure_expense_split_schema, "ensure_expense_split_schema"),
         (ensure_song_genres_schema, "ensure_song_genres_schema"),
         (ensure_media_tags_schema, "ensure_media_tags_schema"),
@@ -96803,7 +96919,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -99286,13 +99402,25 @@ def _home_quick_action_defs() -> dict:
             "hint": "Meter la venta de entradas de cada actividad", "access": "ventas",
             "url": url_for("sales_update_view"),
         },
+        # --- Para TODO EL MUNDO: invitar a los contactos de uno a una actividad ---
+        "invitaciones_corp": {
+            "key": "invitaciones_corp", "label": "Invitación corporativa", "plus": True,
+            "icon": "fa-envelope-circle-check",
+            "hint": "Invitar a tus contactos a una actividad, desde tu correo",
+            "access": None, "url": url_for("corporate_invites_view"),
+        },
     }
 
 
 # Orden canónico (así cada departamento sale en el orden pedido).
 _HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "single",
                      "pagos", "liquidar", "facturas", "gastos_mios", "compradores", "recintos",
-                     "ventas", "invitaciones_gestionar", "invitaciones"]
+                     "ventas", "invitaciones_gestionar", "invitaciones", "invitaciones_corp"]
+
+# ⚠️ Acciones que ve TODO EL MUNDO, esté en el departamento que esté: son funciones PERSONALES (las
+# listas de invitados de uno y sus invitaciones), no el trabajo de una sección. Se añaden siempre,
+# así que no hay que acordarse de meterlas en cada departamento cuando se cree uno nuevo.
+_HOME_QUICK_ALWAYS = ["invitaciones_corp"]
 
 # Acciones por DEPARTAMENTO (nombres tal cual en PERSONNEL_DEPARTMENTS).
 _HOME_QUICK_BY_DEPARTMENT = {
@@ -99426,6 +99554,7 @@ def _build_home_quick_actions() -> list[dict]:
         wanted = set(_HOME_QUICK_ORDER)     # dirección lo ve todo
     elif not wanted:
         wanted = set(_HOME_QUICK_DEFAULT)
+    wanted |= set(_HOME_QUICK_ALWAYS)       # lo personal lo tiene todo el mundo
     defs = _home_quick_action_defs()
     out = []
     for key in _HOME_QUICK_ORDER:
@@ -101963,7 +102092,18 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       # aviso). Dentro se comprueba que los días son suyos.
                       "vacation_notice_view",
                       # MI PASE: el atajo a la acreditación propia (lleva a la ficha de uno mismo).
-                      "my_pass_view"}
+                      "my_pass_view",
+                      # ⚠️ INVITACIONES CORPORATIVAS: cada uno tiene SUS listas de invitados y manda
+                      # SUS invitaciones, desde su propio correo. No es una sección que se conceda:
+                      # la tiene todo el mundo y solo sobre lo suyo (cada endpoint comprueba dentro
+                      # que la lista o la invitación es de quien la abre, `_corp_*_mine`).
+                      "corporate_invites_view", "corporate_invite_detail_view",
+                      "corporate_list_create", "corporate_list_rename", "corporate_list_delete",
+                      "corporate_list_guests", "corporate_guest_add", "corporate_guest_remove",
+                      "corporate_list_import",
+                      "corporate_invite_create", "corporate_invite_save", "corporate_invite_delete",
+                      "corporate_invite_preview", "corporate_invite_send",
+                      "corporate_invite_continue", "corporate_invite_status"}
 
 
 # PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
@@ -102169,6 +102309,12 @@ def _support_endpoint_decision(endpoint: str):
     if not endpoint:
         return (False, None)
     if endpoint in PERSONAL_ENDPOINTS:
+        return (True, None)
+    # ⚠️⚠️ EL DISEÑO DE UNA INVITACIÓN CORPORATIVA se hace con el editor de las notas de prensa
+    # (`promo_press_*`), pero NO es la sección Promoción: es de quien manda la invitación, que puede
+    # no tener ninguna sección concedida. La llave es que el diseño sea SUYO, y eso lo comprueba el
+    # propio editor en cada endpoint (`_press_edit_ok` → `_corp_design_is_mine`).
+    if endpoint.startswith("promo_press_") and _press_request_is_invite():
         return (True, None)
     # SUS PROPIAS VACACIONES en SU ficha: cualquiera puede abrir la pestaña «Vacaciones» de su
     # ficha aunque no tenga el permiso de la sección de Personal (son sus días). Solo lectura y
@@ -181813,6 +181959,1152 @@ def public_invitation_access_og_image(token):
     finally:
         session_db.close()
     return _share_og_image_response([f for f in fuentes if f])
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# INVITACIONES CORPORATIVAS · «Mi lista de invitados» y los envíos de cada persona
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# ⚠️⚠️ ESTO NO SON LAS INVITACIONES DE UN EVENTO (las entradas que se piden y se asignan: eso es
+# `InvitationRequest`, sección Invitaciones). Esto es lo que manda una persona de la casa **en su
+# nombre y desde su correo**: invitar a SUS contactos a una actividad con un correo diseñado.
+# Por eso todo cuelga del usuario y es una función PERSONAL (la tiene todo el mundo, sin permisos).
+#
+# El CONTENIDO es un DISEÑO (`PressRelease` con `purpose='INVITE'`), o sea el MISMO editor y las
+# MISMAS plantillas que el correo de un envío a compradores: un solo editor que mantener.
+# La cadena es la de siempre: a quién → la actividad → diseñar → enviar (por tandas, sin repetir).
+
+CORP_INVITE_BUDGET_SECONDS = 45          # lo que dura una tanda de envío (la regla de la casa)
+CORP_TOKEN_PLACEHOLDER = "__CORP_TOKEN__"   # se sustituye por el token de cada persona
+
+
+def _press_is_invite(pr) -> bool:
+    """¿Este diseño es el correo de una INVITACIÓN CORPORATIVA (y no una nota de prensa)?"""
+    return (getattr(pr, "purpose", "PRESS") or "PRESS").upper() == "INVITE"
+
+
+def _press_request_is_invite() -> bool:
+    """¿La petición al editor es sobre el diseño de una invitación corporativa? Lo mira el gate de
+    permisos: esos endpoints son `promo_press_*` (sección Promoción) pero ese diseño es de QUIEN
+    manda la invitación, que puede no tener Promoción ni ninguna otra sección. Cacheado por
+    petición, igual que el de los envíos a compradores."""
+    rid = (request.view_args or {}).get("release_id") if request else None
+    if not rid:
+        return False
+    try:
+        cache = g.setdefault("_press_invite_req", {})
+        if rid in cache:
+            return cache[rid]
+    except Exception:
+        cache = None
+    valor = False
+    session_db = db()
+    try:
+        fila = session_db.query(PressRelease.purpose).filter(PressRelease.id == to_uuid(rid)).first()
+        valor = bool(fila and (fila[0] or "PRESS").upper() == "INVITE")
+    except Exception:
+        valor = False
+    finally:
+        session_db.close()
+    if cache is not None:
+        cache[rid] = valor
+    return valor
+
+
+def _corp_user_id():
+    """Quién está trabajando (UUID) o None."""
+    return _safe_uuid((_current_user_state() or {}).get("user_id"))
+
+
+def _corp_nick() -> str:
+    return ((_current_user_state() or {}).get("nick") or "").strip()
+
+
+def _corp_design_is_mine(session_db, pr) -> bool:
+    """¿Este diseño de invitación es de quien lo está abriendo? La llave de la función personal.
+
+    ⚠️ Se mira el ENVÍO al que pertenece (no `created_by_user_id` del diseño): es el envío el que
+    dice de quién es, y así una invitación sigue siendo suya aunque el diseño se hubiera creado de
+    otra forma. Dirección entra en todas (es quien tiene que poder mirar lo que sale de la casa)."""
+    uid = _corp_user_id()
+    if not uid:
+        return False
+    if is_master():
+        return True
+    try:
+        inv = (session_db.query(CorporateInvite)
+               .filter(CorporateInvite.design_release_id == pr.id).first())
+    except Exception:
+        app.logger.exception("[invitaciones corp] no se pudo mirar de quién es el diseño")
+        return False
+    if inv is None:
+        return str(getattr(pr, "created_by_user_id", "") or "") == str(uid)
+    return str(inv.user_id or "") == str(uid)
+
+
+def _corp_invite_of_design(session_db, pr):
+    if pr is None:
+        return None
+    return (session_db.query(CorporateInvite)
+            .filter(CorporateInvite.design_release_id == pr.id)
+            .order_by(CorporateInvite.created_at.desc()).first())
+
+
+def _corp_return_url(inv) -> str:
+    """A dónde vuelve el editor: la pantalla de invitaciones con ESTA abierta para mandarla."""
+    return url_for("corporate_invites_view", invitacion=str(inv.id))
+
+
+def _press_invite_context(s, pr) -> dict | None:
+    """La invitación corporativa cuyo correo es este diseño (o None si no lo es)."""
+    if not _press_is_invite(pr):
+        return None
+    inv = _corp_invite_of_design(s, pr)
+    if inv is None:
+        return {"id": "", "label": "Invitación corporativa", "return_url": url_for("corporate_invites_view")}
+    return {"id": str(inv.id), "label": "Invitación corporativa", "return_url": _corp_return_url(inv)}
+
+
+# ── LAS LISTAS DE INVITADOS ──────────────────────────────────────────────────────────────────
+
+def _corp_my_lists(session_db, user_id) -> list:
+    return (session_db.query(CorporateGuestList)
+            .filter(CorporateGuestList.user_id == user_id)
+            .order_by(CorporateGuestList.created_at.asc()).all())
+
+
+def _corp_list_mine(session_db, list_id, user_id):
+    """La lista, si es SUYA (si no, None: nadie ve las listas de nadie)."""
+    lid = _safe_uuid(list_id)
+    if not lid or not user_id:
+        return None
+    lst = session_db.get(CorporateGuestList, lid)
+    if lst is None or str(lst.user_id) != str(user_id):
+        return None
+    return lst
+
+
+def _corp_guest_row(g) -> dict:
+    prom = getattr(g, "promoter", None)
+    return {
+        "id": str(g.id),
+        "name": (g.name or "").strip() or (_promoter_display_name(prom) if prom is not None else "") or (g.email or ""),
+        "email": (g.email or "").strip(),
+        "phone": (g.phone or "").strip(),
+        "promoter_id": str(g.promoter_id) if g.promoter_id else "",
+        "promoter_url": url_for("promoter_detail_view", pid=g.promoter_id) if g.promoter_id else "",
+        "logo_url": ((getattr(prom, "logo_url", "") or "").strip() if prom is not None else ""),
+    }
+
+
+def _corp_list_row(session_db, lst, *, con_invitados: bool = False) -> dict:
+    invitados = (session_db.query(CorporateGuest)
+                 .options(joinedload(CorporateGuest.promoter))
+                 .filter(CorporateGuest.list_id == lst.id)
+                 .order_by(CorporateGuest.created_at.asc()).all())
+    con_correo = sum(1 for g in invitados if (g.email or "").strip())
+    return {
+        "id": str(lst.id), "name": (lst.name or "").strip() or "Sin nombre",
+        "count": len(invitados), "with_email": con_correo,
+        "rows": [_corp_guest_row(g) for g in invitados] if con_invitados else [],
+    }
+
+
+def _corp_promoter_email(prom) -> str:
+    return ((getattr(prom, "contact_email", "") or "").strip().lower())
+
+
+def _corp_guest_add(session_db, lst, *, promoter=None, name: str = "", email: str = "",
+                    phone: str = "") -> tuple[bool, str]:
+    """Añade a alguien a la lista. Devuelve (añadido, motivo si no).
+
+    ⚠️ **Nadie dos veces en la misma lista**: se mira por su CORREO (que es a donde se manda) y, si
+    no lo trae, por su ficha de tercero. Es el mismo criterio que la importación."""
+    correo = (email or (_corp_promoter_email(promoter) if promoter is not None else "")).strip().lower()
+    nombre = (name or "").strip() or (_promoter_display_name(promoter) if promoter is not None else "")
+    if correo:
+        ya = (session_db.query(CorporateGuest)
+              .filter(CorporateGuest.list_id == lst.id,
+                      func.lower(func.coalesce(CorporateGuest.email, "")) == correo).first())
+        if ya is not None:
+            return False, "ya estaba"
+    elif promoter is not None:
+        ya = (session_db.query(CorporateGuest)
+              .filter(CorporateGuest.list_id == lst.id,
+                      CorporateGuest.promoter_id == promoter.id).first())
+        if ya is not None:
+            return False, "ya estaba"
+    session_db.add(CorporateGuest(
+        list_id=lst.id, promoter_id=(promoter.id if promoter is not None else None),
+        name=(nombre or "")[:200], email=(correo or None),
+        phone=((phone or (getattr(promoter, "contact_phone", "") or "") if promoter is not None else phone) or "").strip()[:60] or None))
+    return True, ""
+
+
+def _corp_import_rows(data: bytes, filename: str) -> list[dict]:
+    """Las filas del fichero, ya reconocidas: {"name", "email", "phone"}.
+
+    ⚠️ Se usa el MISMO lector que la importación de terceros (`promoter_import`), que ya sabe de
+    cabeceras desplazadas, rótulos como «N.º de teléfono» y números que Excel escribe con decimales.
+    Aquí solo interesan tres campos, así que lo que reconozca para otros se descarta."""
+    datos = promoter_import.parse_file(data, filename)
+    mapping = {}
+    for col in datos.get("columns") or []:
+        campo = col.get("field")
+        if campo in ("nick", "first_name", "last_name", "contact_email", "contact_phone"):
+            mapping[str(col["index"])] = campo
+    fichas = promoter_import.apply_mapping(datos.get("rows") or [], mapping)
+    filas = []
+    for f in fichas:
+        v = f.get("values") or {}
+        nombre = " ".join([x for x in [(v.get("first_name") or "").strip(),
+                                       (v.get("last_name") or "").strip()] if x]).strip()
+        nombre = nombre or (v.get("nick") or "").strip()
+        correo = (v.get("contact_email") or "").strip().lower()
+        tel = (v.get("contact_phone") or "").strip()
+        if not correo and not nombre and not tel:
+            continue
+        filas.append({"name": nombre, "email": correo, "phone": tel})
+    return filas
+
+
+def _corp_import_apply(session_db, lst, filas: list[dict]) -> dict:
+    """Mete las filas del fichero en la lista: **crea el TERCERO que no exista y engancha el que ya
+    está** (se reconoce por su CORREO, en la ficha y en sus correos adicionales).
+
+    ⚠️ A quien ya tenemos NO se le pisa nada: solo se le COMPLETA lo que tenga vacío (el criterio
+    de toda la app). Y una fila SIN CORREO no entra: no hay a quién mandarle la invitación —y se
+    dice cuántas se han quedado fuera, que no desaparezcan sin más."""
+    indices = _promoter_import_indexes(session_db)
+    creados = enganchados = repetidos = sin_correo = 0
+    for fila in filas:
+        correo = (fila.get("email") or "").strip().lower()
+        if not correo:
+            sin_correo += 1
+            continue
+        valores = {"contact_email": correo}
+        if fila.get("name"):
+            valores["nick"] = fila["name"]
+        if fila.get("phone"):
+            valores["contact_phone"] = fila["phone"]
+        pid = (indices.get("email") or {}).get(correo)
+        prom = session_db.get(Promoter, to_uuid(pid)) if pid else None
+        if prom is None:
+            prom = Promoter(nick=_intake_promoter_nick(session_db, _promoter_import_nick(valores)),
+                            contact_email=correo,
+                            contact_phone=(fila.get("phone") or "").strip() or None)
+            nombre_partes = (fila.get("name") or "").strip().split()
+            if len(nombre_partes) >= 2:
+                prom.first_name = nombre_partes[0]
+                prom.last_name = " ".join(nombre_partes[1:])
+            elif nombre_partes:
+                prom.first_name = nombre_partes[0]
+            session_db.add(prom)
+            session_db.flush()
+            indices.setdefault("email", {})[correo] = str(prom.id)
+            creados += 1
+        else:
+            # Lo que ya está escrito NO se pisa: solo se rellena lo que tenga vacío.
+            if not (prom.contact_email or "").strip():
+                prom.contact_email = correo
+            if fila.get("phone") and not (prom.contact_phone or "").strip():
+                prom.contact_phone = fila["phone"].strip()[:60]
+            enganchados += 1
+        ok, _motivo = _corp_guest_add(session_db, lst, promoter=prom, name=fila.get("name") or "",
+                                      email=correo, phone=fila.get("phone") or "")
+        if not ok:
+            repetidos += 1
+    session_db.commit()
+    return {"creados": creados, "enganchados": enganchados, "repetidos": repetidos,
+            "sin_correo": sin_correo}
+
+
+# ── EL ENVÍO ─────────────────────────────────────────────────────────────────────────────────
+
+def _corp_sender(session_db, user_id) -> dict:
+    """DESDE QUÉ CORREO sale la invitación: **el buzón de quien la manda** (Integraciones → Correo,
+    punto único `_user_mail_account`). Si no lo tiene configurado NO se manda y se dice qué hacer.
+
+    ⚠️ Lo pidió Dani así: una invitación se escribe de tú a tú y quien la recibe contesta a esa
+    persona, no a un buzón de la app. Mandarla con el remitente de la casa sería mentir sobre quién
+    invita — por eso aquí no hay salida alternativa: se configura y ya."""
+    acc = _user_mail_account(session_db, user_id)
+    if acc is not None:
+        estado = _current_user_state() or {}
+        nombre = (acc.from_name or "").strip() or (estado.get("nick") or "").strip() or (acc.label or "")
+        return {"ok": True, "account": acc, "from_name": nombre, "from_email": (acc.from_email or ""),
+                "reply_to": (acc.reply_to or None),
+                "label": "%s <%s>" % (nombre, acc.from_email or "")}
+    problema = _user_mail_account_problem(session_db, user_id)
+    if problema and problema.get("reason") == "inactive":
+        aviso = ("Tu cuenta de correo %s está DESACTIVADA en Integraciones → Correo. "
+                 "Actívala para poder mandar la invitación." % problema.get("email", ""))
+    elif problema and problema.get("reason") == "nopass":
+        aviso = ("Tu cuenta de correo %s no tiene contraseña guardada en Integraciones → Correo, "
+                 "así que la app no puede conectarse a tu buzón. Complétala para poder mandar la "
+                 "invitación." % problema.get("email", ""))
+    else:
+        aviso = ("Todavía no tienes tu correo dado de alta en Integraciones → Correo → «Cuentas de "
+                 "envío». La invitación sale desde TU dirección, así que hay que configurarla antes "
+                 "de enviarla.")
+    # ⚠️ Integraciones es de DIRECCIÓN: a quien no puede entrar no se le manda a una pantalla en la
+    # que se comería un 403 — se le dice que se lo pida (es lo honesto, y es lo que puede hacer).
+    puede = bool(is_master() or has_access_key("integraciones", include_descendants=True))
+    return {"ok": False, "account": None, "from_name": "", "from_email": "", "reply_to": None,
+            "label": "", "problem": aviso + ("" if puede else " Pídeselo a dirección."),
+            "url": (url_for("integrations_view") + "#tab-correo") if puede else ""}
+
+
+def _corp_design_ensure(session_db, inv):
+    """El diseño del correo de esta invitación, creándolo si no lo tiene. De quién es (el artista o
+    el evento de la actividad) y sobre qué va (esa actividad): con eso el editor ofrece SUS módulos
+    —los datos de la actividad, su cartelería, sus fotos, los logos—."""
+    if inv.design_release_id:
+        pr = session_db.get(PressRelease, inv.design_release_id)
+        if pr is not None:
+            return pr
+    estado = _current_user_state() or {}
+    pr = PressRelease(purpose="INVITE", status="DRAFT", sender_kind="BACKOFFICE",
+                      design={"width": press_render.WIDTH, "bg": {}, "blocks": []},
+                      created_by_user_id=_safe_uuid(inv.user_id) or _safe_uuid(estado.get("user_id")),
+                      created_by_nick=(inv.created_by_nick or estado.get("nick") or ""))
+    concert = session_db.get(Concert, inv.concert_id) if inv.concert_id else None
+    if concert is not None:
+        if getattr(concert, "event_id", None):
+            pr.subject_kind, pr.subject_id, pr.artist_ids = "EVENT", concert.event_id, []
+        else:
+            pr.subject_kind, pr.subject_id = "ARTIST", None
+            pr.artist_ids = [str(concert.artist_id)] if concert.artist_id else []
+        pr.about_kind, pr.about_id = "ACTIVITY", concert.id
+    else:
+        pr.subject_kind, pr.artist_ids, pr.about_kind = "ARTIST", [], "SUBJECT"
+    pr.public_token = _uuid_token()
+    session_db.add(pr)
+    session_db.flush()
+    inv.design_release_id = pr.id
+    session_db.flush()
+    # El módulo «Datos de la actividad» ya puesto: es lo primero que hay que ver en una invitación
+    # y así no hay que acordarse de arrastrarlo (se puede mover, cambiar o quitar como cualquiera).
+    if concert is not None:
+        pr.design = {"width": press_render.WIDTH, "bg": {}, "blocks": [
+            {"id": "act-%s" % _uuid_token()[:8], "type": "activity", "x": 40, "y": 40,
+             "w": 520, "h": 170, "ref": {"concert_id": str(concert.id)}, "opts": {}},
+        ]}
+        # ⚠️ JSONB: leer-copiar-reasignar no siempre escribe en la misma petición (sale «unchanged»
+        # y no da ningún error) → hay que marcarlo como modificado.
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(pr, "design")
+        session_db.flush()
+    return pr
+
+
+def _corp_has_design(session_db, inv) -> bool:
+    if not inv.design_release_id:
+        return False
+    pr = session_db.get(PressRelease, inv.design_release_id)
+    return bool(pr is not None and press_render.blocks_of(pr.design or {}))
+
+
+def _corp_email_html(session_db, inv, *, token: str = CORP_TOKEN_PLACEHOLDER) -> str:
+    """El correo de la invitación: el DISEÑO (las bandas del motor de las notas de prensa), el
+    enlace a verla en el navegador y el PÍXEL que dice quién la ha abierto."""
+    pr = session_db.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
+    if pr is None:
+        return ""
+    tok = _press_ensure_token(session_db, pr)
+    cuerpo = press_render.render_email(_press_prepared_design(session_db, pr, tok))
+    titular = (press_render.headline_of(pr.design or {}) or (inv.subject or "").strip() or "Invitación")
+    enlace = _press_public_url(pr, tok)
+    pixel = ('<img src="%s" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;">'
+             % _html_escape_attr(_external_url_for("public_corporate_invite_open", token=token)))
+    return (
+        '<!doctype html><html lang="es"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="x-apple-disable-message-reformatting">'
+        '<title>%s</title></head>'
+        '<body style="margin:0;padding:0;background:#f3f4f6;">'
+        # El PREHEADER: lo que enseña el resumen del correo es el TITULAR, no el primer texto.
+        '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">%s</div>'
+        '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;">'
+        '<tr><td align="center" style="padding:14px 8px 4px 8px;font-family:%s;font-size:12px;color:#6b7280;">'
+        '<a href="%s" style="color:#6b7280;text-decoration:underline;">Ver la invitación en el navegador</a></td></tr>'
+        '<tr><td align="center" style="padding:0 0 18px 0;">%s</td></tr>'
+        '<tr><td align="center" style="padding:0 8px 22px 8px;font-family:%s;font-size:11px;color:#9ca3af;">'
+        '%s · <a href="%s" style="color:#9ca3af;">ver en el navegador</a></td></tr>'
+        '</table>%s</body></html>'
+        % (_html_escape_attr(titular), _html_escape_attr(titular), press_render.DEFAULT_FONT,
+           _html_escape_attr(enlace), cuerpo, press_render.DEFAULT_FONT,
+           _html_escape_attr((inv.created_by_nick or "").strip() or "33 Producciones"),
+           _html_escape_attr(enlace), pixel))
+
+
+def _corp_invite_lists(session_db, inv) -> list:
+    ids = [x for x in (inv.lists_json or []) if x] if isinstance(inv.lists_json, list) else []
+    if not ids:
+        return []
+    uuids = [u for u in (_safe_uuid(x) for x in ids) if u]
+    if not uuids:
+        return []
+    filas = (session_db.query(CorporateGuestList)
+             .filter(CorporateGuestList.id.in_(uuids)).all())
+    por_id = {str(f.id): f for f in filas}
+    return [por_id[str(i)] for i in ids if str(i) in por_id]
+
+
+def _corp_build_recipients(session_db, inv) -> int:
+    """Crea los destinatarios de la invitación a partir de sus listas. Devuelve cuántos son.
+
+    ⚠️ **Quien esté en varias listas recibe UNA sola** (se deduplica por correo) y el correo se
+    refresca de la ficha del tercero: si lo cambió, se manda al que vale hoy.
+    ⚠️ Quien no tiene correo no entra (no hay a dónde mandárselo); la pantalla dice cuántos son."""
+    vistos, filas = set(), []
+    for lst in _corp_invite_lists(session_db, inv):
+        invitados = (session_db.query(CorporateGuest)
+                     .options(joinedload(CorporateGuest.promoter))
+                     .filter(CorporateGuest.list_id == lst.id)
+                     .order_by(CorporateGuest.created_at.asc()).all())
+        for g in invitados:
+            prom = getattr(g, "promoter", None)
+            correo = ((_corp_promoter_email(prom) if prom is not None else "")
+                      or (g.email or "").strip().lower())
+            if not correo or correo in vistos:
+                continue
+            vistos.add(correo)
+            filas.append(CorporateInviteRecipient(
+                invite_id=inv.id, guest_id=g.id, promoter_id=g.promoter_id,
+                list_label=(lst.name or "").strip()[:120],
+                name=((g.name or "").strip() or (_promoter_display_name(prom) if prom is not None else ""))[:200],
+                email=correo, token=_uuid_token()))
+    for fila in filas:
+        session_db.add(fila)
+    inv.total = len(filas)
+    session_db.flush()
+    return len(filas)
+
+
+def _corp_recipients_preview(session_db, lists_ids: list) -> dict:
+    """Cuántos recibirían la invitación con esas listas marcadas (y cuántos se quedan fuera por no
+    tener correo). ⚠️ Es el MISMO criterio que el envío: el número que se ve antes de mandar es
+    exactamente a quién se le manda."""
+    uuids = [u for u in (_safe_uuid(x) for x in (lists_ids or [])) if u]
+    if not uuids:
+        return {"total": 0, "sin_correo": 0}
+    vistos, sin_correo = set(), 0
+    invitados = (session_db.query(CorporateGuest)
+                 .options(joinedload(CorporateGuest.promoter))
+                 .filter(CorporateGuest.list_id.in_(uuids)).all())
+    for g in invitados:
+        prom = getattr(g, "promoter", None)
+        correo = ((_corp_promoter_email(prom) if prom is not None else "")
+                  or (g.email or "").strip().lower())
+        if not correo:
+            sin_correo += 1
+            continue
+        vistos.add(correo)
+    return {"total": len(vistos), "sin_correo": sin_correo}
+
+
+def _corp_send_pending(session_db, inv) -> dict:
+    """Manda la invitación a los que quedan, durante ~45 s. Devuelve lo hecho y lo que queda.
+
+    ⚠️ Cada envío se guarda AL MOMENTO: si el servidor corta la petición, lo mandado está mandado y
+    al volver a pulsar salen solo los que faltan (nadie recibe dos veces)."""
+    pendientes = (session_db.query(CorporateInviteRecipient)
+                  .filter(CorporateInviteRecipient.invite_id == inv.id,
+                          CorporateInviteRecipient.status == "PENDIENTE")
+                  .order_by(CorporateInviteRecipient.id.asc()).all())
+    if not pendientes:
+        inv.status = "SENT"
+        inv.sent_at = inv.sent_at or _now_madrid()
+        session_db.commit()
+        return {"enviados": 0, "fallos": 0, "quedan": 0, "terminado": True}
+    remitente = _corp_sender(session_db, inv.user_id)
+    if not remitente.get("ok"):
+        inv.last_error = remitente.get("problem") or "No hay cuenta de correo configurada."
+        session_db.commit()
+        return {"enviados": 0, "fallos": 0, "quedan": len(pendientes), "terminado": False,
+                "error": inv.last_error}
+    inv.status = "SENDING"
+    inv.from_email = remitente["from_email"]
+    cuerpo_html = _corp_email_html(session_db, inv)
+    asunto = (inv.subject or "").strip() or "Te invito"
+    por_destino = {(r.email or "").strip().lower(): r for r in pendientes}
+
+    def personaliza(destinatario):
+        r = por_destino.get((destinatario or "").strip().lower())
+        tok = (r.token if (r is not None and r.token) else "") or "prueba"
+        html_p = cuerpo_html.replace(CORP_TOKEN_PLACEHOLDER, tok)
+        return html_p, _html_to_text(html_p)
+
+    enviados, fallos = 0, 0
+    t0 = time.monotonic()
+    for r in pendientes:
+        if time.monotonic() - t0 > CORP_INVITE_BUDGET_SECONDS:
+            break
+        try:
+            # `auto_submitted=False`: esto lo ESCRIBE una persona, no es un aviso de la máquina.
+            ok, error = _send_optional_email([r.email], asunto, cuerpo_html, personalize=personaliza,
+                                             from_name=remitente["from_name"], from_email=remitente["from_email"],
+                                             reply_to=remitente["reply_to"], account=remitente["account"],
+                                             auto_submitted=False)
+        except Exception as exc:
+            ok, error = False, str(exc)
+            app.logger.exception("[invitaciones corp] fallo inesperado mandando a %s", (r.email or "")[:80])
+        if ok:
+            r.status, r.error, r.sent_at = "ENVIADO", None, _now_madrid()
+            enviados += 1
+        else:
+            r.status, r.error = "ERROR", (error or "no se pudo enviar")[:400]
+            fallos += 1
+        session_db.commit()
+    inv.sent_ok = int(inv.sent_ok or 0) + enviados
+    inv.sent_fail = int(inv.sent_fail or 0) + fallos
+    quedan = (session_db.query(func.count(CorporateInviteRecipient.id))
+              .filter(CorporateInviteRecipient.invite_id == inv.id,
+                      CorporateInviteRecipient.status == "PENDIENTE").scalar() or 0)
+    if not quedan:
+        inv.status = "SENT"
+        inv.sent_at = inv.sent_at or _now_madrid()
+    session_db.commit()
+    return {"enviados": enviados, "fallos": fallos, "quedan": int(quedan), "terminado": not quedan}
+
+
+_CORP_BG_ACTIVE: set = set()
+_CORP_BG_GUARD = threading.Lock()
+
+
+def _corp_send_bg(invite_pk: str) -> None:
+    """Sigue mandando la invitación en un HILO hasta que no queden (el mismo patrón que los envíos a
+    compradores: la primera tanda va en la petición para ver al momento los errores de verdad)."""
+    clave = str(invite_pk)
+    with _CORP_BG_GUARD:
+        if clave in _CORP_BG_ACTIVE:
+            return
+        _CORP_BG_ACTIVE.add(clave)
+    try:
+        for _ronda in range(200):
+            s = db()
+            try:
+                inv = s.get(CorporateInvite, to_uuid(invite_pk))
+                if inv is None:
+                    return
+                datos = _corp_send_pending(s, inv)
+            except Exception:
+                app.logger.exception("[invitaciones corp] fallo mandando en segundo plano")
+                return
+            finally:
+                s.close()
+            if datos.get("terminado") or datos.get("error"):
+                return
+    finally:
+        with _CORP_BG_GUARD:
+            _CORP_BG_ACTIVE.discard(clave)
+
+
+def _corp_send_bg_start(invite_pk: str) -> None:
+    threading.Thread(target=_corp_send_bg, args=(str(invite_pk),), daemon=True).start()
+
+
+def _corp_invite_row(session_db, inv, *, stats: dict | None = None) -> dict:
+    """Una invitación tal como se ve en el listado: a qué actividad, a cuántos y **cuántos la han
+    abierto** (que es lo que se quiere saber de una invitación mandada)."""
+    d = stats or {}
+    total = int(inv.total or 0)
+    abiertos = int(d.get("abiertos") or 0)
+    concert = getattr(inv, "concert", None)
+    datos_act = _press_activity_data(session_db, {"concert_id": str(inv.concert_id)}) if inv.concert_id else {"pending": True}
+    pr = session_db.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
+    titular = (press_render.headline_of(pr.design or {}) if pr is not None else "") or ""
+    estado = (inv.status or "DRAFT").upper()
+    return {
+        "id": str(inv.id),
+        "status": estado,
+        "status_label": {"DRAFT": "Borrador", "SENDING": "Enviándose", "SENT": "Enviada"}.get(estado, estado),
+        "subject": (inv.subject or "").strip() or titular or "Sin asunto",
+        "headline": titular,
+        "concert_id": str(inv.concert_id) if inv.concert_id else "",
+        "concert_url": url_for("concert_detail_view", cid=inv.concert_id) if inv.concert_id else "",
+        "activity": (None if datos_act.get("pending") else datos_act),
+        "activity_date": (inv.activity_date.isoformat() if inv.activity_date else ""),
+        "total": total,
+        "sent_ok": int(inv.sent_ok or 0),
+        "sent_fail": int(inv.sent_fail or 0),
+        "opened": abiertos,
+        "opened_pct": (round(abiertos * 100.0 / total) if total else 0),
+        "sent_label": (inv.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if inv.sent_at else ""),
+        # El instante en crudo, SOLO para ordenar (la etiqueta es para leer, no para comparar).
+        "order_ts": ((inv.sent_at or inv.created_at).timestamp() if (inv.sent_at or inv.created_at) else 0.0),
+        "created_label": (inv.created_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if inv.created_at else ""),
+        "by": (inv.created_by_nick or "").strip(),
+        "lists": [(l.name or "").strip() for l in _corp_invite_lists(session_db, inv)],
+        "has_design": bool(pr is not None and press_render.blocks_of(pr.design or {})),
+        "design_url": (url_for("promo_press_edit", release_id=inv.design_release_id)
+                       if inv.design_release_id else ""),
+        "detail_url": url_for("corporate_invite_detail_view", invite_id=inv.id),
+        "concert_label": (getattr(getattr(concert, "artist", None), "name", "") or "") if concert is not None else "",
+    }
+
+
+def _corp_invite_sort_key(fila: dict):
+    """⚠️ **LAS MÁS PRÓXIMAS PRIMERO Y LAS MÁS ANTIGUAS DESPUÉS** (lo pidió Dani). Lo que ordena una
+    invitación es CUÁNDO ES LO QUE SE INVITA: primero las actividades que están **por venir**, de la
+    más cercana a la más lejana, y detrás las que ya pasaron, de la más reciente a la más antigua.
+    Una invitación sin actividad se ordena por **cuándo se hizo**, junto a las pasadas.
+
+    ⚠️ La fila trae el instante en crudo (`order_ts`, negativo para que «lo más reciente primero»
+    sea un orden ascendente normal): ordenar por la etiqueta «17/09/2026 21:11» ordenaría por el DÍA
+    del mes, que es la trampa de siempre con una fecha escrita para leer."""
+    hoy = date.today()
+    fecha = None
+    if fila.get("activity_date"):
+        try:
+            fecha = date.fromisoformat(fila["activity_date"])
+        except Exception:
+            fecha = None
+    if fecha is not None and fecha >= hoy:
+        return (0, (fecha - hoy).days, 0.0)
+    dias = (hoy - fecha).days if fecha is not None else 10 ** 6
+    return (1, dias, -float(fila.get("order_ts") or 0.0))
+
+
+def _corp_invites_rows(session_db, user_id) -> list[dict]:
+    """Las invitaciones de esa persona, ya ordenadas (las más próximas primero)."""
+    invites = (session_db.query(CorporateInvite)
+               .options(joinedload(CorporateInvite.concert).joinedload(Concert.artist))
+               .filter(CorporateInvite.user_id == user_id)
+               .order_by(CorporateInvite.created_at.desc()).all())
+    if not invites:
+        return []
+    ids = [i.id for i in invites]
+    abiertos = dict(session_db.query(CorporateInviteRecipient.invite_id,
+                                     func.count(CorporateInviteRecipient.id))
+                    .filter(CorporateInviteRecipient.invite_id.in_(ids),
+                            CorporateInviteRecipient.opened_at.isnot(None))
+                    .group_by(CorporateInviteRecipient.invite_id).all())
+    filas = [_corp_invite_row(session_db, i, stats={"abiertos": abiertos.get(i.id, 0)}) for i in invites]
+    filas.sort(key=_corp_invite_sort_key)
+    return filas
+
+
+def _corp_invite_mine(session_db, invite_id, user_id):
+    """La invitación, si es SUYA (dirección entra en todas)."""
+    iid = _safe_uuid(invite_id)
+    if not iid:
+        return None
+    inv = session_db.get(CorporateInvite, iid)
+    if inv is None:
+        return None
+    if str(inv.user_id or "") != str(user_id) and not is_master():
+        return None
+    return inv
+
+
+def _corp_activity_options(session_db) -> list[dict]:
+    """Las actividades a las que se puede invitar: las que están POR VENIR, de la más próxima a la
+    más lejana (a nadie se le invita a lo que ya fue, ni a lo cancelado o aplazado)."""
+    filas = []
+    try:
+        for c in (session_db.query(Concert)
+                  .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                  .filter(Concert.date >= date.today(),
+                          func.coalesce(Concert.status, "").notin_(["CANCELADO", "APLAZADO"]))
+                  .order_by(Concert.date.asc()).limit(120).all()):
+            datos = _press_activity_data(session_db, {"concert_id": str(c.id)})
+            if datos.get("pending"):
+                continue
+            filas.append({
+                "id": str(c.id), "name": datos.get("artist_name") or "Actividad",
+                "photo": datos.get("poster_url") or datos.get("artist_photo") or "",
+                "kind_label": datos.get("kind_label") or "",
+                "date_label": datos.get("date_label") or "",
+                "venue_label": datos.get("venue_label") or "",
+                "date": c.date.isoformat() if c.date else "",
+            })
+    except Exception:
+        app.logger.exception("[invitaciones corp] no se pudieron leer las actividades")
+    return filas
+
+
+# ── LAS PANTALLAS ────────────────────────────────────────────────────────────────────────────
+
+@app.get("/invitaciones-corporativas", endpoint="corporate_invites_view")
+@admin_required
+def corporate_invites_view():
+    """ENVIAR INVITACIONES CORPORATIVAS: arriba las YA ENVIADAS (con cuántos las han abierto) y el
+    botón de crear una nueva; debajo, «Mi lista de invitados corporativos»."""
+    s = db()
+    try:
+        uid = _corp_user_id()
+        if not uid:
+            flash("Vuelve a entrar para usar las invitaciones corporativas.", "warning")
+            return redirect(url_for("home"))
+        listas = [_corp_list_row(s, l) for l in _corp_my_lists(s, uid)]
+        remitente = _corp_sender(s, uid)
+        return render_template(
+            "corporate_invites.html",
+            invites=_corp_invites_rows(s, uid),
+            lists=listas,
+            activities=_corp_activity_options(s),
+            sender=remitente,
+            open_invite=(request.args.get("invitacion") or "").strip(),
+            open_tab=(request.args.get("tab") or "").strip(),
+        )
+    finally:
+        s.close()
+
+
+@app.get("/invitaciones-corporativas/<invite_id>", endpoint="corporate_invite_detail_view")
+@admin_required
+def corporate_invite_detail_view(invite_id):
+    """La ficha de una invitación: a quién se le mandó, quién la ha abierto y a quién no le llegó."""
+    s = db()
+    try:
+        uid = _corp_user_id()
+        inv = _corp_invite_mine(s, invite_id, uid)
+        if inv is None:
+            flash("Esa invitación no existe (o no es tuya).", "warning")
+            return redirect(url_for("corporate_invites_view"))
+        abiertos = (s.query(func.count(CorporateInviteRecipient.id))
+                    .filter(CorporateInviteRecipient.invite_id == inv.id,
+                            CorporateInviteRecipient.opened_at.isnot(None)).scalar() or 0)
+        filas = (s.query(CorporateInviteRecipient)
+                 .filter(CorporateInviteRecipient.invite_id == inv.id)
+                 .order_by(CorporateInviteRecipient.opened_at.desc().nullslast(),
+                           CorporateInviteRecipient.name.asc()).all())
+        pr = s.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
+        return render_template(
+            "corporate_invite_detail.html",
+            invite=_corp_invite_row(s, inv, stats={"abiertos": abiertos}),
+            recipients=[{
+                "name": (r.name or "").strip() or (r.email or ""),
+                "email": (r.email or ""),
+                "list_label": (r.list_label or ""),
+                "status": (r.status or ""),
+                "error": (r.error or ""),
+                "sent_label": (r.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.sent_at else ""),
+                "opened": bool(r.opened_at),
+                "opened_label": (r.opened_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.opened_at else ""),
+                "open_count": int(r.open_count or 0),
+                "promoter_url": (url_for("promoter_detail_view", pid=r.promoter_id) if r.promoter_id else ""),
+            } for r in filas],
+            web_html=(_press_web_html(s, pr, pr.public_token) if pr is not None else ""),
+        )
+    finally:
+        s.close()
+
+
+# ── LAS LISTAS: crear, renombrar, borrar, añadir y quitar gente ──────────────────────────────
+
+@app.post("/invitaciones-corporativas/listas/crear", endpoint="corporate_list_create")
+@admin_required
+def corporate_list_create():
+    s = db()
+    try:
+        uid = _corp_user_id()
+        nombre = (request.form.get("name") or "").strip()[:120]
+        if not uid or not nombre:
+            _flash_form_error("Ponle un nombre a la lista.", campos=["name"], abrir="#corpListModal")
+            return redirect(url_for("corporate_invites_view", tab="listas"))
+        lst = CorporateGuestList(user_id=uid, name=nombre)
+        s.add(lst)
+        s.commit()
+        flash("Lista «%s» creada." % nombre, "success")
+        return redirect(url_for("corporate_invites_view", tab="listas", lista=str(lst.id)))
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo crear la lista")
+        flash("No se pudo crear la lista.", "danger")
+        return redirect(url_for("corporate_invites_view", tab="listas"))
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/listas/<list_id>/renombrar", endpoint="corporate_list_rename")
+@admin_required
+def corporate_list_rename(list_id):
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+        nombre = (request.form.get("name") or "").strip()[:120]
+        if not nombre:
+            return jsonify({"ok": False, "error": "Ponle un nombre a la lista."}), 400
+        lst.name = nombre
+        lst.updated_at = _now_madrid()
+        s.commit()
+        return jsonify({"ok": True, "name": nombre})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo renombrar la lista")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/listas/<list_id>/eliminar", endpoint="corporate_list_delete")
+@admin_required
+def corporate_list_delete(list_id):
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            flash("Esa lista no es tuya.", "warning")
+            return redirect(url_for("corporate_invites_view", tab="listas"))
+        nombre = lst.name
+        # ⚠️ Se borra la LISTA, no los terceros: sus fichas siguen en la base de datos.
+        s.delete(lst)
+        s.commit()
+        flash("Lista «%s» eliminada (los contactos siguen en Terceros)." % nombre, "success")
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo eliminar la lista")
+        flash("No se pudo eliminar la lista.", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("corporate_invites_view", tab="listas"))
+
+
+@app.get("/invitaciones-corporativas/listas/<list_id>/invitados", endpoint="corporate_list_guests")
+@admin_required
+def corporate_list_guests(list_id):
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+        return jsonify({"ok": True, **_corp_list_row(s, lst, con_invitados=True)})
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/listas/<list_id>/invitados", endpoint="corporate_guest_add")
+@admin_required
+def corporate_guest_add(list_id):
+    """Añadir a alguien: un TERCERO que ya está (`promoter_id`) o uno nuevo (que se crea)."""
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+        pid = _safe_uuid(request.form.get("promoter_id"))
+        nombre = (request.form.get("name") or "").strip()[:200]
+        correo = (request.form.get("email") or "").strip().lower()[:200]
+        telefono = (request.form.get("phone") or "").strip()[:60]
+        prom = s.get(Promoter, pid) if pid else None
+        if prom is None:
+            if not correo:
+                return jsonify({"ok": False, "error": "Hace falta el correo: es a donde se manda la invitación."}), 400
+            # ⚠️ Un correo que YA tenemos es el MISMO tercero: no se crea otra ficha (es el criterio
+            # de la importación de terceros y de los contactos de medios).
+            indices = _promoter_import_indexes(s)
+            existente = (indices.get("email") or {}).get(correo)
+            prom = s.get(Promoter, to_uuid(existente)) if existente else None
+            if prom is None:
+                prom = Promoter(nick=_intake_promoter_nick(s, (nombre or correo)[:120]),
+                                contact_email=correo, contact_phone=telefono or None)
+                partes = nombre.split()
+                if len(partes) >= 2:
+                    prom.first_name, prom.last_name = partes[0], " ".join(partes[1:])
+                elif partes:
+                    prom.first_name = partes[0]
+                s.add(prom)
+                s.flush()
+            else:
+                if telefono and not (prom.contact_phone or "").strip():
+                    prom.contact_phone = telefono
+        ok, motivo = _corp_guest_add(s, lst, promoter=prom, name=nombre, email=correo, phone=telefono)
+        s.commit()
+        if not ok:
+            return jsonify({"ok": False, "error": "Esa persona %s en esta lista." % (motivo or "ya estaba")}), 400
+        return jsonify({"ok": True, **_corp_list_row(s, lst, con_invitados=True)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo añadir el invitado")
+        return jsonify({"ok": False, "error": "No se pudo añadir."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/invitados/<guest_id>/quitar", endpoint="corporate_guest_remove")
+@admin_required
+def corporate_guest_remove(guest_id):
+    s = db()
+    try:
+        g = s.get(CorporateGuest, _safe_uuid(guest_id)) if _safe_uuid(guest_id) else None
+        lst = _corp_list_mine(s, (g.list_id if g is not None else None), _corp_user_id())
+        if g is None or lst is None:
+            return jsonify({"ok": False, "error": "Ese invitado no es de una lista tuya."}), 404
+        s.delete(g)
+        s.commit()
+        return jsonify({"ok": True, **_corp_list_row(s, lst, con_invitados=True)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo quitar el invitado")
+        return jsonify({"ok": False, "error": "No se pudo quitar."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/listas/<list_id>/importar", endpoint="corporate_list_import")
+@admin_required
+def corporate_list_import(list_id):
+    """SUBIR UN FICHERO: crea los terceros que no existan y engancha los que ya están (por correo)."""
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+        f = request.files.get("file")
+        if f is None or not (f.filename or "").strip():
+            return jsonify({"ok": False, "error": "Elige un fichero (Excel o CSV)."}), 400
+        try:
+            datos = f.read()
+        except Exception:
+            return jsonify({"ok": False, "error": "No se pudo leer el fichero."}), 400
+        try:
+            filas = _corp_import_rows(datos, f.filename or "")
+        except Exception as exc:
+            app.logger.exception("[invitaciones corp] no se pudo leer el fichero")
+            return jsonify({"ok": False, "error": "No se pudo leer el fichero (%s)." % str(exc)[:120]}), 400
+        if not filas:
+            return jsonify({"ok": False, "error": "El fichero no trae ninguna fila con nombre, correo o teléfono."}), 400
+        res = _corp_import_apply(s, lst, filas)
+        partes = []
+        if res["creados"]:
+            partes.append("%d nuevo%s" % (res["creados"], "" if res["creados"] == 1 else "s"))
+        if res["enganchados"]:
+            partes.append("%d que ya estaba%s en la base de datos" % (res["enganchados"], "" if res["enganchados"] == 1 else "n"))
+        if res["repetidos"]:
+            partes.append("%d que ya estaba%s en la lista" % (res["repetidos"], "" if res["repetidos"] == 1 else "n"))
+        if res["sin_correo"]:
+            partes.append("%d sin correo (no se pueden invitar)" % res["sin_correo"])
+        return jsonify({"ok": True, "message": "Importado: " + (", ".join(partes) or "nada nuevo") + ".",
+                        **_corp_list_row(s, lst, con_invitados=True)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo importar el fichero")
+        return jsonify({"ok": False, "error": "No se pudo importar el fichero."}), 500
+    finally:
+        s.close()
+
+
+# ── LA INVITACIÓN: crear, diseñar, enviar ────────────────────────────────────────────────────
+
+@app.post("/invitaciones-corporativas/nueva", endpoint="corporate_invite_create")
+@admin_required
+def corporate_invite_create():
+    """Crea la invitación en BORRADOR con sus listas y su actividad, y lleva al EDITOR del correo."""
+    s = db()
+    try:
+        uid = _corp_user_id()
+        if not uid:
+            flash("Vuelve a entrar para crear una invitación.", "warning")
+            return redirect(url_for("home"))
+        listas = [x for x in request.form.getlist("lists") if (x or "").strip()]
+        mias = {str(l.id) for l in _corp_my_lists(s, uid)}
+        listas = [x for x in listas if x in mias]
+        if not listas:
+            _flash_form_error("Marca al menos una lista de invitados.", campos=["lists"], abrir="#corpInviteModal")
+            return redirect(url_for("corporate_invites_view"))
+        cid = _safe_uuid(request.form.get("concert_id"))
+        concert = s.get(Concert, cid) if cid else None
+        inv = CorporateInvite(
+            user_id=uid, created_by_nick=_corp_nick(),
+            subject=(request.form.get("subject") or "").strip()[:200] or None,
+            concert_id=(concert.id if concert is not None else None),
+            activity_date=(concert.date if concert is not None else None),
+            lists_json=listas, status="DRAFT")
+        s.add(inv)
+        s.flush()
+        pr = _corp_design_ensure(s, inv)
+        s.commit()
+        return redirect(url_for("promo_press_edit", release_id=pr.id))
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo crear la invitación")
+        flash("No se pudo crear la invitación.", "danger")
+        return redirect(url_for("corporate_invites_view"))
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/<invite_id>/guardar", endpoint="corporate_invite_save")
+@admin_required
+def corporate_invite_save(invite_id):
+    """Guarda el asunto y a qué listas va (lo que se ajusta en el pop-up antes de mandar)."""
+    s = db()
+    try:
+        uid = _corp_user_id()
+        inv = _corp_invite_mine(s, invite_id, uid)
+        if inv is None:
+            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+        if (inv.status or "DRAFT").upper() != "DRAFT":
+            return jsonify({"ok": False, "error": "Esta invitación ya se ha mandado."}), 400
+        if "subject" in request.form:
+            inv.subject = (request.form.get("subject") or "").strip()[:200] or None
+        if request.form.getlist("lists"):
+            mias = {str(l.id) for l in _corp_my_lists(s, inv.user_id)}
+            from sqlalchemy.orm.attributes import flag_modified
+            inv.lists_json = [x for x in request.form.getlist("lists") if x in mias]
+            flag_modified(inv, "lists_json")
+        s.commit()
+        return jsonify({"ok": True, **_corp_recipients_preview(s, inv.lists_json or [])})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo guardar")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/<invite_id>/eliminar", endpoint="corporate_invite_delete")
+@admin_required
+def corporate_invite_delete(invite_id):
+    s = db()
+    try:
+        inv = _corp_invite_mine(s, invite_id, _corp_user_id())
+        if inv is None:
+            flash("Esa invitación no es tuya.", "warning")
+            return redirect(url_for("corporate_invites_view"))
+        if (inv.status or "DRAFT").upper() == "SENT":
+            flash("Una invitación ya enviada no se borra: queda como registro de lo que salió.", "warning")
+            return redirect(url_for("corporate_invites_view"))
+        s.delete(inv)
+        s.commit()
+        flash("Borrador eliminado.", "success")
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo eliminar")
+        flash("No se pudo eliminar.", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("corporate_invites_view"))
+
+
+@app.get("/invitaciones-corporativas/<invite_id>/previsualizar", endpoint="corporate_invite_preview")
+@admin_required
+def corporate_invite_preview(invite_id):
+    """El correo TAL CUAL va a salir (el mismo HTML que el envío: no hay una segunda versión)."""
+    s = db()
+    try:
+        inv = _corp_invite_mine(s, invite_id, _corp_user_id())
+        if inv is None:
+            abort(404)
+        html = _corp_email_html(s, inv, token="prueba")
+        resp = make_response(html or "<p>Todavía no has diseñado el contenido.</p>")
+        resp.headers["Content-Type"] = "text/html; charset=utf-8"
+        return resp
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/<invite_id>/enviar", endpoint="corporate_invite_send")
+@admin_required
+def corporate_invite_send(invite_id):
+    """ENVIAR: comprueba que hay diseño y que esa persona tiene su correo configurado, monta los
+    destinatarios y manda la primera tanda aquí (el resto en segundo plano)."""
+    s = db()
+    try:
+        uid = _corp_user_id()
+        inv = _corp_invite_mine(s, invite_id, uid)
+        if inv is None:
+            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+        if (inv.status or "DRAFT").upper() == "SENT":
+            return jsonify({"ok": False, "error": "Esta invitación ya se ha mandado."}), 400
+        if not _corp_has_design(s, inv):
+            return jsonify({"ok": False, "error": "Antes hay que diseñar el contenido de la invitación.",
+                            "design_url": (url_for("promo_press_edit", release_id=inv.design_release_id)
+                                           if inv.design_release_id else "")}), 400
+        # ⚠️⚠️ SALE DESDE EL CORREO DE QUIEN LA MANDA: si no lo tiene en Integraciones, no se manda
+        # y se dice qué hacer (lo pidió Dani). Nunca se manda «como» otra dirección.
+        remitente = _corp_sender(s, inv.user_id)
+        if not remitente.get("ok"):
+            return jsonify({"ok": False, "error": remitente.get("problem"),
+                            "settings_url": remitente.get("url"), "needs_mail": True}), 400
+        if not (inv.subject or "").strip():
+            pr = s.get(PressRelease, inv.design_release_id)
+            inv.subject = (press_render.headline_of(pr.design or {}) if pr is not None else "") or "Te invito"
+        ya = (s.query(func.count(CorporateInviteRecipient.id))
+              .filter(CorporateInviteRecipient.invite_id == inv.id).scalar() or 0)
+        total = int(ya) if ya else _corp_build_recipients(s, inv)
+        if not total:
+            return jsonify({"ok": False, "error": "No hay nadie con correo en las listas marcadas."}), 400
+        s.commit()
+        resultado = _corp_send_pending(s, inv)
+        if resultado.get("quedan") and not resultado.get("error"):
+            _corp_send_bg_start(str(inv.id))
+        return jsonify({"ok": True, "total": total, **resultado})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo enviar")
+        return jsonify({"ok": False, "error": "No se pudo enviar."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/<invite_id>/seguir", endpoint="corporate_invite_continue")
+@admin_required
+def corporate_invite_continue(invite_id):
+    s = db()
+    try:
+        inv = _corp_invite_mine(s, invite_id, _corp_user_id())
+        if inv is None:
+            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+        resultado = _corp_send_pending(s, inv)
+        if resultado.get("quedan") and not resultado.get("error"):
+            _corp_send_bg_start(str(inv.id))
+        return jsonify({"ok": True, **resultado})
+    finally:
+        s.close()
+
+
+@app.get("/invitaciones-corporativas/<invite_id>/estado", endpoint="corporate_invite_status")
+@admin_required
+def corporate_invite_status(invite_id):
+    s = db()
+    try:
+        inv = _corp_invite_mine(s, invite_id, _corp_user_id())
+        if inv is None:
+            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+        filas = dict(s.query(CorporateInviteRecipient.status, func.count(CorporateInviteRecipient.id))
+                     .filter(CorporateInviteRecipient.invite_id == inv.id)
+                     .group_by(CorporateInviteRecipient.status).all())
+        quedan = int(filas.get("PENDIENTE", 0) or 0)
+        return jsonify({"ok": True, "total": int(inv.total or 0),
+                        "enviados": int(filas.get("ENVIADO", 0) or 0),
+                        "fallos": int(filas.get("ERROR", 0) or 0),
+                        "quedan": quedan, "terminado": not quedan,
+                        "enviando": str(inv.id) in _CORP_BG_ACTIVE,
+                        "detail_url": url_for("corporate_invite_detail_view", invite_id=inv.id)})
+    finally:
+        s.close()
+
+
+@app.get("/ic/<token>/a.gif", endpoint="public_corporate_invite_open")
+def public_corporate_invite_open(token):
+    """El píxel del correo: al cargarse, esa persona ha ABIERTO la invitación."""
+    s = db()
+    try:
+        r = (s.query(CorporateInviteRecipient)
+             .filter(CorporateInviteRecipient.token == (token or "")).first())
+        if r is not None:
+            r.open_count = int(r.open_count or 0) + 1
+            if not r.opened_at:
+                r.opened_at = _now_madrid()
+            s.commit()
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+    finally:
+        s.close()
+    gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    resp = make_response(gif)
+    resp.headers["Content-Type"] = "image/gif"
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 # ⚠️⚠️ LAS EXENCIONES DE CSRF VAN AL FINAL DEL FICHERO, cuando ya están registradas TODAS las

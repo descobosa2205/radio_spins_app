@@ -16,6 +16,7 @@
 - GENERAR INVITACIONES · lote 3: el CONTROL DE ACCESO. Solo cuando la actividad
 - INVITACIONES · «Por contrato» / «Disponibles» / «?». En el listado de
 - INVITACIONES · «DISPONIBLES» ES LO QUE HAY SUBIDO Y LIBRE, NO EL CUPO DEL CONTRATO
+- INVITACIONES CORPORATIVAS · «Mi lista de invitados» y el envío desde el correo de cada uno
 - EL DÍA DEL EVENTO · INVITACIONES SIN REPARTIR (sep 2026, _home_invitation_leftovers →
 
 ---
@@ -324,3 +325,66 @@
   ⚠️ Los números salen de `_invitation_ficha_header_counts`, el MISMO que pinta las galletas de la
   cabecera de invitaciones: no pueden decir cosas distintas.
 
+- ⚠️⚠️ **INVITACIONES CORPORATIVAS · LA LISTA DE INVITADOS DE CADA UNO Y EL ENVÍO DESDE SU CORREO**
+  (sep 2026, lo pidió Dani). **Esto NO son las invitaciones de un evento** (las entradas que se
+  piden, se asignan y se envían, que es todo lo de arriba): es lo que manda **una persona de la
+  casa en su nombre** para invitar a SUS contactos a una actividad. Por eso es una función
+  **PERSONAL**: la tiene **todo el mundo** (botón en Inicio, sin permiso que conceder) y cada uno
+  solo ve lo suyo. Pantalla: **`/invitaciones-corporativas`** (`corporate_invites.html` +
+  `static/js/corporate_invites.js`, estilos `.ci-*`).
+  · **MIS LISTAS** (`CorporateGuestList` + `CorporateGuest`): varias por persona («Prensa»,
+  «Patrocinadores»…). **Un invitado ES UN TERCERO** (`promoter_id`): los datos de una persona viven
+  en su ficha, nunca duplicados —la regla de la casa—. Se añade **buscando entre los terceros** (el
+  buscador de siempre, `api_search_promoters`) o escribiendo a alguien nuevo, y entonces se le crea
+  su ficha; si ese **correo ya lo tenemos, se usa esa ficha** en vez de crear otra.
+  · **SUBIR UN FICHERO** (`_corp_import_rows` + `_corp_import_apply`): el **mismo lector** que la
+  importación de terceros (`promoter_import.parse_file`), del que aquí solo interesan nombre, correo
+  y teléfono. **Crea los terceros que no existan y engancha los que ya están** (por su correo, el de
+  la ficha y el de sus correos adicionales), **sin pisar** lo que ya está escrito: solo se completa
+  lo vacío. ⚠️ Una fila **sin correo no entra** (no hay a dónde mandarle nada) y **se dice cuántas**
+  se han quedado fuera. Reimportar el mismo fichero **deja lo mismo** (comprobado).
+  · **EL CONTENIDO ES UN DISEÑO**: un `PressRelease` con **`purpose='INVITE'`**
+  (`CorporateInvite.design_release_id`), o sea **el MISMO editor y las mismas plantillas** que el
+  correo de un envío a compradores — un solo editor que mantener. `_press_is_press_clause()` lo deja
+  fuera de las notas de prensa y la página pública dice **«Invitación»**.
+  · **EL MÓDULO «DATOS DE LA ACTIVIDAD»** (`press_render` tipo `activity`, punto único
+  **`_press_activity_data`**): **una sola viñeta** con **el CARTEL a la izquierda** y, a la derecha,
+  los datos **uno debajo de otro con su icono** — qué es (Concierto, Festival…), el **artista con su
+  foto**, la **fecha con su día de la semana** (`format_date_long_es`), el **recinto** y la **hora de
+  comienzo**. Se arrastra desde la barra de la derecha, **vacío** (y se elige qué actividad) o ya
+  puesto; se pueden poner **todos los que hagan falta**. ⚠️ Vale en **los tres editores** (notas de
+  prensa, envíos a compradores e invitaciones): está en el motor. Y al crear una invitación **para
+  una actividad, el módulo nace ya puesto**. Solo se ofrecen las actividades **por venir** (ni las
+  canceladas ni las aplazadas: a nadie se le invita a lo que ya fue).
+  ⚠️ El cartel es el **primero aprobado de categoría POSTER** (`_concert_artwork_share_assets`): un
+  cartel de **Sold Out** o un logo no valen.
+  · ⚠️⚠️ **SALE DESDE EL CORREO DE QUIEN LA MANDA** (`_corp_sender` → punto único
+  **`_user_mail_account`**, el mismo de las presentaciones a radio): quien la recibe **contesta a esa
+  persona**, no a un buzón de la app. **Si no lo tiene dado de alta en Integraciones → Correo NO se
+  manda** y se dice qué hacer —y el enlace a Integraciones **solo se pinta a quien puede entrar**
+  (es de dirección); al resto se le dice que se lo pida—. El aviso sale **en la pantalla**, antes de
+  ponerse a diseñar algo que luego no se podría enviar.
+  · **EL LISTADO: las ya enviadas con CUÁNTOS LA HAN ABIERTO** y, debajo de cada una, crear otra
+  nueva. La apertura es el **píxel** del correo (`/ic/<token>/a.gif`,
+  `public_corporate_invite_open`, con **un token por persona**), igual que en las notas de prensa; la
+  ficha dice **quién** la abrió y a quién **no le llegó**. ⚠️ Se advierte en la ficha de que quien
+  tenga las imágenes bloqueadas puede haberla leído sin aparecer.
+  · ⚠️ **LAS MÁS PRÓXIMAS PRIMERO Y LAS MÁS ANTIGUAS DESPUÉS** (`_corp_invite_sort_key`): lo que
+  ordena una invitación es **cuándo es lo que se invita** —primero las actividades por venir, de la
+  más cercana a la más lejana, y detrás las pasadas de la más reciente a la más antigua—.
+  · **Se manda POR TANDAS** (~45 s, la primera en la petición y el resto en un hilo), con cada
+  destinatario marcado en cuanto se le manda: si el hilo muere se sigue y **nadie recibe dos veces**.
+  Quien está en **varias listas recibe UNA sola** (dedupe por correo).
+  · ⚠️ **PERMISOS**: todos sus endpoints van en **`PERSONAL_ENDPOINTS`** (datos propios) y la
+  propiedad se comprueba **dentro** (`_corp_list_mine` / `_corp_invite_mine`). El **editor** sobre un
+  diseño `INVITE` se deja pasar en `_support_endpoint_decision` y la llave fina la pone
+  `_press_edit_ok` → **`_corp_design_is_mine`**: son endpoints `promo_press_*` pero **no** son la
+  sección Promoción.
+  ⚠️⚠️ **`url_for("concert_detail_view")` toma `cid`, NO `concert_id`** (bug real cazado por la
+  prueba): con el nombre mal, `url_for` revienta y **se cae la pantalla entera** (la de «cerrado por
+  mantenimiento»). Es la trampa de siempre: un nombre de parámetro no se adivina, se mira.
+  ⚠️ Probado con la app real (`/tmp/ci/test_corp.py`, **94 comprobaciones**): el módulo y sus datos,
+  la paleta, las listas, el fichero (crea, engancha, no duplica y reimportar deja lo mismo), crear ·
+  diseñar · enviar, que sin correo configurado no se manda, que sale desde el suyo, las aperturas,
+  que nadie ve lo de nadie, el botón de Inicio para todos y el orden del listado. Y `check_divs`
+  (212 pantallas), `check_botones`, `check_permisos`, `check_access_coverage` y `check_press_render`.

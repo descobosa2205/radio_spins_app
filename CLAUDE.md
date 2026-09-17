@@ -134,6 +134,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_audio_tags.py` | metadatos que se escriben en lo que se descarga | al tocar `audio_tags.py` |
 | `check_press_render.py` | notas de prensa: el correo sale como se ve en el editor | al tocar `press_render.py` |
 | `check_hoja_ruta.py` · `check_externos.py` · `check_invitaciones_generadas.py` | esas épicas de punta a punta con la app real | al tocarlas |
+| `check_invitaciones_corporativas.py` | la lista de invitados de cada uno y su envío (el módulo de la actividad, el fichero, que sale desde su correo y que nadie ve lo de nadie) | al tocar las invitaciones corporativas o el editor de diseños |
 | `check_anuncio_carteleria.py` | pedirle al promotor la fecha de anuncio y los carteles, los dos vistos buenos y el recordatorio del día | al tocar el anuncio o la cartelería |
 | `check_promotor.py` | confirmarle la actividad al promotor y la ficha donde rellena lo que falta (y que nada se carga sin revisarlo) | al tocar el aviso al promotor o la ficha de contratación |
 | `check_soldout.py` | el Sold Out de punta a punta: a quién se avisa, la tarea de comunicárselo (bloqueada sin cartel), el correo y la tarea de redes | al tocar el Sold Out |
@@ -531,7 +532,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 ### Ventas, invitaciones y producción
 - **`ventas-ticketing.md`** — actualizar ventas, el reporte, salida a la venta, Enterticket, aforo.
   ⚠️ *La recaudación solo es nuestra si la promueve o participa una empresa del grupo.*
-- **`invitaciones.md`** — gestión, invitaciones generadas con QR y control de acceso.
+- **`invitaciones.md`** — gestión, invitaciones generadas con QR y control de acceso, y las
+  **invitaciones corporativas** (la lista de invitados de cada uno y el envío desde SU correo).
+  ⚠️ *Son cosas distintas: las de un evento son entradas; una corporativa la manda una persona.*
 - **`produccion-hoja-ruta.md`** — hoja de ruta (horarios, logística, hoteles, rooming, personal,
   repertorio), riders y plantillas, mensajes al personal. ⚠️ *Lo que ve cada uno se filtra en el
   SERVIDOR: el payload entero va en el HTML.*

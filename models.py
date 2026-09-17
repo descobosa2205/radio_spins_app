@@ -15449,3 +15449,192 @@ def ensure_afavor_schema():
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_afavor_items_song ON afavor_items(liquidation_id, song_id) WHERE song_id IS NOT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_afavor_items_album ON afavor_items(liquidation_id, album_id) WHERE album_id IS NOT NULL;",
     ], "afavor_schema")
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# INVITACIONES CORPORATIVAS · «Mi lista de invitados» y los envíos de cada persona
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# ⚠️ Esto NO son las invitaciones de un evento (las entradas que se piden y se asignan: ver
+# `InvitationRequest`). Esto es lo que manda una persona de la casa **en su nombre**: invita a sus
+# contactos a una actividad con un correo diseñado, desde SU buzón. Por eso todo cuelga del usuario.
+
+
+class CorporateGuestList(Base):
+    """UNA LISTA de invitados corporativos. Cada persona de la casa tiene LAS SUYAS (puede tener
+    varias: «Prensa», «Patrocinadores», «Amigos de la casa»…) y no ve las de nadie más."""
+
+    __tablename__ = "corporate_guest_lists"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    guests = relationship("CorporateGuest", back_populates="guest_list",
+                          cascade="all, delete-orphan", order_by="CorporateGuest.created_at")
+
+    __table_args__ = (Index("idx_corp_guest_lists_user", "user_id", "created_at"),)
+
+
+class CorporateGuest(Base):
+    """UN INVITADO de una lista. **Es un TERCERO** (`promoter_id`): los datos de una persona viven
+    en su ficha, nunca duplicados — por eso el fichero que se sube crea los que no existan y engancha
+    los que ya están (por su correo).
+    ⚠️ El correo se guarda AQUÍ ADEMÁS de en la ficha porque es al que se le mandó/manda: si mañana
+    cambia el de la ficha, lo enviado sigue diciendo la verdad. Al mandar se refresca del tercero."""
+
+    __tablename__ = "corporate_guests"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    list_id = Column(PGUUID(as_uuid=True), ForeignKey("corporate_guest_lists.id", ondelete="CASCADE"),
+                     nullable=False)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"))
+    name = Column(Text)
+    email = Column(Text)
+    phone = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    guest_list = relationship("CorporateGuestList", back_populates="guests")
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        # Nadie dos veces en la misma lista (es lo que se comprueba al añadir y al importar).
+        Index("uq_corp_guest_email", "list_id", "email", unique=True,
+              postgresql_where=text("email IS NOT NULL AND email <> ''")),
+        Index("idx_corp_guests_list", "list_id"),
+    )
+
+
+class CorporateInvite(Base):
+    """UN ENVÍO de invitación corporativa. El CONTENIDO es un DISEÑO (`PressRelease` con
+    `purpose='INVITE'`), el mismo editor y las mismas plantillas que el correo de un envío a
+    compradores. Sale **desde el buzón de quien lo genera** (`MailAccount` de esa persona)."""
+
+    __tablename__ = "corporate_invites"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    subject = Column(Text)                       # el asunto (vacío = el titular del diseño)
+    # La ACTIVIDAD a la que se invita (opcional): es lo que ordena el listado —las más próximas
+    # primero— y lo que rellena el módulo «Datos de la actividad» del diseño.
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))
+    activity_date = Column(Date)                 # copia de la fecha, para ordenar sin JOIN
+    design_release_id = Column(PGUUID(as_uuid=True), ForeignKey("press_releases.id", ondelete="SET NULL"))
+    lists_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))   # ids de las listas
+    status = Column(Text, nullable=False, server_default=text("'DRAFT'"))   # DRAFT|SENDING|SENT
+    total = Column(Integer, nullable=False, server_default=text("0"))
+    sent_ok = Column(Integer, nullable=False, server_default=text("0"))
+    sent_fail = Column(Integer, nullable=False, server_default=text("0"))
+    last_error = Column(Text)
+    from_email = Column(Text)                    # desde qué dirección salió (la de esa persona)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_at = Column(DateTime(timezone=True))
+
+    design_release = relationship("PressRelease")
+    concert = relationship("Concert")
+
+    __table_args__ = (Index("idx_corp_invites_user", "user_id", "created_at"),)
+
+
+class CorporateInviteRecipient(Base):
+    """A quién se le mandó, con SU token: es lo que dice **cuántos la han abierto** (el píxel del
+    correo y el enlace de la página llevan ese token) y lo que permite mandar por tandas sin repetir
+    a nadie."""
+
+    __tablename__ = "corporate_invite_recipients"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    invite_id = Column(PGUUID(as_uuid=True), ForeignKey("corporate_invites.id", ondelete="CASCADE"),
+                       nullable=False)
+    guest_id = Column(PGUUID(as_uuid=True), ForeignKey("corporate_guests.id", ondelete="SET NULL"))
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    list_label = Column(Text)                    # de qué lista entró (se enseña en la ficha)
+    name = Column(Text)
+    email = Column(Text, nullable=False)
+    token = Column(Text, unique=True)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))   # PENDIENTE|ENVIADO|ERROR
+    error = Column(Text)
+    sent_at = Column(DateTime(timezone=True))
+    opened_at = Column(DateTime(timezone=True))
+    open_count = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("invite_id", "email", name="uq_corp_invite_email"),
+        Index("idx_corp_invite_rec", "invite_id", "status"),
+    )
+
+
+def ensure_corporate_invites_schema():
+    """Invitaciones corporativas: las listas de invitados de cada persona y sus envíos. Idempotente.
+
+    ⚠️ CADA COLUMNA EN SU PROPIA SENTENCIA con `IF NOT EXISTS` (la regla de la casa: metida en un
+    `DO $$ … IF NOT EXISTS(…) THEN ALTER` podría no ejecutarse nunca y la app reventaría al leerla).
+    ⚠️ Ni un `%` en este DDL: va por `exec_driver_sql` y psycopg2 lo leería como un parámetro suyo."""
+    _create_all_once()
+    _exec_ddl_statements([
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS corporate_guest_lists (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_corp_guest_lists_user ON corporate_guest_lists(user_id, created_at);",
+        """
+        CREATE TABLE IF NOT EXISTS corporate_guests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            list_id uuid NOT NULL REFERENCES corporate_guest_lists(id) ON DELETE CASCADE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE CASCADE,
+            name text,
+            email text,
+            phone text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_corp_guests_list ON corporate_guests(list_id);",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_corp_guest_email ON corporate_guests(list_id, email) "
+        "WHERE email IS NOT NULL AND email <> '';",
+        """
+        CREATE TABLE IF NOT EXISTS corporate_invites (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            subject text,
+            concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL,
+            activity_date date,
+            design_release_id uuid REFERENCES press_releases(id) ON DELETE SET NULL,
+            lists_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            status text NOT NULL DEFAULT 'DRAFT',
+            total integer NOT NULL DEFAULT 0,
+            sent_ok integer NOT NULL DEFAULT 0,
+            sent_fail integer NOT NULL DEFAULT 0,
+            last_error text,
+            from_email text,
+            created_at timestamptz DEFAULT now(),
+            sent_at timestamptz
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_corp_invites_user ON corporate_invites(user_id, created_at);",
+        """
+        CREATE TABLE IF NOT EXISTS corporate_invite_recipients (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            invite_id uuid NOT NULL REFERENCES corporate_invites(id) ON DELETE CASCADE,
+            guest_id uuid REFERENCES corporate_guests(id) ON DELETE SET NULL,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            list_label text,
+            name text,
+            email text NOT NULL,
+            token text UNIQUE,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            error text,
+            sent_at timestamptz,
+            opened_at timestamptz,
+            open_count integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_corp_invite_email UNIQUE (invite_id, email)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_corp_invite_rec ON corporate_invite_recipients(invite_id, status);",
+    ], "corporate_invites_schema")

@@ -8295,3 +8295,80 @@ a.ac-row__t:hover{ color:var(--brand-accent,#007CA2); text-decoration:underline;
 .sp-verdict span{ display:block; font-size:.9rem; opacity:.9; margin-top:.15rem; }
 .sp-verdict--ok{ background:#e6f6ec; color:#0f5132; }
 .sp-verdict--ko{ background:#fbe3e5; color:#842029; }
+
+/* ═══════════ INVITACIONES CORPORATIVAS (`.ci-*`) ═══════════
+   La tarjeta de una invitación repite la forma del módulo que va en el correo: a la IZQUIERDA el
+   cartel y a la DERECHA los datos, con su icono, uno debajo de otro.
+   ⚠️ El cartel lleva `flex:0 0 auto` y los datos `min-width:0`: un hijo de un flex se encoge por
+   debajo de su contenido y las fotos salían ovaladas y el texto partido letra a letra. */
+.ci-grid{ display:grid; gap:.9rem; grid-template-columns:repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); }
+.ci-card{ display:flex; gap:.9rem; align-items:flex-start; background:#fff; border:1px solid #e9ecef;
+  border-radius:16px; padding:.9rem; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.ci-card--flat{ border:0; box-shadow:none; padding:0; }
+.ci-card.is-focus{ border-color:var(--brand-primary, #E33D48); box-shadow:0 0 0 3px rgba(227,61,72,.14); }
+.ci-card__poster{ flex:0 0 auto; width:104px; height:auto; max-height:150px; object-fit:cover;
+  border-radius:12px; display:block; background:#f8f9fa; }
+.ci-card__poster--avatar{ width:64px; height:64px; border-radius:50%; object-fit:cover; }
+.ci-card__poster--ph{ width:64px; height:64px; border-radius:12px; display:flex; align-items:center;
+  justify-content:center; background:#fdeced; color:var(--brand-primary, #E33D48); font-size:1.4rem; }
+.ci-card__body{ min-width:0; flex:1 1 auto; }
+.ci-card__head{ display:flex; align-items:flex-start; gap:.5rem; justify-content:space-between; }
+.ci-card__subject{ font-weight:800; line-height:1.2; }
+.ci-card__act{ margin-top:.45rem; display:grid; gap:.18rem; font-size:.9rem; color:#212529; }
+.ci-card__act i{ color:#6c757d; margin-right:.45rem; }
+.ci-ico--brand{ color:var(--brand-primary, #E33D48) !important; }
+.ci-card__meta{ margin-top:.5rem; }
+.ci-card__stats{ display:flex; flex-wrap:wrap; gap:.45rem .9rem; margin-top:.6rem; }
+.ci-stat{ font-size:.88rem; color:#495057; }
+.ci-stat i{ color:#adb5bd; margin-right:.3rem; }
+.ci-stat b{ color:#111820; }
+.ci-stat--open i{ color:var(--brand-accent, #007CA2); }
+.ci-card__actions{ display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.7rem; align-items:center; }
+.ci-card__progress{ margin-top:.5rem; }
+
+/* Los invitados de una lista */
+.ci-guests{ display:grid; gap:.4rem; grid-template-columns:repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); }
+.ci-guest{ display:flex; align-items:center; gap:.6rem; border:1px solid #e9ecef; border-radius:12px;
+  padding:.45rem .6rem; background:#fff; }
+.ci-guest img, .ci-guest__ph{ flex:0 0 auto; width:34px; height:34px; border-radius:50%; object-fit:cover; }
+.ci-guest__ph{ display:flex; align-items:center; justify-content:center; background:#f1f3f5; color:#868e96; }
+.ci-guest__t{ min-width:0; flex:1 1 auto; display:block; line-height:1.25; }
+.ci-guest__t b{ display:block; font-size:.92rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ci-guest__t small{ display:block; font-size:.76rem; color:#6c757d; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ci-guest__x{ flex:0 0 auto; padding:.1rem .35rem; }
+
+/* Buscar un tercero para añadirlo */
+.ci-results{ display:grid; gap:.35rem; max-height:15rem; overflow:auto; }
+.ci-result{ display:flex; align-items:center; gap:.6rem; border:1px solid #e9ecef; border-radius:12px;
+  padding:.4rem .6rem; background:#fff; text-align:left; width:100%; }
+.ci-result:hover{ border-color:var(--brand-primary, #E33D48); background:#fffafa; }
+.ci-result img, .ci-result__ph{ flex:0 0 auto; width:32px; height:32px; border-radius:50%; object-fit:cover; }
+.ci-result__ph{ display:flex; align-items:center; justify-content:center; background:#f1f3f5; color:#868e96; }
+.ci-result span{ min-width:0; }
+.ci-result b{ display:block; font-size:.9rem; }
+.ci-result small{ display:block; font-size:.76rem; color:#6c757d; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* A quién y a qué actividad (el pop-up de una invitación nueva) */
+.ci-picklist{ display:grid; gap:.35rem; }
+.ci-pick{ display:flex; align-items:center; gap:.55rem; border:1px solid #e9ecef; border-radius:12px;
+  padding:.5rem .7rem; cursor:pointer; }
+.ci-pick:has(input:checked){ border-color:var(--brand-primary, #E33D48); background:#fffafa; }
+.ci-pick b{ display:block; font-size:.92rem; }
+.ci-pick small{ display:block; font-size:.76rem; color:#6c757d; }
+.ci-acts{ display:grid; gap:.35rem; max-height:18rem; overflow:auto; padding-right:.2rem; }
+.ci-act{ display:flex; align-items:center; gap:.6rem; border:1px solid #e9ecef; border-radius:12px;
+  padding:.45rem .6rem; cursor:pointer; }
+.ci-act:has(input:checked){ border-color:var(--brand-primary, #E33D48); background:#fffafa; }
+.ci-act input{ flex:0 0 auto; }
+.ci-act img, .ci-act__ph{ flex:0 0 auto; width:46px; height:46px; border-radius:10px; object-fit:cover; }
+.ci-act__ph{ display:flex; align-items:center; justify-content:center; background:#fdeced; color:var(--brand-primary, #E33D48); }
+.ci-act__t{ min-width:0; }
+.ci-act__t b{ display:block; font-size:.92rem; }
+.ci-act__t small{ display:inline-block; font-size:.76rem; color:#6c757d; margin-right:.6rem; }
+.ci-act__t small i{ color:#adb5bd; }
+.text-accent{ color:var(--brand-accent, #007CA2); }
+
+@media (max-width: 575.98px){
+  .ci-card{ gap:.6rem; padding:.7rem; }
+  .ci-card__poster{ width:78px; }
+}

@@ -66,7 +66,8 @@ PARAGRAPH_GAP = ".35em"             # el hueco entre párrafos, el mismo en el e
 def text_defaults(kind: str) -> dict:
     """Los valores por defecto de un bloque de texto («title» o «text»)."""
     return dict(TEXT_DEFAULTS["title" if kind == "title" else "text"])
-MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist", "artwork")
+MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist",
+                "artwork", "activity")
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # 1) SANEAR el HTML que llega del editor
@@ -497,6 +498,7 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
             "video": ("Videoclip", "Pincha para elegir de qué single"),
             "links": ("Enlaces de plataformas", "Pincha para elegir de qué single o disco"),
             "artwork": ("Cartelería", "Esta actividad todavía no tiene carteles aprobados"),
+            "activity": ("Datos de la actividad", "Pincha para elegir de qué actividad"),
         }.get(tipo, ("Módulo", "Falta configurarlo")))
     if tipo == "image":
         # Una IMAGEN integrada en el cuerpo (no un adjunto): ocupa el ancho del bloque y, si lleva
@@ -664,6 +666,55 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
                 + ('<div style="margin-top:2px;">%s</div>' % _chip("%d cartel%s" % (n, "" if n == 1 else "es"), icons.get("images")) if n else "")
                 + ('<div style="margin-top:8px;">%s</div>' % rejilla if rejilla else "")
                 + '<div style="margin-top:8px;">%s</div>' % botones + _CARD_CLOSE)
+    if tipo == "activity":
+        # ⚠️⚠️ LOS DATOS DE UNA ACTIVIDAD, EN UNA SOLA VIÑETA: a la IZQUIERDA el cartel (si lo hay) y
+        # a la DERECHA los datos uno debajo de otro, cada uno con SU ICONO — qué es (concierto,
+        # festival…), el artista CON SU FOTO, la fecha con su día de la semana, el recinto y la hora
+        # de comienzo. Es lo que hay que saber de un vistazo para decidir si se va.
+        # ⚠️ Los iconos van como PNG (`icons`): en un correo no carga ninguna fuente de iconos.
+        cartel = d.get("poster_url") or ""
+        filas = []
+
+        def _dato(icono, texto, extra=""):
+            if not texto:
+                return ""
+            ico = ('<img src="%s" width="14" height="14" alt="" style="width:14px;height:14px;max-width:none;'
+                   'vertical-align:-2px;margin-right:8px;border:0;">' % _e(icono)) if icono else ""
+            return ('<div style="margin-top:6px;font-family:%s;font-size:14px;color:%s;line-height:1.3;">%s%s%s</div>'
+                    % (DEFAULT_FONT, TEXT_COLOR, ico, _e(texto), extra))
+
+        # Qué ES la actividad: va arriba del todo, en el rojo de la casa y en mayúsculas pequeñas.
+        if d.get("kind_label"):
+            ico_k = ('<img src="%s" width="13" height="13" alt="" style="width:13px;height:13px;max-width:none;'
+                     'vertical-align:-2px;margin-right:7px;border:0;">' % _e(icons.get("activity") or "")) if icons.get("activity") else ""
+            filas.append('<div style="font-family:%s;font-size:12px;font-weight:700;text-transform:uppercase;'
+                         'letter-spacing:.05em;color:%s;">%s%s</div>'
+                         % (DEFAULT_FONT, BRAND_RED, ico_k, _e(d["kind_label"])))
+        # El ARTISTA con su foto (redonda, como en la app).
+        if d.get("artist_name"):
+            foto = ('<img src="%s" width="26" height="26" alt="" style="width:26px;height:26px;max-width:none;'
+                    'border-radius:50%%;object-fit:cover;vertical-align:middle;margin-right:8px;border:0;">'
+                    % _e(d.get("artist_photo") or "")) if d.get("artist_photo") else ""
+            if not foto:
+                foto = ('<img src="%s" width="14" height="14" alt="" style="width:14px;height:14px;max-width:none;'
+                        'vertical-align:-2px;margin-right:8px;border:0;">' % _e(icons.get("artist") or "")) if icons.get("artist") else ""
+            filas.append('<div style="margin-top:8px;font-family:%s;font-size:17px;font-weight:800;color:%s;'
+                         'line-height:1.2;">%s<span style="vertical-align:middle;">%s</span></div>'
+                         % (DEFAULT_FONT, TEXT_COLOR, foto, _e(d["artist_name"])))
+        filas.append(_dato(icons.get("calendar"), d.get("date_label") or ""))
+        filas.append(_dato(icons.get("venue"), d.get("venue_label") or ""))
+        filas.append(_dato(icons.get("clock"), d.get("time_label") or ""))
+        cuerpo = "".join(f for f in filas if f)
+        celda_cartel = ""
+        if cartel:
+            enlace = d.get("poster_url_full") or cartel
+            celda_cartel = ('<td width="150" valign="top" style="width:150px;padding-right:14px;">'
+                            '<img src="%s" width="150" alt="" style="width:150px;max-width:150px;height:auto;'
+                            'display:block;border-radius:10px;border:0;"></td>' % _e(enlace))
+        return (_card_open() +
+                '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">'
+                '<tr>' + celda_cartel + '<td valign="top" style="vertical-align:top;">' + cuerpo + '</td></tr></table>'
+                + _CARD_CLOSE)
     if tipo == "photos":
         fotos = (d.get("photos") or [])[:6]
         celdas = []
@@ -882,6 +933,10 @@ def plain_text(design: dict) -> str:
         elif b["type"] == "playlist":
             if not d.get("pending"):
                 trozos.append("Playlist · %s%s" % (d.get("title") or "", (" · " + d["listen_url"]) if d.get("listen_url") else ""))
+        elif b["type"] == "activity":
+            if not d.get("pending"):
+                trozos.append(" · ".join([x for x in [d.get("kind_label"), d.get("artist_name"), d.get("date_label"),
+                                                      d.get("venue_label"), d.get("time_label")] if x]))
     return "\n\n".join([t for t in trozos if t])
 
 

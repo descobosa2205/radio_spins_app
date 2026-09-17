@@ -1,0 +1,343 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════ INVITACIONES CORPORATIVAS ═══════════════
+   Lo que manda una persona de la casa EN SU NOMBRE y DESDE SU CORREO: invitar a sus contactos a una
+   actividad con un correo diseñado (el MISMO editor y las mismas plantillas que las comunicaciones
+   a compradores).
+   · Arriba, las YA ENVIADAS, con cuántos las han abierto. Las MÁS PRÓXIMAS PRIMERO.
+   · Debajo, «Mi lista de invitados corporativos»: varias listas, y a cada una se añade gente de una
+     en una o subiendo un fichero (crea los terceros que no existan y engancha los que ya están).
+   ⚠️ Esto NO son las invitaciones de un evento (las entradas que se piden y se asignan): eso es la
+   sección Invitaciones. #}
+<div class="ci-page" data-ci
+     data-guests-url-tpl="{{ url_for('corporate_list_guests', list_id='__LIST__') }}"
+     data-add-url-tpl="{{ url_for('corporate_guest_add', list_id='__LIST__') }}"
+     data-import-url-tpl="{{ url_for('corporate_list_import', list_id='__LIST__') }}"
+     data-rename-url-tpl="{{ url_for('corporate_list_rename', list_id='__LIST__') }}"
+     data-remove-url-tpl="{{ url_for('corporate_guest_remove', guest_id='__GUEST__') }}"
+     data-send-url-tpl="{{ url_for('corporate_invite_send', invite_id='__INV__') }}"
+     data-continue-url-tpl="{{ url_for('corporate_invite_continue', invite_id='__INV__') }}"
+     data-status-url-tpl="{{ url_for('corporate_invite_status', invite_id='__INV__') }}"
+     data-save-url-tpl="{{ url_for('corporate_invite_save', invite_id='__INV__') }}"
+     data-preview-url-tpl="{{ url_for('corporate_invite_preview', invite_id='__INV__') }}"
+     data-search-url="{{ url_for('api_search_promoters') }}"
+     data-open-invite="{{ open_invite }}">
+
+  <h1 class="h4 mb-1"><i class="fa fa-envelope-circle-check me-2"></i>Invitaciones corporativas</h1>
+  <p class="text-muted small mb-3">Invita a tus contactos a una actividad. El correo sale
+    <strong>desde tu dirección</strong>, así que quien lo recibe te contesta a ti.</p>
+
+  {# ⚠️ SALE DESDE EL CORREO DE QUIEN LA MANDA: si no está configurado se dice AQUÍ, antes de que
+     alguien se ponga a diseñar una invitación que luego no va a poder enviar. #}
+  {% if not sender.ok %}
+    <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3">
+      <i class="fa fa-triangle-exclamation mt-1"></i>
+      <div class="small flex-grow-1">
+        {{ sender.problem }}
+        {% if sender.url %}
+          <a class="alert-link ms-1" href="{{ sender.url }}">Configurar mi correo</a>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-light border d-flex align-items-center gap-2 py-2 px-3 small">
+      <i class="fa fa-paper-plane text-accent"></i>
+      Las invitaciones saldrán desde <strong>{{ sender.label }}</strong>.
+    </div>
+  {% endif %}
+
+  <ul class="nav nav-tabs contract-tabs mb-3" role="tablist">
+    <li class="nav-item">
+      <button class="nav-link {{ '' if open_tab == 'listas' else 'active' }}" data-bs-toggle="tab"
+              data-bs-target="#ciEnviadas" type="button" role="tab">
+        <i class="fa fa-paper-plane me-1"></i>Invitaciones
+        {% if invites %}<span class="badge text-bg-light border ms-1">{{ invites|length }}</span>{% endif %}
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {{ 'active' if open_tab == 'listas' else '' }}" data-bs-toggle="tab"
+              data-bs-target="#ciListas" type="button" role="tab">
+        <i class="fa fa-address-book me-1"></i>Mi lista de invitados
+        {% if lists %}<span class="badge text-bg-light border ms-1">{{ lists|length }}</span>{% endif %}
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+    {# ══════════ LAS INVITACIONES (las enviadas y los borradores) ══════════ #}
+    <div class="tab-pane fade {{ '' if open_tab == 'listas' else 'show active' }}" id="ciEnviadas" role="tabpanel">
+      <div class="d-flex gap-2 flex-wrap flex-row-reverse mb-3">
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#corpInviteModal"
+                {% if not lists %}disabled title="Antes hay que tener alguna lista de invitados"{% endif %}>
+          <i class="fa fa-plus me-1"></i>Nueva invitación
+        </button>
+      </div>
+
+      {% if not invites %}
+        <div class="alert alert-light border">
+          Todavía no has mandado ninguna invitación.
+          {% if lists %}Pulsa <strong>«Nueva invitación»</strong> para empezar.
+          {% else %}Primero crea una <strong>lista de invitados</strong> en la pestaña de al lado.{% endif %}
+        </div>
+      {% else %}
+        <div class="ci-grid">
+          {% for inv in invites %}
+            <div class="ci-card" data-ci-invite="{{ inv.id }}">
+              {# A la IZQUIERDA el cartel de la actividad (o la foto del artista); a la derecha, los
+                 datos con su icono uno debajo de otro — igual que el módulo del correo. #}
+              {% if inv.activity and inv.activity.poster_url %}
+                <img class="ci-card__poster" src="{{ inv.activity.poster_url }}" alt="" loading="lazy">
+              {% elif inv.activity and inv.activity.artist_photo %}
+                <img class="ci-card__poster ci-card__poster--avatar" src="{{ inv.activity.artist_photo }}" alt="" loading="lazy">
+              {% else %}
+                <span class="ci-card__poster ci-card__poster--ph"><i class="fa fa-envelope-circle-check"></i></span>
+              {% endif %}
+              <div class="ci-card__body">
+                <div class="ci-card__head">
+                  <span class="ci-card__subject">{{ inv.subject }}</span>
+                  <span class="badge {{ 'text-bg-success' if inv.status == 'SENT' else ('text-bg-warning' if inv.status == 'SENDING' else 'text-bg-light border') }}">{{ inv.status_label }}</span>
+                </div>
+                {% if inv.activity %}
+                  <div class="ci-card__act">
+                    <div><i class="fa fa-calendar-day fa-fw ci-ico--brand"></i>{{ inv.activity.kind_label }}</div>
+                    <div><i class="fa fa-guitar fa-fw"></i><strong>{{ inv.activity.artist_name }}</strong></div>
+                    {% if inv.activity.date_label %}<div><i class="fa fa-calendar-days fa-fw"></i>{{ inv.activity.date_label }}</div>{% endif %}
+                    {% if inv.activity.venue_label %}<div><i class="fa fa-location-dot fa-fw"></i>{{ inv.activity.venue_label }}</div>{% endif %}
+                    {% if inv.activity.time_label %}<div><i class="fa fa-clock fa-fw"></i>{{ inv.activity.time_label }}</div>{% endif %}
+                  </div>
+                {% endif %}
+                <div class="ci-card__meta small text-muted">
+                  {% for l in inv.lists %}<span class="badge text-bg-light border me-1"><i class="fa fa-address-book me-1"></i>{{ l }}</span>{% endfor %}
+                  {% if inv.sent_label %}<span class="ms-1"><i class="fa fa-paper-plane me-1"></i>{{ inv.sent_label }}</span>{% endif %}
+                </div>
+                {% if inv.status == 'DRAFT' %}
+                  <div class="ci-card__actions">
+                    {% if inv.design_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ inv.design_url }}"><i class="fa fa-pen-ruler me-1"></i>{{ 'Seguir diseñando' if inv.has_design else 'Diseñar el contenido' }}</a>{% endif %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-ci-preview="{{ inv.id }}"><i class="fa fa-envelope-open-text me-1"></i>Vista previa</button>
+                    <button type="button" class="btn btn-sm btn-primary" data-ci-send="{{ inv.id }}"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+                    <form method="post" action="{{ url_for('corporate_invite_delete', invite_id=inv.id) }}"
+                          onsubmit="return confirm('¿Eliminar este borrador?');" class="d-inline">
+                                      <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+                    </form>
+                  </div>
+                {% else %}
+                  {# LO QUE SE QUIERE SABER DE UNA INVITACIÓN MANDADA: a cuántos fue y CUÁNTOS LA HAN ABIERTO. #}
+                  <div class="ci-card__stats">
+                    <span class="ci-stat"><i class="fa fa-users fa-fw"></i><b>{{ inv.sent_ok }}</b> enviada{{ '' if inv.sent_ok == 1 else 's' }}</span>
+                    <span class="ci-stat ci-stat--open"><i class="fa fa-envelope-open fa-fw"></i><b>{{ inv.opened }}</b> la {{ 'ha' if inv.opened == 1 else 'han' }} abierto{% if inv.total %} <span class="text-muted">({{ inv.opened_pct }}%)</span>{% endif %}</span>
+                    {% if inv.sent_fail %}<span class="ci-stat text-danger"><i class="fa fa-circle-exclamation fa-fw"></i><b>{{ inv.sent_fail }}</b> sin entregar</span>{% endif %}
+                  </div>
+                  <div class="ci-card__actions">
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ inv.detail_url }}"><i class="fa fa-list-check me-1"></i>Ver quién la ha abierto</a>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-ci-preview="{{ inv.id }}"><i class="fa fa-envelope-open-text me-1"></i>Ver el correo</button>
+                  </div>
+                {% endif %}
+                <div class="ci-card__progress small d-none" data-ci-progress></div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+
+    {# ══════════ MIS LISTAS DE INVITADOS ══════════ #}
+    <div class="tab-pane fade {{ 'show active' if open_tab == 'listas' else '' }}" id="ciListas" role="tabpanel">
+      <div class="d-flex gap-2 flex-wrap flex-row-reverse mb-3">
+        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#corpListModal">
+          <i class="fa fa-plus me-1"></i>Nueva lista
+        </button>
+      </div>
+
+      {% if not lists %}
+        <div class="alert alert-light border">
+          Todavía no tienes ninguna lista. Crea una (por ejemplo «Prensa» o «Patrocinadores») y añade
+          a tus contactos de uno en uno o <strong>subiendo un fichero</strong>.
+        </div>
+      {% else %}
+        <div class="accordion ci-lists" id="ciListsAcc">
+          {% for l in lists %}
+            <div class="accordion-item" data-ci-list="{{ l.id }}">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#ciList{{ loop.index }}" data-ci-load="{{ l.id }}">
+                  <i class="fa fa-address-book me-2 text-danger"></i>
+                  <span class="fw-semibold">{{ l.name }}</span>
+                  <span class="badge text-bg-light border ms-2">{{ l.count }} invitado{{ '' if l.count == 1 else 's' }}</span>
+                  {% if l.count != l.with_email %}
+                    <span class="badge text-bg-warning ms-1" title="Sin correo no se les puede invitar">{{ l.count - l.with_email }} sin correo</span>
+                  {% endif %}
+                </button>
+              </h2>
+              <div id="ciList{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#ciListsAcc">
+                <div class="accordion-body">
+                  <div class="d-flex gap-2 flex-wrap mb-3">
+                    <button type="button" class="btn btn-sm btn-primary" data-ci-add-open="{{ l.id }}">
+                      <i class="fa fa-user-plus me-1"></i>Añadir a alguien
+                    </button>
+                    <label class="btn btn-sm btn-success mb-0">
+                      <i class="fa fa-file-import me-1"></i>Subir un fichero
+                      <input type="file" class="d-none" accept=".xlsx,.xls,.csv,.tsv,.txt" data-ci-file="{{ l.id }}">
+                    </label>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-ci-rename="{{ l.id }}" data-ci-name="{{ l.name }}">
+                      <i class="fa fa-pen me-1"></i>Renombrar
+                    </button>
+                    <form method="post" action="{{ url_for('corporate_list_delete', list_id=l.id) }}" class="ms-auto"
+                          onsubmit="return confirm('¿Eliminar la lista «{{ l.name }}»? Los contactos siguen en Terceros.');">
+                                      <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar la lista</button>
+                    </form>
+                  </div>
+                  <div class="small text-muted mb-2">
+                    El fichero (Excel o CSV) puede traer nombre, correo y teléfono: se
+                    <strong>crean los que no existan</strong> en Terceros y se enganchan los que ya estén
+                    (se reconocen por su correo).
+                  </div>
+                  <div data-ci-guests><div class="text-muted small">Cargando…</div></div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ---------- NUEVA LISTA ---------- #}
+<div class="modal fade" id="corpListModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('corporate_list_create') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-address-book me-2 text-danger"></i>Nueva lista de invitados</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Cómo se llama</label>
+        <input class="form-control" name="name" maxlength="120" required autocomplete="off"
+               placeholder="Prensa, Patrocinadores, Amigos de la casa…">
+        <div class="form-text">Es tuya: nadie más la ve.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear la lista</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# ---------- AÑADIR A ALGUIEN a una lista ---------- #}
+<div class="modal fade" id="corpGuestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content" data-ci-guest-modal>
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fa fa-user-plus me-2 text-danger"></i>Añadir a la lista</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      {# Primero se BUSCA entre los terceros que ya tenemos (una persona de la casa es un tercero:
+         sus datos viven en su ficha, no duplicados aquí). #}
+      <label class="form-label">Buscar entre los contactos que ya tenemos</label>
+      <input class="form-control mb-2" data-ci-search placeholder="Nombre, empresa o correo…" autocomplete="off">
+      <div class="ci-results mb-3" data-ci-results></div>
+      <hr>
+      <div class="small fw-semibold mb-2">…o añadir a alguien nuevo</div>
+      <div class="row g-2">
+        <div class="col-12 col-sm-6">
+          <label class="form-label small">Nombre</label>
+          <input class="form-control form-control-sm" data-ci-new-name placeholder="Nombre y apellidos">
+        </div>
+        <div class="col-12 col-sm-6">
+          <label class="form-label small">Correo <span class="text-danger">*</span></label>
+          <input class="form-control form-control-sm" type="email" data-ci-new-email placeholder="correo@dominio.com">
+        </div>
+        <div class="col-12 col-sm-6">
+          <label class="form-label small">Teléfono</label>
+          <input class="form-control form-control-sm" data-ci-new-phone placeholder="600 000 000">
+        </div>
+      </div>
+      <div class="form-text">Si ese correo ya está en Terceros se usa esa ficha; si no, se crea.</div>
+      <div class="alert alert-danger py-2 px-3 small mt-2 d-none" data-ci-guest-error></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+      <button type="button" class="btn btn-primary" data-ci-new-save><i class="fa fa-plus me-1"></i>Añadir</button>
+    </div>
+  </div></div>
+</div>
+
+{# ---------- NUEVA INVITACIÓN ---------- #}
+<div class="modal fade" id="corpInviteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <form method="post" action="{{ url_for('corporate_invite_create') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-envelope-circle-check me-2 text-danger"></i>Nueva invitación corporativa</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold"><i class="fa fa-address-book me-1 text-danger"></i>¿A quién?</label>
+          <div class="ci-picklist">
+            {% for l in lists %}
+              <label class="ci-pick">
+                <input type="checkbox" name="lists" value="{{ l.id }}" {{ 'checked' if loop.first }}>
+                <span><b>{{ l.name }}</b><small>{{ l.with_email }} con correo{% if l.count != l.with_email %} · {{ l.count - l.with_email }} sin correo{% endif %}</small></span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="form-text">Quien esté en varias listas recibe <strong>una sola</strong> invitación.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold"><i class="fa fa-calendar-day me-1 text-danger"></i>¿A qué actividad?</label>
+          {% if activities %}
+            <input class="form-control form-control-sm mb-2" data-ci-act-search placeholder="Buscar por artista, recinto o fecha…" autocomplete="off">
+            <div class="ci-acts" data-ci-acts>
+              {% for a in activities %}
+                <label class="ci-act" data-ci-act-text="{{ (a.name ~ ' ' ~ a.kind_label ~ ' ' ~ a.date_label ~ ' ' ~ a.venue_label)|lower }}">
+                  <input type="radio" name="concert_id" value="{{ a.id }}">
+                  {% if a.photo %}<img src="{{ a.photo }}" alt="" loading="lazy">{% else %}<span class="ci-act__ph"><i class="fa fa-calendar-day"></i></span>{% endif %}
+                  <span class="ci-act__t">
+                    <b>{{ a.name }}</b>
+                    <small><i class="fa fa-calendar-day fa-fw"></i>{{ a.kind_label }}</small>
+                    <small><i class="fa fa-calendar-days fa-fw"></i>{{ a.date_label }}</small>
+                    {% if a.venue_label %}<small><i class="fa fa-location-dot fa-fw"></i>{{ a.venue_label }}</small>{% endif %}
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+            <div class="form-text">Se pone sola en el correo (con su cartel, el artista, la fecha, el recinto y la hora). Es opcional.</div>
+          {% else %}
+            <div class="alert alert-light border py-2 px-3 small mb-0">No hay actividades por venir. Puedes hacer la invitación igual y diseñar el contenido a mano.</div>
+          {% endif %}
+        </div>
+
+        <div>
+          <label class="form-label fw-semibold"><i class="fa fa-tag me-1 text-danger"></i>Asunto del correo</label>
+          <input class="form-control" name="subject" maxlength="200" placeholder="Te invito al concierto de…">
+          <div class="form-text">Si lo dejas vacío se usa el titular que pongas en el diseño.</div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <span class="small text-muted"><i class="fa fa-circle-info me-1"></i>Después se diseña el correo.</span>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary"><i class="fa fa-pen-ruler me-1"></i>Diseñar el contenido<i class="fa fa-arrow-right ms-2"></i></button>
+        </div>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# ---------- VISTA PREVIA del correo ---------- #}
+<div class="modal fade" id="corpPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fa fa-envelope-open-text me-2 text-danger"></i>Así llega el correo</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body p-0" style="background:#f3f4f6;">
+      <iframe data-ci-preview-frame title="Vista previa" style="width:100%;height:78vh;border:0;background:#f3f4f6;"></iframe>
+    </div>
+  </div></div>
+</div>
+
+<script src="{{ url_for('static', filename='js/corporate_invites.js') }}"></script>
+{% endblock %}

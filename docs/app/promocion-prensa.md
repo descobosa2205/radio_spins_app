@@ -703,3 +703,15 @@
   ⚠️ `PICK` (en `press_editor.js`) es el punto único de «qué módulos se eligen y de qué grupo de
   `assets` salen»: al añadir otro, va ahí y en `_pending_card` de `press_render.py`.
 
+- ⚠️ **UN MÓDULO NUEVO DEL EDITOR: «DATOS DE LA ACTIVIDAD»** (sep 2026). En la paleta de la derecha,
+  arriba del todo: **una sola viñeta** con **el CARTEL a la izquierda** y, a la derecha, los datos
+  **uno debajo de otro con su icono** — qué es (Concierto, Festival…), el **artista con su foto**, la
+  **fecha con su día de la semana**, el **recinto** y la **hora de comienzo**. Se arrastra vacío (y
+  se elige qué actividad, como el single o la playlist) o directamente la que se quiere, y se pueden
+  poner **todos los que hagan falta**.
+  · Punto único **`_press_activity_data`** (app.py) + el tipo `activity` de `press_render`: **vale
+  en los TRES editores** —notas de prensa, comunicaciones a compradores e invitaciones
+  corporativas—, porque está en el motor, no en una pantalla.
+  · Solo se ofrecen las actividades **por venir** (ni canceladas ni aplazadas) y el cartel es el
+  **primero aprobado de categoría POSTER**: un Sold Out o un logo no valen.
+  → El detalle de las invitaciones corporativas, en `docs/app/invitaciones.md`.

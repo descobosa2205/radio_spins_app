@@ -1,0 +1,106 @@
+{% extends "layout.html" %}
+{% block content %}
+{# LA FICHA DE UNA INVITACIÓN CORPORATIVA: a quién se le mandó, QUIÉN LA HA ABIERTO y a quién no le
+   llegó (y por qué). Lo que no salió no puede ser invisible. #}
+<div class="mb-2">
+  <a class="btn btn-sm btn-outline-secondary btn-volver" href="{{ url_for('corporate_invites_view') }}"
+     title="Volver a las invitaciones" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<h1 class="h4 mb-1"><i class="fa fa-envelope-circle-check me-2"></i>{{ invite.subject }}</h1>
+<div class="text-muted small mb-3">
+  <span class="badge {{ 'text-bg-success' if invite.status == 'SENT' else ('text-bg-warning' if invite.status == 'SENDING' else 'text-bg-light border') }}">{{ invite.status_label }}</span>
+  {% if invite.sent_label %}<span class="ms-2"><i class="fa fa-paper-plane me-1"></i>{{ invite.sent_label }}</span>{% endif %}
+  {% for l in invite.lists %}<span class="badge text-bg-light border ms-1"><i class="fa fa-address-book me-1"></i>{{ l }}</span>{% endfor %}
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    {% if invite.activity %}
+      {# La misma viñeta que va en el correo: el cartel a la izquierda y los datos a la derecha. #}
+      <div class="card mb-3">
+        <div class="card-body ci-card ci-card--flat">
+          {% if invite.activity.poster_url %}
+            <img class="ci-card__poster" src="{{ invite.activity.poster_url }}" alt="">
+          {% elif invite.activity.artist_photo %}
+            <img class="ci-card__poster ci-card__poster--avatar" src="{{ invite.activity.artist_photo }}" alt="">
+          {% endif %}
+          <div class="ci-card__body">
+            <div class="ci-card__act">
+              <div><i class="fa fa-calendar-day fa-fw ci-ico--brand"></i>{{ invite.activity.kind_label }}</div>
+              <div><i class="fa fa-guitar fa-fw"></i><strong>{{ invite.activity.artist_name }}</strong></div>
+              {% if invite.activity.date_label %}<div><i class="fa fa-calendar-days fa-fw"></i>{{ invite.activity.date_label }}</div>{% endif %}
+              {% if invite.activity.venue_label %}<div><i class="fa fa-location-dot fa-fw"></i>{{ invite.activity.venue_label }}</div>{% endif %}
+              {% if invite.activity.time_label %}<div><i class="fa fa-clock fa-fw"></i>{{ invite.activity.time_label }}</div>{% endif %}
+            </div>
+            {% if invite.concert_url %}
+              <div class="mt-2"><a class="btn btn-sm btn-outline-secondary" href="{{ invite.concert_url }}"><i class="fa fa-up-right-from-square me-1"></i>Abrir la actividad</a></div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="ci-card__stats">
+          <span class="ci-stat"><i class="fa fa-users fa-fw"></i><b>{{ invite.sent_ok }}</b> enviada{{ '' if invite.sent_ok == 1 else 's' }}</span>
+          <span class="ci-stat ci-stat--open"><i class="fa fa-envelope-open fa-fw"></i><b>{{ invite.opened }}</b> la {{ 'ha' if invite.opened == 1 else 'han' }} abierto{% if invite.total %} <span class="text-muted">({{ invite.opened_pct }}%)</span>{% endif %}</span>
+          {% if invite.sent_fail %}<span class="ci-stat text-danger"><i class="fa fa-circle-exclamation fa-fw"></i><b>{{ invite.sent_fail }}</b> sin entregar</span>{% endif %}
+        </div>
+        <div class="form-text mt-2">
+          «Abierta» se sabe porque el correo carga una imagen nuestra: quien tenga las imágenes
+          bloqueadas puede haberla leído sin que aparezca aquí.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold"><i class="fa fa-list-check me-2"></i>A quién se le mandó</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Quién</th><th>Lista</th><th>Estado</th></tr></thead>
+          <tbody>
+            {% for r in recipients %}
+              <tr>
+                <td>
+                  {% if r.promoter_url %}<a href="{{ r.promoter_url }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}
+                  <div class="small text-muted">{{ r.email }}</div>
+                </td>
+                <td class="small text-muted">{{ r.list_label }}</td>
+                <td class="small">
+                  {% if r.status == 'ERROR' %}
+                    <span class="text-danger"><i class="fa fa-circle-exclamation me-1"></i>No le llegó</span>
+                    <div class="text-muted">{{ r.error }}</div>
+                  {% elif r.opened %}
+                    <span class="text-success"><i class="fa fa-envelope-open me-1"></i>Abierta</span>
+                    <div class="text-muted">{{ r.opened_label }}{% if r.open_count > 1 %} · {{ r.open_count }} veces{% endif %}</div>
+                  {% elif r.status == 'ENVIADO' %}
+                    <span class="text-muted"><i class="fa fa-paper-plane me-1"></i>Enviada</span>
+                    <div class="text-muted">{{ r.sent_label }}</div>
+                  {% else %}
+                    <span class="text-muted"><i class="fa fa-clock me-1"></i>Pendiente</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="3" class="text-muted small">Todavía no hay destinatarios.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if web_html %}
+  <div class="card mt-3">
+    <div class="card-header bg-white fw-semibold"><i class="fa fa-envelope-open-text me-2"></i>El correo que se mandó</div>
+    <div class="card-body" style="background:#f3f4f6;">
+      <div class="pr-canvas-wrap">{{ web_html|safe }}</div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

@@ -109,6 +109,8 @@ def pantallas(session_db):
     fichas = {
         "cid": M.Concert, "song_id": M.Song, "album_id": M.Album, "pid": M.Promoter,
         "aid": M.Artist, "artist_id": M.Artist, "vid": M.Venue, "bag_id": M.WorkflowBag,
+        # Invitaciones corporativas (la ficha de una invitación y los invitados de una lista).
+        "invite_id": M.CorporateInvite, "list_id": M.CorporateGuestList,
     }
     primeros = {}
     for arg, modelo in fichas.items():

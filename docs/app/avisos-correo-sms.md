@@ -502,3 +502,13 @@ icono en el **azul corporativo oscuro** (`BRAND_BLUE_DARK`), para que todos se l
   que no es el de la marca no se puede recoger.
   ⚠️ Los emojis viajan bien: `EmailMessage` elige utf-8 solo en cuanto el contenido no es ASCII (lo
   mismo que ya pasaba con los acentos).
+
+- ⚠️ **EL BUZÓN DE CADA PERSONA (Integraciones → Correo) YA LO USAN DOS COSAS** (sep 2026): la
+  **presentación de un tema a una emisora** y las **INVITACIONES CORPORATIVAS**
+  (`docs/app/invitaciones.md`). Las dos por el mismo punto único **`_user_mail_account`** (la cuenta
+  asignada a esa persona o la que se llama exactamente como su correo, activa y con contraseña) y
+  las dos por el mismo motivo: lo que se escribe **de tú a tú** lo contesta quien lo recibe **a esa
+  persona**, no a un buzón de la app.
+  ⚠️ En las invitaciones **no hay salida alternativa**: sin su cuenta configurada **no se manda** y
+  se dice qué falta (`_user_mail_account_problem` distingue «desactivada» de «sin contraseña»).
+  Mandarla con el remitente de la casa sería mentir sobre quién invita.

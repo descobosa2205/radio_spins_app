@@ -36,6 +36,8 @@
 - NOTAS DE PRENSA · LAS FOTOS QUE SE OFRECEN: los ÁLBUMES Y LAS FOTOS SIN ÁLBUM (bug real,
 - LA FICHA DE UNA CANCIÓN, DE UN DISCO Y DE UN TERCERO SE ABREN DESDE VARIAS SECCIONES
 - UN ÁLBUM NO TIENE GÉNERO NI CALIFICACIÓN PROPIOS: SON DE CADA CANCIÓN. El
+- EL CORREO DE UNA CERTIFICACIÓN («¡Enhorabuena!»): la maqueta de Syncros, el disco APILADO y grande, y en el
+  móvil todo apilado para que el nombre vaya en UNA línea (sep 2026)
 
 ---
 
@@ -652,3 +654,31 @@
   `python3 -c "import re;css=open('static/vendor/fontawesome/css/all.min.css').read();s=open('app.py').read();print([i for i in set(re.findall(r'\"(fa-[a-z0-9-]+)\"',s)) if ('.%s:'%i) not in css])"`
   — hoy sale **vacía** (de paso apareció `fa-circle-euro`, que tampoco existe: era `fa-euro-sign`).
 
+
+- ⚠️ **EL CORREO DE UNA CERTIFICACIÓN («¡Enhorabuena!») CON LA MAQUETA DE SYNCROS** (sep 2026, lo pidió
+  Dani con una captura del móvil: «¡ENHORABUENA» partido en dos líneas, «Disco / de / Platino» en tres y
+  el disco pequeño). Punto único **`_build_certification_notification_email`** (canción y álbum; lo manda
+  «Notificar» de la pestaña Certificaciones, `discografica_song/album_certification_notify`).
+  · La maqueta: el logo del sello arriba a la **DERECHA** (`_pies_brand_assets` + `logo_clean_png`), el
+  título centrado, la **tarjeta de Syncros** (portada entera a la izquierda; a la derecha el título con la
+  galleta «Canción»/«Álbum», el artista con su foto y la fecha **con su día de la semana**, cada dato con
+  su icono `_brand_icon` y sin rótulo) y debajo el módulo de la certificación con la **cabecera de módulo
+  de la casa** (`BRAND_BLUE_SOFT` / `BRAND_BLUE_DARK`), el país con el icono `globe` (nada de banderas
+  emoji) y el texto plano al día.
+  · **El disco va APILADO por el servidor** (`certification_icon_png?s=256&n=`), en UNA imagen de 160 px
+  de alto: «uno, dos, tres» discos se ven de un vistazo. Con más de tres se baja el alto para que la pila
+  no pase de ~250 px de ancho y al nombre le quede sitio en escritorio. Antes se repetía un `<img>` de
+  62 px dentro de un `display:flex`, que un cliente de correo no respeta.
+  ⚠️⚠️ **El `<img>` del disco lleva `width` y `height` FIJOS y `max-width:none`**: con `max-width:100%`
+  dentro de la celda `width:1%` el ancho computado era **0 px** y el disco NO SE VEÍA (la misma trampa
+  documentada de los iconos; aquí se cazó midiendo `getBoundingClientRect` en el navegador).
+  · **MÓVIL (≤ 520 px)**: la misma media query de Syncros, dentro del propio cuerpo del correo: la portada
+  encima de los datos y **el disco encima del nombre**, que así tiene el ancho entero y va en **una
+  línea** (a 22 px cabe hasta «6 Discos de Diamante» en 375 px). ⚠️ Las reglas de apilar van sobre
+  **`.cert-row`** (la fila EXTERIOR), no sobre `tr`: un `tr` a secas alcanzaba también a la tabla anidada
+  del título y la galleta «Canción» dejaba de ir a la derecha.
+  ⚠️ **Para verlo en el navegador local** hay que envolver el fragmento en un documento con
+  `<meta name="viewport" content="width=device-width">`: sin él, el emulador de móvil maqueta a 980 px y la
+  media query no entra (el cliente de correo sí usa el ancho del móvil). Medido a 375 px: nada se sale
+  (`scrollWidth` = ancho), el nombre mide una línea y el disco 160 px; y a escritorio la maqueta de lado a
+  lado. Las certificaciones en un DOCUMENTO (Label Copy) siguen en `docs/app/discografica-proyectos.md`.

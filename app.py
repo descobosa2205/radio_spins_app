@@ -9299,86 +9299,206 @@ def _certification_notification_subject(media_label: str, title: str) -> str:
     return f"¡Enhorabuena! Nueva certificación de {media_label}"
 
 
+def _certification_stack_ratio(image_rel: str, count: int = 1, size: int = 120) -> float:
+    """Proporción ancho/alto de la imagen APILADA, para darle al `<img>` de un correo su ancho y su
+    alto (un cliente de correo que ignore el CSS —Outlook— pinta la imagen a su tamaño natural si no
+    lleva los dos atributos, y una pila de tres discos a 378 px rompe la maqueta)."""
+    count = max(1, int(count or 1))
+    try:
+        from PIL import Image
+        datos = _certification_stack_png(image_rel, count, size)
+        if datos:
+            with Image.open(BytesIO(datos)) as im:
+                if im.height:
+                    return im.width / im.height
+    except Exception:
+        pass
+    # Sin imagen, la proporción que sale de cómo se apila (dx = 24 %, dy = 13 % del disco).
+    return (1 + 0.24 * (count - 1)) / (1 + 0.13 * (count - 1))
+
+
 def _build_certification_notification_email(session_db, media_kind: str, item, cert_group: dict, artist: Artist | None) -> dict:
+    """El correo de ENHORABUENA por una certificación (de una canción o de un álbum).
+
+    ⚠️ Con la maqueta de SYNCROS (lo pidió Dani, sep 2026): el logo del sello arriba a la DERECHA,
+    el título centrado, la tarjeta blanca con la portada a la izquierda y los datos con su icono y
+    sin rótulo (`_brand_icon`, nada de emojis), las galletas del azul suave, y debajo el módulo de la
+    certificación con la cabecera de módulo de la casa (`BRAND_BLUE_SOFT` / `BRAND_BLUE_DARK`).
+    ⚠️ El DISCO va APILADO por el servidor (`certification_icon_png?n=`): «uno, dos, tres» discos en
+    UNA imagen grande. Antes se repetía el `<img>` dentro de un `display:flex`, que en un cliente de
+    correo no se puede dar por bueno (salían pequeños y cada cliente los colocaba a su manera).
+    ⚠️ En MÓVIL (≤ 520 px) todo se APILA como en Syncros: la portada encima de los datos y el disco
+    encima del nombre de la certificación, que así tiene el ancho entero y va en UNA línea («Disco de
+    Platino» salía partido en tres). El `<style>` va dentro del propio cuerpo —un correo no admite
+    hojas externas— y el cliente que no entienda media queries ve la maqueta de escritorio.
+    ⚠️ La imagen lleva `width` Y `height` (atributos y CSS) calculados con su proporción real, porque
+    la pila es más ancha que alta y Outlook pinta a tamaño natural lo que no los lleve."""
     media_kind = (media_kind or 'SONG').strip().upper()
+    esc = lambda v: html.escape('' if v is None else str(v))
+    ico = lambda n, size=16, color='007CA2': _brand_icon(n, email=True, size=size, color=color)
+
+    # ── El logo del SELLO (PIES), arriba a la derecha y sin el fondo blanco horneado, como en Syncros ──
     brand = _pies_brand_assets(session_db)
-    cover_url = (getattr(item, 'cover_url', None) or '').strip()
-    if not cover_url:
+    logo_url = _absolute_media_url(brand.get('logo_url') or '')
+    if logo_url:
         try:
-            cover_url = _external_url_for('static', filename='img/logo.png')
+            logo_url = _external_url_for('logo_clean_png', u=logo_url)
         except Exception:
-            cover_url = ''
+            pass
+    logo_html = ''
+    if logo_url:
+        logo_html = (f'<img src="{esc(logo_url)}" alt="{esc(brand.get("company_name") or "PIES")}" '
+                     'style="height:40px;width:auto;display:inline-block;">')
 
-    if media_kind == 'SONG':
-        media_label = 'Canción'
-        interpreters_label = _song_interpreters_label(session_db, item)
-    else:
-        media_label = 'Álbum'
-        interpreters_label = (getattr(artist, 'name', None) or '').strip() or '—'
-
+    # ── La canción o el álbum: su portada ENTERA (contain), su título, su artista con su foto y su fecha ──
     title = (getattr(item, 'title', None) or '').strip() or 'Lanzamiento'
-    publication_label = getattr(item, 'release_date', None).strftime('%d/%m/%Y') if getattr(item, 'release_date', None) else '—'
+    if media_kind == 'SONG':
+        media_label, media_icon = 'Canción', 'music'
+        interpreters_label = _song_interpreters_label(session_db, item)
+        artist_photo = _sync_artist_photo(item)
+    else:
+        media_label, media_icon = 'Álbum', 'compact-disc'
+        interpreters_label = (getattr(artist, 'name', None) or '').strip() or '—'
+        artist_photo = _absolute_media_url(getattr(artist, 'photo_url', None) or '') if artist else ''
+    # ⚠️ La fecha de algo que sale de casa lleva su DÍA DE LA SEMANA (regla de la casa).
+    release_date = getattr(item, 'release_date', None)
+    publication_label = format_date_long_es(release_date) if release_date else ''
+    cover_url = _absolute_media_url((getattr(item, 'cover_url', None) or '').strip())
+    if cover_url:
+        cover_html = (f'<img src="{esc(cover_url)}" alt="" width="200" height="200" class="cert-cover" '
+                      'style="width:200px;height:200px;object-fit:contain;background:#f1f3f5;'
+                      'border-radius:12px;border:1px solid #e6e9ec;display:block;">')
+    else:
+        cover_html = ('<table role="presentation" cellspacing="0" cellpadding="0" class="cert-cover-ph" '
+                      'style="width:200px;height:200px;border-collapse:separate;border-radius:12px;'
+                      'background:#f1f3f5;border:1px solid #e6e9ec;"><tr><td align="center" '
+                      f'style="vertical-align:middle;">{ico("compact-disc", 56, "c3c9cf")}</td></tr></table>')
+    pill_media = ('<span style="display:inline-block;background:#eef6f9;color:#00637f;border:1px solid #cfe6ee;'
+                  f'border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap;">'
+                  f'{ico(media_icon, 11, "00637f")}&nbsp; {esc(media_label)}</span>')
+
+    def dato(icono_html, valor_html):
+        """Un dato: SOLO su icono y el valor (el icono ya dice qué es: nada de rótulos)."""
+        return ('<div style="margin-top:7px;font-size:13.5px;color:#374151;line-height:1.35;">'
+                f'{icono_html}&nbsp; {valor_html}</div>')
+
+    if artist_photo:
+        artista_html = ('<div style="margin-top:10px;font-size:15px;color:#111827;">'
+                        f'<img src="{esc(artist_photo)}" alt="" width="26" height="26" style="width:26px;'
+                        'height:26px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px;">'
+                        f'<strong style="vertical-align:middle;">{esc(interpreters_label)}</strong></div>')
+    else:
+        artista_html = dato(ico('guitar'), f'<strong>{esc(interpreters_label)}</strong>')
+    fecha_html = ''
+    if publication_label:
+        fecha_html = dato(f'<span title="Fecha de publicación">{ico("calendar-day")}</span>', esc(publication_label))
+
+    # ── La CERTIFICACIÓN: el disco apilado, GRANDE, a la izquierda; el nombre y las copias a la derecha ──
+    cert_type = (cert_group.get('certification_type') or '').strip().upper()
+    cert_meta = _certification_catalog(media_kind).get(cert_type) or {}
     cert_title = cert_group.get('display_title_short') or cert_group.get('display_title') or cert_group.get('title') or 'Certificación'
     total_copies = cert_group.get('equivalent_copies_total') or 0
-    icon_url = cert_group.get('image_url') or ''
-    icon_count = min(max(int(cert_group.get('count') or 1), 1), 6)
-    icon_html = ''.join(
-        f'<img src="{html.escape(icon_url)}" alt="{html.escape(cert_group.get("title") or "Certificación")}" style="width:62px;height:62px;object-fit:contain;display:block;">'
-        for _ in range(icon_count)
-    ) if icon_url else ''
-    confetti_html = ""
-    logo_html = ''
-    if brand.get('logo_url'):
-        logo_html = f'<img src="{html.escape(brand.get("logo_url") or "")}" alt="{html.escape(brand.get("company_name") or "PIES")}" style="display:block;max-width:180px;max-height:64px;object-fit:contain;">'
-    cover_html = ''
-    if cover_url:
-        cover_html = f'<img src="{html.escape(cover_url)}" alt="{html.escape(title)}" style="display:block;width:118px;height:118px;object-fit:cover;border-radius:16px;border:1px solid #e5e7eb;background:#fff;">'
+    copies_label = _format_equivalent_copies(total_copies)
+    country_name = (cert_group.get('country_name') or cert_group.get('country_code') or '').strip()
+    icon_count = min(max(int(cert_group.get('count') or 1), 1), CERT_STACK_MAX)
+    # El alto del disco: 160 px con uno, dos o tres; con más, la pila se ensancha y se baja el alto
+    # para que el ancho no pase de ~250 px y al nombre le quede sitio a la derecha en escritorio.
+    disc_h = min(160, int(250 / (1 + 0.24 * (icon_count - 1))))
+    disc_w = max(disc_h, int(round(disc_h * _certification_stack_ratio(cert_meta.get('image') or '', icon_count, 256))))
+    try:
+        disc_url = _external_url_for('certification_icon_png', clave=cert_type, s=256, n=icon_count)
+    except Exception:
+        disc_url = cert_group.get('image_url') or ''
+    disc_html = ''
+    if disc_url:
+        disc_html = (f'<img src="{esc(disc_url)}" alt="{esc(cert_title)}" title="{esc(cert_title)}" '
+                     f'width="{disc_w}" height="{disc_h}" class="cert-disc" '
+                     # ⚠️ `max-width:none` y el alto FIJO: con `max-width:100%` dentro de la celda
+                     # `width:1%` el ancho computado salía 0 px y el disco NO SE VEÍA (la trampa
+                     # documentada de los iconos, comprobada aquí con getBoundingClientRect).
+                     f'style="display:block;width:{disc_w}px;height:{disc_h}px;max-width:none;">')
+    pais_html = ''
+    if country_name:
+        pais_html = ('<div style="margin-top:8px;font-size:13.5px;color:#374151;">'
+                     f'<span title="País">{ico("globe", 14)}</span>&nbsp; {esc(country_name)}</div>')
 
-    html_body = f"""
-    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:22px;overflow:hidden;">
-        <div style="position:relative;padding:28px 30px 18px;background:linear-gradient(180deg,#fff7ed 0%,#ffffff 100%);">
-          {confetti_html}
-          {logo_html}
-          <div style="margin-top:18px;font-size:34px;line-height:1.1;font-weight:800;color:#111827;">¡ENHORABUENA!</div>
-        </div>
-        <div style="padding:18px 30px 30px;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-            <tr>
-              <td width="136" valign="top">{cover_html}</td>
-              <td valign="top" style="padding-left:18px;">
-                <div style="font-size:24px;line-height:1.2;font-weight:700;color:#111827;">{html.escape(title)}</div>
-                <div style="margin-top:8px;font-size:14px;color:#4b5563;">{html.escape(interpreters_label)}</div>
-                <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;">
-                  <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:13px;">{html.escape(media_label)}</span>
-                  <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;">Publicación: {html.escape(publication_label)}</span>
-                </div>
-              </td>
-            </tr>
-          </table>
-          <div style="margin-top:24px;font-size:15px;color:#374151;">Ha sido certificado con:</div>
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:14px;border-collapse:collapse;">
-            <tr>
-              <td width="210" valign="middle">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">{icon_html}</div>
-              </td>
-              <td valign="middle" style="padding-left:10px;">
-                <div style="font-size:24px;font-weight:800;color:#111827;">{html.escape(cert_title)}</div>
-                <div style="margin-top:8px;font-size:15px;color:#374151;">Por haber superado el equivalente a {html.escape(_format_equivalent_copies(total_copies))} copias.</div>
-              </td>
-            </tr>
-          </table>
-        </div>
-      </div>
-    </div>
-    """
+    # ⚠️ Cabecera de módulo de la casa: fondo azul suave y las letras y el icono en el azul oscuro
+    # (la misma que `_activity_notice_html`, para que todas las comunicaciones se lean igual).
+    cabecera_html = (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        f'style="border-collapse:collapse;background:{BRAND_BLUE_SOFT};border-radius:10px;"><tr>'
+        f'<td style="font-size:14px;font-weight:800;color:{BRAND_BLUE_DARK};padding:7px 10px;">'
+        f'<span style="margin-right:6px;">{ico("award", 15, BRAND_BLUE_DARK.lstrip("#"))}</span>'
+        'Ha sido certificado con</td></tr></table>')
+
+    css = (
+        '<style>'
+        '.cert-body{max-width:680px;margin:0 auto;padding:22px;background:#fff;}'
+        '@media only screen and (max-width:520px){'
+        '.cert-body{padding:14px !important;}'
+        '.cert-logo img{height:32px !important;}'
+        '.cert-title{font-size:24px !important;}'
+        # ⚠️ Con `table-layout:fixed` la columna sigue mandando aunque la celda sea `display:block`:
+        # la tabla pasa a `auto` y la FILA también a bloque, y así cada celda ocupa todo el ancho.
+        '.cert-card{table-layout:auto !important;}'
+        # ⚠️ Solo la fila EXTERIOR (`.cert-row`): un `tr` a secas alcanzaría también a la tabla
+        # anidada del título y la galleta «Canción» dejaba de ir a la derecha.
+        '.cert-card .cert-row{display:block !important;width:100% !important;}'
+        '.cert-card .cert-cell{display:block !important;width:100% !important;}'
+        '.cert-card .cert-cell--cover{padding:14px 14px 0 !important;text-align:center !important;}'
+        '.cert-card .cert-cell--data{padding:12px 14px 14px !important;}'
+        '.cert-cover,.cert-cover-ph{width:100% !important;max-width:260px !important;'
+        'height:auto !important;aspect-ratio:1/1;margin:0 auto !important;}'
+        # El disco ENCIMA del nombre, los dos centrados: el nombre tiene el ancho entero y no se parte.
+        '.cert-award .cert-row{display:block !important;width:100% !important;}'
+        '.cert-award .cert-cell{display:block !important;width:100% !important;text-align:center !important;}'
+        '.cert-award .cert-cell--disc{padding:10px 0 6px !important;}'
+        '.cert-award .cert-cell--text{padding:0 8px 6px !important;}'
+        '.cert-award .cert-disc{margin:0 auto !important;}'
+        '.cert-award__title{font-size:22px !important;}'
+        '}'
+        '</style>')
+
+    html_body = (
+        css
+        + '<div class="cert-body" style="max-width:680px;margin:0 auto;padding:22px;font-family:-apple-system,'
+          'BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;background:#fff;color:#111827;">'
+        + f'<div class="cert-logo" style="text-align:right;margin-bottom:6px;">{logo_html}</div>'
+        + '<h1 class="cert-title" style="margin:8px 0 16px;font-size:26px;line-height:1.2;text-align:center;'
+          'color:#111827;letter-spacing:.03em;">¡ENHORABUENA!</h1>'
+        # La tarjeta de la canción/álbum: portada a la izquierda, datos a la derecha (la de Syncros).
+        + '<table class="cert-card" role="presentation" cellspacing="0" cellpadding="0" style="width:100%;'
+          'border-collapse:collapse;table-layout:fixed;background:#fff;border:1px solid #e6e9ec;border-radius:14px;"><tr class="cert-row">'
+        + f'<td class="cert-cell cert-cell--cover" style="padding:16px;vertical-align:top;width:216px;">{cover_html}</td>'
+        + '<td class="cert-cell cert-cell--data" style="padding:16px 16px 16px 0;vertical-align:middle;">'
+        + '<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;"><tr>'
+        + f'<td style="font-size:20px;font-weight:800;color:#111827;line-height:1.2;padding:0;">{esc(title)}</td>'
+        + f'<td style="text-align:right;padding:0 0 0 10px;white-space:nowrap;vertical-align:top;">{pill_media}</td>'
+        + '</tr></table>'
+        + artista_html + fecha_html
+        + '</td></tr></table>'
+        # El módulo de la certificación, con la cabecera de módulo de la casa.
+        + '<div style="border:1px solid #e6e9ec;border-radius:14px;padding:6px 6px 12px;margin-top:14px;background:#fff;">'
+        + cabecera_html
+        + '<table class="cert-award" role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+          'style="border-collapse:collapse;margin-top:6px;"><tr class="cert-row">'
+        + f'<td class="cert-cell cert-cell--disc" width="1%" style="padding:10px 6px 6px 12px;vertical-align:middle;white-space:nowrap;">{disc_html}</td>'
+        + '<td class="cert-cell cert-cell--text" style="padding:10px 14px 6px 14px;vertical-align:middle;">'
+        + f'<div class="cert-award__title" style="font-size:26px;font-weight:800;color:#111827;line-height:1.15;">{esc(cert_title)}</div>'
+        + '<div style="margin-top:8px;font-size:15px;color:#374151;line-height:1.45;">Por haber superado el '
+          f'equivalente a <strong>{esc(copies_label)}</strong> copias.</div>'
+        + pais_html
+        + '</td></tr></table></div>'
+        + '</div>'
+    )
     text_body = (
-        f"¡ENHORABUENA!\n\n"
+        "¡ENHORABUENA!\n\n"
         f"{title} · {media_label}\n"
-        f"Intérpretes: {interpreters_label}\n"
-        f"Fecha de publicación: {publication_label}\n\n"
-        f"Ha sido certificado con {cert_title}.\n"
-        f"Por haber superado el equivalente a {_format_equivalent_copies(total_copies)} copias.\n"
+        f"{interpreters_label}\n"
+        + (f"Publicación: {publication_label}\n" if publication_label else "")
+        + f"\nHa sido certificado con: {cert_title}\n"
+        f"Por haber superado el equivalente a {copies_label} copias.\n"
+        + (f"País: {country_name}\n" if country_name else "")
     )
     return {
         'subject': _certification_notification_subject(media_label, title),

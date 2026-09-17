@@ -731,3 +731,18 @@
   · Prueba de punta a punta (emitir, imagen/PDF/QR, comprobar los cuatro resultados, renovar,
   bloqueado, permisos con y sin grant, .pkpass con certificado autofirmado verificado por openssl,
   JWT de Google verificado con PyJWT): `test_pases.py` del kit local (60 comprobaciones).
+  · **Estudio de seguridad (sep 2026, lo pidió Dani)**. Lo que protege: el token del QR son 144 bits
+  al azar (`token_urlsafe(18)`) —no se adivina ni se enumera—, la comprobación exige SESIÓN de la casa
+  (quien escanea sin ella pasa por el login y vuelve; el `next` va por `safe_next_or`), el gate de los
+  endpoints del pase DENIEGA con 403 al que no es el dueño ni tiene Datos, renovar es un POST con CSRF,
+  cada comprobación deja rastro (y en «Ver como», con el nombre del que estaba detrás), la página del
+  pase y la de comprobación salen con `Cache-Control: private, no-store` (llevan el DNI: nada en la
+  caché de un móvil que se pasa de mano) y la de comprobación con `Referrer-Policy: no-referrer` (el
+  token de la URL no viaja), la foto solo se baja de una URL `https://`, y una copia del QR no sirve a
+  un impostor porque la comprobación enseña la FOTO y el DNI actuales para contrastarlos. Lo que se
+  asume: el DNI va en claro en el pase porque así se pidió (una tarjeta física también lo lleva); el
+  enlace de Google Wallet lleva el nombre y el DNI dentro del JWT (es como funciona «Guardar»; la
+  alternativa «skinny JWT» crea el objeto por la API REST y solo manda el id). Hallazgo FUERA de esta
+  función: `_require_login_v2` no vuelve a mirar `is_blocked`/`is_deleted` en cada petición, así que a
+  quien se bloquea con la sesión abierta le dura hasta que caduque (el login sí lo rechaza). Es de toda
+  la app, no del pase, y está apuntado para la fase de seguridad.

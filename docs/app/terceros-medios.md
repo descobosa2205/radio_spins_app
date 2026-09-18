@@ -11,6 +11,7 @@
 - EL NICK SE PUEDE REPETIR, y quien salga dos veces se distingue por su NOMBRE COMPLETO
 
 - Vinculaciones entre entidades (ThirdPartyLink + templates/_entity_links_panel.html +
+- AL FUSIONAR, LAS VINCULACIONES DE LOS DOS CHOCAN ENTRE SÍ (el UNIQUE que tumbaba la fusión)
 - TELÉFONOS · EL PREFIJO DEL PAÍS SE PONE AL GUARDAR. Un teléfono escrito
 - IMPORTAR TERCEROS DESDE UN FICHERO. Botón «Añadir desde fichero» en
 - EL BUSCADOR DE TERCEROS BUSCA POR CUALQUIER DATO Y POR PALABRAS. El listado de
@@ -383,8 +384,36 @@ debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado g
   dos. Se sigue pudiendo crear si de verdad es otro (`force_new`), como con los nombres parecidos.
   ⚠️ Todo va **en bloque** (una consulta por tabla): con cientos de terceros, una consulta por ficha
   dejaría la pantalla de Terceros inservible.
-  ⚠️ Prueba de regresión: **`tools/check_duplicados.py`** (31 comprobaciones con la app real: la
-  fusión, el descarte en bloque, la unión con la oficina y sus dos «deshacer»).
+  ⚠️ Prueba de regresión: **`tools/check_duplicados.py`** (41 comprobaciones con la app real: la
+  fusión, sus vinculaciones, el descarte en bloque, la unión con la oficina y sus dos «deshacer»).
+
+- ⚠️⚠️⚠️ **AL FUSIONAR, LAS VINCULACIONES DE LOS DOS CHOCAN ENTRE SÍ** (bug real y gordo, sep 2026,
+  lo vio Dani: «**No se pudo fusionar: duplicate key value violates unique constraint
+  "uq_third_party_links_direct"**»). `third_party_links` tiene un **UNIQUE por (origen, destino)** y
+  dos fichas duplicadas suelen estar vinculadas a **LA MISMA tercera** —por eso son duplicadas—, así
+  que el `UPDATE … SET target_id = <el bueno>` en bloque chocaba con la fila que el ganador ya
+  tenía: reventaba, y con él **la fusión ENTERA** (no se fusionaba nada, ni lo que no tenía nada que
+  ver). Con la fusión automática (`_promoter_merge_into`, el integrante de un artista que ya era
+  tercero) era peor: ahí el fallo se **traga en un log** y la ficha se borraba igual, dejando las
+  vinculaciones apuntando a una ficha que ya no existe —y una vinculación así **desaparece de las
+  dos fichas sin decir nada** (`_entity_link_payload` devuelve `None` y la fila se salta)—.
+  · Punto único **`_merge_repoint_entity_links`**: cada vinculación repetida se colapsa en **UNA**
+  fila —se queda la que ya era del ganador y se le **completan los huecos** (la relación, la nota)
+  con lo que traiga la del perdedor; un dato escrito no se pisa nunca—, y si una de las dos estaba
+  activa, la que queda lo está.
+  · El par se compara **en los dos sentidos**, que es como lo ve la app (`entity_link_create` da por
+  existente el del par al revés): si no, quedaban dos filas espejo diciendo lo mismo.
+  ⚠️ **PRIMERO se borran las repetidas y DESPUÉS se mueven las que se quedan**: al revés, el UNIQUE
+  salta en el propio `UPDATE` (se comprueba fila a fila, no al cerrar la transacción).
+  ⚠️⚠️ **Y LOS TIPOS SON LOS EQUIVALENTES** (`_merge_link_types` → `_entity_link_self_types`):
+  tercero, **empresa** e **institución** son la MISMA tabla, así que una vinculación creada como
+  «empresa» también es del tercero. Con solo `"promoter"` —lo que decía `MERGE_KINDS`— se quedaba
+  apuntando a la ficha borrada y se perdía en silencio.
+  ⚠️ Pasa en **todas las categorías** (dos recintos vinculados al mismo tercero reventaban igual), y
+  la cuenta del flash («N referencias re-apuntadas») cuenta lo que era del perdedor.
+  ⚠️ Probado de punta a punta reproduciendo el fallo: con el código viejo salen los 7 fallos (el
+  mismo mensaje que vio Dani) y con el nuevo, las 10 comprobaciones nuevas de
+  `tools/check_duplicados.py` en verde.
 
 - ⚠️⚠️ **«NO SON LA MISMA»: LA SALIDA DE UN DUPLICADO QUE NO LO ES** (sep 2026, lo pidió Dani). El
   bloque de fichas repetidas proponía fusionar, y **fusionar no se puede deshacer**: si dos fichas
@@ -407,4 +436,4 @@ debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado g
   de una sola fila manda **`solo`**: descarta ESA pareja y nada más, aunque haya casillas marcadas —
   pulsar un botón no puede hacer de más.
   ⚠️ Las dos rutas van bajo `/promotores`, así que heredan el permiso de la sección (como la fusión).
-  ⚠️ Cubierto por `tools/check_duplicados.py` (31 comprobaciones) y probado en el navegador.
+  ⚠️ Cubierto por `tools/check_duplicados.py` (41 comprobaciones) y probado en el navegador.

@@ -171205,22 +171205,101 @@ def _merge_repoint_references(s, model, keep_id, drop_id):
     return total
 
 
+def _merge_link_types(cfg) -> list:
+    """Los tipos de vinculación de esa categoría, con sus EQUIVALENTES.
+
+    ⚠️ Tercero, empresa e institución son LA MISMA TABLA (`_entity_link_self_types`), así que una
+    vinculación creada como «empresa» también es del tercero: con solo «promoter» se quedaba
+    apuntando a una ficha ya borrada y DESAPARECÍA de las dos fichas sin decir nada."""
+    return sorted({t for lt in (cfg.get("link_types") or []) for t in _entity_link_self_types(lt)})
+
+
+def _merge_repoint_entity_links(s, cfg, keep_id, drop_id) -> int:
+    """Las VINCULACIONES del perdedor pasan al ganador SIN chocar entre sí. Devuelve las tocadas.
+
+    ⚠️⚠️ **RE-APUNTARLAS EN BLOQUE REVENTABA LA FUSIÓN ENTERA** (bug real, sep 2026: «No se pudo
+    fusionar: duplicate key value violates unique constraint "uq_third_party_links_direct"»).
+    `third_party_links` tiene un UNIQUE por (origen, destino) y dos fichas duplicadas suelen estar
+    vinculadas a LA MISMA tercera —por eso son duplicadas—, así que la fila del perdedor chocaba con
+    la que ya tenía el ganador: el `UPDATE` moría, se caía la fusión y no se fusionaba NADA.
+    · Cada vinculación repetida se colapsa en UNA fila: se queda la que ya era del ganador y se le
+      COMPLETAN LOS HUECOS (la relación, la nota) con lo que traiga la del perdedor —un dato escrito
+      no se pisa nunca—, y si una de las dos estaba activa, la que queda lo está.
+    · El par se compara **en los dos sentidos**, que es como lo ve la app (`entity_link_create` da
+      por existente el del par al revés): si no, quedaban dos filas espejo diciendo lo mismo.
+    · Lo que quedaría vinculando la ficha CONSIGO MISMA se va.
+    """
+    md = cfg["model"].__table__.metadata
+    tipos = _merge_link_types(cfg)
+    keep_id, drop_id = _safe_uuid(keep_id), _safe_uuid(drop_id)
+    if not tipos or not keep_id or not drop_id or "third_party_links" not in md.tables:
+        return 0
+    t = md.tables["third_party_links"]
+    filas = s.execute(t.select().where(or_(
+        and_(t.c.source_type.in_(tipos), t.c.source_id.in_([drop_id, keep_id])),
+        and_(t.c.target_type.in_(tipos), t.c.target_id.in_([drop_id, keep_id])),
+    ))).mappings().all()
+    if not filas:
+        return 0
+
+    def _destino(tipo, ident):
+        return keep_id if (tipo in tipos and ident == drop_id) else ident
+
+    def _del_perdedor(f):
+        return ((f["source_type"] in tipos and f["source_id"] == drop_id)
+                or (f["target_type"] in tipos and f["target_id"] == drop_id))
+
+    def _canon(tipo):
+        equivalentes = _entity_link_self_types((tipo or "").strip().lower())
+        return equivalentes[0] if equivalentes else (tipo or "")
+
+    total, quedan, borrar = 0, {}, []
+    # Primero las que YA son del ganador (esas ni se tocan) y, dentro, la más antigua.
+    for f in sorted(filas, key=lambda f: (1 if _del_perdedor(f) else 0, str(f["created_at"] or ""), str(f["id"]))):
+        sid = _destino(f["source_type"], f["source_id"])
+        tid = _destino(f["target_type"], f["target_id"])
+        par = tuple(sorted(((_canon(f["source_type"]), str(sid)), (_canon(f["target_type"]), str(tid)))))
+        if par[0] == par[1]:                      # la ficha consigo misma
+            borrar.append(f["id"])
+            total += 1 if _del_perdedor(f) else 0
+            continue
+        g = quedan.get(par)
+        if g is None:
+            quedan[par] = {"id": f["id"], "relation_title": f["relation_title"], "note": f["note"],
+                           "is_active": f["is_active"], "source_id": sid, "target_id": tid,
+                           "mueve": _del_perdedor(f)}
+            continue
+        if not _del_perdedor(f):
+            continue          # las dos ya eran del ganador: no es cosa de la fusión, ni se tocan
+        huecos = {}
+        for campo in ("relation_title", "note"):
+            if not (g.get(campo) or None) and (f[campo] or None):
+                huecos[campo] = g[campo] = f[campo]
+        if f["is_active"] and not g["is_active"]:
+            huecos["is_active"] = g["is_active"] = True
+        if huecos:
+            s.execute(t.update().where(t.c.id == g["id"]).values(**huecos))
+        borrar.append(f["id"])
+        total += 1
+    # ⚠️ PRIMERO se borran las repetidas y DESPUÉS se mueven las que se quedan: al revés, el UNIQUE
+    # salta en el propio UPDATE (se comprueba fila a fila, no al cerrar la transacción).
+    if borrar:
+        s.execute(t.delete().where(t.c.id.in_(borrar)))
+    for g in quedan.values():
+        if g["mueve"]:
+            s.execute(t.update().where(t.c.id == g["id"]).values(source_id=g["source_id"], target_id=g["target_id"]))
+            total += 1
+    return total
+
+
 def _merge_repoint_polymorphic(s, cfg, keep_id, drop_id):
     """Referencias SIN FK: vinculaciones (third_party_links, por tipo) y plantillas de
     gastos por dueño (expense_templates.owner_type/owner_id para VENUE/EVENT)."""
     from sqlalchemy.exc import IntegrityError as _IE
     md = cfg["model"].__table__.metadata
     total = 0
-    lts = cfg.get("link_types") or []
-    if lts and "third_party_links" in md.tables:
-        t = md.tables["third_party_links"]
-        for type_col, id_col in ((t.c.source_type, t.c.source_id), (t.c.target_type, t.c.target_id)):
-            with s.begin_nested():
-                res = s.execute(t.update().where(type_col.in_(lts), id_col == drop_id).values(**{id_col.name: keep_id}))
-            total += res.rowcount or 0
-        # Auto-vinculaciones resultantes (el elemento consigo mismo): fuera.
-        with s.begin_nested():
-            s.execute(t.delete().where(t.c.source_type.in_(lts), t.c.target_type.in_(lts), t.c.source_id == t.c.target_id))
+    with s.begin_nested():
+        total += _merge_repoint_entity_links(s, cfg, keep_id, drop_id)
     owner = cfg.get("tpl_owner")
     if owner and "expense_templates" in md.tables:
         t2 = md.tables["expense_templates"]

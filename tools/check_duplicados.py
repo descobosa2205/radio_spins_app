@@ -11,7 +11,9 @@ haciendo de promotor. Esto comprueba, contra la app REAL y la BD de PRUEBA, que:
   4. el ALTA RÁPIDA avisa cuando ese DNI, ese correo o ese teléfono YA están en la base (antes solo
      miraba nombres parecidos, así que «Cadena 100» y «Cadena100 Radio» se creaban las dos);
   5. …y aun así deja crear si de verdad es otro (`force_new`);
-  6. la FUSIÓN re-apunta lo que colgaba, borra el duplicado y la pareja deja de salir.
+  6. la FUSIÓN re-apunta lo que colgaba, borra el duplicado y la pareja deja de salir;
+  7. …incluidas las VINCULACIONES: las dos fichas vinculadas a la misma tercera se funden en
+     una sola (antes reventaba la fusión entera con el UNIQUE de `third_party_links`).
 
     /tmp/python/bin/python3 tools/check_duplicados.py
 
@@ -244,6 +246,60 @@ s = A.db()
 check("con DNI distinto NO se unen, y se dice por qué",
       not getattr(s.get(models.Promoter, A.to_uuid(pid2)), "user_id", None)
       and any("DNI distinto" in str(m) for _c, m in fl), str(fl)[:160])
+s.close()
+
+# ─── LAS VINCULACIONES AL FUSIONAR ────────────────────────────────────────────────────────────
+# ⚠️⚠️ Dos fichas duplicadas suelen estar vinculadas a LA MISMA tercera —por eso son duplicadas—,
+# y re-apuntarlas en bloque chocaba con el UNIQUE de `third_party_links`: la fusión ENTERA moría
+# con «duplicate key value violates unique constraint "uq_third_party_links_direct"» (bug real,
+# sep 2026, lo vio Dani). Aquí se comprueba de punta a punta que ya no, y que no se pierde nada.
+s = A.db()
+keep = models.Promoter(nick="Vinc Keep %s" % suf, contact_email="vinc+%s@x.local" % suf)
+drop = models.Promoter(nick="Vinc Drop %s" % suf, contact_email="vinc+%s@x.local" % suf)
+vx = models.Promoter(nick="Vinc X %s" % suf); vy = models.Promoter(nick="Vinc Y %s" % suf)
+vz = models.Promoter(nick="Vinc Z %s" % suf); vw = models.Promoter(nick="Vinc W %s" % suf)
+aj1 = models.Promoter(nick="Vinc Ajeno1 %s" % suf); aj2 = models.Promoter(nick="Vinc Ajeno2 %s" % suf)
+for p_ in (keep, drop, vx, vy, vz, vw, aj1, aj2): s.add(p_)
+s.commit()
+vid = {k: v.id for k, v in dict(keep=keep, drop=drop, x=vx, y=vy, z=vz, w=vw, o1=aj1, o2=aj2).items()}
+def _vinc(st, sid, tt, tid, rel=None, nota=None):
+    s.add(models.ThirdPartyLink(source_type=st, source_id=sid, target_type=tt, target_id=tid,
+                                relation_title=rel, note=nota, is_active=True))
+_vinc("promoter", vid["x"], "promoter", vid["keep"])                                    # el choque
+_vinc("promoter", vid["x"], "promoter", vid["drop"], rel="director de la radio", nota="apunte")
+_vinc("promoter", vid["keep"], "promoter", vid["y"])                                    # el espejo
+_vinc("promoter", vid["y"], "promoter", vid["drop"], rel="proveedor")
+_vinc("promoter", vid["keep"], "promoter", vid["drop"], rel="son la misma")             # entre ellas
+_vinc("promoter", vid["drop"], "promoter", vid["z"], rel="socio")                       # solo del que se va
+_vinc("empresa", vid["drop"], "promoter", vid["w"], rel="su sociedad")                  # creada como «empresa»
+_vinc("promoter", vid["o1"], "promoter", vid["o2"], rel="ajena")                        # de otros
+s.commit(); s.close()
+
+with cli.session_transaction() as ses: ses.pop("_flashes", None)
+r = cli.post("/promotores/fusion", data={"keep_id": str(vid["keep"]), "drop_id": str(vid["drop"]),
+                                         "choices_json": "{}", "next": "/promotores"})
+with cli.session_transaction() as ses: fl = ses.get("_flashes", [])
+s = A.db()
+check("fusionar dos fichas vinculadas a la MISMA tercera no revienta (uq_third_party_links_direct)",
+      not any(c == "danger" for c, _m in fl), str(fl)[:220])
+check("y el duplicado desaparece", s.get(models.Promoter, vid["drop"]) is None)
+filas = s.query(models.ThirdPartyLink).filter(A.or_(
+    models.ThirdPartyLink.source_id == vid["keep"], models.ThirdPartyLink.target_id == vid["keep"])).all()
+def _hacia(pid):
+    return [f for f in filas if pid in (f.source_id, f.target_id)]
+check("la vinculación repetida se queda en UNA", len(_hacia(vid["x"])) == 1, len(_hacia(vid["x"])))
+check("y se le completan los huecos con lo que traía el duplicado (relación y nota)",
+      bool(_hacia(vid["x"])) and _hacia(vid["x"])[0].relation_title == "director de la radio"
+      and _hacia(vid["x"])[0].note == "apunte",
+      [(f.relation_title, f.note) for f in _hacia(vid["x"])])
+check("la vinculación ESPEJO (la misma al revés) tampoco se duplica", len(_hacia(vid["y"])) == 1, len(_hacia(vid["y"])))
+check("lo que solo tenía el duplicado pasa al que se conserva", len(_hacia(vid["z"])) == 1, len(_hacia(vid["z"])))
+check("y la vinculación creada como «empresa» NO se pierde (misma tabla)", len(_hacia(vid["w"])) == 1, len(_hacia(vid["w"])))
+check("no queda ninguna vinculación apuntando a la ficha borrada", not s.query(models.ThirdPartyLink).filter(A.or_(
+    models.ThirdPartyLink.source_id == vid["drop"], models.ThirdPartyLink.target_id == vid["drop"])).all())
+check("ni ninguna de la ficha consigo misma", not [f for f in filas if f.source_id == f.target_id])
+check("y las vinculaciones de otros ni se tocan", len(s.query(models.ThirdPartyLink).filter(
+    models.ThirdPartyLink.source_id == vid["o1"]).all()) == 1)
 s.close()
 
 print("\n%d bien · %d mal" % (len(OK), len(KO)))

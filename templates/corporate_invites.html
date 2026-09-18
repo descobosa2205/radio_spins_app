@@ -16,6 +16,7 @@
      data-import-review-url-tpl="{{ url_for('corporate_import_review', list_id='__LIST__') }}"
      data-import-add-url-tpl="{{ url_for('corporate_import_add', list_id='__LIST__') }}"
      data-import-new-url-tpl="{{ url_for('corporate_import_new', list_id='__LIST__') }}"
+     data-fix-url-tpl="{{ url_for('corporate_guest_fix', guest_id='__GUEST__') }}"
      data-rename-url-tpl="{{ url_for('corporate_list_rename', list_id='__LIST__') }}"
      data-remove-url-tpl="{{ url_for('corporate_guest_remove', guest_id='__GUEST__') }}"
      data-send-url-tpl="{{ url_for('corporate_invite_send', invite_id='__INV__') }}"
@@ -177,6 +178,12 @@
                     <button type="button" class="btn btn-sm btn-primary" data-ci-add-open="{{ l.id }}">
                       <i class="fa fa-user-plus me-1"></i>Añadir a alguien
                     </button>
+                    {# Los que se subieron sin correo: se arreglan UNO A UNO sin salir de aquí. #}
+                    <button type="button" class="btn btn-sm btn-warning {{ '' if l.count != l.with_email else 'd-none' }}"
+                            data-ci-fix-open="{{ l.id }}">
+                      <i class="fa fa-envelope-circle-check me-1"></i>Arreglar los
+                      <span data-ci-fix-count>{{ l.count - l.with_email }}</span> sin correo
+                    </button>
                     <label class="btn btn-sm btn-success mb-0">
                       <i class="fa fa-file-import me-1"></i>Subir un fichero
                       <input type="file" class="d-none" accept=".xlsx,.xls,.csv,.tsv,.txt" data-ci-file="{{ l.id }}">
@@ -317,6 +324,30 @@
       <button type="button" class="btn btn-link text-decoration-none" data-ci-imp-back>
         <i class="fa fa-arrow-left me-1"></i>Atrás</button>
       <div class="d-flex gap-2 flex-wrap justify-content-end" data-ci-imp-actions></div>
+    </div>
+  </div></div>
+</div>
+
+{# ---------- LOS QUE NO TIENEN CORREO · uno a uno ----------
+   ⚠️ Lo pidió Dani: «que cuando pinches en uno te vaya pasando uno a uno para dejarlo todo
+   solucionado, sin tener que salir y volver». Se escribe el correo y se pasa al siguiente; el que
+   no valga se quita de la lista. Al acabar se dice que ya está. #}
+<div class="modal fade" id="corpFixModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content" data-ci-fix>
+    <div class="modal-header sw-head">
+      <h5 class="modal-title"><i class="fa fa-envelope-circle-check me-2"></i>Los que no tienen correo</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+    </div>
+    <div class="modal-body" data-ci-fix-body></div>
+    <div class="modal-footer sw-foot justify-content-between">
+      <button type="button" class="btn btn-link text-danger text-decoration-none" data-ci-fix-drop>
+        <i class="fa fa-trash me-1"></i>Quitarlo de la lista</button>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-secondary" data-ci-fix-skip>
+          Saltármelo<i class="fa fa-arrow-right ms-1"></i></button>
+        <button type="button" class="btn btn-danger" data-ci-fix-save>
+          <i class="fa fa-check me-1"></i>Guardar y seguir</button>
+      </div>
     </div>
   </div></div>
 </div>

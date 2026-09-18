@@ -8336,6 +8336,9 @@ a.ac-row__t:hover{ color:var(--brand-accent,#007CA2); text-decoration:underline;
 .ci-guest__t b{ display:block; font-size:.92rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ci-guest__t small{ display:block; font-size:.76rem; color:#6c757d; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ci-guest__x{ flex:0 0 auto; padding:.1rem .35rem; }
+/* A quien le FALTA EL CORREO se le ve y se arregla desde su propia fila (uno a uno). */
+.ci-guest.is-missing{ border-color:#f0c36d; background:#fffaf0; }
+.ci-guest__fix{ flex:0 0 auto; white-space:nowrap; }
 
 /* Buscar un tercero para añadirlo */
 .ci-results{ display:grid; gap:.35rem; max-height:15rem; overflow:auto; }

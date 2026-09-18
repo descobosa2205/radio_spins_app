@@ -375,6 +375,70 @@ try:
 finally:
     s.close()
 
+print("\n── 4b. LOS QUE NO TIENEN CORREO · se arreglan UNO A UNO ───────────────")
+# ⚠️⚠️ «SIN CORREO» ES EL MISMO DATO QUE MIRA EL ENVÍO (bug real, sep 2026, lo vio Dani: «hay
+# algunos que sí tienen email y siguen apareciendo como que no después de solucionarlo»). La
+# pantalla miraba SOLO la fila de la lista y el envío mira primero la FICHA del tercero: quien tenía
+# el correo en su ficha salía como «sin correo» para siempre, aunque la invitación sí le llegara.
+s = models.SessionLocal()
+try:
+    conficha = models.Promoter(nick="Con ficha", contact_email="conficha@medio.com")
+    sinnada = models.Promoter(nick="Sin nada")
+    s.add(conficha); s.add(sinnada); s.commit()
+    lst2 = models.CorporateGuestList(user_id=A.to_uuid(UID), name="Con huecos")
+    s.add(lst2); s.commit()
+    g1 = models.CorporateGuest(list_id=lst2.id, promoter_id=conficha.id, name="Con ficha", email=None)
+    g2 = models.CorporateGuest(list_id=lst2.id, promoter_id=sinnada.id, name="Sin nada", email=None)
+    s.add(g1); s.add(g2); s.commit()
+    LID2, G1, G2 = str(lst2.id), str(g1.id), str(g2.id)
+finally:
+    s.close()
+js = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID2).get_json() or {}
+filas = {f["id"]: f for f in (js.get("rows") or [])}
+check("quien tiene el correo en su FICHA ya no sale como «sin correo»",
+      (filas.get(G1) or {}).get("email") == "conficha@medio.com", filas.get(G1))
+check("y quien no lo tiene en ninguna parte, sí", (filas.get(G2) or {}).get("email") == "", filas.get(G2))
+check("la cuenta de la lista dice lo mismo que el envío (1 de 2)",
+      js.get("with_email") == 1 and js.get("count") == 2, js)
+s = models.SessionLocal()
+try:
+    with A.app.test_request_context("/"):
+        prev = A._corp_recipients_preview(s, [LID2])
+    check("y el envío cuenta a quien tiene el correo en su ficha",
+          prev.get("total") == 1 and prev.get("sin_correo") == 1, prev)
+finally:
+    s.close()
+# Arreglarlo desde la propia lista, sin salir de la pantalla
+r = cli.post("/invitaciones-corporativas/invitados/%s/arreglar" % G2,
+             data={"email": "arreglado@medio.com", "phone": "600111999"})
+js2 = r.get_json() or {}
+check("se le puede poner el correo que falta ahí mismo", js2.get("ok") and js2.get("with_email") == 2, js2)
+check("y dice cuántos quedan, para seguir con el siguiente", js2.get("pending") == 0, js2)
+s = models.SessionLocal()
+try:
+    p = s.query(models.Promoter).filter(models.Promoter.nick == "Sin nada").first()
+    check("el correo se guarda TAMBIÉN en su ficha de tercero (la tenía vacía)",
+          (p.contact_email or "") == "arreglado@medio.com", p and p.contact_email)
+    check("y el teléfono, con su prefijo", (p.contact_phone or "").endswith("600111999"), p and p.contact_phone)
+finally:
+    s.close()
+r = cli.post("/invitaciones-corporativas/invitados/%s/arreglar" % G1, data={"email": "esto no es"})
+check("un correo mal escrito se rechaza y se dice por qué",
+      r.status_code == 400 and "no parece" in ((r.get_json() or {}).get("error") or ""), r.get_json())
+r = cli.post("/invitaciones-corporativas/invitados/%s/arreglar" % G1, data={"email": ""})
+check("y sin correo no se guarda nada", r.status_code == 400, r.status_code)
+# Un tercero que ya está en la lista no entra dos veces aunque su fila no tenga correo
+s = models.SessionLocal()
+try:
+    lst2b = s.get(models.CorporateGuestList, A.to_uuid(LID2))
+    p1 = s.query(models.Promoter).filter(models.Promoter.nick == "Con ficha").first()
+    with A.app.test_request_context("/"):
+        ok2, motivo = A._corp_guest_add(s, lst2b, promoter=p1, name="Con ficha", email="", phone="")
+    s.rollback()
+    check("y quien ya está en la lista no entra dos veces", (not ok2) and motivo == "ya estaba", (ok2, motivo))
+finally:
+    s.close()
+
 print("\n── 5. LA INVITACIÓN: crear, diseñar y enviar ──────────────────────────")
 r = cli.post("/invitaciones-corporativas/nueva",
              data={"lists": [LID], "concert_id": CID, "subject": "Te invito a Los Ñus"})

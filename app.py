@@ -102119,6 +102119,7 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "corporate_invites_view", "corporate_invite_detail_view",
                       "corporate_list_create", "corporate_list_rename", "corporate_list_delete",
                       "corporate_list_guests", "corporate_guest_add", "corporate_guest_remove",
+                      "corporate_guest_fix",
                       "corporate_list_import", "corporate_import_review",
                       "corporate_import_add", "corporate_import_new",
                       "corporate_invite_create", "corporate_invite_save", "corporate_invite_delete",
@@ -182198,13 +182199,27 @@ def _corp_list_mine(session_db, list_id, user_id):
     return lst
 
 
+def _corp_guest_email(g) -> str:
+    """EL CORREO DE UN INVITADO, punto ÚNICO: **el de su ficha de tercero** y, si no lo tiene, el que
+    traía la fila (de un fichero o escrito a mano).
+
+    ⚠️⚠️ La pantalla miraba **solo la fila** y el envío mira primero la FICHA, así que quien tenía el
+    correo en su ficha salía como «sin correo» —y lo seguía diciendo después de arreglarlo— aunque
+    la invitación sí le llegaba (bug real, sep 2026, lo vio Dani en su lista de invitados). Si un
+    dato se enseña en dos sitios, sale de la misma función."""
+    prom = getattr(g, "promoter", None)
+    return ((_corp_promoter_email(prom) if prom is not None else "")
+            or (getattr(g, "email", "") or "").strip().lower())
+
+
 def _corp_guest_row(g) -> dict:
     prom = getattr(g, "promoter", None)
+    correo = _corp_guest_email(g)
     return {
         "id": str(g.id),
-        "name": (g.name or "").strip() or (_promoter_display_name(prom) if prom is not None else "") or (g.email or ""),
-        "email": (g.email or "").strip(),
-        "phone": (g.phone or "").strip(),
+        "name": (g.name or "").strip() or (_promoter_display_name(prom) if prom is not None else "") or correo,
+        "email": correo,
+        "phone": (g.phone or "").strip() or ((getattr(prom, "contact_phone", "") or "").strip() if prom is not None else ""),
         "promoter_id": str(g.promoter_id) if g.promoter_id else "",
         "promoter_url": url_for("promoter_detail_view", pid=g.promoter_id) if g.promoter_id else "",
         "logo_url": ((getattr(prom, "logo_url", "") or "").strip() if prom is not None else ""),
@@ -182216,7 +182231,9 @@ def _corp_list_row(session_db, lst, *, con_invitados: bool = False) -> dict:
                  .options(joinedload(CorporateGuest.promoter))
                  .filter(CorporateGuest.list_id == lst.id)
                  .order_by(CorporateGuest.created_at.asc()).all())
-    con_correo = sum(1 for g in invitados if (g.email or "").strip())
+    # ⚠️ El MISMO criterio que el envío (`_corp_guest_email`): el número que se ve es exactamente a
+    # cuántos se les puede mandar.
+    con_correo = sum(1 for g in invitados if _corp_guest_email(g))
     return {
         "id": str(lst.id), "name": (lst.name or "").strip() or "Sin nombre",
         "count": len(invitados), "with_email": con_correo,
@@ -182232,20 +182249,22 @@ def _corp_guest_add(session_db, lst, *, promoter=None, name: str = "", email: st
                     phone: str = "") -> tuple[bool, str]:
     """Añade a alguien a la lista. Devuelve (añadido, motivo si no).
 
-    ⚠️ **Nadie dos veces en la misma lista**: se mira por su CORREO (que es a donde se manda) y, si
-    no lo trae, por su ficha de tercero. Es el mismo criterio que la importación."""
+    ⚠️ **Nadie dos veces en la misma lista**: se mira por su FICHA de tercero (que es quien es) y por
+    su CORREO (que es a donde se manda). Es el mismo criterio que la importación.
+    ⚠️ Por la ficha SIEMPRE que la haya: mirando solo el correo de la fila, quien lo tenía únicamente
+    en su ficha entraba dos veces."""
     correo = (email or (_corp_promoter_email(promoter) if promoter is not None else "")).strip().lower()
     nombre = (name or "").strip() or (_promoter_display_name(promoter) if promoter is not None else "")
+    if promoter is not None:
+        ya = (session_db.query(CorporateGuest)
+              .filter(CorporateGuest.list_id == lst.id,
+                      CorporateGuest.promoter_id == promoter.id).first())
+        if ya is not None:
+            return False, "ya estaba"
     if correo:
         ya = (session_db.query(CorporateGuest)
               .filter(CorporateGuest.list_id == lst.id,
                       func.lower(func.coalesce(CorporateGuest.email, "")) == correo).first())
-        if ya is not None:
-            return False, "ya estaba"
-    elif promoter is not None:
-        ya = (session_db.query(CorporateGuest)
-              .filter(CorporateGuest.list_id == lst.id,
-                      CorporateGuest.promoter_id == promoter.id).first())
         if ya is not None:
             return False, "ya estaba"
     session_db.add(CorporateGuest(
@@ -182333,7 +182352,7 @@ def _corp_import_review(session_db, lst, columns: list, rows: list) -> dict:
     indices = _promoter_import_indexes(session_db)
     invitados = (session_db.query(CorporateGuest)
                  .filter(CorporateGuest.list_id == lst.id).all())
-    ya_correo = {(g.email or "").strip().lower() for g in invitados if (g.email or "").strip()}
+    ya_correo = {c for c in (_corp_guest_email(g) for g in invitados) if c}
     ya_ficha = {str(g.promoter_id) for g in invitados if g.promoter_id}
     filas, cuentas = [], {"lista": 0, "tercero": 0, "nuevo": 0, "sin_correo": 0}
     for i, ficha in enumerate(fichas):
@@ -182549,8 +182568,7 @@ def _corp_build_recipients(session_db, inv) -> int:
                      .order_by(CorporateGuest.created_at.asc()).all())
         for g in invitados:
             prom = getattr(g, "promoter", None)
-            correo = ((_corp_promoter_email(prom) if prom is not None else "")
-                      or (g.email or "").strip().lower())
+            correo = _corp_guest_email(g)
             if not correo or correo in vistos:
                 continue
             vistos.add(correo)
@@ -182578,9 +182596,7 @@ def _corp_recipients_preview(session_db, lists_ids: list) -> dict:
                  .options(joinedload(CorporateGuest.promoter))
                  .filter(CorporateGuest.list_id.in_(uuids)).all())
     for g in invitados:
-        prom = getattr(g, "promoter", None)
-        correo = ((_corp_promoter_email(prom) if prom is not None else "")
-                  or (g.email or "").strip().lower())
+        correo = _corp_guest_email(g)
         if not correo:
             sin_correo += 1
             continue
@@ -183006,6 +183022,54 @@ def corporate_guest_add(list_id):
         s.rollback()
         app.logger.exception("[invitaciones corp] no se pudo añadir el invitado")
         return jsonify({"ok": False, "error": "No se pudo añadir."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/invitados/<guest_id>/arreglar", endpoint="corporate_guest_fix")
+@admin_required
+def corporate_guest_fix(guest_id):
+    """EL CORREO QUE LE FALTA A UN INVITADO, de uno en uno (y sin salir de la pantalla).
+
+    ⚠️ Se guarda en los DOS sitios: en la fila de la lista y —si su ficha de tercero lo tenía
+    vacío— en la ficha, que es donde vive el dato de esa persona. Así queda arreglado de verdad y
+    vale para el resto de la app; lo que ya estaba escrito no se pisa nunca.
+    Devuelve la lista al día y CUÁNTOS QUEDAN, para poder seguir con el siguiente."""
+    s = db()
+    try:
+        g = s.get(CorporateGuest, _safe_uuid(guest_id)) if _safe_uuid(guest_id) else None
+        lst = _corp_list_mine(s, (g.list_id if g is not None else None), _corp_user_id())
+        if g is None or lst is None:
+            return jsonify({"ok": False, "error": "Ese invitado no es de una lista tuya."}), 404
+        correo = (request.form.get("email") or "").strip().lower()[:200]
+        telefono = (request.form.get("phone") or "").strip()[:60]
+        if not correo:
+            return jsonify({"ok": False, "error": "Escribe el correo: es a donde se manda la invitación."}), 400
+        if "@" not in correo or "." not in correo.split("@")[-1]:
+            return jsonify({"ok": False, "error": "Ese correo no parece un correo (%s)." % correo}), 400
+        # ⚠️ Si ese correo ya lo tenemos en otra ficha, es la MISMA persona: se engancha a ella en vez
+        # de dejar dos fichas con el mismo correo (el criterio de toda la app).
+        prom = s.get(Promoter, g.promoter_id) if g.promoter_id else None
+        if prom is None:
+            pid = (_promoter_import_indexes(s).get("email") or {}).get(correo)
+            prom = s.get(Promoter, to_uuid(pid)) if pid else None
+            if prom is not None:
+                g.promoter_id = prom.id
+        g.email = correo
+        if telefono:
+            g.phone = telefono
+        if prom is not None:
+            if not (prom.contact_email or "").strip():
+                prom.contact_email = correo
+            if telefono and not (prom.contact_phone or "").strip():
+                prom.contact_phone = telefono
+        s.commit()
+        fila = _corp_list_row(s, lst, con_invitados=True)
+        return jsonify({"ok": True, "pending": (fila["count"] - fila["with_email"]), **fila})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo arreglar el correo del invitado")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
     finally:
         s.close()
 

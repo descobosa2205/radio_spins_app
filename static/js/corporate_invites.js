@@ -39,16 +39,21 @@
       caja.innerHTML = '<div class="text-muted small">Todavía no hay nadie en esta lista.</div>';
     } else {
       caja.innerHTML = '<div class="ci-guests">' + filas.map(function (g) {
-        return '<div class="ci-guest">' +
+        /* ⚠️ Sin correo, la fila ENTERA se pincha y abre el arreglo uno a uno: es lo que hay que
+           hacer con ella. Va en `<button>`, no en `<a>`: dentro ya hay un enlace a su ficha y un
+           `<a>` dentro de otro parte el HTML (la regla de la casa). */
+        return '<div class="ci-guest' + (g.email ? '' : ' is-missing') + '">' +
           (g.logo_url ? '<img src="' + esc(g.logo_url) + '" alt="" loading="lazy">'
                       : '<span class="ci-guest__ph"><i class="fa fa-user"></i></span>') +
           '<span class="ci-guest__t">' +
             (g.promoter_url ? '<a href="' + esc(g.promoter_url) + '"><b>' + esc(g.name) + '</b></a>'
                             : '<b>' + esc(g.name) + '</b>') +
-            (g.email ? '<small><i class="fa fa-envelope fa-fw"></i>' + esc(g.email) + '</small>'
-                     : '<small class="text-warning"><i class="fa fa-triangle-exclamation fa-fw"></i>Sin correo: no se le puede invitar</small>') +
+            (g.email ? '<small><i class="fa fa-envelope fa-fw"></i>' + esc(g.email) + '</small>' : '') +
             (g.phone ? '<small><i class="fa fa-phone fa-fw"></i>' + esc(g.phone) + '</small>' : '') +
           '</span>' +
+          (g.email ? '' :
+            '<button type="button" class="btn btn-sm btn-warning ci-guest__fix" data-ci-fix-one="' + esc(g.id) + '">' +
+              '<i class="fa fa-envelope-circle-check me-1"></i>Falta el correo</button>') +
           '<button type="button" class="btn btn-sm btn-link text-danger ci-guest__x" data-ci-remove="' + esc(g.id) + '" title="Quitar de la lista"><i class="fa fa-xmark"></i></button>' +
           '</div>';
       }).join('') + '</div>';
@@ -56,6 +61,22 @@
     // El contador de la cabecera, al día sin recargar la página.
     var cab = document.querySelector('[data-ci-list="' + listId + '"] .accordion-button .badge');
     if (cab && datos) cab.textContent = datos.count + ' invitado' + (datos.count === 1 ? '' : 's');
+    // Y lo que falta por arreglar (la galleta ámbar y el botón de «Arreglar los N sin correo»).
+    if (datos) {
+      var faltan = Math.max(0, (datos.count || 0) - (datos.with_email || 0));
+      var item = document.querySelector('[data-ci-list="' + listId + '"]');
+      var aviso = item && item.querySelector('.accordion-button .text-bg-warning');
+      if (aviso) {
+        aviso.textContent = faltan + ' sin correo';
+        aviso.classList.toggle('d-none', !faltan);
+      }
+      var botonFix = item && item.querySelector('[data-ci-fix-open]');
+      if (botonFix) {
+        botonFix.classList.toggle('d-none', !faltan);
+        var n = botonFix.querySelector('[data-ci-fix-count]');
+        if (n) n.textContent = faltan;
+      }
+    }
   }
 
   function cargaInvitados(listId) {
@@ -597,6 +618,160 @@
 
   document.addEventListener('change', function (ev) {
     if (ev.target.closest('[data-ci-imp-pick]')) impPie('revisar');
+  });
+
+  /* ══════════ LOS QUE NO TIENEN CORREO · UNO A UNO ══════════
+     ⚠️ Lo pidió Dani: «que cuando pinches en uno te vaya pasando uno a uno para dejarlo todo
+     solucionado, sin tener que salir y volver». Se escribe el correo y se salta al siguiente; el
+     que no valga se quita. Al acabar se dice que ya está. */
+  var fix = { listId: '', faltan: [], idx: 0, arreglados: 0, quitados: 0 };
+
+  function fixRoot() { return document.querySelector('[data-ci-fix]'); }
+
+  function fixPendientes(listId) {
+    var caja = document.querySelector('[data-ci-list="' + listId + '"] [data-ci-guests]');
+    if (!caja) return [];
+    return Array.prototype.slice.call(caja.querySelectorAll('[data-ci-fix-one]'))
+      .map(function (b) {
+        var fila = b.closest('.ci-guest');
+        var nom = fila && fila.querySelector('.ci-guest__t b');
+        var tel = fila && fila.querySelector('.ci-guest__t small .fa-phone');
+        return { id: b.getAttribute('data-ci-fix-one'),
+                 name: nom ? nom.textContent : '',
+                 phone: tel ? (tel.parentNode.textContent || '').trim() : '',
+                 foto: (fila && fila.querySelector('img')) ? fila.querySelector('img').src : '' };
+      });
+  }
+
+  function fixPinta() {
+    var root = fixRoot();
+    if (!root) return;
+    var caja = root.querySelector('[data-ci-fix-body]');
+    var pie = root.querySelectorAll('[data-ci-fix-drop], [data-ci-fix-skip], [data-ci-fix-save]');
+    var g = fix.faltan[fix.idx];
+    if (!g) {
+      var hecho = [];
+      if (fix.arreglados) hecho.push('<b>' + fix.arreglados + '</b> con su correo');
+      if (fix.quitados) hecho.push('<b>' + fix.quitados + '</b> fuera de la lista');
+      /* ⚠️ Al acabar la vuelta puede quedar gente sin correo: los que se han saltado y —si se entró
+         pinchando en uno del medio— los de antes. Se dice CUÁNTOS quedan y se sigue con ellos, que
+         es lo que se pidió: hasta dejarlos todos resueltos. */
+      var quedan = fixPendientes(fix.listId);
+      caja.innerHTML = (quedan.length
+        ? '<div class="alert alert-warning mb-0"><i class="fa fa-triangle-exclamation me-2"></i>' +
+            'Todavía ' + (quedan.length === 1 ? 'queda <b>1</b> sin correo' : 'quedan <b>' + quedan.length + '</b> sin correo') + '.' +
+            (hecho.length ? '<div class="small mt-1">' + hecho.join(' · ') + '</div>' : '') +
+            '<button type="button" class="btn btn-sm btn-warning mt-2" data-ci-fix-again>' +
+              '<i class="fa fa-rotate me-1"></i>Seguir con ' + (quedan.length === 1 ? 'el que queda' : 'los que quedan') + '</button>' +
+          '</div>'
+        : '<div class="alert alert-success mb-0"><i class="fa fa-circle-check me-2"></i>' +
+            'Ya está: no queda nadie sin correo.' +
+            (hecho.length ? '<div class="small mt-1">' + hecho.join(' · ') + '</div>' : '') + '</div>');
+      pie.forEach(function (b) { b.classList.add('d-none'); });
+      return;
+    }
+    pie.forEach(function (b) { b.classList.remove('d-none'); });
+    caja.innerHTML =
+      '<div class="ci-imp__step mb-2"><span class="badge text-bg-light border">' +
+        (fix.idx + 1) + ' de ' + fix.faltan.length + '</span>' +
+        '<b class="ms-2">' + esc(g.name || 'Sin nombre') + '</b></div>' +
+      '<div class="row g-2">' +
+        '<div class="col-12"><label class="form-label small">Correo <span class="text-danger">*</span></label>' +
+          '<input class="form-control" type="email" data-ci-fix-email placeholder="correo@dominio.com" autocomplete="off"></div>' +
+        '<div class="col-12 col-sm-6"><label class="form-label small">Teléfono</label>' +
+          '<input class="form-control form-control-sm" data-ci-fix-phone value="' + esc(g.phone || '') + '"></div>' +
+      '</div>' +
+      '<div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>Se guarda también en su ficha de ' +
+        '<strong>Terceros</strong> si la tenía vacía. Sin correo no se le puede mandar la invitación.</div>' +
+      '<div class="alert alert-danger py-2 px-3 small mt-2 d-none" data-ci-fix-error></div>';
+    var input = caja.querySelector('[data-ci-fix-email]');
+    if (input) setTimeout(function () { input.focus(); }, 60);
+  }
+
+  function fixError(msg) {
+    var caja = fixRoot() && fixRoot().querySelector('[data-ci-fix-error]');
+    if (!caja) return;
+    caja.textContent = msg || '';
+    caja.classList.toggle('d-none', !msg);
+  }
+
+  function fixAbre(listId, guestId) {
+    var modal = document.getElementById('corpFixModal');
+    if (!modal || !window.bootstrap) return;
+    fix.listId = listId;
+    fix.faltan = fixPendientes(listId);
+    fix.arreglados = 0; fix.quitados = 0;
+    fix.idx = 0;
+    if (guestId) {
+      var n = fix.faltan.map(function (g) { return g.id; }).indexOf(guestId);
+      if (n >= 0) fix.idx = n;      // se empieza por el que se ha pinchado
+    }
+    fixPinta();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  }
+
+  function fixSiguiente() {
+    // ⚠️ Se avanza SIN quitar al de antes de la lista de pendientes: así «1 de 5» sigue contando lo
+    // que había, que es lo que la persona ve delante.
+    fix.idx += 1;
+    fixPinta();
+  }
+
+  function fixGuarda() {
+    var root = fixRoot();
+    var g = fix.faltan[fix.idx];
+    if (!g) return;
+    var correo = (root.querySelector('[data-ci-fix-email]').value || '').trim();
+    var tel = (root.querySelector('[data-ci-fix-phone]').value || '').trim();
+    if (!correo) { fixError('Escribe el correo, o sáltatelo si no lo tienes.'); return; }
+    var fd = new FormData();
+    fd.append('email', correo);
+    fd.append('phone', tel);
+    post(url('data-fix-url-tpl', '__GUEST__', g.id), fd).then(function (js) {
+      if (!js || !js.ok) { fixError((js && js.error) || 'No se pudo guardar.'); return; }
+      fix.arreglados += 1;
+      pintaInvitados(fix.listId, js);
+      fixSiguiente();
+    });
+  }
+
+  function fixQuita() {
+    var g = fix.faltan[fix.idx];
+    if (!g) return;
+    post(url('data-remove-url-tpl', '__GUEST__', g.id)).then(function (js) {
+      if (!js || !js.ok) { fixError((js && js.error) || 'No se pudo quitar.'); return; }
+      fix.quitados += 1;
+      pintaInvitados(fix.listId, js);
+      fixSiguiente();
+    });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var uno = ev.target.closest('[data-ci-fix-one]');
+    if (uno) {
+      var item = uno.closest('[data-ci-list]');
+      fixAbre(item ? item.getAttribute('data-ci-list') : '', uno.getAttribute('data-ci-fix-one'));
+      return;
+    }
+    var todos = ev.target.closest('[data-ci-fix-open]');
+    if (todos) { fixAbre(todos.getAttribute('data-ci-fix-open'), ''); return; }
+    if (!ev.target.closest('[data-ci-fix]')) return;
+    if (ev.target.closest('[data-ci-fix-save]')) { fixGuarda(); return; }
+    if (ev.target.closest('[data-ci-fix-skip]')) { fixError(''); fixSiguiente(); return; }
+    if (ev.target.closest('[data-ci-fix-drop]')) { fixQuita(); return; }
+    if (ev.target.closest('[data-ci-fix-again]')) {
+      fix.faltan = fixPendientes(fix.listId);
+      fix.idx = 0;
+      fixPinta();
+      return;
+    }
+  });
+
+  // El Enter en el correo guarda y pasa al siguiente (es un formulario de una sola línea).
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' || !ev.target.closest('[data-ci-fix-email]')) return;
+    ev.preventDefault();
+    fixGuarda();
   });
 
   /* ---------- enviar la invitación (por tandas) ---------- */

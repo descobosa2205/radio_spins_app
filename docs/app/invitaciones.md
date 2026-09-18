@@ -18,6 +18,7 @@
 - INVITACIONES · «DISPONIBLES» ES LO QUE HAY SUBIDO Y LIBRE, NO EL CUPO DEL CONTRATO
 - INVITACIONES CORPORATIVAS · «Mi lista de invitados» y el envío desde el correo de cada uno
 - INVITACIONES CORPORATIVAS · SUBIR UN FICHERO SE REVISA ANTES (y los rótulos que se leían mal)
+- INVITACIONES CORPORATIVAS · «SIN CORREO» es el dato del envío, y se arregla uno a uno
 - EL DÍA DEL EVENTO · INVITACIONES SIN REPARTIR (sep 2026, _home_invitation_leftovers →
 
 ---
@@ -378,6 +379,29 @@
   ⚠️ Una fila **sin correo** entra igual en el alta (se puede escribir ahí), pero se avisa de que
   **sin correo no se le puede invitar** y se dice **cuántas** hay. Nada se descarta en silencio.
   ⚠️ Reimportar el mismo fichero **no duplica a nadie**: todos salen como «ya están en esta lista».
+  · ⚠️⚠️⚠️ **«SIN CORREO» ES EL MISMO DATO QUE MIRA EL ENVÍO** (bug real, sep 2026, lo vio Dani:
+  «hay algunos que sí tienen email y siguen apareciendo como que no después de solucionarlo»). La
+  pantalla miraba **solo la fila de la lista** (`CorporateGuest.email`) y el envío mira **primero la
+  FICHA del tercero**: quien tenía el correo en su ficha —porque lo arregló ahí, que es donde vive
+  el dato de una persona— seguía saliendo como «sin correo» para siempre, aunque la invitación sí le
+  llegaba. Punto único **`_corp_guest_email(g)`** (la ficha y, si no, la fila): lo usan la fila, el
+  contador de la lista, la previsualización y el envío, así que **el número que se ve es a cuántos
+  se les puede mandar**. Es la regla de la casa: si un dato se enseña en dos sitios, sale de la
+  misma función.
+  ⚠️ Y **nadie dos veces**: el duplicado se mira por su **ficha** siempre que la haya (antes solo por
+  el correo de la fila, así que quien lo tenía únicamente en su ficha podía entrar dos veces).
+  · **LOS QUE FALTAN SE ARREGLAN UNO A UNO** (`corporate_guest_fix`, pop-up `#corpFixModal`; lo pidió
+  Dani: «que cuando pinches en uno te vaya pasando uno a uno para dejarlo todo solucionado, sin
+  tener que salir y volver»). Cada invitado sin correo lleva su botón **«Falta el correo»** —y la
+  lista, un **«Arreglar los N sin correo»**—: se abre por el que se ha pinchado, se escribe el
+  correo (el **Enter** guarda) y se **pasa solo al siguiente**; también se puede **saltar** o
+  **quitarlo de la lista**. Al acabar la vuelta, si quedan (los saltados, o los de antes si se
+  entró por el medio), **se dice cuántos y se sigue con ellos**; cuando no queda ninguno lo dice y
+  la galleta ámbar y el botón desaparecen solos.
+  ⚠️ El correo se guarda **en los dos sitios**: en la fila y —si su ficha lo tenía vacío— en la
+  **ficha del tercero**, que es donde vale para el resto de la app. Lo que ya estaba escrito no se
+  pisa. Y si ese correo ya está en otra ficha, el invitado se **engancha a ella**: es la misma
+  persona.
   · **EL CONTENIDO ES UN DISEÑO**: un `PressRelease` con **`purpose='INVITE'`**
   (`CorporateInvite.design_release_id`), o sea **el MISMO editor y las mismas plantillas** que el
   correo de un envío a compradores — un solo editor que mantener. `_press_is_press_clause()` lo deja
@@ -418,7 +442,7 @@
   ⚠️⚠️ **`url_for("concert_detail_view")` toma `cid`, NO `concert_id`** (bug real cazado por la
   prueba): con el nombre mal, `url_for` revienta y **se cae la pantalla entera** (la de «cerrado por
   mantenimiento»). Es la trampa de siempre: un nombre de parámetro no se adivina, se mira.
-  ⚠️ Probado con la app real (`tools/check_invitaciones_corporativas.py`, **112 comprobaciones**): el
+  ⚠️ Probado con la app real (`tools/check_invitaciones_corporativas.py`, **123 comprobaciones**): el
   módulo y sus datos, la paleta, las listas, **el fichero de punta a punta** (que se revisa y no crea
   nada al subirlo, los tres bloques, el porqué de cada coincidencia, añadir los marcados, el alta uno
   a uno con sus datos extra, corregir una columna sin volver a subirlo y que reimportarlo no duplica

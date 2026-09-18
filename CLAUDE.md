@@ -126,6 +126,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_access_coverage.py` | escrituras sin recurso en el catálogo de permisos | al añadir endpoints |
 | `check_money.py` | los dos parsers de importes y su espejo en JS | al tocar dinero |
 | `check_contactos.py` | los contactos de una actividad: los del promotor ya puestos, la «x» y el alta | al tocar contactos |
+| `check_direcciones.py` | el autocompletado de direcciones, **también fuera de España**, y su espejo en JS | al tocar `geo_utils.py` o `address_autocomplete.js` |
 | `check_duplicados.py` | fichas de tercero repetidas: que se detecten, que no se creen y que se fusionen | al tocar terceros |
 | `check_invoice_read.py` | lectura de facturas reales (nº, fecha, base, IVA, retención) | al tocar `invoice_read.py` |
 | `check_royalty_statement_read.py` | lectura de liquidaciones de compañías | al tocar `royalty_statement_read.py` |

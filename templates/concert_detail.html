@@ -558,7 +558,9 @@
                       <i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
                   </form>
                   {% endif %}
-                {% elif t.url %}
+                {% elif t.url and not t.modal %}
+                  {# ⚠️ Con pop-up NO se pinta el enlace: lo hace la rama de abajo. Si no, salían dos
+                     botones iguales y el del enlace recargaba la página sin hacer nada. #}
                   <a class="btn btn-sm btn-warning" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Hacerlo' }}</a>
                 {% endif %}
               {% elif t.url and not t.generic %}
@@ -4715,6 +4717,9 @@ document.addEventListener('DOMContentLoaded', function(){
   // resto está el botón «Activar producción» de la cabecera).
   var PREGUNTAR = {{ (ask_production_owner or False)|tojson }};
   if (SIN_RESP && CONFIRMADO && PREGUNTAR) setTimeout(abrir, 400);
+  // ⚠️ Y SIEMPRE que se llegue con `?prod=1`: es que alguien ha pulsado «Activar producción» en
+  // Inicio o en la ficha de la petición, donde este pop-up no existe.
+  if ({{ (open_production_owner or False)|tojson }}) setTimeout(abrir, 300);
   // Y justo al confirmarla desde la etiqueta de estado.
   document.addEventListener('concert:status-changed', function (ev) {
     if (ev.detail && ev.detail.needs_production_owner) abrir();

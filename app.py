@@ -57228,8 +57228,15 @@ def _peticion_accept_tasks(session_db, r, concert=None, *, for_user=None) -> lis
         app.logger.exception("[peticiones] no se pudo mirar la producción")
         falta_produccion = False
     if falta_produccion:
+        # ⚠️⚠️ ACTIVAR LA PRODUCCIÓN ES ELEGIR A QUIEN SE ENCARGA, así que su botón tiene que ABRIR
+        # EL POP-UP (`#prodOwnerModal`). Antes esta fase solo traía la URL de la ficha de la
+        # actividad: pulsarlo DESDE la propia ficha recargaba la misma página y **no pasaba nada**
+        # (bug real, sep 2026, lo vio Dani). El pop-up solo existe en la ficha, así que la URL lleva
+        # a ella con `prod=1` —que lo abre al llegar— para Inicio y la ficha de la petición.
         añade("produccion", blocked=bloqueo4, blocked_reason=motivo4,
-              url=("" if bloqueo4 else url_for("concert_detail_view", cid=concert.id)),
+              modal=("" if bloqueo4 else "#prodOwnerModal"),
+              url=("" if bloqueo4 else url_for("concert_detail_view", cid=concert.id,
+                                               tab="inicio", prod=1)),
               action_label="Activar producción")
     if _peticion_artist_notice_pending(session_db, concert):
         try:
@@ -57982,6 +57989,9 @@ def _concert_task_board(session_db, concert) -> dict:
                 _creador = str(getattr(concert, "created_by_user_id", "") or "")
                 suelta("produccion", 5, "Activar producción", "fa-user-gear",
                        modal="#prodOwnerModal", action_label="Activar producción",
+                       # Para quien la ve FUERA de la ficha (Inicio): lleva a ella y el pop-up se
+                       # abre al llegar — ahí `#prodOwnerModal` no existe.
+                       url=url_for("concert_detail_view", cid=concert.id, tab="inicio", prod=1),
                        area=CONCERT_TASK_AREA_PRODUCCION,
                        ver_siempre=bool(_creador and _creador == yo),
                        hint="Di quién de producción se encarga")
@@ -70458,6 +70468,10 @@ def concert_detail_view(cid):
             ask_prod_owner = needs_prod_owner and _concert_needs_production_owner(session, c)
         except Exception:
             ask_prod_owner = False
+        # ⚠️ `?prod=1`: se llega pinchando «Activar producción» desde Inicio o desde la ficha de la
+        # petición, donde el pop-up no existe. Ahí se abre SIEMPRE (lo ha pedido una persona), sin
+        # las condiciones con las que se pregunta sola.
+        open_prod_owner = bool((request.args.get("prod") or "").strip())
         break_even_info = None
         if tab == "resultado":
             try:
@@ -70636,6 +70650,7 @@ def concert_detail_view(cid):
             break_even_info=break_even_info,
             needs_production_owner=needs_prod_owner,
             ask_production_owner=ask_prod_owner,
+            open_production_owner=open_prod_owner,
             # AVISO AL ARTISTA: si está avisado (y sigue valiendo), la barra enseña la etiqueta
             # «Notificado» con a quién y cuándo; si no, el botón para avisarle.
             artist_notice=_concert_notice_state(session, c),
@@ -86555,7 +86570,10 @@ def _venue_coords(session_db, venue) -> tuple:
     # cueste segundos en cada carga durante una semana.
     try:
         import geo_utils
-        hit = geo_utils.geocode_address(consulta, timeout=3)
+        # ⚠️ Con el PAÍS por delante: sin él, el geocodificador se encuadra en España y un recinto
+        # de fuera acababa en una calle parecida de aquí.
+        hit = geo_utils.geocode_address(consulta, country=(getattr(venue, "country", "") or ""),
+                                        timeout=3)
     except Exception:
         hit = None
     try:
@@ -100494,6 +100512,7 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
         añade("ACTIVIDAD", row.get("id"), (row.get("title") or row.get("subject_name") or ""),
               row.get("url"),
               label=(row.get("action_label") or "Activar la producción"),
+              action_url=(row.get("action_url") or ""),
               action_label=(row.get("action_label") or "Activar"),
               artist=(row.get("artist") or row.get("subject_name") or ""),
               photo=(row.get("artist_photo") or row.get("subject_photo") or ""),
@@ -122963,6 +122982,10 @@ def _home_production_activation_pending(session_db, user_id, *, limit: int = 40)
         filas.append({
             "id": str(c.id),
             "url": url_for("concert_detail_view", cid=c.id),
+            # ⚠️ El BOTÓN va a la ficha con `prod=1`, que abre el pop-up de quién se encarga al
+            # llegar: es lo que hay que hacer. Sin eso, «Asignar producción» dejaba a la persona en
+            # la ficha buscando dónde se hacía (bug real, sep 2026).
+            "action_url": url_for("concert_detail_view", cid=c.id, tab="inicio", prod=1),
             "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
             "type_label": _activity_kind_label(kind),
             "title": ((c.festival_name or "").strip()
@@ -138268,12 +138291,18 @@ def _address_rows_fill_province(session_db, filas: list[dict]) -> list[dict]:
     return filas
 
 
-def _address_search_cached(session_db, query: str) -> list[dict]:
-    """Sugerencias de dirección, mirando primero lo que ya se buscó otra vez."""
+def _address_search_cached(session_db, query: str, *, country: str = "") -> list[dict]:
+    """Sugerencias de dirección, mirando primero lo que ya se buscó otra vez.
+
+    ⚠️ El PAÍS entra en la clave de la caché: la misma calle en México y en España no son la misma
+    búsqueda (y con la clave sin país se servirían las españolas a quien pidió las de fuera)."""
     import geo_utils
+    cc = geo_utils.country_code(country)
     clave = " ".join((query or "").split()).casefold()[:160]
     if len(clave) < 4:
         return []
+    if cc and cc != "ES":
+        clave = ("%s @%s" % (clave, cc.lower()))[:160]
     fila = session_db.get(AddressLookup, clave)
     if fila is not None and fila.updated_at and (
             _now_madrid() - fila.updated_at).days < ADDRESS_CACHE_DAYS:
@@ -138283,7 +138312,7 @@ def _address_search_cached(session_db, query: str) -> list[dict]:
         except Exception:
             session_db.rollback()
         return _address_rows_fill_province(session_db, list(fila.payload or []))
-    filas = geo_utils.search_addresses(query)
+    filas = geo_utils.search_addresses(query, country=country)
     try:
         if fila is None:
             session_db.add(AddressLookup(query_key=clave, payload=filas))
@@ -138310,8 +138339,14 @@ def api_address_search():
                         "results": []}), 429
     import geo_utils
     q = (request.args.get("q") or "").strip()
+    # ⚠️ EL PAÍS que dice el formulario (`data-addr="country"`): sin él, una dirección de fuera de
+    # España no salía nunca (el encuadre de Photon FILTRA). Lo manda `address_autocomplete.js`.
+    pais = (request.args.get("country") or "").strip()[:60]
+    cc_pais = geo_utils.country_code(pais)
     # Solo el código postal: la provincia sale de la tabla, sin pedir nada a nadie.
-    cp = geo_utils.normalize_postal_code(q)
+    # ⚠️ La tabla es de las 52 provincias ESPAÑOLAS: con un país de fuera no se usa (un CP mexicano
+    # también tiene cinco dígitos y saldría una provincia de aquí).
+    cp = geo_utils.normalize_postal_code(q) if (not cc_pais or cc_pais == "ES") else ""
     if cp and q.replace(" ", "").isdigit():
         session_db = db()
         try:
@@ -138333,7 +138368,7 @@ def api_address_search():
         return jsonify({"ok": True, "results": []})
     session_db = db()
     try:
-        filas = _address_search_cached(session_db, q)
+        filas = _address_search_cached(session_db, q, country=pais)
         # Cada sugerencia lleva también la dirección ENTERA en el formato de la casa: así el campo
         # único (`data-addr="full"`) escribe exactamente lo mismo que se guardaría por piezas, y el
         # formato lo decide UN solo sitio (`address_utils`), no el JS.

@@ -700,6 +700,29 @@
   ⚠️ En la ficha, el bloque del recinto a mano tenía la zona `data-address-autocomplete` envolviendo
   **solo la columna de la izquierda**: el CP, el municipio y la provincia estaban FUERA y no se
   rellenaban nunca.
+  ⚠️⚠️⚠️ **Y FUERA DE ESPAÑA NO SUGERÍA NADA** (bug real, sep 2026, lo vio Dani dando de alta un
+  recinto de México: «solo me sugiere direcciones de España aunque indique que es de México»). El
+  **`bbox` de Photon FILTRA, no sesga**, y se le daba SIEMPRE el encuadre de España
+  (`SPAIN_BBOX`), así que una dirección de fuera devolvía **cero** resultados —comprobado contra la
+  API: la misma consulta con la caja da una lista vacía y sin ella la encuentra—.
+  · **El PAÍS de la ficha viaja con la búsqueda** (`data-addr="country"` → `?country=` →
+  `geo_utils.search_addresses(..., country=)`), y con un país de fuera se pregunta **por el mundo**
+  y **con el nombre del país en la consulta**, que es como se busca una dirección de fuera. Solo se
+  quedan las **de ese país** (lo de otro sitio confunde); si no hay ninguna, se enseñan todas.
+  · **Sin país (o España) no cambia nada**: primero con el encuadre de aquí —que es el 99% de lo que
+  se da de alta— y, **solo si no llena**, una segunda vuelta por el mundo (así «Lisboa» también sale
+  sin tener que decirlo). Una consulta resuelve casi siempre: la segunda solo se pide si hace falta.
+  · El **país entra en la clave de la caché** (`_address_search_cached`): la misma calle en México y
+  en España no son la misma búsqueda.
+  ⚠️⚠️ **Y LA TABLA DE PROVINCIAS ES DE LAS 52 DE AQUÍ**: aplicarla a un CP de fuera pone una
+  provincia española **sin avisar** — «06700» (Ciudad de México) se rellenaba como **«Badajoz»**.
+  Ahora la provincia de una sugerencia de fuera es la del proveedor (`provinciaDeLaFila` en el JS,
+  `_province_of` en el servidor) y al escribir el CP la tabla solo se usa si el país es España.
+  ⚠️ El **MAPA del recinto** (`geocode_address`) tenía el mismo problema: con un país de fuera ya no
+  se prueba con el encuadre de España, que devolvía una calle parecida de aquí y dejaba el mapa en
+  otro continente (comprobado: el Teatro Metropólitan sale en 19.43, -99.16).
+  ⚠️ Prueba de regresión: **`tools/check_direcciones.py`** (24 comprobaciones, con el proveedor de
+  verdad; si Photon no responde lo dice y no cuenta como fallo).
 
 - ⚠️⚠️ **LO QUE FALTA SE MARCA EN AMARILLO Y LO QUE ESTÁ MAL EN ROJO, Y NO SE DEJA PASAR** (sep 2026,
   motor GLOBAL `static/js/form_check.js` · `window.app33FormCheck`). Antes se podía recorrer un

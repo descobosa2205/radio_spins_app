@@ -2080,6 +2080,19 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   pendientes» de Contratación (con su marco, su fondo alterno y su `display:block`), y reutilizar el
   nombre le colaba a estas filas los estilos de aquella — y su `background` en atajo **se comía el
   rayado**. Una cosa, un nombre.
+  ⚠️⚠️⚠️ **«ACTIVAR PRODUCCIÓN» NO HACÍA NADA** (bug real, sep 2026, lo vio Dani: «desde las tareas
+  pendientes el botón no hace nada»). Activar la producción es **elegir a quien se encarga**, o sea
+  ABRIR SU POP-UP (`#prodOwnerModal`), y esa fase solo traía **la URL de la ficha de la actividad**
+  (`_peticion_accept_tasks`): pulsarla **desde la propia ficha** recargaba la misma página y no
+  pasaba nada. La otra versión de la misma tarea —la de una actividad que NO viene de una petición—
+  sí abría el pop-up: dos caminos para lo mismo y solo uno funcionaba.
+  · Ahora la fase lleva **`modal="#prodOwnerModal"`** y, además, una **URL con `prod=1`**: el pop-up
+  solo existe en la ficha de la actividad, así que desde **Inicio** y desde la **ficha de la
+  petición** —donde no está— se llega a la ficha y **se abre al llegar** (`open_production_owner`).
+  · Y en la ficha, una tarea **con pop-up ya no pinta además el enlace** (`t.url and not t.modal`):
+  si no, salían dos botones iguales y uno de ellos no hacía nada.
+  ⚠️ Cubierto por `tools/check_promotor.py` (bloque 13: que abre el pop-up, que `prod=1` lo abre al
+  llegar, que al elegir a alguien queda guardado y que la tarea desaparece sola).
 
 - ⚠️⚠️⚠️ **CONFIRMARLE LA ACTIVIDAD AL PROMOTOR, Y PEDIRLE DE PASO LO QUE FALTA** (sep 2026, lo pidió
   Dani). Cuando el artista ya ha dicho que sí, lo siguiente es **confirmárselo a quien la compra**.

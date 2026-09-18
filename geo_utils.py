@@ -23,9 +23,49 @@ import urllib.request
 
 PHOTON_URL = "https://photon.komoot.io/api/"
 _TIMEOUT = 8
-# Encuadre de España (incluye Canarias): sesga los resultados sin excluir a un proveedor extranjero.
+# ⚠️⚠️ EL `bbox` DE PHOTON **FILTRA**, NO SESGA (bug real, sep 2026: «estoy creando un recinto en
+# México y solo me sugiere direcciones de España, aunque indique que es de México»). Aquí se daba
+# SIEMPRE el encuadre de España, así que fuera de ella no salía ni un resultado —ni diciendo el
+# país—. Ahora la caja se usa como PRIMERA vuelta cuando la dirección es española (que es el 99% y
+# así los de aquí salen primero) y hay una SEGUNDA vuelta sin caja; y cuando se dice un país de
+# fuera, se pregunta directamente por el mundo, con el nombre del país en la consulta.
 SPAIN_BBOX = "-18.5,27.4,4.6,44.0"
 _UA = "app33-backoffice/1.0 (direcciones)"
+
+# El país que escribe una persona → su código ISO. Están los del desplegable de la casa y las formas
+# en que se suele escribir cada uno (sin acentos y en inglés). Lo que no esté aquí no se descarta:
+# simplemente no se sabe su código y se busca por el mundo con el nombre tal cual.
+COUNTRY_CODES = {
+    "es": "ES", "espana": "ES", "spain": "ES",
+    "pt": "PT", "portugal": "PT",
+    "fr": "FR", "francia": "FR", "france": "FR",
+    "ad": "AD", "andorra": "AD",
+    "it": "IT", "italia": "IT", "italy": "IT",
+    "mx": "MX", "mexico": "MX",
+    "ar": "AR", "argentina": "AR",
+    "cl": "CL", "chile": "CL",
+    "co": "CO", "colombia": "CO",
+    "us": "US", "estados unidos": "US", "eeuu": "US", "usa": "US", "united states": "US",
+    "uk": "GB", "gb": "GB", "reino unido": "GB", "united kingdom": "GB", "inglaterra": "GB",
+    "de": "DE", "alemania": "DE", "germany": "DE",
+    "nl": "NL", "paises bajos": "NL", "holanda": "NL", "netherlands": "NL",
+    "be": "BE", "belgica": "BE", "belgium": "BE",
+    "ch": "CH", "suiza": "CH", "switzerland": "CH",
+    "ma": "MA", "marruecos": "MA", "morocco": "MA",
+    "uy": "UY", "uruguay": "UY", "pe": "PE", "peru": "PE",
+    "br": "BR", "brasil": "BR", "brazil": "BR",
+    "ie": "IE", "irlanda": "IE", "ireland": "IE",
+}
+
+
+def country_code(value: str | None) -> str:
+    """El código ISO del país que se ha escrito («México» → «MX»). Vacío si no se reconoce."""
+    clave = _norm_name(value)
+    if not clave:
+        return ""
+    if len(clave) == 2 and clave.upper() in set(COUNTRY_CODES.values()):
+        return clave.upper()
+    return COUNTRY_CODES.get(clave, "")
 
 # Provincia por los DOS PRIMEROS dígitos del código postal español (las 52, fijas).
 # ⚠️ Esta tabla está ESPEJADA en `static/js/address_autocomplete.js` para rellenar la provincia sin
@@ -181,16 +221,8 @@ def parse_feature(feature: dict) -> dict | None:
     }
 
 
-def search_addresses(query: str, *, limit: int = 6, timeout: int = _TIMEOUT) -> list[dict]:
-    """Sugerencias de dirección para lo que se está escribiendo.
-
-    Devuelve una lista de dicts ya con NUESTRAS piezas (calle, CP, municipio, provincia, país). Las
-    españolas van primero: es lo que se factura el 99% de las veces.
-    """
-    q = " ".join((query or "").split())
-    if len(q) < 4:
-        return []
-    params = {"q": q, "limit": max(1, min(int(limit or 6), 10)), "bbox": SPAIN_BBOX}
+def _photon(params: dict, timeout: int) -> list[dict]:
+    """Una consulta a Photon, ya convertida a NUESTRAS piezas."""
     url = PHOTON_URL + "?" + urllib.parse.urlencode(params)
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
@@ -198,25 +230,62 @@ def search_addresses(query: str, *, limit: int = 6, timeout: int = _TIMEOUT) -> 
             datos = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:            # el buscador es una AYUDA: si falla, se escribe a mano
         raise GeoError("No se ha podido buscar la dirección: %s" % exc) from exc
-    filas = []
-    vistas = set()
-    for feature in (datos.get("features") or []):
-        fila = parse_feature(feature)
-        if not fila:
-            continue
-        clave = (fila["address"].casefold(), fila["postal_code"], fila["city"].casefold())
-        if clave in vistas:
-            continue
-        vistas.add(clave)
-        filas.append(fila)
+    return [f for f in (parse_feature(x) for x in (datos.get("features") or [])) if f]
+
+
+def search_addresses(query: str, *, limit: int = 6, country: str = "",
+                     timeout: int = _TIMEOUT) -> list[dict]:
+    """Sugerencias de dirección para lo que se está escribiendo.
+
+    Devuelve una lista de dicts ya con NUESTRAS piezas (calle, CP, municipio, provincia, país).
+
+    ⚠️⚠️ **TAMBIÉN FUERA DE ESPAÑA** (sep 2026, lo pidió Dani con un recinto de México). El `bbox`
+    de Photon **filtra**, no sesga: dándolo siempre, una dirección de fuera NO devolvía nada. Ahora:
+      · sin país (o España) → primero con el encuadre de España —los de aquí salen antes, que es el
+        99% de lo que se da de alta— y, **si no llena**, otra vuelta por el MUNDO;
+      · con un país de fuera → directamente por el mundo y con **el nombre del país en la consulta**,
+        que es como se busca una dirección de fuera; y **solo se quedan las de ese país** (si hay).
+    """
+    q = " ".join((query or "").split())
+    if len(q) < 4:
+        return []
+    n = max(1, min(int(limit or 6), 10))
+    cc = country_code(country)
+    nombre_pais = " ".join((country or "").split())
+    if cc and cc != "ES":
+        # El nombre del país solo se añade si no lo ha escrito ya la persona.
+        con_pais = q if _norm_name(nombre_pais) in _norm_name(q) else ("%s %s" % (q, nombre_pais)).strip()
+        consultas = [{"q": con_pais, "limit": n}, {"q": q, "limit": n}]
+    else:
+        consultas = [{"q": q, "limit": n, "bbox": SPAIN_BBOX}, {"q": q, "limit": n}]
+    filas, vistas = [], set()
+    for params in consultas:
+        for fila in _photon(params, timeout):
+            clave = (fila["address"].casefold(), fila["postal_code"], fila["city"].casefold(),
+                     fila["country_code"])
+            if clave in vistas:
+                continue
+            vistas.add(clave)
+            filas.append(fila)
+        # La segunda vuelta solo se pide si hace falta: una sola consulta resuelve casi siempre.
+        if cc and cc != "ES":
+            if any(f["country_code"] == cc for f in filas):
+                break
+        elif len(filas) >= n:
+            break
+    if cc and cc != "ES":
+        # Se ha dicho el país: enseñar direcciones de otro sitio solo confunde. Si no hay ninguna de
+        # ese país se devuelven todas (mejor una pista que nada, y cada una lleva su país escrito).
+        del_pais = [f for f in filas if f["country_code"] == cc]
+        return (del_pais or filas)[:n]
     filas.sort(key=lambda f: 0 if f["country_code"] == "ES" else 1)
-    return filas
+    return filas[:n]
 
 
 # ---------------------------------------------------------------------------------------------
 # GEOCODIFICAR UNA DIRECCIÓN (una vez, para el MAPA del recinto en la hoja de ruta)
 # ---------------------------------------------------------------------------------------------
-def geocode_address(query: str, *, timeout: int = _TIMEOUT) -> dict | None:
+def geocode_address(query: str, *, country: str = "", timeout: int = _TIMEOUT) -> dict | None:
     """Las COORDENADAS de una dirección: `{"lat", "lng", "label"}` o None si no se encuentra.
 
     Es UNA consulta por recinto (la app guarda el resultado en `venues.lat/lng`, así que no se
@@ -226,7 +295,12 @@ def geocode_address(query: str, *, timeout: int = _TIMEOUT) -> dict | None:
     q = " ".join((query or "").split())
     if len(q) < 4:
         return None
-    for params in ({"q": q, "limit": 1, "bbox": SPAIN_BBOX}, {"q": q, "limit": 1}):
+    # ⚠️ Con un país de FUERA no se prueba con el encuadre de España: devolvería una calle parecida
+    # de aquí y el mapa del recinto acabaría en otro continente.
+    cc = country_code(country)
+    intentos = ([{"q": q, "limit": 1}] if (cc and cc != "ES")
+                else [{"q": q, "limit": 1, "bbox": SPAIN_BBOX}, {"q": q, "limit": 1}])
+    for params in intentos:
         url = PHOTON_URL + "?" + urllib.parse.urlencode(params)
         try:
             req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})

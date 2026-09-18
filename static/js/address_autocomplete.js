@@ -148,6 +148,16 @@
     caja.classList.remove('d-none');
   }
 
+  /* LA PROVINCIA de una sugerencia: en España, la del CÓDIGO POSTAL (el dato que no falla); fuera,
+     la que da el buscador (el estado, el departamento…).
+     ⚠️⚠️ Aplicar la tabla española a un CP de fuera pone una provincia de aquí SIN AVISAR: una
+     dirección de Ciudad de México (CP 06700) se rellenaba con «Badajoz» (bug real, sep 2026). */
+  function provinciaDeLaFila(fila) {
+    var cc = (fila.country_code || '').toUpperCase();
+    if (cc && cc !== 'ES') return fila.province || '';
+    return provinciaDeCp(fila.postal_code) || fila.province || '';
+  }
+
   function elegir(zona, fila) {
     if (!fila) return;
     var c = campos(zona);
@@ -156,7 +166,7 @@
       poner(c.calle, fila.address, false);
       poner(c.cp, fila.postal_code, false);
       poner(c.municipio, fila.city, false);
-      poner(c.provincia, provinciaDeCp(fila.postal_code) || fila.province, false);
+      poner(c.provincia, provinciaDeLaFila(fila), false);
       poner(c.pais, fila.country || 'España', false);
       // En la barra se queda la dirección tal como la escribe la casa, para saber qué se eligió.
       c.buscador.value = fila.full || [fila.address, fila.postal_code, fila.city].filter(Boolean).join(', ');
@@ -174,8 +184,7 @@
     poner(c.calle, fila.address, false);
     poner(c.cp, fila.postal_code, false);
     poner(c.municipio, fila.city, false);
-    // La provincia SIEMPRE del código postal: es el dato que no falla.
-    poner(c.provincia, provinciaDeCp(fila.postal_code) || fila.province, false);
+    poner(c.provincia, provinciaDeLaFila(fila), false);
     poner(c.pais, fila.country || 'España', false);
     cerrar(zona);
   }
@@ -191,7 +200,12 @@
     // Con el municipio ya escrito, la búsqueda acierta mucho más.
     var muni = c.municipio && c.municipio.value ? (' ' + c.municipio.value.trim()) : '';
     if (q.length < 4) { cerrar(zona); return; }
-    fetch('/api/direcciones?q=' + encodeURIComponent(q + muni), {
+    // ⚠️⚠️ EL PAÍS VIAJA CON LA BÚSQUEDA: sin él solo salían direcciones de España (el buscador
+    // se encuadra aquí a propósito, que es el 99%), así que un recinto de México no se podía
+    // autorrellenar por mucho que se pusiera «México» en su ficha.
+    var pais = c.pais && c.pais.value ? c.pais.value.trim() : '';
+    fetch('/api/direcciones?q=' + encodeURIComponent(q + muni) +
+          (pais ? '&country=' + encodeURIComponent(pais) : ''), {
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     })
       .then(function (r) { return r.json(); })
@@ -207,12 +221,17 @@
   // ---------------------------------------------------------------- código postal → provincia
   function alEscribirCp(zona, input) {
     var c = campos(zona);
+    // ⚠️ La tabla es de las 52 provincias ESPAÑOLAS: con otro país no se aplica (un código postal
+    // de México también tiene cinco dígitos y saldría una provincia de aquí).
+    var paisCp = c.pais && c.pais.value ? c.pais.value.trim().toLowerCase() : '';
+    if (paisCp && ['espana', 'españa', 'spain', 'es'].indexOf(paisCp) < 0) return;
     var prov = provinciaDeCp(input.value);
     if (!prov) return;
     poner(c.provincia, prov, true);            // solo si está vacía: no se pisa lo escrito a mano
     poner(c.pais, 'España', true);
     if (c.municipio && !(c.municipio.value || '').trim()) {
-      fetch('/api/direcciones?q=' + encodeURIComponent(cpLimpio(input.value)), {
+      fetch('/api/direcciones?q=' + encodeURIComponent(cpLimpio(input.value)) +
+            (c.pais && c.pais.value ? '&country=' + encodeURIComponent(c.pais.value.trim()) : ''), {
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
       })
         .then(function (r) { return r.json(); })

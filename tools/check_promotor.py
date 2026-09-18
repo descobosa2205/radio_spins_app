@@ -18,7 +18,9 @@ Comprueba, contra la app REAL y la BD de PRUEBA, la épica entera:
      tarea, y solo se aplica al aceptarlo en la pantalla de comparación;
   7. el RECINTO: se busca en nuestra base y, si no está, se da de alta desde ahí;
   8. que el enlace CADUCA a los 15 días (y entonces la página se ve pero no admite cambios);
-  9. y que «ya se lo he confirmado yo» (por teléfono) lo deja apuntado sin mandar nada.
+  9. que «ya se lo he confirmado yo» (por teléfono) lo deja apuntado sin mandar nada;
+ 10. y que «Activar producción», en las tareas pendientes de la actividad, ABRE el pop-up de quién
+     se encarga (antes su botón recargaba la misma página y no hacía nada).
 
     /tmp/python/bin/python3 tools/check_promotor.py
 
@@ -171,17 +173,17 @@ def main() -> int:
     previa = cli.get("/conciertos/%s/avisar-promotor" % cid).get_data(as_text=True)
     comprueba("la pantalla abre", "Confirmarle la actividad al promotor" in previa)
     comprueba("el TEXTO de la casa sale escrito",
-              "este concierto está confirmado, y la fecha reservada" in previa, previa[:200])
+              "este concierto está confirmado y la fecha reservada" in previa, previa[:200])
     comprueba("y pide que revise y cumplimente",
               "revisa los datos por si hubiera alguna información errónea" in previa
-              and "cumpliméntalos" in previa)
+              and "datos pendientes de cumplimentar" in previa)
     comprueba("se despide", "Muchas gracias" in previa)
     comprueba("el texto es EDITABLE (va en el cuadro de la nota)", "data-an-note" in previa)
     # ⚠️ Y la PRIMERA vista previa ya lo enseña (bug real: hasta teclear algo, el cuadro de la
     # izquierda y el correo de la derecha decían cosas distintas).
     comprueba("y la vista previa ya sale con ese texto",
-              previa.count("está confirmado, y la fecha reservada") >= 2,
-              previa.count("está confirmado, y la fecha reservada"))
+              previa.count("está confirmado y la fecha reservada") >= 2,
+              previa.count("está confirmado y la fecha reservada"))
     comprueba("las seis secciones se pueden marcar",
               all(('data-an-sec="%s"' % k) in previa for k in
                   ("promotor", "contactos", "recinto", "anuncio", "carteles", "venta")))
@@ -568,6 +570,59 @@ def main() -> int:
     comprueba("sin el sí del artista, el paso está BLOQUEADO",
               (t2.get("promotor") or {}).get("blocked") is True,
               (t2.get("promotor") or {}).get("blocked_reason"))
+
+    # ── 13 · «ACTIVAR PRODUCCIÓN» DESDE LAS TAREAS PENDIENTES ──────────────────────────────
+    # ⚠️⚠️ Su botón ABRE EL POP-UP de quién se encarga. Antes la fase solo traía la URL de la ficha
+    # de la actividad, así que pulsarlo DESDE la propia ficha recargaba la misma página y **no
+    # hacía nada** (bug real, sep 2026, lo vio Dani).
+    print("\n13 · «Activar producción» desde las tareas pendientes")
+    pet3 = models.BookingRequest(subject="Producción %s" % suf, status="CONVERTIDA",
+                                 created_by_user_id=yo.id, accepted_at=A._now_madrid(),
+                                 artist_agreed_at=A._now_madrid(),
+                                 acceptance_notified_at=A._now_madrid())
+    s.add(pet3)
+    s.flush()
+    c5 = concierto()
+    pet3.concert_id = c5.id
+    s.commit()
+    with A.app.test_request_context():
+        t3 = (({t["key"]: t for t in A._peticion_accept_tasks(s, pet3, c5, for_user=str(yo.id))})
+              .get("produccion") or {})
+    comprueba("la tarea «Activar producción» ABRE el pop-up de quién se encarga",
+              t3.get("modal") == "#prodOwnerModal", t3)
+    comprueba("y su enlace lleva a la ficha con `prod=1` (para Inicio, donde el pop-up no existe)",
+              "prod=1" in (t3.get("url") or ""), t3.get("url"))
+    tablero = cli.get("/conciertos/%s?tab=inicio" % c5.id).get_data(as_text=True)
+    import re as _re
+    plano = _re.sub(r"\s+", " ", tablero)
+    filas = _re.findall(r'<div class="list-group-item act-step.*?(?=<div class="list-group-item act-step|$)', plano)
+    fila = ([f for f in filas if "Activar producción" in f] or [""])[0]
+    comprueba("en la ficha, su botón abre el pop-up", 'data-bs-target="#prodOwnerModal"' in fila, fila[-300:])
+    comprueba("y ya no pinta el enlace que recargaba la misma página",
+              not [a for a in _re.findall(r"<a [^>]*>.*?</a>", fila) if "Activar producción" in a])
+    comprueba("el pop-up está en la pantalla", 'id="prodOwnerModal"' in tablero)
+    llegada = _re.sub(r"\s+", " ", cli.get("/conciertos/%s?tab=inicio&prod=1" % c5.id).get_data(as_text=True))
+    comprueba("llegando con `prod=1` el pop-up se abre solo", "if (true) setTimeout(abrir, 300)" in llegada)
+    cli.post("/conciertos/%s/responsable-produccion" % c5.id,
+             data={"user_id": str(yo.id), "next": "/conciertos/%s" % c5.id})
+    s.expire_all()
+    c5 = s.get(models.Concert, c5.id)
+    comprueba("al elegir a alguien queda guardado", str(c5.production_owner_user_id) == str(yo.id),
+              c5.production_owner_user_id)
+    with A.app.test_request_context():
+        t4 = {t["key"]: t for t in A._peticion_accept_tasks(s, pet3, c5, for_user=str(yo.id))}
+    comprueba("y la tarea desaparece sola de lo pendiente", "produccion" not in t4, list(t4))
+    # ⚠️ Y desde INICIO («Activar producción» de quien creó la actividad): allí el pop-up no existe,
+    # así que su botón tiene que llevar a la ficha CON `prod=1`, que lo abre al llegar.
+    c6 = concierto()
+    s.commit()
+    with A.app.test_request_context():
+        filas_inicio = A._home_production_activation_pending(s, yo.id)
+    mia = [f for f in filas_inicio if str(f["id"]) == str(c6.id)]
+    comprueba("en Inicio sale «Activar producción» de lo que uno ha creado", bool(mia), len(filas_inicio))
+    if mia:
+        comprueba("y su botón lleva a la ficha con `prod=1`", "prod=1" in (mia[0].get("action_url") or ""),
+                  mia[0].get("action_url"))
 
     s.close()
     print("\n%d OK · %d fallan" % (len(OK), len(KO)))

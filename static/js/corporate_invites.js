@@ -23,6 +23,12 @@
   function post(u, fd) {
     return fetch(u, { method: 'POST', body: fd || new FormData() }).then(function (r) { return r.json(); });
   }
+  /* El mismo POST pero con JSON (lo que va y viene de la revisión del fichero). */
+  function post2(u, payload) {
+    return fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload || {}) })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, error: 'Respuesta no válida del servidor.' }; }); });
+  }
 
   /* ---------- los invitados de una lista ---------- */
   function pintaInvitados(listId, datos) {
@@ -215,7 +221,340 @@
       }).catch(function () { caja.innerHTML = '<div class="text-danger small">No se pudo buscar.</div>'; });
   }
 
-  /* ---------- subir un fichero ---------- */
+  /* ══════════ SUBIR UN FICHERO · LA REVISIÓN ══════════
+     ⚠️ Nada se crea a ciegas: el fichero se LEE y se enseña lo que trae. Antes esto daba de alta
+     los terceros en el mismo golpe y salían fichas raras en Terceros (con el nombre de su empresa,
+     o sin correo) sin que nadie pudiera evitarlo. */
+  var imp = { listId: '', columns: [], fileRows: [], rows: [], fields: [], counts: {},
+              basicos: [], nuevos: [], idx: 0, creados: 0, anadidos: 0 };
+
+  function impRoot() { return document.querySelector('[data-ci-imp]'); }
+  function impError(msg) {
+    var caja = impRoot() && impRoot().querySelector('[data-ci-imp-error]');
+    if (!caja) return;
+    caja.textContent = msg || '';
+    caja.classList.toggle('d-none', !msg);
+  }
+
+  function impPaso(nombre) {
+    var root = impRoot();
+    if (!root) return;
+    var pasos = Array.prototype.slice.call(root.querySelectorAll('[data-ci-imp-step]'));
+    pasos.forEach(function (el) { el.classList.toggle('d-none', el.getAttribute('data-ci-imp-step') !== nombre); });
+    impError('');
+    /* La cabecera roja con un icono por paso: el pintor común de la casa. */
+    if (window.app33WizHead) {
+      window.app33WizHead.fromSteps(root.querySelector('[data-ci-imp-steps]'), pasos,
+        root.querySelector('[data-ci-imp-step="' + nombre + '"]'));
+    }
+    impPie(nombre);
+  }
+
+  function impPie(paso) {
+    var root = impRoot();
+    if (!root) return;
+    var atras = root.querySelector('[data-ci-imp-back]');
+    var caja = root.querySelector('[data-ci-imp-actions]');
+    if (!caja || !atras) return;
+    var marcados = impMarcados().length;
+    if (paso === 'columnas') {
+      atras.classList.remove('d-none');
+      atras.innerHTML = '<i class="fa fa-arrow-left me-1"></i>Volver a la revisión';
+      caja.innerHTML = '<button type="button" class="btn btn-danger" data-ci-imp-reread>' +
+        '<i class="fa fa-rotate me-1"></i>Volver a leer el fichero con esto</button>';
+      return;
+    }
+    if (paso === 'alta') {
+      atras.classList.remove('d-none');
+      atras.innerHTML = '<i class="fa fa-arrow-left me-1"></i>Volver a la revisión';
+      caja.innerHTML = '<button type="button" class="btn btn-outline-secondary" data-ci-imp-skip>' +
+          'Saltarme a esta persona<i class="fa fa-arrow-right ms-1"></i></button>' +
+        '<button type="button" class="btn btn-danger" data-ci-imp-save>' +
+          '<i class="fa fa-user-plus me-1"></i>Crear y añadir a la lista</button>';
+      return;
+    }
+    atras.classList.remove('d-none');
+    atras.innerHTML = '<i class="fa fa-table-columns me-1"></i>¿No se ha leído bien? Revisar las columnas';
+    var nuevos = imp.rows.filter(function (r) { return r.status === 'nuevo'; }).length;
+    var conocidos = imp.rows.filter(function (r) { return r.status === 'tercero'; }).length;
+    caja.innerHTML =
+      (nuevos ? '<button type="button" class="btn btn-outline-danger" data-ci-imp-start-new>' +
+                  '<i class="fa fa-user-plus me-1"></i>Dar de alta ' +
+                  (nuevos === 1 ? 'al que falta' : 'a los ' + nuevos + ' que faltan') + '</button>' : '') +
+      /* El botón de añadir solo se pinta si hay a quién: con el fichero entero de gente nueva, un
+         «Añadir los 0 marcados» apagado no dice nada. */
+      (conocidos ? '<button type="button" class="btn btn-danger" data-ci-imp-add' + (marcados ? '' : ' disabled') + '>' +
+        '<i class="fa fa-check me-1"></i>' +
+        (marcados === 0 ? 'Añadir los marcados' : (marcados === 1 ? 'Añadir al marcado' : 'Añadir los ' + marcados + ' marcados')) +
+        '</button>' : '') +
+      /* Cuando ya no queda nada que hacer, el pie tiene que decirlo y dejar cerrar. */
+      (!nuevos && !conocidos ? '<button type="button" class="btn btn-danger" data-bs-dismiss="modal">' +
+        '<i class="fa fa-check me-1"></i>Listo</button>' : '');
+  }
+
+  function impMarcados() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-ci-imp-pick]:checked'))
+      .map(function (c) { return parseInt(c.getAttribute('data-ci-imp-pick'), 10); })
+      .filter(function (i) { return !isNaN(i); });
+  }
+
+  function impFila(r) {
+    var p = r.promoter || null;
+    var delFichero = [r.name, r.email, r.phone].filter(Boolean).map(esc).join(' · ');
+    var extra = (r.extra || []).map(function (x) {
+      return '<span class="ci-imp__x"><b>' + esc(x.label) + ':</b> ' + esc(x.value) + '</span>';
+    }).join('');
+    var foto = (p && p.logo_url)
+      ? '<img src="' + esc(p.logo_url) + '" alt="" loading="lazy">'
+      : '<span class="ci-imp__ph"><i class="fa fa-user"></i></span>';
+    var cuerpo = '<span class="ci-imp__t"><b>' + esc((p && p.name) || r.name || r.email || 'Sin nombre') + '</b>' +
+      (p && p.email ? '<small><i class="fa fa-envelope fa-fw"></i>' + esc(p.email) + '</small>' : '') +
+      (!p && r.email ? '<small><i class="fa fa-envelope fa-fw"></i>' + esc(r.email) + '</small>' : '') +
+      (!p && !r.email ? '<small class="text-warning"><i class="fa fa-triangle-exclamation fa-fw"></i>Sin correo: no se le podrá invitar</small>' : '') +
+      (p ? '<small class="text-muted"><i class="fa fa-file-lines fa-fw"></i>En el fichero: ' + delFichero + '</small>' : '') +
+      (r.why ? '<small class="text-muted"><i class="fa fa-link fa-fw"></i>Lo tenemos ' + esc(r.why) + '</small>' : '') +
+      (extra ? '<small class="ci-imp__xs">' + extra + '</small>' : '') +
+      '</span>';
+    if (r.status === 'lista') {
+      return '<div class="ci-imp__row is-done">' + foto + cuerpo +
+        '<span class="badge text-bg-light border"><i class="fa fa-check me-1"></i>Ya añadido</span></div>';
+    }
+    if (r.status === 'tercero') {
+      return '<label class="ci-imp__row is-pick">' +
+        '<input type="checkbox" data-ci-imp-pick="' + r.i + '"' + (r.sure ? ' checked' : '') + '>' +
+        foto + cuerpo +
+        (p ? '<span class="ci-imp__go"><i class="fa fa-id-card"></i></span>' : '') + '</label>';
+    }
+    return '<div class="ci-imp__row">' + foto + cuerpo +
+      '<span class="badge text-bg-warning-subtle border text-dark">Hay que darlo de alta</span></div>';
+  }
+
+  function impGrupo(titulo, icono, clase, filas, ayuda, conMarcar) {
+    if (!filas.length) return '';
+    return '<section class="ci-imp__g ' + clase + '">' +
+      '<h6 class="ci-imp__gh"><i class="fa ' + icono + ' me-2"></i>' + esc(titulo) +
+        '<span class="badge text-bg-light border ms-2">' + filas.length + '</span>' +
+        (conMarcar ? '<span class="ci-imp__gb">' +
+          '<button type="button" class="btn btn-sm btn-link p-0" data-ci-imp-all="1">Marcar todos</button>' +
+          '<button type="button" class="btn btn-sm btn-link p-0 text-muted" data-ci-imp-all="0">Ninguno</button>' +
+          '</span>' : '') +
+      '</h6>' +
+      (ayuda ? '<p class="small text-muted mb-2">' + ayuda + '</p>' : '') +
+      filas.map(impFila).join('') + '</section>';
+  }
+
+  function pintaRevision() {
+    var root = impRoot();
+    if (!root) return;
+    var c = imp.counts || {};
+    var sum = root.querySelector('[data-ci-imp-sum]');
+    if (sum) {
+      var hecho = [];
+      if (imp.anadidos) hecho.push('<b>' + imp.anadidos + '</b> ' + (imp.anadidos === 1 ? 'añadido' : 'añadidos') + ' a la lista');
+      if (imp.creados) hecho.push('<b>' + imp.creados + '</b> ' + (imp.creados === 1 ? 'ficha nueva' : 'fichas nuevas') + ' en Terceros');
+      sum.innerHTML = '<div class="ci-imp__sumline"><i class="fa fa-file-lines me-2"></i>' +
+        '<b>' + (c.total || 0) + '</b> ' + ((c.total === 1) ? 'fila' : 'filas') + ' en el fichero' +
+        (c.sin_correo ? ' · <span class="text-warning"><i class="fa fa-triangle-exclamation me-1"></i>' +
+          c.sin_correo + ' sin correo</span>' : '') + '</div>' +
+        (hecho.length ? '<div class="ci-imp__sumline ci-imp__sumline--ok mt-2">' +
+          '<i class="fa fa-circle-check me-2"></i>' + hecho.join(' · ') + '</div>' : '');
+    }
+    var caja = root.querySelector('[data-ci-imp-groups]');
+    var porEstado = function (e) { return imp.rows.filter(function (r) { return r.status === e; }); };
+    caja.innerHTML =
+      impGrupo('Ya los tenemos en Terceros', 'fa-address-book', 'is-known', porEstado('tercero'),
+        'Marca a quién añades. Los que casan por su <strong>correo</strong>, su DNI o su teléfono vienen ya ' +
+        'marcados; los que solo casan <strong>por el nombre</strong>, no: dos personas pueden llamarse igual.', true) +
+      impGrupo('Hay que darlos de alta', 'fa-user-plus', 'is-new', porEstado('nuevo'),
+        'No los tenemos en Terceros. Se revisan <strong>uno a uno</strong> antes de crear su ficha.', false) +
+      impGrupo('Ya están en esta lista', 'fa-check-double', 'is-done', porEstado('lista'),
+        'No hace falta hacer nada con ellos.', false);
+    impPie('revisar');
+  }
+
+  function pintaColumnas() {
+    var root = impRoot();
+    var tb = root && root.querySelector('[data-ci-imp-cols]');
+    if (!tb) return;
+    tb.innerHTML = (imp.columns || []).map(function (col) {
+      var opciones = '<option value="">— No es un dato de la ficha (se guarda como dato extra) —</option>' +
+        '<option value="__ignore__">Omitir esta columna</option>' +
+        (imp.fields || []).map(function (f) {
+          return '<option value="' + esc(f.key) + '"' + (col.field === f.key ? ' selected' : '') + '>' + esc(f.label) + '</option>';
+        }).join('');
+      return '<tr><td><b>' + esc(col.header || '') + '</b></td>' +
+        '<td class="small text-muted">' + esc((col.samples || []).join(' · ')) + '</td>' +
+        '<td><select class="form-select form-select-sm" data-ci-imp-col="' + col.index + '">' + opciones + '</select></td></tr>';
+    }).join('');
+  }
+
+  function pintaAlta() {
+    var root = impRoot();
+    var caja = root && root.querySelector('[data-ci-imp-new]');
+    if (!caja) return;
+    var r = imp.nuevos[imp.idx];
+    if (!r) {
+      caja.innerHTML = '<div class="alert alert-success mb-0"><i class="fa fa-circle-check me-2"></i>' +
+        'Listo: no queda nadie por revisar.</div>';
+      return;
+    }
+    var etiqueta = {};
+    (imp.fields || []).forEach(function (f) { etiqueta[f.key] = f.label; });
+    var basicos = imp.basicos.length ? imp.basicos : ['nick', 'first_name', 'last_name', 'contact_email', 'contact_phone'];
+    /* Si el fichero trae el nombre completo en UNA columna (lo normal en un listado de invitados),
+       se PROPONE partido en nombre y apellidos: así la ficha nace como las demás y se encuentra
+       buscando por el apellido. Se ve y se corrige aquí mismo, que es para lo que está esta pantalla. */
+    if (!(r.values || {}).first_name && !(r.values || {}).last_name) {
+      var partes = String((r.values || {}).nick || '').trim().split(/\s+/);
+      if (partes.length >= 2) {
+        r.values.first_name = partes[0];
+        r.values.last_name = partes.slice(1).join(' ');
+        r.propuesto = true;
+      }
+    }
+    var otros = Object.keys(r.values || {}).filter(function (k) { return basicos.indexOf(k) < 0; });
+    function campo(k, ancho) {
+      var val = (r.values || {})[k] || '';
+      var obliga = (k === 'contact_email');
+      return '<div class="col-12 col-md-' + (ancho || 6) + '">' +
+        '<label class="form-label small">' + esc(etiqueta[k] || k) +
+          (obliga ? ' <span class="text-muted">(sin él no se le puede invitar)</span>' : '') + '</label>' +
+        '<input class="form-control form-control-sm" data-ci-imp-f="' + esc(k) + '" value="' + esc(val) + '">' +
+        '</div>';
+    }
+    caja.innerHTML =
+      '<div class="ci-imp__step"><span class="badge text-bg-light border">' + (imp.idx + 1) + ' de ' + imp.nuevos.length + '</span>' +
+        '<b class="ms-2">' + esc(r.name || r.email || 'Sin nombre') + '</b>' +
+        '<span class="text-muted small ms-2">tal y como viene en el fichero</span></div>' +
+      '<div class="row g-2 mt-1">' +
+        basicos.map(function (k, n) { return campo(k, n === 0 ? 12 : 6); }).join('') +
+        otros.map(function (k) { return campo(k); }).join('') +
+      '</div>' +
+      ((r.extra || []).length
+        ? '<div class="ci-imp__extra mt-3"><div class="fw-semibold small mb-2">' +
+            '<i class="fa fa-table-columns me-1"></i>Lo demás que trae el fichero' +
+            '<span class="text-muted fw-normal"> — se guarda en su ficha como dato extra, con el nombre de su columna</span></div>' +
+            '<div class="row g-2">' + r.extra.map(function (x, n) {
+              return '<div class="col-12 col-md-6"><label class="form-label small">' + esc(x.label) + '</label>' +
+                '<input class="form-control form-control-sm" data-ci-imp-x="' + n + '" value="' + esc(x.value) + '"></div>';
+            }).join('') + '</div></div>'
+        : '') +
+      (r.propuesto ? '<div class="form-text"><i class="fa fa-wand-magic-sparkles me-1"></i>' +
+          'El nombre y los apellidos se han separado del nombre que trae el fichero: cámbialos si no es así.</div>' : '') +
+      '<div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>Se crea su ficha en ' +
+        '<strong>Terceros</strong> y queda añadido a la lista. Si ese correo ya estuviera en la base, ' +
+        'se usa esa ficha en vez de crear otra.</div>';
+    impPie('alta');
+  }
+
+  function impAbre(listId, js) {
+    imp.listId = listId;
+    imp.columns = js.columns || [];
+    imp.fileRows = js.file_rows || [];
+    imp.rows = js.rows || [];
+    imp.fields = js.fields || [];
+    imp.basicos = js.basic_fields || [];
+    imp.counts = js.counts || {};
+    imp.nuevos = []; imp.idx = 0; imp.creados = 0; imp.anadidos = 0;
+    var root = impRoot();
+    if (!root || !window.bootstrap) return;
+    var f = root.querySelector('[data-ci-imp-file]');
+    if (f) f.textContent = (js.filename || '') + (js.sheet_rows ? ' · ' + js.sheet_rows + ' filas leídas' : '');
+    pintaColumnas();
+    pintaRevision();
+    impPaso('revisar');
+    bootstrap.Modal.getOrCreateInstance(root.closest('.modal')).show();
+  }
+
+  function impRevisaDeNuevo() {
+    var root = impRoot();
+    (imp.columns || []).forEach(function (col) {
+      var sel = root.querySelector('[data-ci-imp-col="' + col.index + '"]');
+      if (sel) col.field = sel.value;
+    });
+    impError('');
+    post2(url('data-import-review-url-tpl', '__LIST__', imp.listId),
+          { columns: imp.columns, file_rows: imp.fileRows }).then(function (js) {
+      if (!js || !js.ok) { impError((js && js.error) || 'No se pudo volver a leer el fichero.'); return; }
+      imp.columns = js.columns || imp.columns;
+      imp.rows = js.rows || [];
+      imp.counts = js.counts || {};
+      pintaColumnas();
+      pintaRevision();
+      impPaso('revisar');
+    });
+  }
+
+  function impAnadeMarcados() {
+    var elegidos = impMarcados();
+    if (!elegidos.length) return;
+    var items = elegidos.map(function (i) {
+      var r = imp.rows[i] || {};
+      return { promoter_id: (r.promoter || {}).id || '', name: r.name || '', email: r.email || '', phone: r.phone || '' };
+    }).filter(function (x) { return x.promoter_id; });
+    post2(url('data-import-add-url-tpl', '__LIST__', imp.listId), { items: items }).then(function (js) {
+      if (!js || !js.ok) { impError((js && js.error) || 'No se pudieron añadir.'); return; }
+      imp.anadidos += (js.added || 0);
+      pintaInvitados(imp.listId, js);
+      // Los que acaban de entrar pasan a «ya están en la lista»: la revisión dice la verdad.
+      elegidos.forEach(function (i) { if (imp.rows[i]) imp.rows[i].status = 'lista'; });
+      imp.counts.tercero = imp.rows.filter(function (r) { return r.status === 'tercero'; }).length;
+      imp.counts.lista = imp.rows.filter(function (r) { return r.status === 'lista'; }).length;
+      pintaRevision();
+      impError('');
+    });
+  }
+
+  function impEmpiezaAltas() {
+    imp.nuevos = imp.rows.filter(function (r) { return r.status === 'nuevo'; });
+    imp.idx = 0;
+    if (!imp.nuevos.length) return;
+    impPaso('alta');
+    pintaAlta();
+  }
+
+  function impSiguiente() {
+    imp.idx += 1;
+    if (imp.idx >= imp.nuevos.length) {
+      imp.nuevos = [];
+      pintaRevision();
+      impPaso('revisar');
+      impError('');
+      return;
+    }
+    pintaAlta();
+  }
+
+  function impGuardaAlta() {
+    var root = impRoot();
+    var r = imp.nuevos[imp.idx];
+    if (!r) return;
+    var values = {};
+    Array.prototype.slice.call(root.querySelectorAll('[data-ci-imp-f]')).forEach(function (i) {
+      var v = (i.value || '').trim();
+      if (v) values[i.getAttribute('data-ci-imp-f')] = v;
+    });
+    var extra = (r.extra || []).map(function (x, n) {
+      var i = root.querySelector('[data-ci-imp-x="' + n + '"]');
+      return { label: x.label, value: i ? (i.value || '').trim() : x.value };
+    }).filter(function (x) { return x.value; });
+    if (!Object.keys(values).length && !extra.length) { impError('No hay nada que guardar de esta persona.'); return; }
+    post2(url('data-import-new-url-tpl', '__LIST__', imp.listId), { values: values, extra: extra })
+      .then(function (js) {
+        if (!js || !js.ok) { impError((js && js.error) || 'No se pudo dar de alta.'); return; }
+        if (js.created) imp.creados += 1;
+        if (js.added) imp.anadidos += 1;
+        // La fila deja de estar pendiente (si se vuelve a la revisión, ya no sale como nueva).
+        var orig = imp.rows[r.i];
+        if (orig) { orig.status = 'lista'; orig.promoter = js.promoter || orig.promoter; }
+        imp.counts.nuevo = imp.rows.filter(function (x) { return x.status === 'nuevo'; }).length;
+        imp.counts.lista = imp.rows.filter(function (x) { return x.status === 'lista'; }).length;
+        pintaInvitados(imp.listId, js);
+        impSiguiente();
+      });
+  }
+
+  /* El fichero: se sube, se lee y se abre la REVISIÓN (no se crea nada todavía). */
   document.addEventListener('change', function (ev) {
     var inp = ev.target.closest('[data-ci-file]');
     if (!inp || !inp.files || !inp.files[0]) return;
@@ -226,14 +565,38 @@
     fd.append('file', inp.files[0]);
     inp.value = '';
     post(url('data-import-url-tpl', '__LIST__', lid), fd).then(function (js) {
-      if (!js || !js.ok) {
-        alert((js && js.error) || 'No se pudo importar el fichero.');
-        if (caja) { caja.dataset.ciLoaded = ''; cargaInvitados(lid); }
-        return;
-      }
-      pintaInvitados(lid, js);
-      if (js.message) alert(js.message);
+      if (caja) { caja.dataset.ciLoaded = ''; cargaInvitados(lid); }
+      if (!js || !js.ok) { alert((js && js.error) || 'No se pudo leer el fichero.'); return; }
+      impAbre(lid, js);
     });
+  });
+
+  /* Los botones de la revisión (delegados: el modal se repinta entero). */
+  document.addEventListener('click', function (ev) {
+    if (!ev.target.closest('[data-ci-imp]')) return;
+    var todos = ev.target.closest('[data-ci-imp-all]');
+    if (todos) {
+      var on = todos.getAttribute('data-ci-imp-all') === '1';
+      Array.prototype.slice.call(document.querySelectorAll('[data-ci-imp-pick]')).forEach(function (c) { c.checked = on; });
+      impPie('revisar');
+      return;
+    }
+    if (ev.target.closest('[data-ci-imp-add]')) { impAnadeMarcados(); return; }
+    if (ev.target.closest('[data-ci-imp-start-new]')) { impEmpiezaAltas(); return; }
+    if (ev.target.closest('[data-ci-imp-reread]')) { impRevisaDeNuevo(); return; }
+    if (ev.target.closest('[data-ci-imp-save]')) { impGuardaAlta(); return; }
+    if (ev.target.closest('[data-ci-imp-skip]')) { impSiguiente(); return; }
+    if (ev.target.closest('[data-ci-imp-back]')) {
+      var visible = document.querySelector('[data-ci-imp-step]:not(.d-none)');
+      var paso = visible ? visible.getAttribute('data-ci-imp-step') : 'revisar';
+      if (paso === 'revisar') { pintaColumnas(); impPaso('columnas'); }
+      else { pintaRevision(); impPaso('revisar'); }
+      return;
+    }
+  });
+
+  document.addEventListener('change', function (ev) {
+    if (ev.target.closest('[data-ci-imp-pick]')) impPie('revisar');
   });
 
   /* ---------- enviar la invitación (por tandas) ---------- */

@@ -17,6 +17,7 @@
 - INVITACIONES · «Por contrato» / «Disponibles» / «?». En el listado de
 - INVITACIONES · «DISPONIBLES» ES LO QUE HAY SUBIDO Y LIBRE, NO EL CUPO DEL CONTRATO
 - INVITACIONES CORPORATIVAS · «Mi lista de invitados» y el envío desde el correo de cada uno
+- INVITACIONES CORPORATIVAS · SUBIR UN FICHERO SE REVISA ANTES (y los rótulos que se leían mal)
 - EL DÍA DEL EVENTO · INVITACIONES SIN REPARTIR (sep 2026, _home_invitation_leftovers →
 
 ---
@@ -337,12 +338,46 @@
   en su ficha, nunca duplicados —la regla de la casa—. Se añade **buscando entre los terceros** (el
   buscador de siempre, `api_search_promoters`) o escribiendo a alguien nuevo, y entonces se le crea
   su ficha; si ese **correo ya lo tenemos, se usa esa ficha** en vez de crear otra.
-  · **SUBIR UN FICHERO** (`_corp_import_rows` + `_corp_import_apply`): el **mismo lector** que la
-  importación de terceros (`promoter_import.parse_file`), del que aquí solo interesan nombre, correo
-  y teléfono. **Crea los terceros que no existan y engancha los que ya están** (por su correo, el de
-  la ficha y el de sus correos adicionales), **sin pisar** lo que ya está escrito: solo se completa
-  lo vacío. ⚠️ Una fila **sin correo no entra** (no hay a dónde mandarle nada) y **se dice cuántas**
-  se han quedado fuera. Reimportar el mismo fichero **deja lo mismo** (comprobado).
+  · ⚠️⚠️⚠️ **SUBIR UN FICHERO · PRIMERO SE REVISA, Y NO SE CREA NADA A CIEGAS** (sep 2026, lo pidió
+  Dani: «al subir un archivo sale algo raro o error»). La primera versión leía el fichero y **creaba
+  los terceros y los enganchaba en el mismo golpe**, así que un fichero mal reconocido metía decenas
+  de fichas mal puestas **en la base de datos de la casa** y no había forma de evitarlo ni de
+  deshacerlo. Y se reconocía mal más de lo que parecía:
+    · un listado con las columnas **«Invitado»** y **«Empresa»** metía a la gente con el nombre de
+      **su empresa** («Invitado» no era alias de nada y «Empresa» sí lo era del nick);
+    · **«Dirección de correo»** se leía como el **DOMICILIO** —en `guess_field` la segunda pasada se
+      queda con el alias **más largo**, y «direccion» le gana a «correo»—, así que la fila se quedaba
+      **sin correo**: «4 sin correo (no se pueden invitar)» y a nadie se le podía mandar nada;
+    · y **«Nombre y apellidos»** se guardaba entero como **APELLIDOS** (le ganaba «apellidos»).
+    Los tres van ya como **alias EXACTOS** en `promoter_import.FIELDS` (la primera pasada es por
+    igualdad, así que no le quitan nada a ningún otro rótulo), junto con «Asistente», «Persona de
+    contacto» y «WhatsApp». ⚠️ Eso arregla también la importación de TERCEROS, que usa el mismo motor.
+  · **LA REVISIÓN** (`_corp_import_review`, pantalla `#corpImportModal` + `.ci-imp-*`): al subir el
+  fichero se enseña **lo que trae**, en tres bloques y sin tocar nada:
+    · **«Ya están en esta lista»** — informativo, no hay nada que hacer con ellos;
+    · **«Ya los tenemos en Terceros»** — con su **casilla**, la ficha que se ha encontrado y **por
+      qué** se la ha reconocido; se marca a quién se añade («Marcar todos» / «Ninguno»);
+    · **«Hay que darlos de alta»** — los que no tenemos.
+    ⚠️ **Marcados vienen solo los SEGUROS** (`CORP_IMPORT_SURE_REASONS`: el correo, el DNI, el
+    teléfono o el nick exacto). Los que casan **por el nombre** se enseñan **sin marcar**: dos
+    personas pueden llamarse igual y mandarle la invitación a quien no es no tiene vuelta atrás.
+  · **EL ALTA, UNO A UNO** (`corporate_import_new`): de cada persona que no tenemos se enseña una
+  ficha con **los campos básicos** (nick, nombre, apellidos, correo, teléfono) **y los demás campos
+  que traiga el fichero**, para repasarlos y corregirlos; al guardar **se crea su ficha de tercero y
+  queda añadida a la lista**, y se pasa a la siguiente («Saltarme a esta persona» también está).
+    · **Lo que no es un dato de la ficha** (el cargo, el medio, una observación) **no se pierde**: se
+      guarda como **dato extra con el nombre de su columna** (`PromoterAltValue`, el mismo punto
+      único que la importación de terceros — los correos van a `PromoterEmail`).
+    · El **nombre y los apellidos** se **proponen** partiendo el nombre completo del fichero, y se
+      dice que son una propuesta: así la ficha nace como las demás y se encuentra por el apellido.
+    · ⚠️ Si ese **correo ya lo tenemos**, se usa **esa** ficha en vez de crear otra, y no se le pisa
+      nada: solo se le completa lo que tuviera vacío.
+  · **SI SE HA LEÍDO MAL, SE CORRIGE SIN VOLVER A SUBIR NADA** (`corporate_import_review`): el paso
+  **«Columnas»** dice a qué campo va cada una y deja cambiarlo. El fichero **se lee una sola vez** y
+  sus filas viajan en el JSON (igual que la importación de terceros).
+  ⚠️ Una fila **sin correo** entra igual en el alta (se puede escribir ahí), pero se avisa de que
+  **sin correo no se le puede invitar** y se dice **cuántas** hay. Nada se descarta en silencio.
+  ⚠️ Reimportar el mismo fichero **no duplica a nadie**: todos salen como «ya están en esta lista».
   · **EL CONTENIDO ES UN DISEÑO**: un `PressRelease` con **`purpose='INVITE'`**
   (`CorporateInvite.design_release_id`), o sea **el MISMO editor y las mismas plantillas** que el
   correo de un envío a compradores — un solo editor que mantener. `_press_is_press_clause()` lo deja
@@ -383,8 +418,10 @@
   ⚠️⚠️ **`url_for("concert_detail_view")` toma `cid`, NO `concert_id`** (bug real cazado por la
   prueba): con el nombre mal, `url_for` revienta y **se cae la pantalla entera** (la de «cerrado por
   mantenimiento»). Es la trampa de siempre: un nombre de parámetro no se adivina, se mira.
-  ⚠️ Probado con la app real (`/tmp/ci/test_corp.py`, **94 comprobaciones**): el módulo y sus datos,
-  la paleta, las listas, el fichero (crea, engancha, no duplica y reimportar deja lo mismo), crear ·
-  diseñar · enviar, que sin correo configurado no se manda, que sale desde el suyo, las aperturas,
-  que nadie ve lo de nadie, el botón de Inicio para todos y el orden del listado. Y `check_divs`
+  ⚠️ Probado con la app real (`tools/check_invitaciones_corporativas.py`, **112 comprobaciones**): el
+  módulo y sus datos, la paleta, las listas, **el fichero de punta a punta** (que se revisa y no crea
+  nada al subirlo, los tres bloques, el porqué de cada coincidencia, añadir los marcados, el alta uno
+  a uno con sus datos extra, corregir una columna sin volver a subirlo y que reimportarlo no duplica
+  a nadie), crear · diseñar · enviar, que sin correo configurado no se manda, que sale desde el suyo,
+  las aperturas, que nadie ve lo de nadie, el botón de Inicio para todos y el orden del listado. Y `check_divs`
   (212 pantallas), `check_botones`, `check_permisos`, `check_access_coverage` y `check_press_render`.

@@ -8,8 +8,9 @@ Comprueba, contra la app REAL y una BD de PRUEBA:
   · que la paleta del editor lo ofrece, y solo con actividades POR VENIR
   · MIS LISTAS: crear, añadir a alguien (un tercero que ya está o uno nuevo, que se crea) y que
     nadie entra dos veces
-  · SUBIR UN FICHERO: crea los terceros que no existan, engancha los que ya están (por su correo),
-    descarta las filas sin correo diciendo cuántas, y reimportar el mismo fichero deja lo mismo
+  · SUBIR UN FICHERO: que se REVISA antes de crear nada (quién ya está en la lista, a quién ya
+    tenemos en Terceros para marcarlo y a quién hay que dar de alta uno a uno), que se puede
+    corregir a qué campo va una columna sin volver a subirlo, y que reimportarlo no duplica a nadie
   · crear la invitación → el editor → enviar; y que SIN el correo de esa persona en Integraciones
     NO se manda (y se dice qué hacer)
   · que sale DESDE SU CORREO, con su nombre, no como correo automático y con los datos de la
@@ -252,43 +253,125 @@ check("se añade un tercero que ya estaba", js and js.get("ok") and js.get("coun
 check("y se le coge el correo de SU ficha",
       any(g["email"] == "bea@empresa.com" for g in (js or {}).get("rows") or []), js)
 
-print("\n── 4. SUBIR UN FICHERO ────────────────────────────────────────────────")
-csv = ("Nombre;Apellidos;Email;Teléfono\n"
-       "Carlos;Gómez;carlos@nuevo.com;600333444\n"
-       "Bea;Ruiz;bea@empresa.com;655000111\n"          # ya está: se engancha, no se duplica
-       "Diego;Sanz;;600555666\n"                       # sin correo: no entra, y se dice
-       "Elena;Mora;elena@otra.com;\n")
+print("\n── 4. SUBIR UN FICHERO · LA REVISIÓN (no se crea nada a ciegas) ───────")
+# ⚠️⚠️ Las cabeceras con las que salían cosas RARAS: «Invitado» no se reconocía —así que el nombre
+# se cogía de «Empresa» y la gente entraba con el nombre de SU EMPRESA— y «Dirección de correo» se
+# leía como el DOMICILIO, con lo que la fila se quedaba sin correo y no se podía invitar a nadie.
+csv = ("Invitado;Empresa;Cargo;Dirección de correo;Móvil\n"
+       "Ana P.;Acme SL;Directora;ana@medio.com;600111222\n"          # ya está EN LA LISTA
+       "Bea Ruiz;Otra SL;Jefa de prensa;bea@empresa.com;655000111\n"  # ya está EN LA LISTA
+       "Carlos Gómez;Tercera SL;Redactor;carlos@nuevo.com;600333444\n"  # NO lo tenemos
+       "Diego Sanz;Cuarta SL;Fotógrafo;;600555666\n")                 # ni lo tenemos ni trae correo
 r = cli.post("/invitaciones-corporativas/listas/%s/importar" % LID,
              data={"file": (io.BytesIO(csv.encode("utf-8")), "invitados.csv")},
              content_type="multipart/form-data")
-js = r.get_json()
-check("el fichero se importa", js and js.get("ok"), js)
-check("dice cuántos son nuevos, cuántos ya estaban y cuántos sin correo",
-      js and "nuevo" in (js.get("message") or "") and "sin correo" in (js.get("message") or ""), js and js.get("message"))
+js = r.get_json() or {}
+filas = js.get("rows") or []
+check("el fichero se lee y devuelve la revisión", js.get("ok") and len(filas) == 4, js)
+cols = {c["header"]: c["field"] for c in (js.get("columns") or [])}
+check("«Invitado» se reconoce como el nombre (antes se quedaba sin campo)", cols.get("Invitado") == "nick", cols)
+check("«Dirección de correo» es el CORREO, no el domicilio", cols.get("Dirección de correo") == "contact_email", cols)
+check("el nombre que se propone es el de la PERSONA, no el de su empresa",
+      bool(filas) and filas[2]["name"] == "Carlos Gómez", [f["name"] for f in filas])
+check("lo que no es un dato de la ficha viaja como dato extra con el nombre de su columna",
+      bool(filas) and {x["label"] for x in filas[2]["extra"]} >= {"Empresa", "Cargo"},
+      filas and filas[2]["extra"])
+check("quien ya está en la lista sale como YA AÑADIDO",
+      [f["status"] for f in filas[:2]] == ["lista", "lista"], [f["status"] for f in filas])
+check("quien no lo tenemos sale para darlo de alta",
+      [f["status"] for f in filas[2:]] == ["nuevo", "nuevo"], [f["status"] for f in filas])
+check("se dice cuántas filas se quedarían sin correo", (js.get("counts") or {}).get("sin_correo") == 1, js.get("counts"))
 s = models.SessionLocal()
 try:
-    check("se crea el TERCERO que no existía",
-          s.query(models.Promoter).filter(models.Promoter.contact_email == "carlos@nuevo.com").first() is not None)
-    check("el que ya existía NO se duplica",
-          s.query(models.Promoter).filter(models.Promoter.contact_email == "bea@empresa.com").count() == 1)
-    check("el que ya estaba en la lista tampoco entra dos veces",
-          s.query(models.CorporateGuest).filter(models.CorporateGuest.list_id == A.to_uuid(LID),
-                                                models.CorporateGuest.email == "bea@empresa.com").count() == 1)
-    check("la fila SIN CORREO no se importa",
-          s.query(models.Promoter).filter(models.Promoter.contact_phone == "600555666").first() is None)
-    total = s.query(models.CorporateGuest).filter(models.CorporateGuest.list_id == A.to_uuid(LID)).count()
-    check("la lista tiene 4 invitados (Ana, Bea, Carlos, Elena)", total == 4, total)
+    check("⚠️ SUBIR EL FICHERO NO CREA NINGUNA FICHA (antes las creaba todas de golpe)",
+          s.query(models.Promoter).filter(models.Promoter.contact_email == "carlos@nuevo.com").first() is None)
+    check("ni añade a nadie a la lista",
+          s.query(models.CorporateGuest).filter(models.CorporateGuest.list_id == A.to_uuid(LID)).count() == 2)
 finally:
     s.close()
 
-# Reimportar el MISMO fichero no infla nada
+# Un tercero que YA TENEMOS pero que no está en la lista: se enseña para MARCARLO.
+s = models.SessionLocal()
+try:
+    # ⚠️ El nick a propósito DISTINTO del nombre del fichero: así la coincidencia es por el CORREO
+    # (si el nick fuera igual casaría por ahí antes, y esto no probaría lo que dice).
+    otro = models.Promoter(nick="Elena Mora (Radio Cinco)", contact_email="elena@otra.com")
+    s.add(otro); s.commit(); ELENA_ID = str(otro.id)
+finally:
+    s.close()
+csv2 = ("Invitado;Empresa;Dirección de correo\n"
+        "Elena Mora;Quinta SL;elena@otra.com\n"
+        "Nuria Paz;Sexta SL;nuria@nueva.com\n")
+r = cli.post("/invitaciones-corporativas/listas/%s/importar" % LID,
+             data={"file": (io.BytesIO(csv2.encode("utf-8")), "invitados2.csv")},
+             content_type="multipart/form-data")
+js2 = r.get_json() or {}
+filas2 = js2.get("rows") or []
+check("a quien YA TENEMOS en Terceros se le enseña para marcarlo",
+      bool(filas2) and filas2[0]["status"] == "tercero" and filas2[0]["promoter"], filas2 and filas2[0])
+check("y se dice POR QUÉ se le ha reconocido", "correo" in (filas2[0]["why"] or ""), filas2 and filas2[0].get("why"))
+check("viene marcado, porque el correo es un dato seguro", filas2[0]["sure"] is True, filas2 and filas2[0])
+
+# Añadir LOS MARCADOS (no crea fichas: son terceros que ya existen)
+r = cli.post("/invitaciones-corporativas/listas/%s/importar/anadir" % LID,
+             json={"items": [{"promoter_id": ELENA_ID, "name": "Elena Mora", "email": "elena@otra.com"}]})
+js3 = r.get_json() or {}
+check("se añaden los marcados", js3.get("ok") and js3.get("added") == 1, js3)
+check("y la lista vuelve al día (3)", js3.get("count") == 3, js3.get("count"))
+s = models.SessionLocal()
+try:
+    check("sin crear una segunda ficha de esa persona",
+          s.query(models.Promoter).filter(models.Promoter.contact_email == "elena@otra.com").count() == 1)
+finally:
+    s.close()
+
+# El ALTA, UNO A UNO: se crea la ficha con lo que se ha revisado y queda añadida a la lista
+r = cli.post("/invitaciones-corporativas/listas/%s/importar/nuevo" % LID,
+             json={"values": {"nick": "Carlos Gómez", "first_name": "Carlos", "last_name": "Gómez",
+                              "contact_email": "carlos@nuevo.com", "contact_phone": "600333444"},
+                   "extra": [{"label": "Empresa", "value": "Tercera SL"}, {"label": "Cargo", "value": "Redactor"}]})
+js4 = r.get_json() or {}
+check("el alta uno a uno crea su ficha y lo añade a la lista",
+      js4.get("ok") and js4.get("created") and js4.get("added"), js4)
+check("y la lista vuelve al día (4)", js4.get("count") == 4, js4.get("count"))
+s = models.SessionLocal()
+try:
+    p = s.query(models.Promoter).filter(models.Promoter.contact_email == "carlos@nuevo.com").first()
+    check("la ficha nace con su nombre y sus apellidos", p is not None and p.first_name == "Carlos" and p.last_name == "Gómez",
+          p and (p.first_name, p.last_name))
+    alt = s.query(models.PromoterAltValue).filter(models.PromoterAltValue.promoter_id == p.id).all() if p else []
+    check("y con lo demás del fichero como dato extra, con el nombre de su columna",
+          {a.label for a in alt} >= {"Empresa", "Cargo"}, [(a.label, a.value) for a in alt])
+finally:
+    s.close()
+
+# CORREGIR UNA COLUMNA sin volver a subir el fichero
+cols2 = js2.get("columns") or []
+for c in cols2:
+    if c["header"] == "Empresa":
+        c["field"] = "hotel_notes"
+r = cli.post("/invitaciones-corporativas/listas/%s/importar/revisar" % LID,
+             json={"columns": cols2, "file_rows": js2.get("file_rows") or []})
+js5 = r.get_json() or {}
+check("se puede corregir a qué campo va una columna SIN volver a subir el fichero", js5.get("ok"), js5)
+check("y la revisión se rehace con eso",
+      bool(js5.get("rows")) and js5["rows"][0]["values"].get("hotel_notes") == "Quinta SL",
+      js5.get("rows") and js5["rows"][0]["values"])
+check("y quien se acaba de añadir ya sale como «ya está en la lista»",
+      bool(js5.get("rows")) and js5["rows"][0]["status"] == "lista", js5.get("rows") and js5["rows"][0]["status"])
+
+# Volver a subir el MISMO fichero: nadie se duplica y todos salen como ya añadidos
 r = cli.post("/invitaciones-corporativas/listas/%s/importar" % LID,
              data={"file": (io.BytesIO(csv.encode("utf-8")), "invitados.csv")},
              content_type="multipart/form-data")
+js6 = r.get_json() or {}
+check("reimportar el mismo fichero no propone nada nuevo de quien ya está",
+      [f["status"] for f in (js6.get("rows") or [])][:3] == ["lista", "lista", "lista"],
+      [(f["name"], f["status"]) for f in (js6.get("rows") or [])])
 s = models.SessionLocal()
 try:
     total = s.query(models.CorporateGuest).filter(models.CorporateGuest.list_id == A.to_uuid(LID)).count()
-    check("reimportar el mismo fichero deja lo mismo", total == 4, total)
+    check("y la lista sigue teniendo 4 invitados", total == 4, total)
 finally:
     s.close()
 

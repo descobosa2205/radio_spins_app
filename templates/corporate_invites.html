@@ -13,6 +13,9 @@
      data-guests-url-tpl="{{ url_for('corporate_list_guests', list_id='__LIST__') }}"
      data-add-url-tpl="{{ url_for('corporate_guest_add', list_id='__LIST__') }}"
      data-import-url-tpl="{{ url_for('corporate_list_import', list_id='__LIST__') }}"
+     data-import-review-url-tpl="{{ url_for('corporate_import_review', list_id='__LIST__') }}"
+     data-import-add-url-tpl="{{ url_for('corporate_import_add', list_id='__LIST__') }}"
+     data-import-new-url-tpl="{{ url_for('corporate_import_new', list_id='__LIST__') }}"
      data-rename-url-tpl="{{ url_for('corporate_list_rename', list_id='__LIST__') }}"
      data-remove-url-tpl="{{ url_for('corporate_guest_remove', guest_id='__GUEST__') }}"
      data-send-url-tpl="{{ url_for('corporate_invite_send', invite_id='__INV__') }}"
@@ -187,9 +190,10 @@
                     </form>
                   </div>
                   <div class="small text-muted mb-2">
-                    El fichero (Excel o CSV) puede traer nombre, correo y teléfono: se
-                    <strong>crean los que no existan</strong> en Terceros y se enganchan los que ya estén
-                    (se reconocen por su correo).
+                    El fichero (Excel o CSV) puede traer nombre, correo, teléfono y lo que quieras.
+                    Al subirlo <strong>se enseña lo que trae</strong>: quién ya está en la lista, a quién
+                    ya tenemos en Terceros (marcas a quién añades) y a quién hay que
+                    <strong>dar de alta</strong>, que se revisa uno a uno. <em>No se crea nada sin que lo veas.</em>
                   </div>
                   <div data-ci-guests><div class="text-muted small">Cargando…</div></div>
                 </div>
@@ -259,6 +263,60 @@
     <div class="modal-footer">
       <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
       <button type="button" class="btn btn-primary" data-ci-new-save><i class="fa fa-plus me-1"></i>Añadir</button>
+    </div>
+  </div></div>
+</div>
+
+{# ---------- SUBIR UN FICHERO · LA REVISIÓN (nada se crea a ciegas) ----------
+   Se lee el fichero y se enseña lo que trae ANTES de tocar nada: quién ya está en la lista, a quién
+   YA TENEMOS en Terceros (para marcar a quién se añade) y a quién no, que se da de alta UNO A UNO
+   con lo que trae el fichero. El JS vive en static/js/corporate_invites.js. #}
+<div class="modal fade" id="corpImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content" data-ci-imp>
+    <div class="modal-header sw-head">
+      <div>
+        <h5 class="modal-title"><i class="fa fa-file-import me-2"></i>Lo que trae el fichero</h5>
+        <div class="text-muted small" data-ci-imp-file></div>
+      </div>
+      <ol class="sw-head__steps" data-ci-imp-steps></ol>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+    </div>
+
+    <div class="modal-body">
+      <div class="alert alert-danger py-2 px-3 small d-none" data-ci-imp-error></div>
+
+      {# ── Paso · LAS COLUMNAS (solo si hay que corregir lo que se ha reconocido) ── #}
+      <div class="d-none" data-ci-imp-step="columnas" data-sw-head="Columnas" data-sw-icon="fa-table-columns">
+        <p class="small text-muted">Esto es lo que ha entendido la app de cada columna. Si algo no está
+          bien, se cambia aquí: <strong>nada se guarda hasta que lo revises</strong>.</p>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle pi-cols">
+            <thead class="table-light">
+              <tr><th>Columna del fichero</th><th>Ejemplo</th><th style="width:34%">¿Qué es?</th></tr>
+            </thead>
+            <tbody data-ci-imp-cols></tbody>
+          </table>
+        </div>
+        <div class="small text-muted">Lo que no sea un dato de la ficha se guarda igual, como
+          <strong>dato extra con el nombre de su columna</strong> (el cargo, el medio, una observación).</div>
+      </div>
+
+      {# ── Paso · LA REVISIÓN ── #}
+      <div data-ci-imp-step="revisar" data-sw-head="Revisar" data-sw-icon="fa-list-check">
+        <div class="ci-imp__sum" data-ci-imp-sum></div>
+        <div data-ci-imp-groups></div>
+      </div>
+
+      {# ── Paso · EL ALTA, UNO A UNO ── #}
+      <div class="d-none" data-ci-imp-step="alta" data-sw-head="Darlos de alta" data-sw-icon="fa-user-plus">
+        <div data-ci-imp-new></div>
+      </div>
+    </div>
+
+    <div class="modal-footer sw-foot justify-content-between">
+      <button type="button" class="btn btn-link text-decoration-none" data-ci-imp-back>
+        <i class="fa fa-arrow-left me-1"></i>Atrás</button>
+      <div class="d-flex gap-2 flex-wrap justify-content-end" data-ci-imp-actions></div>
     </div>
   </div></div>
 </div>

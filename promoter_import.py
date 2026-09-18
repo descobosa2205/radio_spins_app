@@ -27,7 +27,13 @@ import unicodedata
 FIELDS: list[tuple[str, str, str, tuple[str, ...]]] = [
     ("nick", "Nick (cómo lo llamamos)", "text",
      ("nick", "alias", "nombre comercial", "razon social", "razon", "denominacion", "empresa",
-      "proveedor", "cliente", "tercero", "nombre completo", "titular")),
+      "proveedor", "cliente", "tercero", "nombre completo", "titular",
+      # Un listado de INVITADOS llama al nombre completo de otras maneras. ⚠️ Van como alias
+      # EXACTOS (la primera pasada), que es lo que hace falta para ganarle a la segunda: en
+      # «nombre y apellidos» casaba «apellidos» —el alias más largo— y el nombre entero se
+      # guardaba como APELLIDOS.
+      "invitado", "invitados", "invitada", "invitadas", "asistente", "asistentes",
+      "nombre y apellidos", "nombre y apellido", "nombre del invitado", "persona de contacto")),
     ("first_name", "Nombre", "text", ("nombre", "nombre de pila", "first name", "name")),
     ("last_name", "Apellidos", "text", ("apellidos", "apellido", "apellido1", "apellidos1",
                                         "last name", "surname")),
@@ -36,9 +42,16 @@ FIELDS: list[tuple[str, str, str, tuple[str, ...]]] = [
                                              "identificacion", "vat", "nif cif", "cif nif",
                                              "dni cif", "id fiscal")),
     ("contact_email", "Email", "email", ("email", "e mail", "correo", "correo electronico", "mail",
-                                         "email contacto", "correo contacto")),
+                                         "email contacto", "correo contacto",
+                                         # ⚠️ «Dirección de correo» se leía como el DOMICILIO
+                                         # («direccion» es más largo que «correo» y la segunda
+                                         # pasada se queda con el alias más largo): la fila se
+                                         # quedaba SIN CORREO y no se podía invitar a nadie.
+                                         "direccion de correo", "direccion de email",
+                                         "direccion email", "correo electronico de contacto")),
     ("contact_phone", "Teléfono", "phone", ("telefono", "tlf", "tel", "movil", "celular", "phone",
-                                            "telefono contacto", "telefono movil")),
+                                            "telefono contacto", "telefono movil", "whatsapp",
+                                            "numero de movil", "movil contacto")),
     ("address", "Domicilio", "text", ("domicilio", "direccion", "direccion postal", "address",
                                       "domicilio particular")),
     ("fiscal_address", "Dirección fiscal (calle)", "text",

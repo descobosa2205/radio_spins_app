@@ -102100,7 +102100,8 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "corporate_invites_view", "corporate_invite_detail_view",
                       "corporate_list_create", "corporate_list_rename", "corporate_list_delete",
                       "corporate_list_guests", "corporate_guest_add", "corporate_guest_remove",
-                      "corporate_list_import",
+                      "corporate_list_import", "corporate_import_review",
+                      "corporate_import_add", "corporate_import_new",
                       "corporate_invite_create", "corporate_invite_save", "corporate_invite_delete",
                       "corporate_invite_preview", "corporate_invite_send",
                       "corporate_invite_continue", "corporate_invite_status"}
@@ -182219,82 +182220,152 @@ def _corp_guest_add(session_db, lst, *, promoter=None, name: str = "", email: st
     return True, ""
 
 
-def _corp_import_rows(data: bytes, filename: str) -> list[dict]:
-    """Las filas del fichero, ya reconocidas: {"name", "email", "phone"}.
+# ── SUBIR UN FICHERO: primero se REVISA, y no se crea nada a ciegas ───────────────────────────
+# ⚠️⚠️ Antes esto creaba los terceros y enganchaba a la lista **en el mismo golpe**, y salían cosas
+# raras sin que nadie pudiera evitarlas: un listado con las columnas «Invitado» y «Empresa» metía a
+# la gente con el nombre de SU EMPRESA (el rótulo «Invitado» no se reconocía y «Empresa» sí), y uno
+# con «Dirección de correo» se quedaba sin correos (se leían como el domicilio) — o sea, decenas de
+# fichas nuevas mal puestas en Terceros, que es la base de datos de la casa. Ahora el fichero se
+# REVISA antes: se dice quién ya está en la lista, a quién YA TENEMOS en Terceros (para marcar a
+# quién se añade) y a quién no, que se da de alta UNO A UNO viendo lo que trae el fichero.
 
-    ⚠️ Se usa el MISMO lector que la importación de terceros (`promoter_import`), que ya sabe de
-    cabeceras desplazadas, rótulos como «N.º de teléfono» y números que Excel escribe con decimales.
-    Aquí solo interesan tres campos, así que lo que reconozca para otros se descarta."""
-    datos = promoter_import.parse_file(data, filename)
+# Los campos que se piden SIEMPRE al dar de alta a alguien del fichero (los demás salen si el
+# fichero los trae). Los manda el servidor para que la pantalla no tenga su propia lista.
+CORP_IMPORT_BASIC_FIELDS = ("nick", "first_name", "last_name", "contact_email", "contact_phone")
+# Un motivo de coincidencia SEGURO: lo que no se repite entre dos personas. El nombre (aunque sea
+# el completo) no entra: dos personas pueden llamarse igual, y mandarle la invitación a quien no es
+# no tiene vuelta atrás — esas se enseñan igual, pero SIN marcar, para que las mire una persona.
+CORP_IMPORT_SURE_REASONS = ("por su DNI", "por su correo", "por su teléfono", "por el nick")
+
+
+def _corp_import_parse(data: bytes, filename: str) -> dict:
+    """Lee el fichero con el MISMO motor que la importación de terceros (`promoter_import`), que ya
+    sabe de cabeceras desplazadas, rótulos con puntuación y números que Excel escribe con decimales."""
+    return promoter_import.parse_file(data, filename)
+
+
+def _corp_import_mapping(columns: list) -> dict:
+    """De las columnas (con el campo que se les ha reconocido, o el que haya elegido una persona) al
+    mapeo que entiende `apply_mapping`. Lo que no va a un campo se guarda **como dato extra con el
+    nombre de su columna**: así el alta uno a uno puede enseñar TODO lo que trae el fichero."""
     mapping = {}
-    for col in datos.get("columns") or []:
-        campo = col.get("field")
-        if campo in ("nick", "first_name", "last_name", "contact_email", "contact_phone"):
-            mapping[str(col["index"])] = campo
-    fichas = promoter_import.apply_mapping(datos.get("rows") or [], mapping)
-    filas = []
-    for f in fichas:
-        v = f.get("values") or {}
-        nombre = " ".join([x for x in [(v.get("first_name") or "").strip(),
-                                       (v.get("last_name") or "").strip()] if x]).strip()
-        nombre = nombre or (v.get("nick") or "").strip()
-        correo = (v.get("contact_email") or "").strip().lower()
-        tel = (v.get("contact_phone") or "").strip()
-        if not correo and not nombre and not tel:
+    for col in columns or []:
+        try:
+            idx = int(col.get("index"))
+        except Exception:
             continue
-        filas.append({"name": nombre, "email": correo, "phone": tel})
-    return filas
+        campo = (col.get("field") or "").strip()
+        if campo == promoter_import.TARGET_IGNORE:
+            continue
+        if campo in promoter_import.FIELD_LABELS:
+            mapping[str(idx)] = campo
+        else:
+            mapping[str(idx)] = {"field": promoter_import.TARGET_ALT,
+                                 "label": (col.get("header") or "").strip() or "Columna %d" % (idx + 1)}
+    return mapping
 
 
-def _corp_import_apply(session_db, lst, filas: list[dict]) -> dict:
-    """Mete las filas del fichero en la lista: **crea el TERCERO que no exista y engancha el que ya
-    está** (se reconoce por su CORREO, en la ficha y en sus correos adicionales).
+def _corp_import_display_name(values: dict) -> str:
+    """Con qué nombre entra en la lista: el de la persona (nombre + apellidos) y, si no viene, el
+    nick del fichero. ⚠️ En este orden a propósito: en un listado de invitados el nick suele ser la
+    EMPRESA, y quien recibe la invitación es la persona."""
+    nombre = " ".join([x for x in [(values.get("first_name") or "").strip(),
+                                   (values.get("last_name") or "").strip()] if x]).strip()
+    return (nombre or (values.get("nick") or "").strip() or (values.get("contact_email") or "").strip())
 
-    ⚠️ A quien ya tenemos NO se le pisa nada: solo se le COMPLETA lo que tenga vacío (el criterio
-    de toda la app). Y una fila SIN CORREO no entra: no hay a quién mandarle la invitación —y se
-    dice cuántas se han quedado fuera, que no desaparezcan sin más."""
+
+def _corp_import_promoter_card(session_db, prom) -> dict:
+    """La ficha que se ha encontrado, como se enseña en la revisión."""
+    return {
+        "id": str(prom.id),
+        "name": _promoter_display_name(prom) or (prom.nick or ""),
+        "nick": (prom.nick or "").strip(),
+        "email": (prom.contact_email or "").strip(),
+        "phone": (prom.contact_phone or "").strip(),
+        "logo_url": (getattr(prom, "logo_url", "") or "").strip(),
+        "url": url_for("promoter_detail_view", pid=prom.id),
+    }
+
+
+def _corp_import_review(session_db, lst, columns: list, rows: list) -> dict:
+    """LA REVISIÓN del fichero, sin tocar nada: qué trae cada fila y en cuál de los tres estados cae.
+
+    · `lista`   — ya está en esta lista de invitados (se enseña como YA AÑADIDO).
+    · `tercero` — no está en la lista pero YA LO TENEMOS en Terceros: se marca si se añade.
+    · `nuevo`   — no lo tenemos: se da de alta uno a uno con lo que trae el fichero.
+    """
+    fichas = promoter_import.apply_mapping(rows or [], _corp_import_mapping(columns))
     indices = _promoter_import_indexes(session_db)
-    creados = enganchados = repetidos = sin_correo = 0
-    for fila in filas:
-        correo = (fila.get("email") or "").strip().lower()
-        if not correo:
-            sin_correo += 1
-            continue
-        valores = {"contact_email": correo}
-        if fila.get("name"):
-            valores["nick"] = fila["name"]
-        if fila.get("phone"):
-            valores["contact_phone"] = fila["phone"]
-        pid = (indices.get("email") or {}).get(correo)
+    invitados = (session_db.query(CorporateGuest)
+                 .filter(CorporateGuest.list_id == lst.id).all())
+    ya_correo = {(g.email or "").strip().lower() for g in invitados if (g.email or "").strip()}
+    ya_ficha = {str(g.promoter_id) for g in invitados if g.promoter_id}
+    filas, cuentas = [], {"lista": 0, "tercero": 0, "nuevo": 0, "sin_correo": 0}
+    for i, ficha in enumerate(fichas):
+        values = ficha.get("values") or {}
+        extra = ficha.get("alt") or []
+        correo = (values.get("contact_email") or "").strip().lower()
+        pid, motivo = _promoter_import_match(indices, values)
         prom = session_db.get(Promoter, to_uuid(pid)) if pid else None
         if prom is None:
-            prom = Promoter(nick=_intake_promoter_nick(session_db, _promoter_import_nick(valores)),
-                            contact_email=correo,
-                            contact_phone=(fila.get("phone") or "").strip() or None)
-            nombre_partes = (fila.get("name") or "").strip().split()
-            if len(nombre_partes) >= 2:
-                prom.first_name = nombre_partes[0]
-                prom.last_name = " ".join(nombre_partes[1:])
-            elif nombre_partes:
-                prom.first_name = nombre_partes[0]
-            session_db.add(prom)
-            session_db.flush()
-            indices.setdefault("email", {})[correo] = str(prom.id)
-            creados += 1
-        else:
-            # Lo que ya está escrito NO se pisa: solo se rellena lo que tenga vacío.
-            if not (prom.contact_email or "").strip():
-                prom.contact_email = correo
-            if fila.get("phone") and not (prom.contact_phone or "").strip():
-                prom.contact_phone = fila["phone"].strip()[:60]
-            enganchados += 1
-        ok, _motivo = _corp_guest_add(session_db, lst, promoter=prom, name=fila.get("name") or "",
-                                      email=correo, phone=fila.get("phone") or "")
-        if not ok:
-            repetidos += 1
-    session_db.commit()
-    return {"creados": creados, "enganchados": enganchados, "repetidos": repetidos,
-            "sin_correo": sin_correo}
+            pid, motivo = None, ""
+        estado = "nuevo"
+        if (correo and correo in ya_correo) or (pid and str(pid) in ya_ficha):
+            estado = "lista"
+        elif prom is not None:
+            estado = "tercero"
+        if not correo and not (prom is not None and (prom.contact_email or "").strip()):
+            cuentas["sin_correo"] += 1
+        cuentas[estado] += 1
+        filas.append({
+            "i": i,
+            "name": _corp_import_display_name(values),
+            "email": correo,
+            "phone": (values.get("contact_phone") or "").strip(),
+            "values": values,
+            "extra": [{"label": (x or {}).get("label") or "", "value": (x or {}).get("value") or ""}
+                      for x in extra],
+            "status": estado,
+            "why": motivo,
+            "sure": bool(motivo and motivo.startswith(CORP_IMPORT_SURE_REASONS)),
+            "promoter": (_corp_import_promoter_card(session_db, prom) if prom is not None else None),
+        })
+    cuentas["total"] = len(filas)
+    return {
+        "columns": columns,
+        "fields": ([{"key": k, "label": promoter_import.FIELD_LABELS[k]} for k in promoter_import.FIELD_KEYS]),
+        "basic_fields": list(CORP_IMPORT_BASIC_FIELDS),
+        "rows": filas,
+        "counts": cuentas,
+    }
+
+
+def _corp_import_columns_in(columns: list) -> list:
+    """Las columnas que manda el navegador, limpias (solo lo que se puede elegir)."""
+    fuera = []
+    for col in (columns or [])[:200]:
+        try:
+            idx = int((col or {}).get("index"))
+        except Exception:
+            continue
+        campo = str((col or {}).get("field") or "").strip()
+        if campo and campo not in promoter_import.FIELD_LABELS and campo != promoter_import.TARGET_IGNORE:
+            campo = ""
+        fuera.append({"index": idx,
+                      "header": str((col or {}).get("header") or "")[:200],
+                      "field": campo,
+                      "auto": bool((col or {}).get("auto")),
+                      "samples": [str(x)[:120] for x in ((col or {}).get("samples") or [])[:3]]})
+    return fuera
+
+
+def _corp_import_rows_in(rows: list) -> list:
+    """Las filas que manda el navegador (el fichero se lee UNA vez y el resto va en JSON)."""
+    out = []
+    for row in (rows or [])[:5000]:
+        if isinstance(row, list):
+            out.append([str(c if c is not None else "")[:500] for c in row[:200]])
+    return out
 
 
 # ── EL ENVÍO ─────────────────────────────────────────────────────────────────────────────────
@@ -182927,7 +182998,7 @@ def corporate_guest_remove(guest_id):
 @app.post("/invitaciones-corporativas/listas/<list_id>/importar", endpoint="corporate_list_import")
 @admin_required
 def corporate_list_import(list_id):
-    """SUBIR UN FICHERO: crea los terceros que no existan y engancha los que ya están (por correo)."""
+    """SUBIR UN FICHERO: lo lee y devuelve **la revisión**. ⚠️ No crea ni añade nada todavía."""
     s = db()
     try:
         lst = _corp_list_mine(s, list_id, _corp_user_id())
@@ -182940,29 +183011,161 @@ def corporate_list_import(list_id):
             datos = f.read()
         except Exception:
             return jsonify({"ok": False, "error": "No se pudo leer el fichero."}), 400
+        if not datos:
+            return jsonify({"ok": False, "error": "El fichero está vacío."}), 400
         try:
-            filas = _corp_import_rows(datos, f.filename or "")
+            leido = _corp_import_parse(datos, f.filename or "")
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
             app.logger.exception("[invitaciones corp] no se pudo leer el fichero")
             return jsonify({"ok": False, "error": "No se pudo leer el fichero (%s)." % str(exc)[:120]}), 400
-        if not filas:
-            return jsonify({"ok": False, "error": "El fichero no trae ninguna fila con nombre, correo o teléfono."}), 400
-        res = _corp_import_apply(s, lst, filas)
+        if not (leido.get("rows") or []):
+            return jsonify({"ok": False, "error": "El fichero no tiene ninguna fila con datos."}), 400
+        revision = _corp_import_review(s, lst, leido.get("columns") or [], leido.get("rows") or [])
+        return jsonify({"ok": True, "filename": (f.filename or "").strip(),
+                        "sheet_rows": leido.get("sheet_rows") or 0,
+                        "file_rows": leido.get("rows") or [], **revision})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo leer el fichero")
+        return jsonify({"ok": False, "error": "No se pudo leer el fichero."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/listas/<list_id>/importar/revisar", endpoint="corporate_import_review")
+@admin_required
+def corporate_import_review(list_id):
+    """La revisión OTRA VEZ, con las columnas que ha corregido una persona.
+
+    ⚠️ El fichero se lee UNA sola vez: sus filas viajan en el JSON (como la importación de terceros),
+    así que cambiar a qué campo va una columna **no obliga a volver a subirlo**."""
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+        payload = request.get_json(silent=True) or {}
+        columnas = _corp_import_columns_in(payload.get("columns") or [])
+        filas = _corp_import_rows_in(payload.get("file_rows") or [])
+        if not columnas or not filas:
+            return jsonify({"ok": False, "error": "Vuelve a subir el fichero."}), 400
+        return jsonify({"ok": True, "file_rows": filas, **_corp_import_review(s, lst, columnas, filas)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo revisar el fichero")
+        return jsonify({"ok": False, "error": "No se pudo revisar el fichero."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/listas/<list_id>/importar/anadir", endpoint="corporate_import_add")
+@admin_required
+def corporate_import_add(list_id):
+    """Añade a la lista **los que se han marcado** de entre los que YA TENEMOS en Terceros.
+
+    ⚠️ Aquí no se crea ninguna ficha: son terceros que ya existen. Lo que ya está escrito en su
+    ficha no se pisa —solo se le COMPLETA el correo o el teléfono si los tenía vacíos y el fichero
+    los trae—, que es el criterio de toda la app."""
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+        payload = request.get_json(silent=True) or {}
+        anadidos = repetidos = 0
+        for item in (payload.get("items") or [])[:2000]:
+            prom = s.get(Promoter, _safe_uuid((item or {}).get("promoter_id"))) if (item or {}).get("promoter_id") else None
+            if prom is None:
+                continue
+            correo = ((item or {}).get("email") or "").strip().lower()[:200]
+            telefono = ((item or {}).get("phone") or "").strip()[:60]
+            if correo and not (prom.contact_email or "").strip():
+                prom.contact_email = correo
+            if telefono and not (prom.contact_phone or "").strip():
+                prom.contact_phone = telefono
+            ok, _motivo = _corp_guest_add(s, lst, promoter=prom,
+                                          name=((item or {}).get("name") or "").strip(),
+                                          email=(correo or _corp_promoter_email(prom)),
+                                          phone=telefono)
+            if ok:
+                anadidos += 1
+            else:
+                repetidos += 1
+        s.commit()
         partes = []
-        if res["creados"]:
-            partes.append("%d nuevo%s" % (res["creados"], "" if res["creados"] == 1 else "s"))
-        if res["enganchados"]:
-            partes.append("%d que ya estaba%s en la base de datos" % (res["enganchados"], "" if res["enganchados"] == 1 else "n"))
-        if res["repetidos"]:
-            partes.append("%d que ya estaba%s en la lista" % (res["repetidos"], "" if res["repetidos"] == 1 else "n"))
-        if res["sin_correo"]:
-            partes.append("%d sin correo (no se pueden invitar)" % res["sin_correo"])
-        return jsonify({"ok": True, "message": "Importado: " + (", ".join(partes) or "nada nuevo") + ".",
+        if anadidos:
+            partes.append("%d añadido%s" % (anadidos, "" if anadidos == 1 else "s"))
+        if repetidos:
+            partes.append("%d que ya estaba%s en la lista" % (repetidos, "" if repetidos == 1 else "n"))
+        return jsonify({"ok": True, "added": anadidos, "repeated": repetidos,
+                        "message": ", ".join(partes) or "No se ha añadido a nadie.",
                         **_corp_list_row(s, lst, con_invitados=True)})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo importar el fichero")
-        return jsonify({"ok": False, "error": "No se pudo importar el fichero."}), 500
+        app.logger.exception("[invitaciones corp] no se pudieron añadir los marcados")
+        return jsonify({"ok": False, "error": "No se pudieron añadir."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/listas/<list_id>/importar/nuevo", endpoint="corporate_import_new")
+@admin_required
+def corporate_import_new(list_id):
+    """Da de alta a UNA persona del fichero **como tercero** y la deja añadida a la lista.
+
+    Se llama una vez por persona (se revisan de una en una), así que si una falla las demás entran.
+    Lo que no es un campo de la ficha (el cargo, el medio, una observación) se guarda como **dato
+    extra con el nombre de su columna**, igual que en la importación de terceros: no se pierde."""
+    s = db()
+    try:
+        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        if lst is None:
+            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+        payload = request.get_json(silent=True) or {}
+        values = {k: str(v or "").strip() for k, v in ((payload.get("values") or {}).items())
+                  if k in promoter_import.FIELD_LABELS and str(v or "").strip()}
+        extra = [{"label": str((x or {}).get("label") or "").strip()[:120],
+                  "value": str((x or {}).get("value") or "").strip()[:2000]}
+                 for x in (payload.get("extra") or [])[:60]
+                 if str((x or {}).get("value") or "").strip()]
+        if not values and not extra:
+            return jsonify({"ok": False, "error": "No hay nada que guardar de esta persona."}), 400
+        correo = (values.get("contact_email") or "").strip().lower()
+        # ⚠️ Un correo que YA tenemos es el MISMO tercero: no se crea otra ficha (es el criterio de
+        # la importación de terceros y el de los contactos de un medio).
+        prom = None
+        if correo:
+            pid = (_promoter_import_indexes(s).get("email") or {}).get(correo)
+            prom = s.get(Promoter, to_uuid(pid)) if pid else None
+        creado = False
+        if prom is None:
+            prom = Promoter(nick=_intake_promoter_nick(s, _promoter_import_nick(values)
+                                                       or PROMOTER_IMPORT_NAMELESS_NICK))
+            s.add(prom)
+            s.flush()
+            _promoter_import_apply_values(s, prom, values, only_empty=False)
+            creado = True
+        else:
+            # Ya estaba: no se le pisa nada, solo se completa lo que tenga vacío.
+            _promoter_import_apply_values(s, prom, values, only_empty=True)
+        for x in extra:
+            _promoter_import_add_alt(s, prom, None, x.get("label"), x.get("value"))
+        s.flush()
+        ok, motivo = _corp_guest_add(s, lst, promoter=prom,
+                                     name=_corp_import_display_name(values),
+                                     email=(correo or _corp_promoter_email(prom)),
+                                     phone=(values.get("contact_phone") or ""))
+        s.commit()
+        return jsonify({"ok": True, "created": creado, "added": bool(ok),
+                        "repeated": (not ok and motivo == "ya estaba"),
+                        "promoter": _corp_import_promoter_card(s, prom),
+                        **_corp_list_row(s, lst, con_invitados=True)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo dar de alta al invitado del fichero")
+        return jsonify({"ok": False, "error": "No se pudo dar de alta a esta persona."}), 500
     finally:
         s.close()
 

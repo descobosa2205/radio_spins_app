@@ -3825,6 +3825,11 @@ class MinorAuthConfig(Base):
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False, unique=True)
     # Corte de edad: hay que rellenar la hoja si el menor tiene MENOS de estos años (18, 16 o 14).
     age_limit = Column(Integer, nullable=False, server_default=text("18"))
+    # ⚠️⚠️ «NO SE PERMITE ACCESO A MENORES» (sep 2026, lo pidió Dani): con esto **no hay formulario
+    # que rellenar** —el enlace no se activa— y en la entrada sale solo la advertencia «Este evento
+    # no admite menores de 18 años». Es lo mismo en la pestaña «Menores» y en las entradas: una
+    # sola configuración (`MinorAuthConfig`), como pidió que fuera.
+    minors_allowed = Column(Boolean, nullable=False, server_default=text("true"))
     require_guardian_dni = Column(Boolean, nullable=False, server_default=text("true"))
     require_minor_dni = Column(Boolean, nullable=False, server_default=text("true"))
     require_email_verification = Column(Boolean, nullable=False, server_default=text("true"))
@@ -5706,6 +5711,9 @@ class InvitationGenConfig(Base):
     doors_time = Column(Text)
     show_time = Column(Text)
     image_url = Column(Text)
+    # ⚠️ LA CONTRAPORTADA (sep 2026, lo pidió Dani): una imagen que sale en una página APARTE detrás
+    # de cada entrada, así que un PDF de N entradas son 2N páginas: entrada, contraportada, entrada…
+    back_image_url = Column(Text)
     conditions_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     conditions_template_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_conditions_templates.id", ondelete="SET NULL"))
     # Enlace público de las condiciones completas (se comparte en la propia entrada).
@@ -10988,6 +10996,9 @@ def ensure_minor_auth_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_minor_auth_configs_concert ON minor_auth_configs(concert_id);',
         'ALTER TABLE IF EXISTS minor_auth_configs ADD COLUMN IF NOT EXISTS validate_token text;',
+        # ⚠️ CADA COLUMNA EN SU PROPIA SENTENCIA (la regla de la casa). «No se permite acceso a
+        # menores»: sin formulario que rellenar, solo la advertencia.
+        'ALTER TABLE minor_auth_configs ADD COLUMN IF NOT EXISTS minors_allowed boolean NOT NULL DEFAULT true;',
         """
         CREATE TABLE IF NOT EXISTS minor_authorizations (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -12783,6 +12794,8 @@ def ensure_invitation_gen_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_invitation_gen_extras_config ON invitation_gen_extras(config_id);",
+        # La CONTRAPORTADA de la entrada (una página aparte detrás de cada una).
+        "ALTER TABLE invitation_gen_configs ADD COLUMN IF NOT EXISTS back_image_url text;",
         """
         CREATE TABLE IF NOT EXISTS invitation_gen_categories (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

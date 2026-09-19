@@ -7,7 +7,13 @@
     <div class="mn-policy__icon"><i class="fa fa-child-reaching"></i></div>
     <div>
       <h6 class="mb-1">Política de acceso de menores</h6>
-      <div class="mn-policy__text">{{ (minor_config.policy_text if minor_config and minor_config.policy_text else minor_policy_default) }}</div>
+      {% if minor_config and not minor_config.minors_allowed %}
+        <div class="mn-policy__text text-danger fw-semibold">
+          <i class="fa fa-ban me-1"></i>Este evento no admite menores de {{ minor_config.age_limit }} años.</div>
+        <div class="small text-muted mt-1">No hay autorización que rellenar: el enlace del formulario no se ofrece.</div>
+      {% else %}
+        <div class="mn-policy__text">{{ (minor_config.policy_text if minor_config and minor_config.policy_text else minor_policy_default) }}</div>
+      {% endif %}
     </div>
   </div>
 
@@ -24,7 +30,17 @@
       {% endif %}
     </div>
   {% else %}
-    <div class="row g-3">
+    {% if not minor_config.minors_allowed %}
+      <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3">
+        <i class="fa fa-ban mt-1"></i>
+        <div class="small flex-grow-1">Esta actividad <strong>no admite menores de {{ minor_config.age_limit }} años</strong>,
+          así que no hay autorizaciones que rellenar y el enlace del formulario no se ofrece.
+          {% if CAN_EDIT_CONCERTS %}<button class="btn btn-link btn-sm p-0 align-baseline" type="button"
+            data-bs-toggle="modal" data-bs-target="#minorConfigModal">Cambiarlo</button>{% endif %}
+        </div>
+      </div>
+    {% endif %}
+    <div class="row g-3 {{ 'd-none' if not minor_config.minors_allowed }}">
       {# Enlace del formulario + su QR #}
       <div class="col-lg-7">
         <div class="mn-card h-100">
@@ -176,8 +192,29 @@
       </div>
       <div class="modal-body">
 
-        {# Pantalla 1: el corte de edad #}
+        {# Pantalla 1: el corte de edad
+           ⚠️⚠️ Antes está lo PRIMERO que hay que decidir: si se permite el acceso a menores (sep
+           2026, lo pidió Dani). Con «no se permite» no hay formulario que rellenar —el enlace no se
+           ofrece— y en la entrada sale solo la advertencia. Es el MISMO ajuste que se ve al
+           configurar las entradas generadas: una sola configuración para los dos sitios. #}
         <div data-mn-screen="1">
+          <div class="mn-q">¿Se permite el acceso a menores?</div>
+          <div class="d-flex flex-wrap gap-2 mb-4">
+            <label class="invitation-radio-option">
+              <input type="radio" name="minors_mode" value="ALLOWED" data-mn-mode
+                     {% if not minor_config or minor_config.minors_allowed %}checked{% endif %}>
+              <i class="fa fa-file-signature"></i><span>Sí, con autorización firmada</span></label>
+            <label class="invitation-radio-option">
+              <input type="radio" name="minors_mode" value="NOT_ALLOWED" data-mn-mode
+                     {% if minor_config and not minor_config.minors_allowed %}checked{% endif %}>
+              <i class="fa fa-ban"></i><span>No se permite el acceso a menores</span></label>
+          </div>
+          <div class="alert alert-warning py-2 px-3 small {% if not minor_config or minor_config.minors_allowed %}d-none{% endif %}" data-mn-blocked>
+            <i class="fa fa-triangle-exclamation me-1"></i>En la entrada saldrá solo la advertencia
+            <strong>«Este evento no admite menores de <span data-mn-age>{{ minor_config.age_limit if minor_config else 18 }}</span> años»</strong>,
+            y el enlace del formulario de autorización <strong>no se activa</strong>.
+          </div>
+          <div data-mn-allowed class="{% if minor_config and not minor_config.minors_allowed %}d-none{% endif %}">
           <div class="mn-q">¿Quién tiene que rellenar la autorización?</div>
           <div class="small text-muted mb-3">Es el corte de edad: la rellenan los que tengan <strong>un día menos</strong> de la edad elegida.</div>
           <div class="mn-choices">
@@ -188,6 +225,7 @@
               <span class="mn-choice__t">{{ label }}</span>
             </label>
             {% endfor %}
+          </div>
           </div>
         </div>
 
@@ -283,10 +321,36 @@
   }
   form.querySelector('[data-mn-next]').addEventListener('click', function () { ir(2); });
   form.querySelector('[data-mn-back]').addEventListener('click', function () { ir(1); });
+  /* ⚠️ «NO SE PERMITE EL ACCESO A MENORES»: no hay nada más que decidir, así que se esconde el
+     resto y se puede guardar desde el primer paso. Lo que se esconde se DESHABILITA (un campo
+     oculto se envía igual, la regla de la casa). */
+  var cajaSi = form.querySelector('[data-mn-allowed]');
+  var cajaNo = form.querySelector('[data-mn-blocked]');
+  function modo() {
+    var v = form.querySelector('input[name="minors_mode"]:checked');
+    return v ? v.value : 'ALLOWED';
+  }
+  function pintaModo() {
+    var permite = modo() === 'ALLOWED';
+    if (cajaSi) cajaSi.classList.toggle('d-none', !permite);
+    if (cajaNo) cajaNo.classList.toggle('d-none', permite);
+    form.querySelector('[data-mn-next]').classList.toggle('d-none', !permite);
+    // Sin permiso de acceso se guarda ya, desde el primer paso.
+    if (!permite) form.querySelector('[data-mn-save]').classList.remove('d-none');
+    else ir(1);
+  }
+  form.querySelectorAll('[data-mn-mode]').forEach(function (r) {
+    r.addEventListener('change', pintaModo);
+  });
   // Elegir la edad avanza solo (menos clics, como el resto de los asistentes).
   form.querySelectorAll('input[name="age_limit"]').forEach(function (r) {
-    r.addEventListener('change', function () { ir(2); });
+    r.addEventListener('change', function () {
+      var sp = form.querySelector('[data-mn-age]');
+      if (sp) sp.textContent = r.value;
+      if (modo() === 'ALLOWED') ir(2);
+    });
   });
   ir(1);
+  pintaModo();
 })();
 </script>

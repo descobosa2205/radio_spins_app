@@ -46,21 +46,35 @@
       {% endif %}
       <div class="row g-3">
         <div class="col-lg-7">
-          <ul class="invgen-facts">
-            <li><i class="fa fa-location-dot"></i><div><small>Recinto</small><strong>{{ venue.name or '—' }}</strong>{% if venue.address_line %}<div class="text-muted small">{{ venue.address_line }}</div>{% endif %}</div></li>
-            <li><i class="fa fa-door-open"></i><div><small>Apertura de puertas</small><strong>{{ doors or 'Por confirmar' }}</strong></div></li>
-            <li><i class="fa fa-clock"></i><div><small>Comienzo</small><strong>{{ show or 'Por confirmar' }}</strong></div></li>
-            <li><i class="fa fa-star"></i><div><small>Extras</small>
+          {# ⚠️⚠️ CADA DATO SE PINCHA Y SE EDITA (sep 2026, lo pidió Dani: «tienes que poder pinchar y
+             cambiar cualquier campo sin tener que ir al menú completo de configuración»). Cada fila
+             lleva su `data-invgen-edit="<paso>"` y abre el asistente **directamente en ese paso**,
+             con el botón de guardar ya a mano: así no hay dos formularios que mantener, que es lo
+             que acabaría diciendo cosas distintas. #}
+          <ul class="invgen-facts invgen-facts--editable">
+            <li data-invgen-edit="1" title="Pincha para cambiar el recinto"><i class="fa fa-location-dot"></i><div><small>Recinto</small><strong>{{ venue.name or '—' }}</strong>{% if venue.address_line %}<div class="text-muted small">{{ venue.address_line }}</div>{% endif %}</div><i class="fa fa-pen invgen-facts__pen"></i></li>
+            <li data-invgen-edit="2" title="Pincha para cambiar la hora"><i class="fa fa-door-open"></i><div><small>Apertura de puertas</small><strong>{{ doors or 'Por confirmar' }}</strong></div><i class="fa fa-pen invgen-facts__pen"></i></li>
+            <li data-invgen-edit="2" title="Pincha para cambiar la hora"><i class="fa fa-clock"></i><div><small>Comienzo</small><strong>{{ show or 'Por confirmar' }}</strong></div><i class="fa fa-pen invgen-facts__pen"></i></li>
+            <li data-invgen-edit="3" title="Pincha para cambiar los extras"><i class="fa fa-star"></i><div><small>Extras</small>
               {% if extras %}<div class="d-flex flex-wrap gap-1 mt-1">{% for x in extras %}<span class="invgen-chip" title="{{ x.instructions }}"><i class="fa {{ x.icon }}"></i>{{ x.name }}</span>{% endfor %}</div>
-              {% else %}<strong class="text-muted">Ninguno</strong>{% endif %}</div></li>
-            <li><i class="fa fa-image"></i><div><small>Imagen de la entrada</small>
+              {% else %}<strong class="text-muted">Ninguno</strong>{% endif %}</div><i class="fa fa-pen invgen-facts__pen"></i></li>
+            <li data-invgen-edit="4" title="Pincha para cambiar la imagen"><i class="fa fa-image"></i><div><small>Imagen de la entrada</small>
               {% if image_url %}<img src="{{ image_url }}" class="invgen-thumb mt-1" alt="">{% if not image_set %}<div class="text-muted small">La primera que tenemos de la actividad; se puede elegir otra.</div>{% endif %}
-              {% else %}<strong class="text-muted">Sin imagen</strong>{% endif %}</div></li>
-            <li><i class="fa fa-file-contract"></i><div><small>Condiciones de uso</small>
+              {% else %}<strong class="text-muted">Sin imagen</strong>{% endif %}</div><i class="fa fa-pen invgen-facts__pen"></i></li>
+            <li data-invgen-edit="4" title="Pincha para poner o cambiar la contraportada"><i class="fa fa-clone"></i><div><small>Contraportada</small>
+              {% if back_image_url %}<img src="{{ back_image_url }}" class="invgen-thumb mt-1" alt="">
+                <div class="text-muted small">Sale en una página aparte, detrás de cada entrada.</div>
+              {% else %}<strong class="text-muted">Sin contraportada</strong>{% endif %}</div><i class="fa fa-pen invgen-facts__pen"></i></li>
+            <li data-invgen-edit="5" title="Pincha para cambiar las condiciones"><i class="fa fa-file-contract"></i><div><small>Condiciones de uso</small>
               <strong>{{ clauses|length }} cláusula{{ '' if clauses|length == 1 else 's' }}</strong>{% if template %} <span class="text-muted">· plantilla «{{ template.name }}»</span>{% endif %}
               {% if conditions_url %}<div class="small mt-1"><a href="{{ conditions_url }}" target="_blank" rel="noopener"><i class="fa fa-up-right-from-square me-1"></i>Ver la landing</a> · <button type="button" class="btn btn-link btn-sm p-0 align-baseline copy-link-btn" data-copy-url="{{ conditions_url }}"><i class="fa fa-link me-1"></i>Copiar enlace</button></div>{% endif %}
               {% if clauses %}<ol class="invgen-clauses-mini mt-1">{% for c in clauses[:3] %}<li><b>{{ c.title }}</b></li>{% endfor %}{% if clauses|length > 3 %}<li class="text-muted">… y {{ clauses|length - 3 }} más</li>{% endif %}</ol>{% endif %}
-            </div></li>
+            </div><i class="fa fa-pen invgen-facts__pen"></i></li>
+            {# LA POLÍTICA DE MENORES: la misma que la pestaña «Menores» de la actividad. #}
+            <li data-invgen-edit="6" title="Pincha para cambiar la política de menores"><i class="fa fa-child-reaching"></i><div><small>Acceso de menores</small>
+              <strong>{{ minors.summary }}</strong>
+              {% if minors.note %}<div class="text-muted small">{{ minors.note }}</div>{% endif %}
+            </div><i class="fa fa-pen invgen-facts__pen"></i></li>
           </ul>
         </div>
         <div class="col-lg-5">
@@ -96,7 +110,8 @@
       {% if gen_categories %}
         <div class="d-flex flex-column gap-2">
           {% for gc in gen_categories %}
-          <div class="invgen-cat" id="invgen-cat-{{ gc.id }}">
+          {# ⚠️ La recién creada se señala: al volver de guardarla, que se vea cuál es. #}
+          <div class="invgen-cat{{ ' is-new' if nueva and nueva == gc.id|string }}" id="invgen-cat-{{ gc.id }}">
             <div class="invgen-cat__head">
               <strong class="fs-6">{{ gc.name }}</strong>
               <span class="badge text-bg-dark">{{ gc.counts.total|k }} generada{{ '' if gc.counts.total == 1 else 's' }}</span>

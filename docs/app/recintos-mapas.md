@@ -69,6 +69,13 @@
   es nuestra política de menores la que se aplica. ⚠️ Al añadir la pestaña hay que meterla en la
   **lista blanca de `tab`** de `concert_detail_view` (si no, cae a `general` y el panel sale vacío
   sin dar ningún error: bug real de esta épica).
+  ⚠️⚠️ **«NO SE PERMITE ACCESO A MENORES»** (sep 2026, lo pidió Dani): `MinorAuthConfig.minors_allowed`.
+  Con eso puesto a `False` **no se ofrece el enlace** de la autorización en ningún sitio y lo único
+  que sale es la advertencia **«Este evento no admite menores de 18 años.»**
+  (`MINOR_NOT_ALLOWED_NOTICE`, punto único). Se elige **en los dos sitios y es el mismo dato**: la
+  pestaña «Menores» de la actividad y el paso «Menores» del asistente de las entradas generadas
+  (→ `docs/app/invitaciones.md`, lote 4). El resumen que se pinta en los dos —y en el PDF de la
+  entrada— sale de **`_minor_policy_summary`**.
   · **Modelos**: `MinorAuthConfig` (una por actividad: corte de edad 18/16/14 en `MINOR_AGE_LIMITS`,
   tres interruptores `require_guardian_dni`/`require_minor_dni`/`require_email_verification` —todos
   activados por defecto—, leyenda `policy_text`, y **DOS tokens**: `public_token` del formulario y

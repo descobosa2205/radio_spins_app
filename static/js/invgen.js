@@ -169,6 +169,53 @@
     });
     syncImage();
 
+    /* --- LA CONTRAPORTADA (la misma mecánica que la imagen) --- */
+    var backBox = form.querySelector('[data-invgen-back-upload]');
+    var backFile = form.querySelector('[data-invgen-back-file]');
+    var backPrev = form.querySelector('[data-invgen-back-preview]');
+    function syncBack() {
+      var v = form.querySelector('input[name="back_choice"]:checked');
+      var up = v && v.value === 'upload';
+      if (backBox) backBox.classList.toggle('d-none', !up);
+      // ⚠️ Un campo oculto SE ENVÍA IGUAL: al esconderlo se deshabilita (la regla de la casa).
+      if (backFile) backFile.disabled = !up;
+    }
+    form.addEventListener('change', function (ev) {
+      if (ev.target.name === 'back_choice') syncBack();
+      if (ev.target === backFile && backFile.files && backFile.files[0]) {
+        if (backPrev) {
+          try { backPrev.src = URL.createObjectURL(backFile.files[0]); backPrev.classList.remove('d-none'); } catch (e) {}
+        }
+        var r = form.querySelector('input[name="back_choice"][value="upload"]');
+        if (r && !r.checked) { r.checked = true; syncBack(); }
+      }
+    });
+    syncBack();
+
+    /* --- ACCESO DE MENORES ---
+       ⚠️ La misma configuración que la pestaña «Menores» de la actividad: aquí solo se enseña u
+       oculta lo que aplica según se permita o no el acceso. */
+    var minAllowed = form.querySelector('[data-invgen-minors-allowed]');
+    var minBlocked = form.querySelector('[data-invgen-minors-blocked]');
+    function syncMinors() {
+      var v = form.querySelector('input[name="minors_mode"]:checked');
+      var modo = v ? v.value : 'KEEP';
+      if (minAllowed) minAllowed.classList.toggle('d-none', modo !== 'ALLOWED');
+      if (minBlocked) minBlocked.classList.toggle('d-none', modo !== 'NOT_ALLOWED');
+      // Los campos de «se permite» no se mandan si no aplica.
+      if (minAllowed) {
+        minAllowed.querySelectorAll('input, select, textarea').forEach(function (i) { i.disabled = (modo !== 'ALLOWED'); });
+      }
+    }
+    form.addEventListener('change', function (ev) {
+      if (ev.target.name === 'minors_mode') syncMinors();
+      if (ev.target.name === 'minors_age_limit') {
+        var sp = form.querySelector('[data-invgen-minors-age]');
+        if (sp) sp.textContent = ev.target.value;
+      }
+    });
+    syncMinors();
+
     /* --- CONDICIONES --- */
     var clausesBox = form.querySelector('[data-invgen-clauses]');
     var clauseTpl = form.querySelector('[data-invgen-clause-tpl]');
@@ -834,11 +881,17 @@
         .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
         .then(function (res) {
           if (res.j && res.j.ok) {
-            // ⚠️ El destino es ESTA misma página con un «#»: asignar `href` solo mueve el ancla y NO
-            // recarga (la categoría nueva no aparecería y el loader se quedaría puesto).
+            /* ⚠️⚠️ SE CIERRA EL POP-UP Y SE VA A LA PANTALLA, SIEMPRE (sep 2026, lo vio Dani: «se
+               guarda pero no aparecen y la ventana se queda quieta, tienes que refrescar»).
+               Antes el destino era ESTA misma página con solo un «#» —o sea, el mismo documento—,
+               así que el navegador no recargaba y el `location.replace(...)` + `reload()` se
+               quedaba a medias. Ahora el servidor manda `?nueva=<id>`, que es OTRA dirección: con
+               `assign` se recarga siempre y la categoría nueva aparece señalada. */
             var to = res.j.redirect || window.location.href;
-            var mismaPagina = to.split('#')[0] === window.location.href.split('#')[0];
-            if (mismaPagina) { window.location.replace(to); window.location.reload(); } else { window.location.href = to; }
+            if (modalEl && window.bootstrap) {
+              try { bootstrap.Modal.getOrCreateInstance(modalEl).hide(); } catch (e) {}
+            }
+            window.location.assign(to);
             return;
           }
           throw new Error((res.j && res.j.error) || 'No se pudo generar la categoría.');
@@ -854,6 +907,45 @@
     if (modalEl) modalEl.addEventListener('hidden.bs.modal', function () { draft = null; staged = []; stagedKeys = {}; });
   }
 
-  function boot() { renderPreview(); initWizard(); initCategoryWizard(); }
+  /* ⚠️⚠️ PINCHAR UN DATO DE LA ENTRADA LO ABRE PARA EDITARLO (sep 2026, lo pidió Dani: «tienes que
+     poder pinchar y cambiar cualquier campo sin tener que ir al menú completo de configuración»).
+     Se abre el MISMO asistente pero **en el paso de ese dato**, con el botón de guardar ya a mano:
+     un segundo formulario para lo mismo acabaría diciendo cosas distintas.
+     ⚠️ `shown.bs.modal` no siempre llega (con modal_stack.js por medio) y además el motor vuelve al
+     paso 0 al abrirse, así que el salto se hace con un respiro, después. */
+  function initFactEdit() {
+    var modalEl = document.getElementById('invGenConfigModal');
+    var form = document.getElementById('invGenConfigForm');
+    if (!modalEl || !form) return;
+    var pendiente = null, visto = false;
+    /* ⚠️⚠️ EL SALTO AL PASO NO PUEDE SER UNA CARRERA (bug real, sep 2026, medido en el navegador:
+       `show` a los 3 ms, `shown.bs.modal` a los **462 ms** —la transición de Bootstrap más lo que
+       tarda `modal_stack.js`—). El motor del asistente vuelve al paso 0 en `shown.bs.modal`, así
+       que un `setTimeout` a ojo pierde: saltaba al paso a los 420 ms y el motor lo devolvía al 1 a
+       los 462. Se apunta el paso QUERIDO y se aplica en un macrotask DESPUÉS de `shown` (el motor
+       hace su `go(0)` dentro del propio evento, así que ahí ya no lo pisa nadie). La red de
+       seguridad —`shown` no siempre llega con modal_stack.js por medio— solo entra si el evento
+       NO ha llegado, y bien tarde. */
+    function aplica() {
+      if (pendiente == null || !form.swGo) return;
+      form.swGo(pendiente);
+      pendiente = null;
+    }
+    modalEl.addEventListener('shown.bs.modal', function () { visto = true; setTimeout(aplica, 0); });
+    document.addEventListener('click', function (ev) {
+      var li = ev.target.closest('[data-invgen-edit]');
+      if (!li) return;
+      ev.preventDefault();
+      var paso = parseInt(li.getAttribute('data-invgen-edit'), 10);
+      if (isNaN(paso)) return;
+      pendiente = paso - 1;                       // los pasos van de 1 en el HTML
+      if (modalEl.classList.contains('show')) { aplica(); return; }  // ya abierto: no hay que esperar
+      visto = false;
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      setTimeout(function () { if (!visto) aplica(); }, 1200);
+    });
+  }
+
+  function boot() { renderPreview(); initWizard(); initCategoryWizard(); initFactEdit(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

@@ -112400,6 +112400,49 @@ def _minor_auth_config(session_db, concert_id, *, create=False):
     return row
 
 
+# ══ LA POLÍTICA DE MENORES, EN UN SOLO SITIO ══════════════════════════════════════════════════
+# ⚠️⚠️ Lo pidió Dani (sep 2026): la política de acceso de menores se configura UNA vez y vale para
+# **la pestaña «Menores» de la actividad Y para las entradas generadas** — «esta configuración se
+# aplicará tanto en la sección de menores como en las entradas». Por eso no hay un segundo ajuste
+# en las entradas: las dos pantallas leen y escriben `MinorAuthConfig`.
+MINOR_NOT_ALLOWED_NOTICE = "Este evento no admite menores de %d años."
+
+
+def _minor_policy_summary(session_db, concert) -> dict:
+    """QUÉ PASA CON LOS MENORES en esta actividad, para pintarlo donde haga falta.
+
+    Devuelve `configured` (si alguien lo ha decidido), `allowed` (si se permite el acceso),
+    `age_limit`, el `policy_text`, la `notice` cuando NO se permite, y la `form_url` del
+    formulario de autorización — que **solo existe si se permite**: con «no se permite» el enlace
+    **no se activa**, que es justo lo que se pidió."""
+    cfg = _minor_auth_config(session_db, getattr(concert, "id", None)) if concert is not None else None
+    if cfg is None:
+        return {"configured": False, "allowed": True, "age_limit": 18, "policy_text": "",
+                "notice": "", "form_url": "", "summary": "Sin configurar",
+                "note": "Todavía no se ha decidido qué pasa con los menores en esta actividad."}
+    limite = int(getattr(cfg, "age_limit", 18) or 18)
+    permitido = bool(getattr(cfg, "minors_allowed", True))
+    if not permitido:
+        return {"configured": True, "allowed": False, "age_limit": limite,
+                "policy_text": (getattr(cfg, "policy_text", "") or "").strip(),
+                "notice": MINOR_NOT_ALLOWED_NOTICE % limite, "form_url": "",
+                "summary": "No se permite el acceso a menores",
+                "note": MINOR_NOT_ALLOWED_NOTICE % limite}
+    url = ""
+    try:
+        token = (getattr(cfg, "public_token", "") or "").strip()
+        if token:
+            url = _external_url_for("public_minor_auth_form", token=token)
+    except Exception:
+        app.logger.exception("[menores] no se pudo componer el enlace del formulario")
+    return {"configured": True, "allowed": True, "age_limit": limite,
+            "policy_text": (getattr(cfg, "policy_text", "") or "").strip(),
+            "notice": "", "form_url": url,
+            "summary": "Con autorización · menores de %d" % limite,
+            "note": ("Hay que rellenar la autorización firmada por el padre, la madre o el tutor."
+                     if url else "Falta generar el enlace del formulario de autorización.")}
+
+
 def _minor_auth_ensure_token(session_db, config) -> str:
     if not (config.public_token or "").strip():
         config.public_token = _uuid_token()
@@ -112679,6 +112722,10 @@ def concert_minor_auth_config(cid):
         except Exception:
             limite = 18
         config.age_limit = limite if limite in {x for x, _l, _i in MINOR_AGE_LIMITS} else 18
+        # ⚠️⚠️ «NO SE PERMITE ACCESO A MENORES» (sep 2026, lo pidió Dani): con esto **no hay nada que
+        # rellenar** —el enlace del formulario no se ofrece— y en la entrada sale solo la
+        # advertencia. Es el mismo ajuste que se ve en las entradas generadas: una sola verdad.
+        config.minors_allowed = ((request.form.get("minors_mode") or "ALLOWED").strip().upper() != "NOT_ALLOWED")
         config.require_guardian_dni = _truthy(request.form.get("require_guardian_dni"))
         config.require_minor_dni = _truthy(request.form.get("require_minor_dni"))
         config.require_email_verification = _truthy(request.form.get("require_email_verification"))
@@ -112693,7 +112740,11 @@ def concert_minor_auth_config(cid):
         _minor_auth_ensure_token(session_db, config)
         _minor_auth_ensure_validate_token(session_db, config)
         session_db.commit()
-        flash("Autorizaciones de menores configuradas. Ya tienes el enlace para compartir.", "success")
+        if config.minors_allowed:
+            flash("Autorizaciones de menores configuradas. Ya tienes el enlace para compartir.", "success")
+        else:
+            flash("Guardado: esta actividad NO admite menores de %d años. En la entrada sale solo la "
+                  "advertencia y el formulario de autorización no se ofrece." % config.age_limit, "success")
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo guardar la configuración: {exc}", "danger")
@@ -181705,6 +181756,10 @@ INVGEN_CONDITIONS_DEFAULT = [
              "tratarse de una invitación gratuita no procede devolución económica."},
 ]
 INVGEN_PDF_SUMMARY_CLAUSES = 3          # cuántas cláusulas se resumen EN la entrada (el resto, en su enlace)
+# ⚠️ LO ALTA QUE SALE LA IMAGEN de la entrada (sep 2026, lo pidió Dani: «más grande en altura, para
+# evitar que quede tanto espacio en blanco»). Lo de abajo va en un `KeepInFrame` que se encoge, así
+# que subir esto no saca la entrada de su única cara: solo llena el hueco que sobraba.
+INVGEN_PDF_BANNER_H = 235.0
 INVGEN_QR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # sin 0/O/1/I: se lee también a ojo
 INVGEN_QR_LEN = 16
 INVGEN_KICKER = "Invitación personal · No válida para su venta"
@@ -181944,17 +181999,21 @@ def _invgen_ticket_context(session_db, concert, cfg, *, ticket=None, sample: boo
             extras_rows = [x for x in all_extras if x["id"] in wanted]
     else:
         extras_rows = list(extras)
+    # ⚠️ Cada dato es `(icono, rótulo, valor, nota)`: la NOTA va debajo, más pequeña y en gris.
     facts = []
     if getattr(concert, "date", None):
         d1 = _vacation_long_date(concert.date)
         d2 = _vacation_long_date(concert.end_date) if getattr(concert, "end_date", None) and concert.end_date != concert.date else ""
-        facts.append(("fa-calendar-day", "Fecha", (d1[:1].upper() + d1[1:]) + (f" – {d2}" if d2 else "")))
-    facts.append(("fa-door-open", "Apertura de puertas", doors or "Por confirmar"))
-    facts.append(("fa-clock", "Comienzo", show or "Por confirmar"))
+        facts.append(("fa-calendar-day", "Fecha", (d1[:1].upper() + d1[1:]) + (f" – {d2}" if d2 else ""), ""))
+    facts.append(("fa-door-open", "Apertura de puertas", doors or "Por confirmar", ""))
+    facts.append(("fa-clock", "Comienzo", show or "Por confirmar", ""))
+    # ⚠️⚠️ LA DIRECCIÓN VA DEBAJO DEL NOMBRE DEL RECINTO, MÁS PEQUEÑA (sep 2026, lo pidió Dani: «no
+    # en otro punto aparte»). Por eso un dato puede traer una CUARTA pieza —su «nota»—, que el PDF
+    # pinta en pequeño y en gris bajo el valor.
     if venue.get("name"):
-        facts.append(("fa-location-dot", "Recinto", venue["name"]))
-    if venue.get("address_line"):
-        facts.append(("fa-map", "Dirección", venue["address_line"]))
+        facts.append(("fa-location-dot", "Recinto", venue["name"], venue.get("address_line") or ""))
+    elif venue.get("address_line"):
+        facts.append(("fa-location-dot", "Dónde", venue["address_line"], ""))
     clauses = _invgen_clauses(cfg) if cfg is not None else []
     if sample:
         code = "MUESTRA" + "0" * (INVGEN_QR_LEN - 7)
@@ -181978,6 +182037,9 @@ def _invgen_ticket_context(session_db, concert, cfg, *, ticket=None, sample: boo
         "facts": facts, "venue": venue, "doors": doors, "show": show,
         "extras": extras_rows, "clauses": clauses,
         "conditions_url": _invgen_conditions_url(cfg),
+        # LA CONTRAPORTADA (una página aparte detrás de la entrada) y LA POLÍTICA DE MENORES.
+        "back_image_url": ((getattr(cfg, "back_image_url", "") or "").strip() if cfg is not None else ""),
+        "minors": _minor_policy_summary(session_db, concert),
         "code": code, "qr_text": code, "category": cat,
         "issuer": (getattr(company, "name", None) or "").strip(),
         "issued_label": _now_madrid().strftime("%d/%m/%Y %H:%M"),
@@ -182129,7 +182191,9 @@ def _invgen_ticket_pdf_bytes(session_db, concert, cfg, ctx: dict) -> bytes:
     y -= 50
 
     # 2) La imagen de la actividad, a todo el ancho y con las esquinas redondeadas (recorte «cover»).
-    banner_h = 150.0
+    # ⚠️ MÁS ALTA (sep 2026, lo pidió Dani: «para evitar que quede tanto espacio en blanco»). Lo de
+    # abajo va en un `KeepInFrame` que se encoge, así que la entrada sigue cabiendo en una cara.
+    banner_h = INVGEN_PDF_BANNER_H
     banner = _invgen_image_reader(ctx.get("image_url") or "", cover=(int(CW), int(banner_h)))
     if banner is not None:
         c.saveState()
@@ -182164,7 +182228,30 @@ def _invgen_ticket_pdf_bytes(session_db, concert, cfg, ctx: dict) -> bytes:
     left_w = CW - qr_box_w - 16
     top = y
     ry = y
-    for icon, label, value in ctx.get("facts") or []:
+    from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+
+    def _wrap(texto: str, ancho: float, fuente: str, tam: float, max_lineas: int) -> list:
+        """El texto partido por palabras en como mucho `max_lineas` (la última, recortada)."""
+        lineas, actual = [], ""
+        for w_ in str(texto or "").split(" "):
+            prueba = (actual + " " + w_).strip()
+            if _sw(prueba, fuente, tam) <= ancho or not actual:
+                actual = prueba
+            else:
+                lineas.append(actual)
+                actual = w_
+        if actual:
+            lineas.append(actual)
+        lineas = lineas[:max_lineas]
+        if len(lineas) == max_lineas and lineas:
+            lineas[-1] = _invgen_pdf_truncate(lineas[-1], ancho, fuente, tam)
+        return lineas
+
+    for fact in ctx.get("facts") or []:
+        # ⚠️ Un dato es `(icono, rótulo, valor, nota)`. La NOTA —la dirección del recinto— va
+        # DEBAJO del valor, más pequeña y en gris: es lo que pidió Dani, «no en otro punto aparte».
+        icon, label, value = fact[0], fact[1], fact[2]
+        note = fact[3] if len(fact) > 3 else ""
         ipath = _fa_icon_png_path(icon, color="E33D48", size=40)
         if ipath:
             try:
@@ -182176,27 +182263,18 @@ def _invgen_ticket_pdf_bytes(session_db, concert, cfg, ctx: dict) -> bytes:
         c.drawString(M + 17, ry - 4, str(label or "").upper())
         c.setFillColor(INK)
         c.setFont("Helvetica-Bold", 10.5)
-        vtxt = str(value or "")
-        lineas = []
-        # La dirección puede necesitar dos líneas: se parte por palabras.
-        palabras = vtxt.split(" ")
-        actual = ""
-        from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
-        for w_ in palabras:
-            prueba = (actual + " " + w_).strip()
-            if _sw(prueba, "Helvetica-Bold", 10.5) <= left_w - 17 or not actual:
-                actual = prueba
-            else:
-                lineas.append(actual)
-                actual = w_
-        if actual:
-            lineas.append(actual)
-        lineas = lineas[:2]
-        if len(lineas) == 2:
-            lineas[1] = _invgen_pdf_truncate(lineas[1], left_w - 17, "Helvetica-Bold", 10.5)
+        lineas = _wrap(value, left_w - 17, "Helvetica-Bold", 10.5, 2)
         for i, ln in enumerate(lineas):
             c.drawString(M + 17, ry - 15 - i * 12, ln)
-        ry -= 27 + (12 if len(lineas) == 2 else 0)
+        alto = 27 + (12 if len(lineas) == 2 else 0)
+        if note:
+            base = ry - 15 - (len(lineas) - 1) * 12
+            c.setFillColor(GREY)
+            c.setFont("Helvetica", 8.2)
+            for i, ln in enumerate(_wrap(note, left_w - 17, "Helvetica", 8.2, 2)):
+                c.drawString(M + 17, base - 11 - i * 9.5, ln)
+                alto += 9.5 if i else 11
+        ry -= alto
     # QR
     qx = W - M - qr_box_w
     qh = 118.0
@@ -182296,6 +182374,27 @@ def _invgen_ticket_pdf_bytes(session_db, concert, cfg, ctx: dict) -> bytes:
                 f'<a href="{_xesc(url)}" color="#E33D48"><b>Ver las condiciones completas{mas}</b></a>'
                 f' <font color="#6b7683">· {_xesc(url)}</font>', st_cond))
         story.append(Paragraph("Al utilizar esta invitación aceptas sus condiciones de uso.", st_cond))
+    # ⚠️⚠️ POLÍTICA DE ACCESO DE MENORES, debajo de las condiciones (sep 2026, lo pidió Dani). Si NO
+    # se permite el acceso, sale SOLO la advertencia y **sin enlace**: no hay nada que rellenar.
+    menores = ctx.get("minors") or {}
+    if menores.get("configured"):
+        story.append(Spacer(1, 6))
+        story.append(Paragraph("POLÍTICA DE ACCESO DE MENORES", st_h))
+        story.append(Spacer(1, 2))
+        if not menores.get("allowed"):
+            story.append(Paragraph(
+                f"<b>{_xesc(menores.get('notice') or '')}</b>",
+                ParagraphStyle("nomin", parent=st_cond, textColor=BRAND, fontName="Helvetica-Bold",
+                               fontSize=8.6, leading=10.6)))
+        else:
+            texto = (menores.get("policy_text") or "").strip()
+            if texto:
+                story.append(Paragraph(_xesc(texto), st_cond))
+            url_m = menores.get("form_url") or ""
+            if url_m:
+                story.append(Paragraph(
+                    f'<a href="{_xesc(url_m)}" color="#E33D48"><b>Rellenar autorización de menores</b></a>'
+                    f' <font color="#6b7683">· {_xesc(url_m)}</font>', st_cond))
     bottom = M + 16
     alto = max(y - bottom, 60)
     frame = Frame(M, bottom, CW, alto, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, showBoundary=0)
@@ -182314,6 +182413,20 @@ def _invgen_ticket_pdf_bytes(session_db, concert, cfg, ctx: dict) -> bytes:
     elif code_txt:
         c.drawRightString(W - M, M + 3, f"Nº {code_pretty}")
     c.showPage()
+
+    # 7) LA CONTRAPORTADA, en su PÁGINA APARTE (sep 2026, lo pidió Dani: «al generarse el PDF de las
+    #    entradas se generaría en una página la entrada y en la siguiente la contraportada, y así
+    #    todo el rato»). Como el PDF de cada entrada trae ya sus dos páginas, el PDF unido y el ZIP
+    #    alternan solos: no hay que tocarlos.
+    #    ⚠️ A SANGRE (ocupa la hoja entera, con recorte «cover»): una contraportada con márgenes
+    #    blancos no parece una contraportada.
+    back = _invgen_image_reader(ctx.get("back_image_url") or "", cover=(int(W), int(H)))
+    if back is not None:
+        try:
+            c.drawImage(back, 0, 0, W, H)
+        except Exception:
+            app.logger.exception("[invitaciones] no se pudo pintar la contraportada")
+        c.showPage()
     c.save()
     return buf.getvalue()
 
@@ -182339,6 +182452,12 @@ def _invgen_page_context(session_db, concert) -> dict:
         "image_url": _invgen_image_url(session_db, concert, cfg),
         "image_set": bool(cfg is not None and (cfg.image_url or "").strip()),
         "image_options": _invgen_image_options(session_db, concert),
+        # LA CONTRAPORTADA: sale en una página aparte detrás de cada entrada.
+        "back_image_url": ((getattr(cfg, "back_image_url", "") or "").strip() if cfg is not None else ""),
+        # LA POLÍTICA DE MENORES: la MISMA que la pestaña «Menores» de la actividad (punto único).
+        "minors": _minor_policy_summary(session_db, concert),
+        "minor_age_limits": MINOR_AGE_LIMITS,
+        "minor_policy_default": MINOR_POLICY_DEFAULT,
         "extras": extras,
         "presets": [{"id": str(p.id), "key": p.key, "name": p.name, "icon": p.icon or "fa-star", "builtin": bool(p.is_builtin)} for p in presets],
         "clauses": clauses,
@@ -182374,6 +182493,8 @@ def invitation_gen_view(concert_id):
             event=_invitation_event_payload(session_db, concert),
             back_url=url_for('invitation_event_detail', concert_id=concert.id) + '#inv-tab-tickets',
             preview_url=url_for('invitation_gen_preview_pdf', concert_id=concert.id),
+            # La categoría recién creada, para señalarla al volver de guardarla.
+            nueva=(request.args.get('nueva') or '').strip(),
             **ctx,
         )
     finally:
@@ -182478,6 +182599,42 @@ def invitation_gen_config_save(concert_id):
                 pass
         elif choice.startswith('url:'):
             cfg.image_url = choice[4:].strip() or None
+
+        # --- La CONTRAPORTADA (opcional): una página aparte detrás de cada entrada ---
+        back_choice = (form.get('back_choice') or 'keep').strip()
+        if back_choice == 'remove':
+            cfg.back_image_url = None
+        elif back_choice == 'upload':
+            fb = request.files.get('back_image_file')
+            if fb is not None and (fb.filename or '').strip():
+                try:
+                    url_b = upload_image(fb, f'invitaciones/{concert.id}/contraportada')
+                except ValueError as exc:
+                    raise ValueError(f'La contraportada no se pudo subir: {exc}')
+                if url_b:
+                    cfg.back_image_url = url_b
+            # Se eligió «subir» sin archivo: se sigue con lo que haya (no es un error).
+
+        # --- ACCESO DE MENORES ---
+        # ⚠️⚠️ NO se guarda aquí nada propio: se escribe en `MinorAuthConfig`, que es de donde lee la
+        # pestaña «Menores» de la actividad (lo pidió Dani: «esta configuración se aplicará tanto en
+        # la sección de menores como en las entradas»). Un segundo ajuste en las entradas serían dos
+        # verdades que se desparejan.
+        modo = (form.get('minors_mode') or 'KEEP').strip().upper()
+        if modo in ('ALLOWED', 'NOT_ALLOWED'):
+            mcfg = _minor_auth_config(session_db, concert.id, create=True)
+            mcfg.minors_allowed = (modo == 'ALLOWED')
+            if modo == 'ALLOWED':
+                try:
+                    limite = int(form.get('minors_age_limit') or mcfg.age_limit or 18)
+                except (TypeError, ValueError):
+                    limite = 18
+                mcfg.age_limit = limite if limite in {x for x, _l, _i in MINOR_AGE_LIMITS} else 18
+                texto = (form.get('minors_policy_text') or '').strip()
+                mcfg.policy_text = texto or (mcfg.policy_text or MINOR_POLICY_DEFAULT)
+                # El enlace del formulario solo existe cuando se permite el acceso.
+                _minor_auth_ensure_token(session_db, mcfg)
+            mcfg.updated_at = now
 
         # --- Extras (lo que llega ES la lista de activos; lo que no llega, se quita) ---
         ids = form.getlist('extra_id[]')
@@ -183066,8 +183223,15 @@ def invitation_gen_category_create(concert_id):
         cat.updated_at = now
         session_db.commit()
         flash(f"Categoría «{name}» generada: {created} {'invitación' if created == 1 else 'invitaciones'} con su código QR, ya {'disponible' if created == 1 else 'disponibles'} en la gestión de invitaciones.", "success")
+        # ⚠️⚠️ EL DESTINO LLEVA UN PARÁMETRO, NO SOLO UN «#» (sep 2026, lo vio Dani: «se guarda pero
+        # no aparecen y la ventana se queda quieta, tienes que refrescar»). Una dirección que solo
+        # cambia en el ancla es **el mismo documento**: el navegador no recarga, y el
+        # `location.replace(...)` + `reload()` que había se quedaba a medias según el momento. Con
+        # `?nueva=<id>` la dirección es OTRA, así que navegar SIEMPRE recarga — y de paso la
+        # pantalla sabe cuál acaba de crearse para señalarla.
         return jsonify({"ok": True, "created": created, "category_id": str(cat.id), "gen_category_id": str(gc.id),
-                        "redirect": url_for("invitation_gen_view", concert_id=concert.id) + "#invgen-categorias"})
+                        "redirect": url_for("invitation_gen_view", concert_id=concert.id,
+                                            nueva=str(gc.id)) + "#invgen-categorias"})
     except ValueError as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400

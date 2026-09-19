@@ -51,6 +51,15 @@ models.ensure_invitation_gen_schema()
 OK = FALLOS = 0
 
 
+def _pdf_text(data: bytes) -> str:
+    """El texto de un PDF (para comprobar QUÉ pone la entrada, no cómo se ve)."""
+    import pypdf, io as _io
+    try:
+        return "\n".join((p.extract_text() or "") for p in pypdf.PdfReader(_io.BytesIO(data)).pages)
+    except Exception:
+        return ""
+
+
 def check(nombre, cond, extra=""):
     global OK, FALLOS
     if cond:
@@ -790,6 +799,103 @@ def main():
     check("sin acceso: el enlace no se genera", cl2.post(f"/invitaciones/evento/{cid}/generar/control/enlace").status_code in (302, 403))
     r = anon.get(f"/invitaciones/evento/{cid}")
     check("la gestión del evento sigue exigiendo sesión", r.status_code in (302, 403))
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    print("19 · el diseño de la entrada: dirección, contraportada y política de menores")
+    # ⚠️ Lo pidió Dani (sep 2026): la dirección DEBAJO del nombre del recinto, la imagen más alta,
+    # una CONTRAPORTADA en página aparte, y el bloque de política de menores debajo de las
+    # condiciones — con la opción de «no se permite el acceso», que quita el enlace.
+    with A.app.test_request_context("/"):
+        s = A.db()
+        try:
+            concert = s.get(A.Concert, A.to_uuid(cid))
+            cfg = s.query(InvitationGenConfig).filter(InvitationGenConfig.concert_id == A.to_uuid(cid)).first()
+            # Un recinto con dirección, para que haya algo que poner debajo.
+            v = s.get(A.Venue, concert.venue_id) if concert.venue_id else None
+            if v is not None:
+                v.address, v.municipality = "Calle Betis, 31", "Sevilla"
+                s.commit()
+            ctx = A._invgen_ticket_context(s, concert, cfg, sample=True)
+            recinto = [f for f in ctx["facts"] if f[1] == "Recinto"]
+            check("el RECINTO trae su dirección como nota (para pintarla debajo)",
+                  bool(recinto) and len(recinto[0]) > 3 and "Calle Betis" in (recinto[0][3] or ""),
+                  recinto)
+            check("y la dirección ya NO es un punto aparte",
+                  not any(f[1] == "Dirección" for f in ctx["facts"]), [f[1] for f in ctx["facts"]])
+            check("la imagen de la entrada es más alta que antes (menos hueco en blanco)",
+                  A.INVGEN_PDF_BANNER_H > 150, A.INVGEN_PDF_BANNER_H)
+
+            # LA CONTRAPORTADA: una página aparte detrás de cada entrada.
+            import pypdf, io as _io
+            cfg.back_image_url = None
+            s.commit()
+            n1 = len(pypdf.PdfReader(_io.BytesIO(A._invgen_ticket_pdf_bytes(
+                s, concert, cfg, A._invgen_ticket_context(s, concert, cfg, sample=True)))).pages)
+            check("sin contraportada, la entrada es de UNA cara", n1 == 1, n1)
+            cfg.back_image_url = "/static/img/logo.png"
+            s.commit()
+            n2 = len(pypdf.PdfReader(_io.BytesIO(A._invgen_ticket_pdf_bytes(
+                s, concert, cfg, A._invgen_ticket_context(s, concert, cfg, sample=True)))).pages)
+            check("con contraportada, son DOS páginas (entrada + contraportada)", n2 == 2, n2)
+
+            # LA POLÍTICA DE MENORES, debajo de las condiciones.
+            m = A._minor_auth_config(s, concert.id, create=True)
+            m.minors_allowed = True
+            m.age_limit = 16
+            m.policy_text = "Los menores entran acompañados de su tutor."
+            A._minor_auth_ensure_token(s, m)
+            s.commit()
+            ctx = A._invgen_ticket_context(s, concert, cfg, sample=True)
+            check("cuando SE PERMITE, la entrada trae el enlace de la autorización",
+                  bool(ctx["minors"]["form_url"]) and ctx["minors"]["allowed"] is True, ctx["minors"])
+            texto = _pdf_text(A._invgen_ticket_pdf_bytes(s, concert, cfg, ctx))
+            check("y el PDF pinta el bloque", "POLÍTICA DE ACCESO DE MENORES" in texto)
+            check("con el texto configurado", "acompañados de su tutor" in texto)
+            check("y el botón de rellenar la autorización", "Rellenar autorización de menores" in texto)
+
+            # ⚠️ «NO SE PERMITE»: solo la advertencia, y el enlace NO se activa.
+            m.minors_allowed = False
+            s.commit()
+            ctx = A._invgen_ticket_context(s, concert, cfg, sample=True)
+            check("cuando NO se permite, no hay enlace que ofrecer", ctx["minors"]["form_url"] == "",
+                  ctx["minors"]["form_url"])
+            check("y la advertencia es la que pidió Dani",
+                  ctx["minors"]["notice"] == "Este evento no admite menores de 16 años.",
+                  ctx["minors"]["notice"])
+            texto = _pdf_text(A._invgen_ticket_pdf_bytes(s, concert, cfg, ctx))
+            check("el PDF pinta la advertencia", "no admite menores de 16" in texto)
+            check("y NO el enlace de la autorización", "Rellenar autorización" not in texto)
+
+            # ⚠️ LA POLÍTICA ES LA MISMA EN LOS DOS SITIOS: la escribe la pestaña «Menores» y la lee
+            # la entrada (un solo `MinorAuthConfig`).
+            m.minors_allowed = True
+            s.commit()
+            check("la pestaña «Menores» y la entrada leen lo mismo",
+                  A._minor_policy_summary(s, concert)["allowed"] is True)
+        finally:
+            s.close()
+
+    # ⚠️⚠️ CUALQUIER CAMBIO SE APLICA A TODAS LAS YA GENERADAS: el PDF de una entrada se compone AL
+    # VUELO, así que al descargarla sale con lo que hay HOY (lo pidió Dani).
+    with A.app.test_request_context("/"):
+        s = A.db()
+        try:
+            t = (s.query(A.InvitationTicket)
+                 .filter(A.InvitationTicket.concert_id == A.to_uuid(cid),
+                         A.InvitationTicket.is_generated.is_(True)).first())
+            if t is not None:
+                cfg = s.query(InvitationGenConfig).filter(InvitationGenConfig.concert_id == A.to_uuid(cid)).first()
+                cfg.show_time = "23:45"
+                s.commit()
+                texto = _pdf_text(A._invitation_ticket_pdf_bytes(t))
+                check("una entrada YA GENERADA sale con el cambio al descargarla", "23:45" in texto, None)
+                cfg.back_image_url = None
+                s.commit()
+                import pypdf, io as _io
+                n = len(pypdf.PdfReader(_io.BytesIO(A._invitation_ticket_pdf_bytes(t))).pages)
+                check("y sin contraportada vuelve a ser de una cara", n == 1, n)
+        finally:
+            s.close()
 
     print()
     print(f"OK: {OK} · FALLOS: {FALLOS}")

@@ -131,6 +131,27 @@
             </div>
             <img class="invgen-thumb mt-2 d-none" data-invgen-upload-preview alt="">
           </div>
+
+          {# ⚠️ LA CONTRAPORTADA (sep 2026, lo pidió Dani): una imagen que sale en una PÁGINA APARTE
+             detrás de cada entrada, a sangre. Es opcional; sin ella, el PDF es de una sola cara. #}
+          <hr class="my-3">
+          <div class="sw-step__q"><i class="fa fa-clone me-2 text-danger"></i>La contraportada <span class="text-muted fw-normal">(opcional)</span></div>
+          <div class="sw-step__h">Sale en una <strong>página aparte detrás de cada entrada</strong>, ocupando la hoja entera. Al bajar varias entradas, el PDF alterna: entrada, contraportada, entrada…</div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            {% if back_image_url %}
+              <label class="promo-pick"><input type="radio" name="back_choice" value="keep" checked><span class="promo-pick__box"><img src="{{ back_image_url }}" class="invgen-pick-img" alt=""><span class="promo-pick__name">La actual</span></span></label>
+            {% endif %}
+            <label class="promo-pick"><input type="radio" name="back_choice" value="upload"{% if not back_image_url %} checked{% endif %}><span class="promo-pick__box"><i class="fa fa-upload"></i><span class="promo-pick__name">Subir una imagen</span></span></label>
+            <label class="promo-pick"><input type="radio" name="back_choice" value="remove"><span class="promo-pick__box"><i class="fa fa-ban"></i><span class="promo-pick__name">Sin contraportada</span></span></label>
+          </div>
+          <div class="{% if back_image_url %}d-none{% endif %}" data-invgen-back-upload>
+            <div class="decl-drop" role="button" tabindex="0" data-file-drop-for="[data-invgen-back-file]">
+              <i class="fa fa-cloud-arrow-up decl-drop__icon"></i>
+              Arrastra la contraportada aquí o <label class="text-danger fw-semibold mb-0" style="cursor:pointer">elígela<input type="file" class="d-none" name="back_image_file" accept="image/*" data-invgen-back-file></label>
+              <div class="small text-muted mt-1">PNG, JPG o WEBP · se recorta a la hoja entera (A4 vertical)</div>
+            </div>
+            <img class="invgen-thumb mt-2 d-none" data-invgen-back-preview alt="">
+          </div>
         </section>
 
         {# ---- 5 · CONDICIONES DE USO ---- #}
@@ -189,8 +210,57 @@
           <input type="hidden" name="template_scope" value="ONLY" data-invgen-scope>
         </section>
 
-        {# ---- 6 · RESUMEN ---- #}
-        <section class="sw-step" data-step="6" data-title="Resumen">
+        {# ---- 6 · ACCESO DE MENORES ----
+           ⚠️⚠️ ES LA MISMA CONFIGURACIÓN QUE LA PESTAÑA «MENORES» DE LA ACTIVIDAD (sep 2026, lo
+           pidió Dani: «esta configuración se aplicará tanto en la sección de menores como en las
+           entradas»). Aquí no se guarda nada aparte: se escribe en `MinorAuthConfig`, que es de
+           donde lee la pestaña. Si ya está decidido, se enseña lo que hay; si no, se decide aquí. #}
+        <section class="sw-step" data-step="6" data-title="Menores">
+          <div class="sw-step__q"><i class="fa fa-child-reaching me-2 text-danger"></i>Acceso de menores</div>
+          <div class="sw-step__h">
+            {% if minors.configured %}Es lo que ya está puesto en la pestaña «Menores» de la actividad.
+            Si lo cambias aquí, cambia también allí.{% else %}Todavía no está decidido. Lo que elijas
+            vale para la entrada <strong>y</strong> para la pestaña «Menores» de la actividad.{% endif %}
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <label class="invitation-radio-option">
+              <input type="radio" name="minors_mode" value="ALLOWED" data-invgen-minors {{ 'checked' if minors.allowed }}>
+              <i class="fa fa-file-signature"></i><span>Se permite con autorización firmada</span></label>
+            <label class="invitation-radio-option">
+              <input type="radio" name="minors_mode" value="NOT_ALLOWED" data-invgen-minors {{ 'checked' if minors.configured and not minors.allowed }}>
+              <i class="fa fa-ban"></i><span>No se permite el acceso a menores</span></label>
+            <label class="invitation-radio-option">
+              <input type="radio" name="minors_mode" value="KEEP" data-invgen-minors {{ 'checked' if not minors.configured }}>
+              <i class="fa fa-circle-minus"></i><span>Dejarlo como está</span></label>
+          </div>
+          <div data-invgen-minors-allowed class="{{ '' if minors.allowed else 'd-none' }}">
+            <div class="row g-2 align-items-end mb-2">
+              <div class="col-12 col-md-5">
+                <label class="form-label small mb-1">¿A partir de qué edad no hace falta?</label>
+                <select class="form-select" name="minors_age_limit">
+                  {% for valor, etiqueta, _i in minor_age_limits %}
+                    <option value="{{ valor }}" {{ 'selected' if minors.age_limit == valor }}>{{ etiqueta }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <label class="form-label small mb-1">Lo que se le dice a quien recibe la entrada</label>
+            <textarea class="form-control" name="minors_policy_text" rows="3"
+                      placeholder="{{ minor_policy_default }}">{{ minors.policy_text }}</textarea>
+            <div class="form-text">En la entrada sale debajo de las condiciones, con el enlace para
+              <strong>rellenar la autorización</strong>.</div>
+          </div>
+          <div data-invgen-minors-blocked class="{{ 'd-none' if minors.allowed or not minors.configured else '' }}">
+            <div class="alert alert-warning py-2 px-3 small mb-0">
+              <i class="fa fa-triangle-exclamation me-1"></i>En la entrada saldrá solo la advertencia
+              <strong>«Este evento no admite menores de <span data-invgen-minors-age>{{ minors.age_limit }}</span> años»</strong>,
+              y el enlace del formulario de autorización <strong>no se activa</strong>.
+            </div>
+          </div>
+        </section>
+
+        {# ---- 7 · RESUMEN ---- #}
+        <section class="sw-step" data-step="7" data-title="Resumen">
           <div class="sw-step__q"><i class="fa fa-check me-2 text-danger"></i>Resumen</div>
           <div class="sw-step__h">Repasa y guarda: la vista previa de la entrada se actualiza al guardar.</div>
           <ul class="invgen-facts invgen-facts--compact" data-invgen-summary></ul>

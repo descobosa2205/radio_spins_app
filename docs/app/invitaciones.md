@@ -14,6 +14,7 @@
 - GENERAR INVITACIONES (entradas con QR que compone la APP) · lote 1: los datos de la entrada
 - GENERAR INVITACIONES · lote 2: las CATEGORÍAS y la generación de las entradas.
 - GENERAR INVITACIONES · lote 3: el CONTROL DE ACCESO. Solo cuando la actividad
+- GENERAR INVITACIONES · lote 4: la ENTRADA se edita dato a dato, tiene CONTRAPORTADA y dice lo de los MENORES
 - INVITACIONES · «Por contrato» / «Disponibles» / «?». En el listado de
 - INVITACIONES · «DISPONIBLES» ES LO QUE HAY SUBIDO Y LIBRE, NO EL CUPO DEL CONTRATO
 - INVITACIONES CORPORATIVAS · «Mi lista de invitados» y el envío desde el correo de cada uno
@@ -282,6 +283,41 @@
   comprobaciones** en total): la pestaña solo con generadas, el enlace (crear · reutilizar ·
   anular), la página sin sesión con sus `og:`, las siete lecturas, deshacer, el estado y las marcas
   de Invitados, el QR de una autorización de menores, el correo y los permisos.
+
+- ⚠️⚠️ **GENERAR INVITACIONES · lote 4: la ENTRADA se edita dato a dato, tiene CONTRAPORTADA y
+  dice lo de los MENORES** (sep 2026, lo pidió Dani entero).
+  · **GUARDAR UNA CATEGORÍA YA NO SE QUEDA QUIETO** (bug real: «se guarda pero no aparecen y la
+  ventana se queda quieta, tienes que refrescar»). El alta devuelve
+  **`redirect` = `…/generar?nueva=<id>`** e `invgen.js` **cierra el pop-up y navega** con
+  `location.assign`. ⚠️ Antes hacía `location.replace(url_actual)` y, si solo cambiaba el **hash**,
+  el navegador lo trata como navegación **en el mismo documento**: no recarga nada. La nueva
+  categoría llega con `?nueva=` y se pinta **resaltada** (`.is-new`).
+  · **CADA DATO SE PINCHA Y SE CAMBIA** sin abrir el menú completo: cada fila de «Datos de la
+  entrada» lleva `data-invgen-edit="<paso>"` (y su lapicero) y abre el asistente **en ese paso**.
+  ⚠️⚠️ **Y ESO NO PUEDE SER UNA CARRERA**: el motor (`step_wizard.js`) vuelve al paso 0 en
+  `shown.bs.modal`, que —medido en el navegador— llega a los **462 ms** (la transición de Bootstrap
+  más `modal_stack.js`), no a los 300 de la teoría. La primera versión saltaba con un
+  `setTimeout(420)` y **el motor la devolvía al paso 1 cuarenta ms después**. Se apunta el paso
+  querido y se aplica **en un macrotask DESPUÉS de `shown`** (`setTimeout(aplica, 0)` dentro del
+  propio manejador: el `go(0)` del motor es síncrono, así que ahí ya no lo pisa nadie); la red de
+  seguridad —`shown` no siempre llega— solo entra **si el evento NO ha llegado** y a los 1.200 ms, y
+  con el pop-up **ya abierto** se aplica en el acto.
+  · **LA DIRECCIÓN VA DEBAJO DEL RECINTO**, en pequeño y gris, no como un punto aparte
+  (`_invgen_ticket_pdf_bytes` pinta el valor y, debajo, su **nota**), y la **imagen es más alta**
+  (`INVGEN_PDF_BANNER_H = 235`) para que no quede tanto hueco en blanco.
+  · **CONTRAPORTADA** (`InvitationGenConfig.back_image_url`, paso «Imagen»): con ella el PDF sale
+  **una página la entrada y la siguiente la contraportada**, y así todo el rato. Sin ella, de una
+  cara. Como el PDF se compone **al descargar**, **una entrada ya generada sale con el cambio**
+  (vale para cualquier dato, no solo la contraportada: eso es lo que pidió Dani).
+  · **POLÍTICA DE ACCESO DE MENORES** debajo de las condiciones: sale lo configurado en la pestaña
+  **Menores** de la actividad —es el MISMO dato, `_minor_policy_summary` es el punto único— con el
+  botón **«Rellenar autorización de menores»** al formulario público. Si al crear la entrada no está
+  definido, es **un paso más** del asistente (paso 6) con lo ya configurado o las opciones para
+  configurarlo, **y lo que se elija ahí vale también en la pestaña Menores**.
+  · **«No se permite acceso a menores»** (`MinorAuthConfig.minors_allowed`) está en **los dos
+  sitios**: el enlace **no se activa** y solo sale la advertencia **«Este evento no admite menores de
+  18 años.»** (`MINOR_NOT_ALLOWED_NOTICE`, otro punto único).
+  · La prueba `tools/check_invitaciones_generadas.py` llega a **216 comprobaciones** (apartado 19).
 
 - ⚠️ **INVITACIONES · «Por contrato» / «Disponibles» / «?»** (sep 2026). En el listado de
   actividades de **Gestionar invitaciones** la galleta decía «Disponibles» y pintaba **lo pactado

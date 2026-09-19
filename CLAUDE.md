@@ -144,6 +144,12 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_gratuito.py` | que en una actividad gratuita no asome la salida a la venta (configuración, ficha, aviso al artista, ficha del promotor) | al tocar la salida a la venta o lo gratuito |
 | `diag_reparto_editorial.py` | dónde se corta el reparto editorial de un autor (solo lee) | al depurar royalties |
 
+⚠️⚠️ **UNA COLUMNA NUEVA HAY QUE APLICARLA A LAS BASES DE PRUEBA A MANO**: el cerrojo del tempdir
+deja el bootstrap sin ejecutar, así que el `ALTER` no corre y el ORM pide una columna que no existe
+→ **decenas de pantallas con un 500** (61 de golpe, y ninguna tenía nada que ver con el cambio). Se
+arregla llamando a SU `ensure_*` en cada base que se use para probar:
+`models.ensure_bag_expense_schema()` sobre `radiotest`, `radiocorp`, `radiocaja`…
+
 ⚠️⚠️ **CON LA BD DE PRUEBA LLENA, LAS COMPROBACIONES SE QUEDAN SIN CONEXIONES Y MIENTEN** (sep
 2026). El pool de la app es **6+6**, y una herramienta que recorre cientos de pantallas acaba
 pidiendo más: salta un `QueuePool limit … timed out` y esa pantalla **se cuenta como un 500** que no

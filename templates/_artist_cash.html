@@ -139,28 +139,41 @@
     <span class="text-muted small">{{ 'Todo lo que hay' if not cash.year else cash.year }}</span>
   </div>
   <div class="ficha-section__body">
+    {# ⚠️⚠️ LOS CUATRO DATOS, EN ESTE ORDEN Y CON ESTOS NOMBRES (los pidió Dani así). Y todos son
+       de **lo ya cerrado**: las bolsas que siguen abiertas no cuentan (eso es lo que se VA a
+       gastar), y se dicen aparte debajo. #}
     <div class="ac-cards">
       <div class="ac-card">
-        <div class="ac-card__k"><i class="fa fa-guitar me-1"></i>Factura el artista</div>
+        <div class="ac-card__k"><i class="fa fa-guitar me-1"></i>Facturado por el artista</div>
         <div class="ac-card__v">{{ b.artist_billed|eur }}</div>
-        <div class="ac-card__h">Su parte de royalties y de sus actividades</div>
+        <div class="ac-card__h">Su parte de los royalties y de sus actividades</div>
       </div>
       <div class="ac-card">
-        <div class="ac-card__k"><i class="fa fa-receipt me-1"></i>Invertido por la casa</div>
+        <div class="ac-card__k"><i class="fa fa-receipt me-1"></i>Invertido por compañía</div>
         <div class="ac-card__v">{{ b.office_invested|eur }}</div>
-        <div class="ac-card__h">Lo que han pagado las empresas del grupo</div>
+        <div class="ac-card__h">Todo el gasto de las bolsas ya cerradas</div>
       </div>
       <div class="ac-card">
-        <div class="ac-card__k"><i class="fa fa-building me-1"></i>Se lleva la oficina</div>
+        <div class="ac-card__k"><i class="fa fa-building me-1"></i>Ingresado por compañía</div>
         <div class="ac-card__v">{{ b.office_income|eur }}</div>
-        <div class="ac-card__h">Royalties tras pagar los suyos, y su parte de los cachés</div>
+        <div class="ac-card__h">Royalties tras pagar todos los royalties, y su parte de las liquidaciones</div>
       </div>
       <div class="ac-card {{ 'ac-card--ok' if b.positive else 'ac-card--ko' }}">
-        <div class="ac-card__k"><i class="fa fa-chart-line me-1"></i>Resultado para la casa</div>
+        <div class="ac-card__k"><i class="fa fa-chart-line me-1"></i>Resultado para compañía</div>
         <div class="ac-card__v">{{ b.office_result|eur }}</div>
         <div class="ac-card__h">{{ 'Deja beneficio' if b.positive else 'Todavía se está invirtiendo' }}</div>
       </div>
     </div>
+
+    {# ⚠️ LO QUE TODAVÍA NO CUENTA: una bolsa abierta es lo que se VA a gastar, no lo gastado. Se
+       dice aquí para que un total «bajo» no parezca un fallo. #}
+    {% if b.open_bags %}
+      <div class="ac-note mt-2">
+        <i class="fa fa-circle-info me-1"></i>Y además hay <strong>{{ b.open_bags }}</strong>
+        bolsa{{ '' if b.open_bags == 1 else 's' }} <strong>todavía abierta{{ '' if b.open_bags == 1 else 's' }}</strong>
+        por {{ b.open_amount|eur }}: no cuentan en el balance hasta que se cierren.
+      </div>
+    {% endif %}
 
     {# LOS ADELANTOS y en qué punto están (lo que pidió Dani: «arranque de gira», «discográfico»…) #}
     {% if cash.advances %}

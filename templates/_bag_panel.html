@@ -23,6 +23,38 @@
     </span>
   </div>
 {% endmacro %}
+{# ⚠️⚠️ ¿ESTA BOLSA VA A LA CAJA DEL ARTISTA? Lo decide administración al cerrar la liquidación,
+   y aquí se VE y se puede cambiar: una bolsa que entra (o no) en la caja de un artista sin que
+   nadie lo sepa es justo lo que hacía que los números no cuadraran. Solo se pinta cuando la bolsa
+   es de algún artista. #}
+{% macro bag_cash_box(bag, cash, can_edit) %}
+  {% if cash and cash.has_artist %}
+    <div class="bag-cash mb-3">
+      <span class="bag-cash__ttl"><i class="fa fa-wallet"></i>Caja del artista</span>
+      <span class="bag-cash__v {{ 'is-in' if cash.counts else ('is-out' if cash.impact else 'is-wait') }}">
+        {% if cash.counts %}<i class="fa fa-circle-check me-1"></i>Suma {{ cash.cost|eur }}
+        {% elif cash.impact == 'NO_INCLUIR' %}<i class="fa fa-circle-minus me-1"></i>No se incluye
+        {% elif cash.impact %}<i class="fa fa-hourglass-half me-1"></i>Se incluirá al cerrarla ({{ cash.cost|eur }})
+        {% else %}<i class="fa fa-hourglass-half me-1"></i>Se decide al cerrar la liquidación{% endif %}
+      </span>
+      <span class="bag-cash__note">
+        {% if not cash.closed %}Hasta que la bolsa no se cierre no cuenta en la caja.
+        {% elif cash.by %}Lo decidió {{ cash.by }}{% if cash.at_label %} el {{ cash.at_label }}{% endif %}.
+        {% elif cash.impact %}Lo puso la app al cerrarse.{% endif %}
+      </span>
+      {% if can_edit %}
+        <form class="bag-cash__form" method="post" action="{{ url_for('bag_cash_impact_save', bag_id=bag.id) }}">
+          <input type="hidden" name="next" value="{{ bag_next }}">
+          <button class="btn btn-sm btn-outline-secondary" name="cash_impact"
+                  value="{{ 'NO_INCLUIR' if cash.impact != 'NO_INCLUIR' else 'INCLUIR' }}">
+            {{ 'Dejarla fuera de la caja' if cash.impact != 'NO_INCLUIR' else 'Incluirla en la caja' }}
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
 {% macro bag_close_label(st) %}{% if st and st.double and not st.ready %}Cerrar mi parte{% else %}Cerrar bolsa{% endif %}{% endmacro %}
 {# En la ficha el panel se incluye en DOS mitades (bag_hide_expenses / bag_hide_head) para poder
    intercalar los módulos de Ingresos y «Lo que cubre el promotor» entre los datos y los gastos. #}
@@ -46,6 +78,7 @@
   {# ---------- Acciones de la bolsa en la ficha ---------- #}
   {% if can_edit_bag %}
   {% if bag_close_state and bag_close_state.double %}{{ bag_close_bar(bag_close_state) }}{% endif %}
+  {{ bag_cash_box(bag, bag_cash_state, bag_cash_can_edit) }}
   <div class="d-flex flex-wrap gap-2 mb-3">
     {% if can_close_bag %}
       <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm({% if bag_close_state and bag_close_state.double and not bag_close_state.ready %}'¿Cerrar tu parte? La bolsa pasará a administración cuando cierre también la otra parte.'{% else %}'¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.'{% endif %});">
@@ -65,6 +98,7 @@
   {% endif %}
 {% else %}
 {% if bag_close_state and bag_close_state.double %}{{ bag_close_bar(bag_close_state) }}{% endif %}
+{{ bag_cash_box(bag, bag_cash_state, bag_cash_can_edit) }}
 <div class="d-flex justify-content-end align-items-center mb-3 flex-wrap gap-2">
   <div class="d-flex gap-2 flex-wrap">
     {% if can_close_bag %}

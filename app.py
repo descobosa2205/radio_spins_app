@@ -2316,6 +2316,127 @@ ARTIST_CASH_BAG_GROUPS = {
 }
 
 
+# ══ ¿ESTA BOLSA VA A LA CAJA DEL ARTISTA? ══════════════════════════════════════════════════════
+# ⚠️⚠️ **EL GASTO SOLO ENTRA EN LA CAJA CUANDO LA BOLSA SE CIERRA** (sep 2026, lo pidió Dani). Antes
+# la caja sumaba TODAS las bolsas del artista, abiertas incluidas: eso es lo que se va a gastar, no
+# lo gastado — y además contaba el gasto REALIZADO, no el FINAL. Ahora:
+#   · una bolsa cuenta cuando está **CERRADA** y administración ha dicho que **se incluye**;
+#   · lo que cuenta es el **balance final** (lo que cubre el promotor o se refactura no es nuestro,
+#     y lo que paga el caché de la actividad tampoco);
+#   · **al cerrar la liquidación se pregunta** si se incluye o no, con el coste ya calculado delante.
+# ⚠️ Si una bolsa se cierra por otro camino sin que nadie conteste, se da por **INCLUIDA** (que es el
+# caso normal) y queda **dicho y cambiable** en su panel: callarse la pregunta sería peor.
+BAG_CASH_INCLUDE = "INCLUIR"
+BAG_CASH_EXCLUDE = "NO_INCLUIR"
+BAG_CASH_IMPACT_LABELS = {
+    BAG_CASH_INCLUDE: "Se incluye en la caja del artista",
+    BAG_CASH_EXCLUDE: "No se incluye en la caja del artista",
+}
+# Una bolsa está CERRADA cuando ya no se le puede meter gasto: es lo que la hace contar en la caja.
+BAG_CLOSED_STATUSES = {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+BAG_CLOSED_LIQUIDATION_STATUSES = {"CERRADA", "PAGADA", "ARCHIVADA"}
+
+
+def _bag_is_closed(bag) -> bool:
+    """¿Esta bolsa está cerrada? Punto único: lo miran la caja, el panel y la pantalla de Caja."""
+    if bag is None:
+        return False
+    return ((getattr(bag, "status", "") or "").strip().upper() in BAG_CLOSED_STATUSES
+            or (getattr(bag, "liquidation_status", "") or "").strip().upper() in BAG_CLOSED_LIQUIDATION_STATUSES)
+
+
+def _bag_cash_cost(session_db, bag, expenses=None) -> Decimal:
+    """LO QUE LE CUESTA ESA BOLSA A LA CASA, ya en su **balance final**. Punto ÚNICO.
+
+    ⚠️⚠️ Es el gasto FINAL, no el realizado (lo pidió Dani): lo que **cubre el promotor** o se le
+    refactura, y lo que **cubre el artista**, no es nuestro y no entra (`_bag_totals` ya los deja
+    fuera de `bag`). Y lo que asume la bolsa de una actividad **lo paga su caché**, así que solo es
+    gasto lo que el caché no llega a cubrir. Aparte va siempre lo marcado «lo cubre la oficina»."""
+    if bag is None:
+        return Decimal("0")
+    if expenses is None:
+        try:
+            expenses = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id).all()
+        except Exception:
+            app.logger.exception("[caja] no se pudieron leer los gastos de una bolsa")
+            return Decimal("0")
+    totales = _bag_totals(expenses)
+    de_la_bolsa = _money_value(totales.get("bag"))
+    de_la_oficina = _money_value(totales.get("office"))
+    caché = _artist_cash_bag_cover(session_db, bag)
+    sin_cubrir = de_la_bolsa - caché
+    if sin_cubrir < 0:
+        sin_cubrir = Decimal("0")
+    return sin_cubrir + de_la_oficina
+
+
+def _bag_cash_impact(bag) -> str:
+    """Qué se ha decidido con esta bolsa ("" = todavía nadie lo ha dicho)."""
+    valor = (getattr(bag, "cash_impact", "") or "").strip().upper()
+    return valor if valor in BAG_CASH_IMPACT_LABELS else ""
+
+
+def _bag_cash_counts(bag) -> bool:
+    """¿Esta bolsa SUMA en la caja del artista? Solo si está cerrada y se ha dicho que sí."""
+    return _bag_is_closed(bag) and _bag_cash_impact(bag) == BAG_CASH_INCLUDE
+
+
+def _bag_cash_decide(session_db, bag, impact: str, *, nick: str = "") -> bool:
+    """Apunta la decisión (y quién y cuándo). Devuelve True si ha cambiado algo."""
+    valor = (impact or "").strip().upper()
+    if bag is None or valor not in BAG_CASH_IMPACT_LABELS:
+        return False
+    if _bag_cash_impact(bag) == valor:
+        return False
+    bag.cash_impact = valor
+    bag.cash_decided_at = _now_madrid()
+    bag.cash_decided_by_nick = (nick or (_current_user_state() or {}).get("nick") or "").strip() or None
+    return True
+
+
+def _bag_cash_default_on_close(session_db, bag) -> None:
+    """Al CERRARSE una bolsa por un camino que no pregunta nada, se da por INCLUIDA.
+
+    ⚠️ Es el caso normal (una bolsa de un artista es inversión en ese artista) y queda **dicho en su
+    panel y cambiable**: dejarla sin decidir la haría desaparecer de la caja en silencio, que es
+    justo lo que se venía a arreglar."""
+    if bag is None or _bag_cash_impact(bag):
+        return
+    bag.cash_impact = BAG_CASH_INCLUDE
+    bag.cash_decided_at = _now_madrid()
+    bag.cash_decided_by_nick = None          # nadie lo dijo: lo puso la app al cerrarse
+
+
+def _bag_cash_flash(session_db, bag) -> str:
+    """La coletilla del mensaje al cerrar: qué se ha hecho con la caja del artista.
+
+    ⚠️ Se DICE siempre. Una bolsa que entra (o no) en la caja de un artista sin que nadie se entere
+    es exactamente lo que hacía que los números no cuadraran."""
+    if bag is None or not (getattr(bag, "artist_id", None) or (getattr(bag, "artist_ids", None) or [])):
+        return ""
+    coste = _bag_cash_cost(session_db, bag)
+    if _bag_cash_impact(bag) == BAG_CASH_EXCLUDE:
+        return " No se apunta en la caja del artista."
+    return " Se apunta en la caja del artista como %s." % format_eur(coste)
+
+
+def _bag_cash_state(session_db, bag, expenses=None) -> dict:
+    """Cómo está esta bolsa respecto a la caja del artista: para el panel y para preguntarlo."""
+    impacto = _bag_cash_impact(bag)
+    return {
+        "closed": _bag_is_closed(bag),
+        "impact": impacto,
+        "label": BAG_CASH_IMPACT_LABELS.get(impacto, "Todavía sin decidir"),
+        "counts": _bag_cash_counts(bag),
+        "cost": _bag_cash_cost(session_db, bag, expenses),
+        "by": (getattr(bag, "cash_decided_by_nick", "") or ""),
+        "at_label": (bag.cash_decided_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                     if getattr(bag, "cash_decided_at", None) else ""),
+        # Con qué artista(s) cuenta (una bolsa sin artista no va a ninguna caja).
+        "has_artist": bool(getattr(bag, "artist_id", None) or (getattr(bag, "artist_ids", None) or [])),
+    }
+
+
 def _artist_cash_year(valor) -> int | None:
     """El año que se está mirando (o None para «todo»)."""
     try:
@@ -2397,42 +2518,152 @@ def _artist_cash_concert_cache(concert) -> Decimal:
     return total
 
 
+def _artist_cash_repertoire_ids(session_db, artist) -> set:
+    """EL REPERTORIO de un artista: sus canciones y sus discos, por id (en texto).
+
+    Es lo que hace falta para saber qué royalties se han pagado **por su repertorio** — los suyos y
+    los de cualquier otro que cobre de esas mismas obras."""
+    ids = set()
+    try:
+        for (sid,) in (session_db.query(SongArtist.song_id)
+                       .filter(SongArtist.artist_id == artist.id).all()):
+            if sid:
+                ids.add(str(sid))
+    except Exception:
+        app.logger.exception("[caja] no se pudo leer el repertorio del artista")
+    try:
+        for (aid,) in (session_db.query(Album.id).filter(Album.artist_id == artist.id).all()):
+            if aid:
+                ids.add(str(aid))
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer los discos del artista")
+    return ids
+
+
+def _artist_cash_royalties(session_db, artist, year: int | None) -> list[dict]:
+    """LOS ROYALTIES, semestre a semestre, con el BENEFICIO REAL DE LA COMPAÑÍA.
+
+    ⚠️⚠️ Lo pidió Dani con estas palabras: «el beneficio de la compañía es el importe facturado de
+    royalties de ese artista **menos los royalties pagados** por el repertorio del artista incluido
+    a otros **y los del propio artista**; los royalties pagados **no son inversión ni gasto: solo
+    reducen el ingreso**».
+
+    Antes se restaba **solo la parte del artista** (`total_income − total_amount`), así que lo que
+    cobran los demás beneficiarios de SUS MISMAS obras (un autor invitado, un tercero con su
+    porcentaje) se contaba como beneficio nuestro — y no lo es: ese dinero sale de la casa.
+
+    · **Lo que ingresa la compañía** por una obra es el `income` de esa obra en ese semestre, y se
+      cuenta **UNA sola vez** aunque la cobren varios: todos los beneficiarios ven la misma base.
+    · **Lo que se paga** es la suma de los `amount` de **todas** las liquidaciones de ese semestre
+      cuyas líneas sean de su repertorio.
+    · Todo sale del **congelado** de cada liquidación (`snapshot`), que es lo que de verdad se
+      liquidó — y va **sin IVA**, porque un royalty se liquida por su importe, no por su factura.
+    ⚠️ Un royalty pagado NO entra en los gastos: sale aquí, restando. Meterlo también en «invertido»
+    lo contaría dos veces."""
+    repertorio = _artist_cash_repertoire_ids(session_db, artist)
+    try:
+        consulta = session_db.query(RoyaltyLiquidation)
+        if year:
+            consulta = consulta.filter(func.extract("year", RoyaltyLiquidation.period_end) == year)
+        liquidaciones = consulta.order_by(RoyaltyLiquidation.period_end.desc()).limit(3000).all()
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las liquidaciones de royalties")
+        return []
+    # Por SEMESTRE: lo que ingresa la compañía por su repertorio, lo que se paga por él en total, y
+    # lo que se le paga a ÉL.
+    por_periodo: dict = {}
+    for liq in liquidaciones:
+        inicio, fin = getattr(liq, "period_start", None), getattr(liq, "period_end", None)
+        if inicio is None or fin is None:
+            continue
+        snap = getattr(liq, "snapshot", None) or {}
+        if not isinstance(snap, dict):
+            continue
+        clave = (inicio, fin)
+        d = por_periodo.setdefault(clave, {"income_por_obra": {}, "pagado": Decimal("0"),
+                                           "del_artista": Decimal("0")})
+        es_suya = (str(getattr(liq, "beneficiary_kind", "") or "").upper() == "ARTIST"
+                   and str(getattr(liq, "beneficiary_id", "")) == str(artist.id))
+        for item in (snap.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            oid = str(item.get("item_id") or "")
+            if not oid or oid not in repertorio:
+                continue
+            # ⚠️ El INGRESO de una obra se cuenta UNA vez: todos los que cobran de ella ven la misma
+            # base, así que sumarlo por beneficiario lo multiplicaría.
+            base = _money_value(item.get("income"))
+            if base > d["income_por_obra"].get(oid, Decimal("0")):
+                d["income_por_obra"][oid] = base
+            d["pagado"] += _money_value(item.get("amount"))
+        if es_suya:
+            d["del_artista"] += _money_value(snap.get("total_amount"))
+    salida = []
+    for (inicio, fin), d in sorted(por_periodo.items(), key=lambda kv: kv[0][1], reverse=True):
+        ingreso = sum(d["income_por_obra"].values(), Decimal("0"))
+        pagado = d["pagado"]
+        if ingreso <= 0 and pagado <= 0:
+            continue
+        de_la_oficina = ingreso - pagado
+        salida.append({
+            "period_start": inicio, "period_end": fin,
+            "label": "Royalties %s" % _afavor_semester_ordinal(
+                inicio.year, (1 if inicio.month <= 6 else 2)),
+            "income": ingreso,                 # lo que factura la compañía por su repertorio
+            "paid": pagado,                    # todo lo que se paga por él (el artista y los demás)
+            "artist_amount": d["del_artista"],  # lo que factura ÉL
+            # ⚠️ Puede salir NEGATIVO (se liquidó más de lo ingresado ese semestre): se dice tal cual,
+            # maquillarlo a 0 escondería justo lo que hay que mirar.
+            "office_amount": de_la_oficina,
+        })
+    return salida
+
+
+def _artist_cash_concert_settled(concert) -> tuple:
+    """EL IMPORTE FINAL DE LA LIQUIDACIÓN de una actividad, y de dónde sale.
+
+    ⚠️⚠️ Lo pidió Dani: «que se calculen las liquidaciones de actividades con caché **acorde a los
+    porcentajes de contratos**, aunque se tenga finalmente en cuenta **el importe final de la
+    liquidación**, ya que administración puede realizar cambios en el último momento». O sea: el
+    REPARTO lo dice el contrato, pero el IMPORTE sobre el que se reparte es el que de verdad se ha
+    facturado y cobrado, no el que se pactó.
+
+    Ese importe final es el **plan de pagos** (`Concert.payment_terms_json`), que es donde
+    administración factura y marca cobrado, y es lo que se corrige a última hora. Si una actividad
+    no tiene plan de pagos, manda el **caché** (y se dice, para que se vea que es lo pactado).
+    Devuelve `(importe, de_dónde, cobrado)`."""
+    filas = _concert_payment_rows(concert)
+    if filas:
+        total = sum((_money_or_zero(x.get("amount")) for x in filas), Decimal("0"))
+        cobrado = sum((_money_or_zero(x.get("amount")) for x in filas
+                       if (x.get("status") or "").upper() == "COLLECTED"), Decimal("0"))
+        if total > 0:
+            return total, "liquidación", cobrado
+    return _artist_cash_concert_cache(concert), "caché", Decimal("0")
+
+
 def _artist_cash_income(session_db, artist, year: int | None) -> dict:
     """LO QUE FACTURA EL ARTISTA, por tipos. Punto único de la sección «Ingresos»."""
     filas = []
     aid = artist.id
 
-    # ── 1) DISCOGRÁFICO · sus liquidaciones de royalties ───────────────────────────────────────
-    # ⚠️ `total_amount` del congelado es lo que se le liquida a ÉL (su parte ya calculada) y
-    # `total_income` lo que generó el repertorio: la diferencia es lo que le queda a la casa, que
-    # es justo «el ingreso de royalties después de pagar todos los royalties».
-    try:
-        for liq in (session_db.query(RoyaltyLiquidation)
-                    .filter(RoyaltyLiquidation.beneficiary_kind == "ARTIST",
-                            RoyaltyLiquidation.beneficiary_id == aid)
-                    .order_by(RoyaltyLiquidation.period_end.desc()).all()):
-            dia = getattr(liq, "period_end", None)
-            if year and getattr(dia, "year", None) != year:
-                continue
-            snap = dict(getattr(liq, "snapshot", None) or {})
-            del_artista = _money_value(snap.get("total_amount"))
-            generado = _money_value(snap.get("total_income"))
-            if del_artista <= 0 and generado <= 0:
-                continue
-            de_la_oficina = generado - del_artista
-            filas.append(_artist_cash_row(
-                group="DISCOGRAFICO",
-                title="Royalties %s" % _afavor_semester_ordinal(
-                    getattr(liq, "period_start", dia).year,
-                    (1 if getattr(liq, "period_start", dia).month <= 6 else 2)),
-                subtitle="Liquidación de royalties",
-                day=dia, artist_amount=del_artista,
-                office_amount=(de_la_oficina if de_la_oficina > 0 else 0),
-                # A la pantalla de royalties (no hay ficha propia de una liquidación).
-                url=_safe_url_for("discografica_view", section="royalties", roy_tab="liquidaciones"),
-                note=("Generó %s" % format_eur(generado) if generado else "")))
-    except Exception:
-        app.logger.exception("[caja] no se pudieron leer las liquidaciones de royalties")
+    # ── 1) DISCOGRÁFICO · los royalties, semestre a semestre ──────────────────────────────────
+    # ⚠️⚠️ El beneficio de la compañía es lo FACTURADO por su repertorio **menos TODO lo que se paga
+    # por él** —los royalties del propio artista y los de cualquier otro que cobre de sus obras—.
+    # Un royalty pagado **no es gasto ni inversión: reduce el ingreso** (lo pidió Dani así), por eso
+    # se resta aquí y no aparece en «invertido»: contarlo en los dos sitios sería contarlo dos veces.
+    for r in _artist_cash_royalties(session_db, artist, year):
+        detalle = []
+        if r["income"]:
+            detalle.append("Facturado %s" % format_eur(r["income"]))
+        if r["paid"]:
+            detalle.append("royalties pagados %s" % format_eur(r["paid"]))
+        filas.append(_artist_cash_row(
+            group="DISCOGRAFICO", title=r["label"], subtitle="Liquidación de royalties",
+            day=r["period_end"], artist_amount=r["artist_amount"], office_amount=r["office_amount"],
+            # A la pantalla de royalties (no hay ficha propia de una liquidación).
+            url=_safe_url_for("discografica_view", section="royalties", roy_tab="liquidaciones"),
+            note=" · ".join(detalle)))
 
     # ── 2) ACTIVIDADES · su parte del caché, según el contrato ─────────────────────────────────
     try:
@@ -2445,12 +2676,21 @@ def _artist_cash_income(session_db, artist, year: int | None) -> dict:
         if year:
             consulta = consulta.filter(func.extract("year", Concert.date) == year)
         for c in consulta.order_by(Concert.date.desc()).limit(400).all():
-            caché = _artist_cash_concert_cache(c)
-            if caché <= 0:
+            # ⚠️ EL IMPORTE es el FINAL de la liquidación (lo que administración ha facturado), y el
+            # REPARTO lo dice el contrato del artista. Si no hay liquidación todavía, manda el caché
+            # pactado — y se dice cuál de los dos se está usando.
+            importe, de_donde, cobrado = _artist_cash_concert_settled(c)
+            if importe <= 0:
                 continue
             del_artista, de_la_oficina, etiqueta = _artist_cash_commitment_split(
-                session_db, aid, c, caché)
+                session_db, aid, c, importe)
             donde = _place_label(_concert_city(c), _concert_province_value(c))
+            detalle = [("Liquidación %s" % format_eur(importe)) if de_donde == "liquidación"
+                       else ("Caché %s" % format_eur(importe))]
+            if etiqueta:
+                detalle.append(etiqueta)
+            if de_donde == "liquidación" and cobrado < importe:
+                detalle.append("cobrado %s" % format_eur(cobrado))
             filas.append(_artist_cash_row(
                 group="ACTIVIDADES",
                 title=((getattr(c, "festival_name", None) or "").strip()
@@ -2461,8 +2701,7 @@ def _artist_cash_income(session_db, artist, year: int | None) -> dict:
                 day=getattr(c, "date", None),
                 artist_amount=del_artista, office_amount=de_la_oficina,
                 url=_safe_url_for("concert_detail_view", cid=str(c.id)),
-                note=(("Caché %s · %s" % (format_eur(caché), etiqueta)) if etiqueta
-                      else "Caché %s" % format_eur(caché))))
+                note=" · ".join(detalle)))
     except Exception:
         app.logger.exception("[caja] no se pudieron leer las actividades del artista")
 
@@ -2515,12 +2754,18 @@ def _artist_cash_bag_cover(session_db, bag) -> Decimal:
 def _artist_cash_expenses(session_db, artist, year: int | None) -> dict:
     """LO QUE HAN PAGADO LAS EMPRESAS DEL GRUPO por este artista, por tipos.
 
-    ⚠️⚠️ LA REGLA DEL CACHÉ: lo que asume la bolsa de una actividad se paga con su caché, así que
-    **no es gasto de la oficina** mientras el caché llegue. Lo que se pasa de ahí sí (la bolsa se
-    queda en negativo y lo asume la casa), igual que una bolsa sin caché y que cada gasto marcado
-    como «lo cubre la oficina». Lo que cubre el artista o el promotor no es gasto nuestro."""
+    ⚠️⚠️ **SOLO LAS BOLSAS CERRADAS Y QUE ADMINISTRACIÓN HA DICHO QUE SE INCLUYEN** (`_bag_cash_counts`,
+    sep 2026, lo pidió Dani: «el gasto o inversión solo se sumará en la caja cuando se cierre la
+    bolsa»). Las que siguen abiertas se cuentan aparte y **se dicen**, porque son lo que se VA a
+    gastar, no lo gastado: meterlas en el balance era justo por lo que los números no cuadraban.
+    ⚠️⚠️ Y lo que cuenta es el **BALANCE FINAL**, no el gasto realizado (`_bag_cash_cost`): lo que
+    cubre el promotor o se le refactura no es nuestro, lo que cubre el artista tampoco, y lo que
+    asume la bolsa de una actividad **lo paga su caché** — solo es gasto lo que el caché no cubre.
+    ⚠️ Los ROYALTIES PAGADOS no entran aquí: **reducen el ingreso**, no son inversión (van restando
+    en `_artist_cash_royalties`). Contarlos también aquí sería contarlos dos veces."""
     filas = []
     aid = str(artist.id)
+    abiertas, abiertas_coste = 0, Decimal("0")
     try:
         bolsas = (session_db.query(WorkflowBag)
                   .filter(or_(WorkflowBag.artist_id == artist.id,
@@ -2530,8 +2775,9 @@ def _artist_cash_expenses(session_db, artist, year: int | None) -> dict:
         app.logger.exception("[caja] no se pudieron leer las bolsas del artista")
         bolsas = []
     for bag in bolsas:
-        dia = (getattr(bag, "start_date", None) or getattr(bag, "end_date", None)
-               or (getattr(bag, "created_at", None).date() if getattr(bag, "created_at", None) else None))
+        dia = (getattr(bag, "closed_at", None).date() if getattr(bag, "closed_at", None)
+               else (getattr(bag, "start_date", None) or getattr(bag, "end_date", None)
+                     or (getattr(bag, "created_at", None).date() if getattr(bag, "created_at", None) else None)))
         if year and getattr(dia, "year", None) != year:
             continue
         try:
@@ -2540,17 +2786,19 @@ def _artist_cash_expenses(session_db, artist, year: int | None) -> dict:
         except Exception:
             app.logger.exception("[caja] no se pudieron leer los gastos de una bolsa")
             continue
+        coste = _bag_cash_cost(session_db, bag, gastos)
+        if not _bag_cash_counts(bag):
+            # ⚠️ No suma. Lo que sigue ABIERTO se cuenta aparte para poder decirlo («y además hay
+            # N bolsas abiertas por X €»); lo que se decidió NO incluir, ni se nombra: alguien ya
+            # dijo que esto no es del artista.
+            if not _bag_is_closed(bag) and coste > 0:
+                abiertas += 1
+                abiertas_coste += coste
+            continue
         totales = _bag_totals(gastos)
         de_la_bolsa = _money_value(totales.get("bag"))
-        de_la_oficina = _money_value(totales.get("office"))
         caché = _artist_cash_bag_cover(session_db, bag)
-        # Lo que el caché NO llega a cubrir es lo que pone la casa.
         sin_cubrir = de_la_bolsa - caché
-        if sin_cubrir < 0:
-            sin_cubrir = Decimal("0")
-        coste = sin_cubrir + de_la_oficina
-        if coste <= 0 and de_la_bolsa <= 0:
-            continue
         if caché > 0:
             nota = ("Cubierto por el caché (%s de %s)" % (format_eur(min(caché, de_la_bolsa)),
                                                           format_eur(de_la_bolsa))
@@ -2558,14 +2806,12 @@ def _artist_cash_expenses(session_db, artist, year: int | None) -> dict:
                     "El caché cubre %s de %s" % (format_eur(caché), format_eur(de_la_bolsa)))
         else:
             nota = ""
-        if coste <= 0:
-            # Se enseña igualmente (con su nota): que no cueste dinero es un dato, no un vacío.
-            filas.append(_artist_cash_row(
-                group=_artist_cash_bag_group(session_db, bag),
-                title=(getattr(bag, "title", "") or "Bolsa"),
-                subtitle=BAG_TYPE_LABELS.get((getattr(bag, "bag_type", "") or "").upper(), ""),
-                day=dia, invested=0,
-                url=_safe_url_for("bag_detail_view", bag_id=str(bag.id)), note=nota))
+        cubierto = _money_value(totales.get("artist")) + _money_value(totales.get("promoter"))
+        if cubierto > 0:
+            # ⚠️ Se DICE lo que no es nuestro: si no, un total más bajo de lo gastado parece un fallo.
+            nota = " · ".join([x for x in [nota, "Fuera del balance %s (lo cubre el artista o el promotor)"
+                                           % format_eur(cubierto)] if x])
+        if coste <= 0 and de_la_bolsa <= 0:
             continue
         filas.append(_artist_cash_row(
             group=_artist_cash_bag_group(session_db, bag),
@@ -2575,7 +2821,10 @@ def _artist_cash_expenses(session_db, artist, year: int | None) -> dict:
             url=_safe_url_for("bag_detail_view", bag_id=str(bag.id)), note=nota))
 
     filas.extend(_artist_cash_manual_rows(session_db, artist, year, "GASTO"))
-    return _artist_cash_pack(filas, ARTIST_CASH_EXPENSE_GROUPS)
+    datos = _artist_cash_pack(filas, ARTIST_CASH_EXPENSE_GROUPS)
+    datos["open_bags"] = abiertas
+    datos["open_amount"] = abiertas_coste
+    return datos
 
 
 def _artist_cash_manual_rows(session_db, artist, year: int | None, kind: str) -> list[dict]:
@@ -2751,6 +3000,9 @@ def _artist_cash_data(session_db, artist, year: int | None = None) -> dict:
             "advance_pending": sum((a["pending"] for a in adelantos_abiertos), Decimal("0")),
             "advance_count": len(adelantos_abiertos),
             "pending_entries": ingresos["pending_count"] + gastos["pending_count"],
+            # Lo que TODAVÍA no cuenta: las bolsas abiertas (lo que se va a gastar, no lo gastado).
+            "open_bags": gastos.get("open_bags", 0),
+            "open_amount": gastos.get("open_amount", Decimal("0")),
         },
     }
 
@@ -86256,6 +86508,9 @@ def _bootstrap_schema_bg():
     # Una sola vez: la CAJA del artista (permiso nuevo, apagado para todos) se concede a
     # Administración, que es quien lleva ese dinero. Dirección ya lo ve por su rol.
     _safe_ensure(lambda: globals()["_artist_cash_access_seed"](), "_artist_cash_access_seed")
+    # Las bolsas YA CERRADAS entran en la caja del artista (una sola vez): si no, el balance de
+    # todos los artistas cambiaría de golpe al empezar a contar solo lo cerrado y decidido.
+    _safe_ensure(lambda: globals()["_bag_cash_backfill"](), "_bag_cash_backfill")
     _safe_ensure(lambda: globals()["_song_genres_seed_once"](), "_song_genres_seed_once")
     _safe_ensure(lambda: globals()["_song_genres_backfill_once"](), "_song_genres_backfill_once")
     # Una sola vez: las peticiones que ya se habían APROBADO vuelven al proceso por pasos (el
@@ -108028,6 +108283,44 @@ def _sales_revenue_access_seed() -> None:
         session_db.close()
 
 
+def _bag_cash_backfill() -> None:
+    """LAS BOLSAS DE ANTES DE ESTO, resueltas de una vez (sep 2026, lo pidió Dani: «para solucionar
+    todas las previas, todas las bolsas sin ingresos y con gastos hasta ahora que ya estén cerradas,
+    vamos a solucionarla **marcando como gasto o inversión**»).
+
+    Hasta ahora la caja de un artista sumaba TODAS sus bolsas —cerradas y abiertas—, así que no
+    había ninguna decisión que leer. Al pasar a contar solo lo cerrado y decidido, las que ya están
+    cerradas se quedarían fuera de golpe y el balance de todos los artistas cambiaría sin que nadie
+    hubiera tocado nada: por eso **todas las cerradas entran como INCLUIDAS**, que es lo que la caja
+    venía enseñando. Las que estén abiertas no se tocan: se decidirán al cerrarlas.
+
+    ⚠️ De una sola vez (marca en los ajustes) y solo sobre las que **no tienen decisión**: si alguien
+    dice después que una no va a la caja, esto no la resucita.
+    ⚠️ Se deja `cash_decided_by_nick` vacío a propósito: no lo decidió una persona, lo puso la app."""
+    session_db = db()
+    try:
+        if _get_app_setting("bag_cash_backfill_v1"):
+            return
+        tocadas = 0
+        for bag in (session_db.query(WorkflowBag)
+                    .filter(WorkflowBag.cash_impact.is_(None))
+                    .filter(or_(WorkflowBag.status.in_(sorted(BAG_CLOSED_STATUSES)),
+                                WorkflowBag.liquidation_status.in_(sorted(BAG_CLOSED_LIQUIDATION_STATUSES))))
+                    .all()):
+            bag.cash_impact = BAG_CASH_INCLUDE
+            bag.cash_decided_at = _now_madrid()
+            tocadas += 1
+        _set_app_setting("bag_cash_backfill_v1", "1")
+        session_db.commit()
+        if tocadas:
+            app.logger.info("[caja] %d bolsas ya cerradas entran en la caja del artista", tocadas)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[caja] no se pudieron marcar las bolsas ya cerradas")
+    finally:
+        session_db.close()
+
+
 def _artist_cash_access_seed() -> None:
     """Da la CAJA de los artistas a quien está en **Administración**, una sola vez.
 
@@ -109662,6 +109955,9 @@ def _bag_close_if_fully_paid(session_db, bag) -> bool:
     bag.is_archived = True
     bag.archived_at = _now_madrid()
     bag.updated_at = _now_madrid()
+    # ⚠️ Aquí NO hay a quién preguntar (la bolsa se cierra sola al pagarse lo último): se da por
+    # incluida en la caja del artista, que es el caso normal, y queda cambiable en su panel.
+    _bag_cash_default_on_close(session_db, bag)
     _notify_resolve(session_db, "BAG", bag.id)
     # A partir de aquí es cosa de CONTABILIDAD: se avisa a quien lleva esa empresa del grupo (y si
     # nadie la lleva, a todo el departamento, para que no se quede sin contabilizar).
@@ -113587,10 +113883,13 @@ def administracion_view():
                 if alerts:
                     admin_expense_embargo_alerts[str(expense.id)] = alerts
 
-        bag_totals = {}
+        bag_totals, bag_cash = {}, {}
         for bag in closed_bags:
             exps = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
             bag_totals[str(bag.id)] = _bag_totals(exps) if "_bag_totals" in globals() else {"bag": Decimal("0")}
+            # ⚠️ Para poder preguntar al cerrar si la bolsa va a la CAJA del artista, con su coste
+            # FINAL delante: decidirlo a ciegas es lo que hacía que los números no cuadraran.
+            bag_cash[str(bag.id)] = _bag_cash_state(session_db, bag, exps)
 
         # Los números salen de un motor propio que solo CUENTA (sin cargar filas), así que valen
         # para todas las pestañas estés donde estés y no dependen de qué listas se hayan cargado.
@@ -113672,6 +113971,9 @@ def administracion_view():
             embargo_email_map=embargo_email_map,
             admin_expense_embargo_alerts=admin_expense_embargo_alerts,
             bag_totals=bag_totals,
+            bag_cash=bag_cash,
+            BAG_CASH_INCLUDE=BAG_CASH_INCLUDE,
+            BAG_CASH_EXCLUDE=BAG_CASH_EXCLUDE,
             payment_methods=BAG_PAYMENT_METHODS,
             payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
         )
@@ -113894,6 +114196,34 @@ def administration_expense_mark_paid(expense_id):
         session_db.close()
 
 
+@app.post("/bolsas/<bag_id>/caja-artista", endpoint="bag_cash_impact_save")
+@admin_required
+def bag_cash_impact_save(bag_id):
+    """Cambiar si esta bolsa cuenta en la CAJA del artista.
+
+    ⚠️ Lo normal es decidirlo al cerrar la liquidación; esto es para corregirlo después sin tener
+    que reabrir nada. Solo administración (y dirección): es un dato económico de un artista."""
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if bag is None:
+            abort(404)
+        if not (can_view_economics() and (is_master() or has_access_key("administracion", include_descendants=True))):
+            return forbid("Esto lo decide administración.")
+        if _bag_cash_decide(session_db, bag, request.form.get("cash_impact") or ""):
+            session_db.commit()
+            flash("Hecho." + _bag_cash_flash(session_db, bag), "success")
+        else:
+            flash("No se ha cambiado nada.", "warning")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[caja] no se pudo cambiar si la bolsa va a la caja")
+        flash("No se pudo guardar.", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+
+
 @app.post("/administracion/bolsas/<bag_id>/liquidar", endpoint="administration_bag_liquidate")
 @admin_required
 def administration_bag_liquidate(bag_id):
@@ -113927,6 +114257,8 @@ def administration_bag_mark_paid(bag_id):
             bag.liquidation_status = "PAGADA"
             bag.status = "LIQUIDADA"
             bag.liquidation_paid_at = _now_madrid()
+            _bag_cash_decide(session_db, bag, request.form.get("cash_impact") or "")
+            _bag_cash_default_on_close(session_db, bag)
             for expense in session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO", BagExpense.covered_by == "BOLSA").all():
             # ⚠️ Un gasto DIVIDIDO se paga y se factura UNA vez, en su TITULAR: las PARTES
             # solo existen para que cada bolsa vea su trozo (su estado se espeja).
@@ -119637,6 +119969,10 @@ def _bag_panel_context(session_db, bag) -> dict:
     return dict(
         bag=bag,
         bag_close_state=bag_close_state,
+        # ⚠️ ¿Esta bolsa va a la CAJA del artista? Se ve aquí y se puede cambiar, para que una bolsa
+        # no entre (ni deje de entrar) en la caja de nadie sin que se sepa.
+        bag_cash_state=_bag_cash_state(session_db, bag, expenses),
+        bag_cash_can_edit=bool(can_view_economics() and (is_master() or has_access_key("administracion", include_descendants=True))),
         bag_artists=bag_artists,
         bag_artist_id_strings=[str(a.id) for a in bag_artists],
         invoices=invoices,
@@ -148770,6 +149106,11 @@ def administration_bag_close_liquidation(bag_id):
             abort(404)
         mode = (request.form.get('mode') or 'CERRAR').strip().upper()
         note = (request.form.get('note') or '').strip()
+        # ⚠️⚠️ AL CERRAR LA BOLSA SE DECIDE SI VA A LA CAJA DEL ARTISTA (lo pidió Dani). Es el único
+        # momento en el que alguien la está revisando con el coste final delante, así que es aquí
+        # donde se pregunta. Si no viene contestado, `_bag_cash_default_on_close` la da por incluida
+        # (el caso normal) y queda dicho y cambiable en su panel.
+        _bag_cash_decide(session_db, bag, request.form.get('cash_impact') or '')
         if mode == 'VALIDAR':
             bag.liquidation_status = 'PENDIENTE_CIERRE'
             bag.liquidation_reviewed_at = _now_madrid()
@@ -148781,14 +149122,16 @@ def administration_bag_close_liquidation(bag_id):
             bag.liquidation_status = 'ARCHIVADA'
             bag.is_archived = True
             bag.archived_at = _now_madrid()
+            _bag_cash_default_on_close(session_db, bag)
             _notify_resolve(session_db, "BAG", bag.id)
-            flash('Liquidación archivada.', 'success')
+            flash('Liquidación archivada.' + _bag_cash_flash(session_db, bag), 'success')
         else:
             bag.liquidation_status = 'CERRADA'
             bag.is_archived = True
             bag.archived_at = _now_madrid()
+            _bag_cash_default_on_close(session_db, bag)
             _notify_resolve(session_db, "BAG", bag.id)
-            flash('Liquidación cerrada.', 'success')
+            flash('Liquidación cerrada.' + _bag_cash_flash(session_db, bag), 'success')
         adjustments = list(getattr(bag, 'liquidation_adjustments', None) or [])
         if note:
             adjustments.append({'at': _now_madrid().isoformat(), 'by': _current_user_email(), 'note': note, 'mode': mode})

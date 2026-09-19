@@ -6332,6 +6332,17 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .bag-close__part.is-done{ color:#0f5132; border-color:#badbcc; background:#eaf6ef; }
 .bag-close__part i:first-child{ font-size:.9em; }
 .bag-close__note{ font-size:.85rem; color:#6b7280; margin-left:auto; }
+/* ¿ESTA BOLSA VA A LA CAJA DEL ARTISTA? Misma barra que el cierre, para que se lea igual. */
+.bag-cash{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; border:1px solid #e9ecef;
+  border-radius:.7rem; padding:.5rem .75rem; background:#fff; }
+.bag-cash__ttl{ font-weight:600; font-size:.88rem; display:inline-flex; align-items:center; gap:.4rem; }
+.bag-cash__ttl i{ color:var(--brand-primary,#E33D48); }
+.bag-cash__v{ font-size:.86rem; font-weight:600; }
+.bag-cash__v.is-in{ color:#198754; }
+.bag-cash__v.is-out{ color:#6c757d; }
+.bag-cash__v.is-wait{ color:#b58105; }
+.bag-cash__note{ font-size:.78rem; color:#6c757d; }
+.bag-cash__form{ margin-left:auto; }
 
 /* ═════════════ DOBLE BOLSA de un proyecto con videoclip (audio + vídeo) ═════════════
    Se gestionan las dos desde la misma pestaña, pero son bolsas separadas y se liquidan aparte. */
@@ -8196,6 +8207,9 @@ body.accsc-open{ overflow:hidden; }
 .ac-card__v{ font-size:1.5rem; font-weight:800; line-height:1.2; margin-top:.15rem;
   color:var(--ink,#111827); }
 .ac-card__h{ font-size:.78rem; color:var(--muted-2,#6c757d); margin-top:.1rem; }
+/* Lo que TODAVÍA no cuenta en el balance (las bolsas abiertas): se dice, no se esconde. */
+.ac-note{ font-size:.82rem; color:#6c757d; background:#f8f9fa; border:1px solid #e9ecef;
+  border-radius:.6rem; padding:.45rem .7rem; }
 /* El resultado: verde si la casa gana, rojo si todavía está invirtiendo. */
 .ac-card--ok{ border-color:rgba(25,135,84,.35); background:rgba(25,135,84,.05); }
 .ac-card--ok .ac-card__v{ color:#146c43; }

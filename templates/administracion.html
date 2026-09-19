@@ -738,15 +738,42 @@
             <div class="p-3 border-bottom" id="admin-liqclose-{{ bag.id }}" data-inline-zone>
               <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                 <div><div class="fw-semibold">{{ bag.title }} {% if admin_promo_bag_ids and bag.id|string in admin_promo_bag_ids %}<span class="badge text-bg-info text-dark ms-1"><i class="fa fa-microphone-lines me-1"></i>Promoción · sin pagos</span>{% endif %}</div><div class="small text-muted">{% if bag.artist %}{{ artist_chip(bag.artist.name, bag.artist.photo_url) }}{% else %}Sin artista{% endif %} · Estado: {{ bag.liquidation_status }}</div><div class="fw-bold mt-2">Resultado provisional: {{ totals.get('bag', 0)|eur }}</div></div>
-                <div class="btn-group">
-                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Ver liquidación</a>
-                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
-                  <ul class="dropdown-menu dropdown-menu-end">
-                    <li><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}" data-inline data-inline-target="#admin-liqclose-{{ bag.id }}"><input type="hidden" name="mode" value="PAGO"><button class="dropdown-item">Cerrar liquidación y pasar a pago</button></form></li>
-                    <li><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}"><input type="hidden" name="mode" value="ARCHIVAR"><button class="dropdown-item">Cerrar y archivar sin pago</button></form></li>
-                  </ul>
-                </div>
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Ver liquidación</a>
               </div>
+
+              {# ⚠️⚠️ AL CERRAR LA BOLSA SE DECIDE SI VA A LA CAJA DEL ARTISTA (lo pidió Dani). Se
+                 pregunta AQUÍ porque es el único momento en el que alguien la está revisando con el
+                 coste FINAL delante. Las dos opciones y los dos botones van en UN SOLO formulario:
+                 unos radios fuera del formulario no se enviarían. #}
+              {% set cash = bag_cash.get(bag.id|string, {}) %}
+              <form class="ac-close mt-3" method="post" data-inline data-inline-target="#admin-liqclose-{{ bag.id }}"
+                    action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}">
+                {% if cash.has_artist %}
+                  <div class="small fw-semibold mb-1"><i class="fa fa-wallet me-1 text-danger"></i>¿Se incluye en la caja del artista?</div>
+                  <div class="small text-muted mb-2">
+                    Lo que le cuesta a la casa, ya en su balance final: <strong>{{ cash.cost|eur }}</strong>.
+                    {% if cash.cost <= 0 %}Con el caché cubierto, no suma nada.{% endif %}
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mb-2">
+                    <label class="invitation-radio-option">
+                      <input type="radio" name="cash_impact" value="{{ BAG_CASH_INCLUDE }}"
+                             {{ 'checked' if cash.impact != BAG_CASH_EXCLUDE }}>
+                      <i class="fa fa-circle-plus"></i><span>Sí: es gasto o inversión en el artista</span></label>
+                    <label class="invitation-radio-option">
+                      <input type="radio" name="cash_impact" value="{{ BAG_CASH_EXCLUDE }}"
+                             {{ 'checked' if cash.impact == BAG_CASH_EXCLUDE }}>
+                      <i class="fa fa-circle-minus"></i><span>No</span></label>
+                  </div>
+                {% else %}
+                  <div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Esta bolsa no es de ningún artista: no va a ninguna caja.</div>
+                {% endif %}
+                <input type="text" class="form-control form-control-sm mb-2" name="note" maxlength="300"
+                       placeholder="Nota del cierre (opcional): un ajuste de última hora, por ejemplo">
+                <div class="d-flex gap-2 flex-wrap">
+                  <button class="btn btn-sm btn-success" name="mode" value="PAGO"><i class="fa fa-check me-1"></i>Cerrar y pasar a pago</button>
+                  <button class="btn btn-sm btn-outline-secondary" name="mode" value="ARCHIVAR">Cerrar y archivar sin pago</button>
+                </div>
+              </form>
             </div>
           {% endif %}
         {% else %}<div class="p-3 text-muted">No hay liquidaciones pendientes de cierre.</div>{% endfor %}

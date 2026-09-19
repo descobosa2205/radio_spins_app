@@ -6353,6 +6353,12 @@ class WorkflowBag(Base):
     # resto). De aquí salen su etiqueta y las categorías de gasto que se le ofrecen.
     bag_scope = Column(Text)
     closed_liquidation_pdf_url = Column(Text)
+    # ⚠️⚠️ ¿ESTA BOLSA VA A LA CAJA DEL ARTISTA? Lo decide ADMINISTRACIÓN al liquidarla, y **solo
+    # cuenta en la caja cuando la bolsa está CERRADA** (lo pidió Dani: «el beneficio y el gasto o
+    # inversión solo se sumará en la caja cuando se cierre la bolsa»). NULL = todavía sin decidir.
+    cash_impact = Column(Text)                  # NULL | INCLUIR | NO_INCLUIR
+    cash_decided_at = Column(DateTime(timezone=True))
+    cash_decided_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -11417,6 +11423,13 @@ def ensure_bag_expense_schema():
            END
          WHERE artist_ids IS NULL OR COALESCE(jsonb_array_length(artist_ids), 0) = 0;
         """,
+        # ⚠️ CADA COLUMNA EN SU PROPIA SENTENCIA (la regla de la casa: metida en el `ALTER` de arriba
+        # —que ya existe en producción— podría no ejecutarse nunca y la app reventaría al leerla).
+        # ¿Esta bolsa va a la CAJA del artista? Lo decide administración al liquidarla.
+        "ALTER TABLE workflow_bags ADD COLUMN IF NOT EXISTS cash_impact text;",
+        "ALTER TABLE workflow_bags ADD COLUMN IF NOT EXISTS cash_decided_at timestamptz;",
+        "ALTER TABLE workflow_bags ADD COLUMN IF NOT EXISTS cash_decided_by_nick text;",
+        "CREATE INDEX IF NOT EXISTS idx_workflow_bags_cash_impact ON workflow_bags(cash_impact, closed_at);",
         'CREATE INDEX IF NOT EXISTS idx_workflow_bags_liquidation_status ON workflow_bags(liquidation_status, closed_at);',
         'CREATE INDEX IF NOT EXISTS idx_workflow_bags_linked ON workflow_bags(linked_type, linked_id);',
         """

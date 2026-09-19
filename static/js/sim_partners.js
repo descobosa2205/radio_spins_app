@@ -72,22 +72,31 @@
     acts.forEach(function (a) {
       (a.partners || []).forEach(function (pr) {
         var k = partnerKey(pr);
-        if (!partnersMap[k]) { partnersMap[k] = { name: pr.name, logo: pr.logo || '' }; partnersOrder.push(k); }
+        /* ⚠️ Con lo suyo: si NO soporta las pérdidas hay que decirlo en su fila (y basta con que
+           no las soporte en una de las fechas para que se diga). */
+        if (!partnersMap[k]) { partnersMap[k] = { name: pr.name, logo: pr.logo || '', no_loss: false }; partnersOrder.push(k); }
+        if (pr.no_loss) partnersMap[k].no_loss = true;
       });
     });
 
     function partnerTotals(pct) {
       var out = {};
-      partnersOrder.forEach(function (k) { out[k] = { beneficio: 0, riesgo: 0, pcts: [] }; });
+      partnersOrder.forEach(function (k) { out[k] = { beneficio: 0, riesgo: 0, pcts: [], bases: [] }; });
       acts.forEach(function (a) {
         var pt = a.series[pct] || a.series[a.series.length - 1];
         // Riesgo: los socios que «no soportan pérdidas» no asumen gasto; su parte se reparte entre
         // el resto proporcional a su %. Así los que sí soportan pérdidas se reparten TODO el gasto.
         var lossPctSum = 0;
         (a.partners || []).forEach(function (pr) { if (!pr.no_loss) lossPctSum += (Number(pr.pct) || 0); });
-        (a.partners || []).forEach(function (pr) {
+        (a.partners || []).forEach(function (pr, pi) {
           var k = partnerKey(pr), pct2 = (Number(pr.pct) || 0), share = pct2 / 100.0;
-          out[k].beneficio += pt.resultado * share;
+          /* ⚠️⚠️ LO QUE SE LLEVA CADA SOCIO LO DICE EL MOTOR (`soc[i]`), no esta pantalla: cada uno
+             tiene su BASE (ingreso bruto, ingreso neto o beneficio) y su «soporta pérdidas», y eso
+             cambia el resultado de la actividad (quien cobra sobre el ingreso es un gasto más).
+             Se cae a la cuenta de antes solo si el payload viene de una versión sin `soc`. */
+          var delMotor = (pt.soc || [])[pi];
+          out[k].beneficio += (delMotor === undefined ? pt.resultado * share : delMotor);
+          if (pr.base && out[k].bases.indexOf(pr.base) < 0) out[k].bases.push(pr.base);
           if (pr.no_loss) {
             // sin riesgo
           } else if (lossPctSum > 0) {
@@ -237,12 +246,20 @@
         rowsEl.innerHTML = partnersOrder.map(function (k) {
           var pr = partnersMap[k], v = tot[k];
           var img = pr.logo
-            ? '<img src="' + esc(pr.logo) + '" alt="" style="height:26px;max-width:74px;object-fit:contain;">'
-            : '<i class="fa fa-user text-muted"></i>';
+            ? '<img src="' + esc(pr.logo) + '" alt="" class="simp-avatar">'
+            : '<span class="simp-avatar simp-avatar--ph"><i class="fa fa-user"></i></span>';
           var pcts = v.pcts.length ? Array.from(new Set(v.pcts)).join('% / ') + '%' : '—';
+          /* SOBRE QUÉ COBRA y si soporta las pérdidas: es lo que explica su número. */
+          var BASES = { GROSS: 'del ingreso bruto', NET: 'del ingreso neto', PROFIT: 'del beneficio' };
+          var sobre = (v.bases || []).map(function (b) { return BASES[b] || ''; }).filter(Boolean).join(' · ');
+          var perdidas = pr.no_loss
+            ? '<span class="badge text-bg-light border fw-normal ms-1" title="Si la actividad pierde, no pone nada">No soporta pérdidas</span>'
+            : '';
           return '<tr>' +
-            '<td><span class="d-inline-flex align-items-center gap-2"><span class="simp-logo">' + img + '</span>' +
-            '<span class="fw-medium simp-name">' + esc(pr.name) + '</span></span></td>' +
+            '<td><span class="d-inline-flex align-items-center gap-2"><span class="simp-logo simp-logo--big">' + img + '</span>' +
+            '<span><span class="fw-medium simp-name d-block">' + esc(pr.name) + '</span>' +
+            (sobre ? '<span class="small text-muted">' + esc(sobre) + '</span>' : '') + perdidas +
+            '</span></span></td>' +
             '<td class="text-end fw-semibold">' + pcts + '</td>' +
             '<td class="text-end fw-semibold ' + (v.beneficio >= 0 ? 'text-success' : 'text-danger') + '"><span class="sim-amt" title="Neto: sin IVA y sin SGAE">' + fmtEur(v.beneficio) + '</span></td>' +
             '<td class="text-end"><span class="sim-amt" title="Sin IVA">' + fmtEur(v.riesgo) + '</span></td>' +

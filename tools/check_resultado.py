@@ -175,5 +175,43 @@ check("la ticketera Enterticket nace con los gastos de la fórmula de la casa",
       tk_et and (tk_et.fee_fixed_gross, tk_et.fee_pct))
 s.close()
 
+
+print("\n── SOCIOS Y COMISIONISTAS: SU BASE Y LAS PÉRDIDAS ────────────────────")
+# ⚠️ Lo pidió Dani (sep 2026): un socio o un comisionista puede cobrar sobre el INGRESO BRUTO (sin
+# IVA ni SGAE), sobre el INGRESO NETO (menos los gastos de gestión) o sobre el BENEFICIO. Y un
+# socio puede SOPORTAR LAS PÉRDIDAS o no — «esto es muy importante».
+_base = {"categories": [{"zone": "PISTA", "quantity": 1000, "invitations": 0, "price_net": 20.0, "extras": []}],
+         "caches": [{"mode": "FIXED", "amount": 6000}], "ticket_fees": {"per_ticket": 0.61, "pct": 0.42}}
+_com = {}
+for _vt in ("PERCENT_GROSS", "PERCENT_NET", "PERCENT_PROFIT"):
+    _com[_vt] = sim_calc.compute(dict(_base, commissions=[{"mode": "VARIABLE", "var_type": _vt, "var_value": 10}]))["at_100"]
+check("una comisión del 10% sobre el INGRESO BRUTO es el 10% del ingreso sin IVA ni SGAE",
+      round(_com["PERCENT_GROSS"]["gastos"]["comisiones"], 2) == 1848.0, _com["PERCENT_GROSS"]["gastos"]["comisiones"])
+check("sobre el INGRESO NETO, ese mismo menos los gastos de gestión",
+      round(_com["PERCENT_NET"]["gastos"]["comisiones"], 2) == 1790.64, _com["PERCENT_NET"]["gastos"]["comisiones"])
+check("y sobre el BENEFICIO, menos que las dos (es lo que queda al final)",
+      _com["PERCENT_PROFIT"]["gastos"]["comisiones"] < _com["PERCENT_NET"]["gastos"]["comisiones"] < _com["PERCENT_GROSS"]["gastos"]["comisiones"],
+      {k: round(v["gastos"]["comisiones"], 2) for k, v in _com.items()})
+check("y las tres son DISTINTAS (antes «bruto» y «neto» daban lo mismo)",
+      len({round(v["gastos"]["comisiones"], 2) for v in _com.values()}) == 3)
+
+_soc = sim_calc.compute(dict(_base, partners=[
+    {"key": "A", "pct": 10, "base": "NET"},
+    {"key": "B", "pct": 60, "base": "PROFIT", "bears_losses": True},
+    {"key": "C", "pct": 40, "base": "PROFIT", "bears_losses": False}]))
+_lleno, _flojo = _soc["series_fine"][100], _soc["series_fine"][20]
+check("quien cobra sobre el ingreso cobra, y es UN GASTO MÁS de la actividad",
+      _lleno["g"]["socios"] > 0 and round(_lleno["soc"][0], 2) == round(_lleno["g"]["socios"], 2),
+      (_lleno["soc"], _lleno["g"]["socios"]))
+check("y los de beneficio se reparten lo que queda",
+      round(_lleno["soc"][1] + _lleno["soc"][2], 2) == round(_lleno["resultado"], 2), _lleno["soc"])
+check("⚠️ con PÉRDIDAS, quien cobra sobre el ingreso sigue cobrando",
+      _flojo["resultado"] < 0 and _flojo["soc"][0] > 0, _flojo["soc"])
+check("quien SOPORTA las pérdidas se come su parte", _flojo["soc"][1] < 0, _flojo["soc"])
+check("y quien NO las soporta se queda a cero", _flojo["soc"][2] == 0, _flojo["soc"])
+check("el punto de empate sube con un socio que cobra sobre el ingreso",
+      _soc["break_even_tickets"] > sim_calc.compute(_base)["break_even_tickets"],
+      (_soc["break_even_tickets"], sim_calc.compute(_base)["break_even_tickets"]))
+
 print("\n%d OK, %d FALLAN" % (len(OK), len(KO)))
 sys.exit(1 if KO else 0)

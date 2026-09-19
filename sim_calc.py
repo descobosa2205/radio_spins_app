@@ -226,6 +226,15 @@ def _prepare(data):
         "caches": caches,
         "commissions": commissions,
         "production": production,
+        # ── SOCIOS ───────────────────────────────────────────────────────────────────────────
+        # Cada uno con SU base y si SOPORTA PÉRDIDAS (lo pidió Dani, sep 2026):
+        #   · sobre INGRESO (bruto o neto) → cobra siempre y es **un gasto más** de la actividad;
+        #   · sobre BENEFICIO → si no hay beneficio se queda a 0; y si hay pérdidas, solo se las
+        #     come quien las soporta, en su proporción.
+        "partners": [{"key": (p.get("key") or ""), "pct": _f(p.get("pct")),
+                      "base": (p.get("base") or "PROFIT").upper(),
+                      "bears_losses": (True if p.get("bears_losses") is None else bool(p.get("bears_losses")))}
+                     for p in (data.get("partners") or [])],
         # ── GASTOS DE GESTIÓN DE LA TICKETERA ────────────────────────────────────────────────
         # Lo que se lleva la ticketera por vender: un fijo por entrada y/o un % de lo cobrado.
         # ⚠️ Llegan CON IVA (como vienen en su factura) y aquí se pasan a NETO, que es en lo que
@@ -266,6 +275,13 @@ def evaluate(prep, tickets_sold):
             if not c["includes_retention"]:
                 retention_added += ret
 
+    # --- LAS BASES sobre las que cobran comisionistas y socios (van antes: no dependen de ellos) ---
+    fees_net = (prep.get("fee_per_ticket_net") or 0.0) * tickets_sold
+    if prep.get("fee_pct"):
+        fees_net += (prep["fee_pct"] / 100.0) * taquilla / (1.0 + IVA_GENERAL)
+    base_gross = ticket_net + extras_net          # sin IVA y sin SGAE
+    base_net = base_gross - fees_net              # …y sin los gastos de gestión de la ticketera
+
     # --- Comisiones ---
     # Las de tipo «% sobre el beneficio» se calculan en una 2ª pasada (necesitan el beneficio
     # antes de comisiones), tras conocer ingresos y el resto de gastos.
@@ -279,8 +295,15 @@ def evaluate(prep, tickets_sold):
             commissions_on_profit.append((_ci, c))
             continue
         if c["mode"] == "VARIABLE":
-            base_taquilla = max(taquilla - c["exempt_amount"], 0.0)
-            net = variable_amount(c["cfg"], tickets_sold, base_taquilla, avg)
+            _vt = (c["cfg"].get("var_type") or "").upper()
+            if _vt in ("PERCENT_GROSS", "PERCENT_NET"):
+                # ⚠️ SOBRE EL INGRESO, bruto o neto (sep 2026, lo pidió Dani): antes «bruto» y
+                # «neto» iban los dos sobre la taquilla —que lleva la SGAE dentro— y eran lo mismo.
+                _base = max((base_gross if _vt == "PERCENT_GROSS" else base_net) - c["exempt_amount"], 0.0)
+                net = (_f(c["cfg"].get("var_value")) / 100.0) * _base
+            else:
+                base_taquilla = max(taquilla - c["exempt_amount"], 0.0)
+                net = variable_amount(c["cfg"], tickets_sold, base_taquilla, avg)
             if c["includes_iva"]:
                 net = net / (1.0 + IVA_GENERAL)
         else:
@@ -299,14 +322,8 @@ def evaluate(prep, tickets_sold):
         prod_net_total += net
         prod_by_cat[p["category"]] = prod_by_cat.get(p["category"], 0.0) + net
 
-    # --- GASTOS DE GESTIÓN de la ticketera (lo que se queda por vender) ---
-    # ⚠️ Son MENOS INGRESO, no un gasto de producción: es dinero de la venta que nunca llega. Así el
-    # «ingreso neto» (la base con la que cobran algunos socios y comisionistas) es de verdad lo que
-    # entra por la puerta.
-    fees_net = (prep.get("fee_per_ticket_net") or 0.0) * tickets_sold
-    if prep.get("fee_pct"):
-        fees_net += (prep["fee_pct"] / 100.0) * taquilla / (1.0 + IVA_GENERAL)
-
+    # ⚠️ Los GASTOS DE GESTIÓN (`fees_net`, calculados arriba con las bases) son MENOS INGRESO, no
+    # un gasto de producción: es dinero de la venta que nunca llega.
     # --- Ingresos ---
     rebate = max(REBATE_PCT * taquilla - REBATE_PER_TICKET * tickets_sold, 0.0)
     barras = (BARRAS_PER_TICKET * tickets_sold) if prep["allows_bars"] else 0.0
@@ -335,8 +352,33 @@ def evaluate(prep, tickets_sold):
             com_each[_ci] = net
             com_net_total += net
 
-    gastos_total = cache_net_total + retention_added + com_net_total + prod_net_total
+    # --- SOCIOS que cobran sobre el INGRESO: son un gasto más (cobran haya o no beneficio) ---
+    socios_net = 0.0
+    socios_each = [0.0] * len(prep.get("partners") or [])
+    for _pi, pr in enumerate(prep.get("partners") or []):
+        if pr["base"] == "PROFIT" or not pr["pct"]:
+            continue
+        importe = (pr["pct"] / 100.0) * (base_net if pr["base"] == "NET" else base_gross)
+        socios_each[_pi] = importe
+        socios_net += importe
+
+    gastos_total = cache_net_total + retention_added + com_net_total + prod_net_total + socios_net
     resultado = ingresos_total - gastos_total
+
+    # --- Y el REPARTO del beneficio entre los que cobran sobre él ---
+    # ⚠️ Sin beneficio se quedan a 0; una pérdida solo se la reparten los que la SOPORTAN, en su
+    # proporción (si ninguno la soporta, la pérdida se queda en la casa).
+    reparto = [pr for pr in (prep.get("partners") or []) if pr["base"] == "PROFIT" and pr["pct"]]
+    if reparto:
+        if resultado >= 0:
+            for _pi, pr in enumerate(prep.get("partners") or []):
+                if pr["base"] == "PROFIT" and pr["pct"]:
+                    socios_each[_pi] = (pr["pct"] / 100.0) * resultado
+        else:
+            suma = sum(pr["pct"] for pr in reparto if pr["bears_losses"])
+            for _pi, pr in enumerate(prep.get("partners") or []):
+                if pr["base"] == "PROFIT" and pr["pct"] and pr["bears_losses"] and suma > 0:
+                    socios_each[_pi] = resultado * (pr["pct"] / suma)
 
     return {
         "tickets": tickets_sold,
@@ -352,9 +394,12 @@ def evaluate(prep, tickets_sold):
             "caches": cache_net_total, "retenciones": retention_added,
             "retenciones_total": retention_total, "comisiones": com_net_total,
             "produccion": prod_net_total, "produccion_por_categoria": prod_by_cat,
+            # Lo que se llevan los socios que cobran sobre el ingreso (los de beneficio no son gasto).
+            "socios": socios_net,
             "total": gastos_total,
         },
         "comisiones_detalle": com_each,
+        "socios_detalle": socios_each,
         "resultado": resultado,
     }
 
@@ -412,9 +457,14 @@ def series_fine(prep):
                 "caches": round(g["caches"], 2),
                 "retenciones": round(g["retenciones"], 2),
                 "comisiones": round(g["comisiones"], 2),
+                "socios": round(g.get("socios") or 0.0, 2),
                 "prod": {k: round(v, 2) for k, v in (g["produccion_por_categoria"] or {}).items()},
             },
             "com": [round(x, 2) for x in (ev.get("comisiones_detalle") or [])],
+            # Lo que se lleva CADA SOCIO en ese punto (mismo orden que `partners`): lo decide el
+            # motor, no la pantalla — cada uno con su base y su «soporta pérdidas».
+            "soc": [round(x, 2) for x in (ev.get("socios_detalle") or [])],
+            "bases": {k: round(v, 2) for k, v in (ev.get("bases") or {}).items()},
         })
     return out
 

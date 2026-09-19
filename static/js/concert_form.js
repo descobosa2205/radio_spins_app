@@ -31,12 +31,22 @@
   // ---------------------------------------------------------------- helpers
   function cfData() { return window.CONCERT_FORM || {}; }
 
+  /* SOBRE QUÉ SE COBRA. Las tres bases de la casa (lo pidió Dani, sep 2026):
+       · BRUTO    = el ingreso sin IVA y sin SGAE;
+       · NETO     = ese bruto menos los gastos de gestión de la ticketera;
+       · BENEFICIO = lo que queda tras TODOS los gastos (incluidas las comisiones de otros).
+     ⚠️ Lo que se cobra sobre el INGRESO se cobra haya o no beneficio, así que es un gasto más de
+     la actividad; lo que se cobra sobre el BENEFICIO, si no hay, es cero. */
   function moneyBaseSelect(name, selected) {
-    var g = (selected === 'NET') ? '' : ' selected';
-    var n = (selected === 'NET') ? ' selected' : '';
+    var sel = (selected || 'GROSS').toUpperCase();
+    function opt(v, t, title) {
+      return '<option value="' + v + '"' + (sel === v ? ' selected' : '') + ' title="' + title + '">' + t + '</option>';
+    }
     return '<select name="' + name + '" class="form-select">'
-      + '<option value="GROSS"' + g + '>Bruto</option>'
-      + '<option value="NET"' + n + '>Neto</option></select>';
+      + opt('GROSS', 'Ingreso bruto', 'El ingreso sin IVA y sin SGAE')
+      + opt('NET', 'Ingreso neto', 'Sin IVA, sin SGAE y sin los gastos de gestión de la ticketera')
+      + opt('PROFIT', 'Beneficio', 'Lo que queda tras todos los gastos, incluidas las comisiones de otros')
+      + '</select>';
   }
 
   /* El TIPO DE GASTO: el MISMO catálogo de siempre (`SIM_EXPENSE_CATEGORIES`), que la página deja
@@ -160,6 +170,16 @@
         + '<div class="col-md-2"><label class="form-label small">Base %</label>' + moneyBaseSelect('company_share_pct_base[]') + '</div>'
         + '<div class="col-md-2"><label class="form-label small">Fijo (€)</label><input type="number" step="0.01" name="company_share_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-1"><label class="form-label small">Base fijo</label>' + moneyBaseSelect('company_share_amount_base[]') + '</div>'
+        /* ⚠️⚠️ ¿SOPORTA LAS PÉRDIDAS? (lo pidió Dani: «esto es muy importante»). Con reparto sobre
+           el BENEFICIO: si la actividad pierde, quien las soporta se come su parte y quien no, se
+           queda a cero. Por defecto SÍ, que es lo que es ser socio. */
+        + '<div class="col-md-3"><label class="form-label small">¿Soporta pérdidas?</label>'
+        /* ⚠️ Un SELECT, no una casilla: en una lista de filas (`name[]`) una casilla sin marcar no
+           envía nada y las filas se desalinean — la trampa de siempre con los campos repetidos. */
+        +   '<select name="company_share_bears_losses[]" class="form-select">'
+        +     '<option value="1" selected>Sí, su parte de la pérdida</option>'
+        +     '<option value="0">No, nunca pone dinero</option>'
+        +   '</select></div>'
         + del + '</div>');
     }
     if (type === 'promoter-share') {
@@ -169,6 +189,16 @@
         + '<div class="col-md-2"><label class="form-label small">Base %</label>' + moneyBaseSelect('promoter_share_pct_base[]') + '</div>'
         + '<div class="col-md-2"><label class="form-label small">Fijo (€)</label><input type="number" step="0.01" name="promoter_share_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-1"><label class="form-label small">Base fijo</label>' + moneyBaseSelect('promoter_share_amount_base[]') + '</div>'
+        /* ⚠️⚠️ ¿SOPORTA LAS PÉRDIDAS? (lo pidió Dani: «esto es muy importante»). Con reparto sobre
+           el BENEFICIO: si la actividad pierde, quien las soporta se come su parte y quien no, se
+           queda a cero. Por defecto SÍ, que es lo que es ser socio. */
+        + '<div class="col-md-3"><label class="form-label small">¿Soporta pérdidas?</label>'
+        /* ⚠️ Un SELECT, no una casilla: en una lista de filas (`name[]`) una casilla sin marcar no
+           envía nada y las filas se desalinean — la trampa de siempre con los campos repetidos. */
+        +   '<select name="promoter_share_bears_losses[]" class="form-select">'
+        +     '<option value="1" selected>Sí, su parte de la pérdida</option>'
+        +     '<option value="0">No, nunca pone dinero</option>'
+        +   '</select></div>'
         + del + '</div>');
     }
     if (type === 'zone') {

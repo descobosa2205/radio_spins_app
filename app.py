@@ -55434,8 +55434,11 @@ def _norm_status(val: str | None) -> str:
     return "BORRADOR"
 
 
-def _parse_share_rows(ids, pct_list, pct_base_list, amount_list, amount_base_list):
-    """Devuelve lista de dicts con id, pct, pct_base, amount, amount_base (dedupe por id)."""
+def _parse_share_rows(ids, pct_list, pct_base_list, amount_list, amount_base_list, losses_list=None):
+    """Devuelve lista de dicts con id, pct, pct_base, amount, amount_base y bears_losses.
+
+    ⚠️ `bears_losses` («¿soporta las pérdidas?») viene de un SELECT, no de una casilla: en una lista
+    de filas una casilla sin marcar no se envía y las filas se desalinean."""
     rows = []
     for i, sid in enumerate(ids or []):
         sid = (sid or "").strip()
@@ -55455,6 +55458,9 @@ def _parse_share_rows(ids, pct_list, pct_base_list, amount_list, amount_base_lis
             "pct_base": _norm_base(pct_base_list[i] if i < len(pct_base_list) else None),
             "amount": amt,
             "amount_base": _norm_base(amount_base_list[i] if i < len(amount_base_list) else None),
+            # Por defecto SÍ las soporta, que es lo que es ser socio.
+            "bears_losses": (str((losses_list or [])[i]).strip() not in ("0", "false", "no")
+                             if (losses_list and i < len(losses_list)) else True),
         })
 
     # dedupe (último gana)
@@ -55479,6 +55485,7 @@ def _replace_concert_promoter_shares(session, concert_id, rows):
                 pct_base=r["pct_base"],
                 amount=r["amount"],
                 amount_base=r["amount_base"],
+                bears_losses=bool(r.get("bears_losses", True)),
             )
         )
 
@@ -55495,6 +55502,7 @@ def _replace_concert_company_shares(session, concert_id, rows):
                 pct_base=r["pct_base"],
                 amount=r["amount"],
                 amount_base=r["amount_base"],
+                bears_losses=bool(r.get("bears_losses", True)),
             )
         )
 
@@ -69824,6 +69832,7 @@ def concerts_page():
                         request.form.getlist("promoter_share_pct_base[]"),
                         request.form.getlist("promoter_share_amount[]"),
                         request.form.getlist("promoter_share_amount_base[]"),
+                        request.form.getlist("promoter_share_bears_losses[]"),
                     )
                     _replace_concert_promoter_shares(s, c.id, p_rows)
 
@@ -69833,6 +69842,7 @@ def concerts_page():
                         request.form.getlist("company_share_pct_base[]"),
                         request.form.getlist("company_share_amount[]"),
                         request.form.getlist("company_share_amount_base[]"),
+                        request.form.getlist("company_share_bears_losses[]"),
                     )
                     _replace_concert_company_shares(s, c.id, g_rows)
 
@@ -73771,6 +73781,7 @@ def concert_section_update_handler(cid, section):
                 request.form.getlist("promoter_share_pct_base[]"),
                 request.form.getlist("promoter_share_amount[]"),
                 request.form.getlist("promoter_share_amount_base[]"),
+                request.form.getlist("promoter_share_bears_losses[]"),
             )
             _replace_concert_promoter_shares(session, c.id, p_rows)
             g_rows = _parse_share_rows(
@@ -73779,6 +73790,7 @@ def concert_section_update_handler(cid, section):
                 request.form.getlist("company_share_pct_base[]"),
                 request.form.getlist("company_share_amount[]"),
                 request.form.getlist("company_share_amount_base[]"),
+                request.form.getlist("company_share_bears_losses[]"),
             )
             _replace_concert_company_shares(session, c.id, g_rows)
             session.commit()
@@ -122447,6 +122459,21 @@ def _concert_build_calc_data(s, concert):
     if not categories and concert.capacity and not concert.no_capacity:
         categories.append({"zone": "PISTA", "quantity": int(concert.capacity or 0), "invitations": 0, "price_net": 0.0, "extras": []})
     ticket_fees = _concert_ticket_fees(s, concert)
+    # LOS SOCIOS, al motor: quien cobra sobre el INGRESO es un gasto más y quien cobra sobre el
+    # BENEFICIO reparte lo que queda (y solo se come la pérdida si la soporta).
+    partners_in = []
+    for sh in (getattr(concert, "company_shares", None) or []):
+        if not sh.pct:
+            continue
+        partners_in.append({"key": "company:%s" % sh.company_id, "pct": _ff(sh.pct),
+                            "base": (sh.pct_base or "PROFIT"),
+                            "bears_losses": bool(getattr(sh, "bears_losses", True))})
+    for sh in (getattr(concert, "promoter_shares", None) or []):
+        if not sh.pct:
+            continue
+        partners_in.append({"key": "promoter:%s" % sh.promoter_id, "pct": _ff(sh.pct),
+                            "base": (sh.pct_base or "PROFIT"),
+                            "bears_losses": bool(getattr(sh, "bears_losses", True))})
     caches = []
     for c in (getattr(concert, "caches", None) or []):
         kind = (c.kind or "FIXED").upper()
@@ -122466,7 +122493,12 @@ def _concert_build_calc_data(s, concert):
                                 "includes_iva": (a.commission_amount_base or "").upper() == "GROSS",
                                 "exempt_amount": _ff(a.exempt_amount)})
         else:
-            vt = "PERCENT_PROFIT" if (a.commission_base or "").upper() == "PROFIT" else "PERCENT"
+            # ⚠️⚠️ LAS TRES BASES, de verdad (sep 2026, lo pidió Dani): «bruto» y «neto» iban las
+            # dos sobre la taquilla —que lleva la SGAE dentro— y eran lo mismo. Ahora: BRUTO = el
+            # ingreso sin IVA ni SGAE · NETO = ese menos los gastos de gestión de la ticketera ·
+            # BENEFICIO = lo que queda tras todos los gastos.
+            vt = {"PROFIT": "PERCENT_PROFIT", "NET": "PERCENT_NET"}.get(
+                (a.commission_base or "").upper(), "PERCENT_GROSS")
             commissions.append({"mode": "VARIABLE", "var_type": vt, "var_value": _ff(a.commission_pct),
                                 "includes_iva": False, "exempt_amount": _ff(a.exempt_amount)})
     production = []
@@ -122481,6 +122513,7 @@ def _concert_build_calc_data(s, concert):
         "income_overrides": {},
         # Lo que se lleva la ticketera por vender (solo si promueve una empresa del grupo).
         "ticket_fees": ticket_fees,
+        "partners": partners_in,
     }
 
 
@@ -122524,22 +122557,30 @@ def _concert_result_module_payload(s, concert, calc, label=None):
     for pt in (calc.get("series_fine") or []):
         fine.append({"pct": pt["pct"], "tickets": pt["tickets"], "ingresos": pt["ingresos"],
                      "gastos": pt["gastos"], "resultado": pt["resultado"],
-                     "g": dict(pt.get("g") or {}), "com": list(pt.get("com") or [])})
+                     "g": dict(pt.get("g") or {}), "com": list(pt.get("com") or []),
+                     # Lo que se lleva CADA SOCIO en ese punto, y las tres bases del punto.
+                     "soc": list(pt.get("soc") or []), "bases": dict(pt.get("bases") or {})})
     be_pct = be_tickets = None
     for pt in fine:
         if pt["resultado"] >= 0:
             be_pct = pt["pct"]; be_tickets = pt["tickets"]; break
+    # ⚠️ EL MISMO ORDEN que `partners` del motor (empresas y luego terceros): cada socio se pinta
+    # con lo que el motor ha calculado para él (`soc[i]`), no con una cuenta aparte en la pantalla.
     partners = []
     for sh in (getattr(concert, "company_shares", None) or []):
         if not sh.pct:
             continue
         partners.append({"name": (sh.company.name if sh.company else "Empresa"), "logo": ((sh.company.logo_url if sh.company else "") or ""),
-                         "pct": float(_sim_d(sh.pct)), "company_id": (str(sh.company_id) if sh.company_id else ""), "promoter_id": "", "label": "", "no_loss": False})
+                         "pct": float(_sim_d(sh.pct)), "company_id": (str(sh.company_id) if sh.company_id else ""), "promoter_id": "", "label": "",
+                         "base": (sh.pct_base or "PROFIT").upper(),
+                         "no_loss": (not bool(getattr(sh, "bears_losses", True)))})
     for sh in (getattr(concert, "promoter_shares", None) or []):
         if not sh.pct:
             continue
         partners.append({"name": (sh.promoter.nick if sh.promoter else "Socio"), "logo": ((sh.promoter.logo_url if sh.promoter else "") or ""),
-                         "pct": float(_sim_d(sh.pct)), "company_id": "", "promoter_id": (str(sh.promoter_id) if sh.promoter_id else ""), "label": "", "no_loss": False})
+                         "pct": float(_sim_d(sh.pct)), "company_id": "", "promoter_id": (str(sh.promoter_id) if sh.promoter_id else ""), "label": "",
+                         "base": (sh.pct_base or "PROFIT").upper(),
+                         "no_loss": (not bool(getattr(sh, "bears_losses", True)))})
     commissions_meta = []
     for a in sorted((getattr(concert, "zone_agents", None) or []), key=lambda x: (x.created_at or datetime.min)):
         name = (a.concept or "").strip() or (a.promoter.nick if a.promoter else "Comisionista")

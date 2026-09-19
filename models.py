@@ -3610,6 +3610,10 @@ class ConcertPromoterShare(Base):
     # % (0..100) opcional si hay amount
     pct = Column(Integer)
     pct_base = Column(Text)  # GROSS | NET | PROFIT
+    # ⚠️ ¿SOPORTA LAS PÉRDIDAS? (lo pidió Dani, sep 2026: «esto es muy importante»). Con reparto
+    # sobre el BENEFICIO: si la actividad pierde, quien las soporta se come su parte proporcional y
+    # quien no, se queda a 0. Por defecto SÍ, que es lo que es ser socio.
+    bears_losses = Column(Boolean, nullable=False, server_default=text("true"))
 
     # fijo opcional
     amount = Column(Numeric)
@@ -3629,7 +3633,11 @@ class ConcertCompanyShare(Base):
 
     # % (0..100) opcional si hay amount
     pct = Column(Integer)
-    pct_base = Column(Text)  # GROSS | NET
+    pct_base = Column(Text)  # GROSS | NET | PROFIT
+    # ⚠️ ¿SOPORTA LAS PÉRDIDAS? (lo pidió Dani, sep 2026: «esto es muy importante»). Con reparto
+    # sobre el BENEFICIO: si la actividad pierde, quien las soporta se come su parte proporcional y
+    # quien no, se queda a 0. Por defecto SÍ, que es lo que es ser socio.
+    bears_losses = Column(Boolean, nullable=False, server_default=text("true"))
 
     # fijo opcional
     amount = Column(Numeric)
@@ -13492,6 +13500,9 @@ def ensure_enterticket_schema():
         # GASTOS DE GESTIÓN de la ticketera: los suyos por defecto y los de cada evento.
         # ⚠️ Una columna nueva, SU propia sentencia (la regla de la casa: metida en un DO $$ con
         # guarda podría no ejecutarse nunca y la app reventaría al leerla).
+        # ¿El socio soporta las pérdidas? (una columna nueva, SU propia sentencia).
+        "ALTER TABLE IF EXISTS concert_promoter_shares ADD COLUMN IF NOT EXISTS bears_losses boolean NOT NULL DEFAULT true;",
+        "ALTER TABLE IF EXISTS concert_company_shares ADD COLUMN IF NOT EXISTS bears_losses boolean NOT NULL DEFAULT true;",
         "ALTER TABLE IF EXISTS ticketers ADD COLUMN IF NOT EXISTS fee_fixed_gross numeric;",
         "ALTER TABLE IF EXISTS ticketers ADD COLUMN IF NOT EXISTS fee_pct numeric;",
         "ALTER TABLE IF EXISTS concert_ticketers ADD COLUMN IF NOT EXISTS fee_fixed_gross numeric;",

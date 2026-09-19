@@ -1131,4 +1131,27 @@ el cartel dependía de ese número, cuando lo que decía era cómo iba la venta 
   **BRUTO** (ingreso sin IVA ni SGAE) · **NETO** (ese menos los gastos de gestión) · **BENEFICIO**
   (lo que queda tras todos los gastos).
   ⚠️ El punto de empate **sube** al descontarlos: es lo que de verdad hay que vender.
-  ⚠️ Prueba de regresión: `tools/check_resultado.py` (25 comprobaciones).
+  ⚠️ Prueba de regresión: `tools/check_resultado.py`.
+
+- ⚠️⚠️ **SOCIOS Y COMISIONISTAS: SOBRE QUÉ COBRAN, Y QUIÉN SOPORTA LAS PÉRDIDAS** (sep 2026, lo
+  pidió Dani). Las **tres bases** de la casa, iguales para un socio y para un comisionista:
+  · **Ingreso BRUTO** — el ingreso sin IVA y sin SGAE;
+  · **Ingreso NETO** — ese menos los **gastos de gestión de la ticketera**;
+  · **BENEFICIO** — lo que queda tras TODOS los gastos (incluidas las comisiones de otros).
+  ⚠️⚠️ Antes **«bruto» y «neto» eran lo mismo**: las dos iban sobre la taquilla (que lleva la SGAE
+  dentro). El modelo ya guardaba la base (`commission_base` · `pct_base`), pero el motor no la
+  distinguía. Ahora el motor las calcula en cada punto de la serie (`bases`) y el adaptador manda
+  `PERCENT_GROSS` · `PERCENT_NET` · `PERCENT_PROFIT`.
+  · **QUIEN COBRA SOBRE EL INGRESO ES UN GASTO MÁS** de la actividad: cobra haya o no beneficio, así
+  que entra en el resultado y **sube el punto de empate** («si cobra sobre ingreso sí cobraría y se
+  metería como un gasto más»).
+  · **QUIEN COBRA SOBRE EL BENEFICIO** reparte lo que queda; si no hay beneficio, **cero**.
+  ⚠️⚠️ **Y SI SE PIERDE** (`ConcertPromoterShare.bears_losses` · `ConcertCompanyShare.bears_losses`,
+  «esto es muy importante»): quien **soporta** las pérdidas se come **su parte proporcional** y quien
+  **no**, se queda a **cero** (la pérdida se reparte entre los que sí, en su proporción).
+  ⚠️ Lo calcula el MOTOR y lo pinta la pantalla (`soc[i]` por punto): el reparto no se vuelve a
+  calcular en el navegador, que es como se desparejan dos números.
+  · En el módulo, cada socio va con **su logo o su foto** (redonda, 44 px), **sobre qué cobra** y, si
+  no las soporta, su etiqueta **«No soporta pérdidas»**.
+  ⚠️ En el formulario, «¿Soporta pérdidas?» es un **`<select>`, no una casilla**: en una lista de
+  filas (`name[]`) una casilla sin marcar no se envía y las filas se desalinean.

@@ -253,17 +253,16 @@
           <div class="media-step d-none" data-step="2">
             <div class="d-flex justify-content-between align-items-center mb-3">
               <div class="sw-step__q m-0"><i class="fa fa-address-book me-2 text-danger"></i>Contactos del medio</div>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="addMediaContactRow"><i class="fa fa-plus me-1"></i>Añadir contacto</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-mc-new data-mc-pending="1"><i class="fa fa-user-plus me-1"></i>Añadir contacto</button>
             </div>
-            <div id="mediaContactRows">
-              <div class="row g-2 media-contact-row mb-2">
-                <div class="col-md-3"><input type="text" name="contact_program" class="form-control" placeholder="Programa"></div>
-                <div class="col-md-2"><input type="text" name="contact_role" class="form-control" placeholder="Cargo"></div>
-                <div class="col-md-2"><input type="text" name="contact_first_name" class="form-control" placeholder="Nombre"></div>
-                <div class="col-md-2"><input type="text" name="contact_last_name" class="form-control" placeholder="Apellidos"></div>
-                <div class="col-md-1"><input type="text" name="contact_phone" class="form-control" placeholder="Tel."></div>
-                <div class="col-md-2"><input type="email" name="contact_email" class="form-control" placeholder="Email"></div>
-              </div>
+            {# ⚠️⚠️ EL MISMO POP-UP QUE EN LA FICHA (sep 2026, lo pidió Dani: «exactamente igual,
+               mismas funcionalidades»): se busca entre los terceros que ya tenemos —una persona de
+               un medio ES un tercero— y solo se pide lo que falta. Antes aquí había seis casillas
+               sueltas, así que por este camino se creaban personas repetidas.
+               ⚠️ El medio todavía no existe: el pop-up deja cada contacto apuntado aquí (campos
+               ocultos) y se crean todos al guardar el medio. #}
+            <div id="mediaContactRows" data-mc-pending-list>
+              <div class="text-muted small" data-mc-pending-empty>Todavía no has añadido a nadie.</div>
             </div>
           </div>
         </div>
@@ -338,20 +337,14 @@
   prevBtn?.addEventListener('click', () => { currentStep = 1; syncSteps(); });
   syncSteps();
 
-  const rowsWrap = document.getElementById('mediaContactRows');
-  document.getElementById('addMediaContactRow')?.addEventListener('click', function(){
-    const row = document.createElement('div');
-    row.className = 'row g-2 media-contact-row mb-2';
-    row.innerHTML = '<div class="col-md-3"><input type="text" name="contact_program" class="form-control" placeholder="Programa"></div><div class="col-md-2"><input type="text" name="contact_role" class="form-control" placeholder="Cargo"></div><div class="col-md-2"><input type="text" name="contact_first_name" class="form-control" placeholder="Nombre"></div><div class="col-md-2"><input type="text" name="contact_last_name" class="form-control" placeholder="Apellidos"></div><div class="col-md-1"><input type="text" name="contact_phone" class="form-control" placeholder="Tel."></div><div class="col-md-1"><input type="email" name="contact_email" class="form-control" placeholder="Email"></div><div class="col-md-1 d-grid"><button type="button" class="btn btn-outline-danger remove-media-contact"><i class="fa fa-trash"></i></button></div>';
-    rowsWrap.appendChild(row);
-  });
-  rowsWrap?.addEventListener('click', function(ev){
-    const btn = ev.target.closest('.remove-media-contact');
-    if (!btn) return;
-    btn.closest('.media-contact-row')?.remove();
-  });
+  /* ⚠️ Los contactos se añaden con EL MISMO POP-UP que en la ficha del medio
+     (`static/js/media_contacts.js`, modo `data-mc-pending`): busca entre los terceros que ya
+     tenemos y solo pide lo que falta. Aquí ya no hay casillas sueltas que rellenar a mano. */
 })();
 </script>
+{# El pop-up de un contacto: EL MISMO que en la ficha del medio. #}
+{% include '_media_contact_modal.html' %}
+<script src="{{ url_for('static', filename='js/media_contacts.js', v=ASSET_V) }}"></script>
 {% include '_merge_modal.html' %}
 {% include '_dup_pairs_js.html' %}
 {% endblock %}

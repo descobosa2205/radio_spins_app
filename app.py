@@ -116899,16 +116899,25 @@ def media_outlets_view():
             session_db.add(outlet)
             session_db.flush()
             _apply_media_tags(session_db, outlet, request.form.getlist("media_tags[]"), present=True)
+            # ⚠️⚠️ LOS CONTACTOS DEL ALTA SE CREAN COMO LOS DE LA FICHA (sep 2026, lo pidió Dani:
+            # «exactamente igual, mismas funcionalidades»): vienen del MISMO pop-up, así que pueden
+            # traer la FICHA DE TERCERO ya elegida (`contact_promoter_id`) y sus interruptores. Una
+            # persona de un medio ES un tercero: se engancha su ficha o se le crea (punto único
+            # `_media_contact_promoter`), nunca se duplica.
             programs = request.form.getlist("contact_program")
             roles = request.form.getlist("contact_role")
             first_names = request.form.getlist("contact_first_name")
             last_names = request.form.getlist("contact_last_name")
             phones = request.form.getlist("contact_phone")
             emails = request.form.getlist("contact_email")
-            for program, role, first_name, last_name, phone, email in zip(programs, roles, first_names, last_names, phones, emails):
+            promoter_ids = request.form.getlist("contact_promoter_id")
+            presses = request.form.getlist("contact_press")
+            radios = request.form.getlist("contact_radio")
+            for i, (program, role, first_name, last_name, phone, email) in enumerate(
+                    zip(programs, roles, first_names, last_names, phones, emails)):
                 if not any([(program or "").strip(), (role or "").strip(), (first_name or "").strip(), (last_name or "").strip(), (phone or "").strip(), (email or "").strip()]):
                     continue
-                session_db.add(MediaContact(
+                contacto = MediaContact(
                     media_id=outlet.id,
                     program=(program or "").strip() or None,
                     role=(role or "").strip() or None,
@@ -116916,7 +116925,21 @@ def media_outlets_view():
                     last_name=(last_name or "").strip() or None,
                     phone=(phone or "").strip() or None,
                     email=(email or "").strip() or None,
-                ))
+                    press_releases=((presses[i] if i < len(presses) else "0") == "1"),
+                    radio_pitch=((radios[i] if i < len(radios) else "0") == "1"),
+                )
+                session_db.add(contacto)
+                session_db.flush()
+                try:
+                    prom = _media_contact_promoter(session_db, contacto, {
+                        "promoter_id": (promoter_ids[i] if i < len(promoter_ids) else ""),
+                        "full_name": " ".join([x for x in [(first_name or "").strip(), (last_name or "").strip()] if x]),
+                        "nick": "", "email": (email or ""), "phone": (phone or ""), "role": (role or ""),
+                    }, outlet.id)
+                    if prom is not None:
+                        contacto.promoter_id = prom.id
+                except Exception:
+                    app.logger.exception("[medios] no se pudo enganchar la ficha de tercero del contacto")
             session_db.commit()
             flash("Medio creado.", "success")
             return redirect(url_for("media_outlet_detail_view", media_id=outlet.id))
@@ -116964,6 +116987,9 @@ def media_outlets_view():
             app.logger.exception("[medios] no se pudieron contar las etiquetas")
         return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES,
                                selected_types=f_types, query_text=q, country_options=country_options_es(),
+                               # El pop-up de un contacto es el MISMO que en la ficha del medio, y
+                               # necesita su lista de programas (aquí, todavía sin medio, va vacía).
+                               media_programs=[],
                                media_import_pending=_media_import_pending(session_db),
                                # Las fichas repetidas se buscan sobre TODOS los medios, no sobre lo
                                # que deje ver el filtro: un duplicado escondido detrás de un filtro

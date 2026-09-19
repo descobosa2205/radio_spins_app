@@ -112,10 +112,51 @@
     caja.classList.remove('d-none');
   }
 
+  /* ⚠️⚠️ EL ALTA DE UN MEDIO usa ESTE MISMO pop-up (sep 2026, lo pidió Dani: «exactamente igual,
+     mismas funcionalidades»). Ahí el medio TODAVÍA NO EXISTE, así que no se puede guardar contra el
+     servidor: la persona elegida se deja apuntada en el formulario del alta (campos ocultos con los
+     mismos `name` que ya lee el endpoint) y se crea todo junto al guardar el medio. */
+  function listaPendiente() { return document.querySelector('[data-mc-pending-list]'); }
+  function esPendiente() { var m = modal(); return !!(m && m.dataset.mcPending === '1' && listaPendiente()); }
+
+  function pintaPendiente(datos) {
+    var lista = listaPendiente();
+    if (!lista) return;
+    var vacio = lista.querySelector('[data-mc-pending-empty]');
+    if (vacio) vacio.remove();
+    var nombre = (datos.full || datos.nick || datos.email || 'Contacto').trim();
+    var sub = [datos.role, datos.program, datos.email, datos.phone].filter(Boolean).join(' · ');
+    var fila = document.createElement('div');
+    fila.className = 'ci-guest mb-2';
+    fila.innerHTML =
+      '<span class="ci-guest__ph"><i class="fa fa-user"></i></span>' +
+      '<span class="ci-guest__t"><b></b><small></small></span>' +
+      '<button type="button" class="btn btn-sm btn-link text-danger" data-mc-pending-del title="Quitar">' +
+        '<i class="fa fa-xmark"></i></button>';
+    fila.querySelector('b').textContent = nombre;
+    fila.querySelector('small').textContent = sub || (datos.promoter_id ? 'Ficha de tercero' : 'Se le creará su ficha');
+    /* Los mismos `name` que ya lee el alta del medio, y el id de su ficha si se eligió una. */
+    [['contact_promoter_id', datos.promoter_id || ''], ['contact_program', datos.program || ''],
+     ['contact_role', datos.role || ''], ['contact_first_name', datos.first_name || ''],
+     ['contact_last_name', datos.last_name || ''], ['contact_phone', datos.phone || ''],
+     ['contact_email', datos.email || ''], ['contact_press', datos.press ? '1' : '0'],
+     ['contact_radio', datos.radio ? '1' : '0']].forEach(function (par) {
+      var i = document.createElement('input');
+      i.type = 'hidden'; i.name = par[0]; i.value = par[1];
+      fila.appendChild(i);
+    });
+    lista.appendChild(fila);
+  }
+
   document.addEventListener('click', function (ev) {
+    var quita = ev.target.closest('[data-mc-pending-del]');
+    if (quita) { ev.preventDefault(); quita.closest('.ci-guest').remove(); return; }
+
     var nuevo = ev.target.closest('[data-mc-new]');
     if (nuevo) {
       ev.preventDefault();
+      var m0 = modal();
+      if (m0) m0.dataset.mcPending = (nuevo.getAttribute('data-mc-pending') === '1' ? '1' : '');
       /* Desde «Añadir quien lo recibe» (el módulo de presentaciones a radio) el contacto nace ya
          marcado para recibirlas: es a lo que se ha entrado. */
       abrir(nuevo.getAttribute('data-mc-radio') ? { radio: true } : null);
@@ -231,6 +272,37 @@
         .catch(function () { caja.innerHTML = ''; });
     }, 280);
   });
+
+  /* ⚠️⚠️ EN EL ALTA DE UN MEDIO el pop-up NO envía nada: el medio todavía no existe. La persona
+     se apunta en el formulario del alta y se crea todo junto al guardar el medio. */
+  document.addEventListener('submit', function (ev) {
+    var m = modal();
+    if (!m || !esPendiente() || !m.contains(ev.target)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var val = function (k) { var el = campo(k); return el ? (el.value || '').trim() : ''; };
+    var marcado = function (k) { var el = campo(k); return !!(el && el.checked); };
+    var completo = val('full');
+    var trozos = completo.split(/\s+/);
+    if (!completo && !val('nick') && !val('email')) {
+      alert('Escribe al menos su nombre o su correo.');
+      return;
+    }
+    pintaPendiente({
+      promoter_id: val('promoter_id'),
+      nick: val('nick'),
+      full: completo || val('nick'),
+      first_name: (trozos[0] || ''),
+      last_name: trozos.slice(1).join(' '),
+      program: val('program'), role: val('role'),
+      phone: val('phone'), email: val('email'),
+      press: marcado('press'), radio: marcado('radio')
+    });
+    if (window.bootstrap) {
+      var inst = bootstrap.Modal.getInstance(m);
+      if (inst) inst.hide();
+    }
+  }, true);
 
   /* ---------- Los interruptores de NOTAS DE PRENSA y de PRESENTACIONES A RADIO ----------
      ⚠️ El MISMO motor para los dos: se guarda al momento y, si falla, el interruptor vuelve a

@@ -686,6 +686,20 @@
   ⚠️⚠️ La función que pinta a quien se ha elegido se llama **`pintaElegido`, no `pinta`**: en ese
   fichero ya hay una `pinta()` (la de las sugerencias de programa) y en JS la última definición
   PISA a la anterior — la trampa de siempre de los nombres repetidos.
+  · ⚠️⚠️ **Y EN EL ALTA DE UN MEDIO, EL MISMO POP-UP** (sep 2026, lo pidió Dani: «tiene que
+  funcionar igual que cuando ya está creado, exactamente igual, mismas funcionalidades»). Ahí había
+  **seis casillas sueltas** (programa, cargo, nombre, apellidos, teléfono, correo), así que por ese
+  camino se escribían personas **a mano** y se creaban repetidas — justo lo que evita el pop-up.
+    · El pop-up vive ya en **`templates/_media_contact_modal.html`** y lo incluyen **las dos**
+      pantallas; el JS es el mismo (`media_contacts.js`).
+    · En el alta, el medio **todavía no existe**, así que el pop-up **no guarda contra el servidor**
+      (`data-mc-pending`): deja a cada persona apuntada en el formulario con los **mismos `name`**
+      que ya leía el alta (`contact_program` · `contact_role` · …) más `contact_promoter_id`,
+      `contact_press` y `contact_radio`, y **se crea todo junto** al guardar el medio.
+    · Al crear el medio, cada contacto pasa por el **punto único `_media_contact_promoter`**: se
+      engancha su ficha de tercero si ya existe (comprobado: no se duplica) o se le crea.
+    ⚠️ El parcial lee `media_programs|default([])`: en el alta no hay programas que sugerir y sin
+    eso la pantalla de Medios se caía con un 500.
 
 - ⚠️⚠️ **UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA** (sep 2026, notas de prensa **y
   comunicaciones a compradores**: es el MISMO editor, así que todo lo que se toque aquí vale para

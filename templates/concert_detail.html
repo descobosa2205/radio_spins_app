@@ -4245,7 +4245,15 @@
       {% if result_calc %}
         <div class="d-flex flex-wrap gap-2 mb-3">
           <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if result_calc.at_100.resultado >= 0 else 'text-danger' }}">{{ result_calc.at_100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
-          <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.ingresos.total|eur }}</div><div class="sim-stat__l">Ingresos @100%{% if result_et_income %} <span class="badge text-bg-danger" title="Ingresos brutos REALES: recaudación total de la venta sincronizada con Enterticket (ese importe es el ingreso al 100%)">Enterticket</span>{% endif %}</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.ingresos.total|eur }}</div><div class="sim-stat__l">Ingresos @100%{% if result_et_income %} <span class="badge text-bg-danger" title="Con el PRECIO MEDIO REAL de la venta sincronizada con Enterticket, aplicado a todo el aforo">Enterticket</span>{% endif %}</div></div>
+          {# ⚠️ DÓNDE ESTAMOS AHORA: el @100% es el potencial (todo el aforo), así que lo vendido
+             hoy se dice aquí — si no, el cuadro solo hablaría de escenarios. #}
+          {% if result_sold and result_sold.tickets %}
+            <div class="sim-stat">
+              <div class="sim-stat__n text-accent">{{ result_sold.tickets|k }}{% if result_calc.ticketing and result_calc.ticketing.sellable %} · {{ (result_sold.tickets * 100 / result_calc.ticketing.sellable)|round(1) }}%{% endif %}</div>
+              <div class="sim-stat__l">Vendido ahora{% if result_sold.revenue %} · {{ result_sold.revenue|eur }} con IVA{% endif %}</div>
+            </div>
+          {% endif %}
           <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.gastos.total|eur }}</div><div class="sim-stat__l">Gastos @100%</div></div>
           {% set be = break_even_info %}
           <div class="sim-stat">

@@ -70701,6 +70701,7 @@ def concert_detail_view(cid):
             artwork_groups=grupos_art,
             result_calc=(result_ctx["calc"] if result_ctx else None),
             result_module=(result_ctx["module"] if result_ctx else None),
+            result_sold=(result_ctx.get("sold") if result_ctx else None),
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
             venue_saved_ticket_count=venue_saved_ticket_count,
             venue_seat_maps=venue_seat_maps,
@@ -122354,7 +122355,15 @@ def _concert_build_calc_data(s, concert):
                 # motor espera el precio SIN IVA (`price_net`). Metiéndola tal cual, el IVA no se
                 # descontaba: el resultado salía casi un 10% ALTO y el punto de empate más bajo de
                 # lo que es (bug real de dinero, sep 2026). La SGAE la sigue quitando el motor.
-                categories.append({"zone": "PISTA", "quantity": _et_sold, "invitations": 0,
+                # ⚠️⚠️⚠️ Y LA CANTIDAD ES EL AFORO A LA VENTA, NO LO VENDIDO (sep 2026, lo pidió
+                # Dani: «la barra tiene que poder moverse hasta el 100% de ventas, para ver
+                # escenarios; ahora te lleva solo hasta el 100% de lo vendido ahora, no del
+                # potencial»). Con las entradas vendidas como cantidad, el 100% de la barra ERA lo
+                # ya vendido: no se podía simular nada por encima y el punto de empate se calculaba
+                # en % de lo vendido, no del aforo. El precio medio sigue siendo el REAL de la venta.
+                categories.append({"zone": "PISTA",
+                                   "quantity": max(int(_concert_capacity_from_ticket_types(concert) or 0), _et_sold),
+                                   "invitations": 0,
                                    "price_net": sim_calc.net_price_from_gross(float(_et_rev) / _et_sold),
                                    "extras": []})
     except Exception:
@@ -122402,6 +122411,40 @@ def _concert_build_calc_data(s, concert):
     }
 
 
+def _concert_sold_now(s, concert) -> dict:
+    """LO VENDIDO HASTA AHORA de una actividad: entradas y recaudación (con IVA, que es lo que paga
+    el público). Punto único: primero **Enterticket** (la venta sincronizada) y, si no, el REPORTE
+    de ventas de la casa (`sales_maps_unified`), que es de donde sale el % de venta en todas partes.
+
+    ⚠️ Es lo que marca «dónde estamos ahora» en la barra de la simulación del resultado: sin ese
+    punto, la barra no dice nada de la realidad — solo escenarios."""
+    vacio = {"tickets": 0, "revenue": 0.0, "source": ""}
+    if concert is None:
+        return vacio
+    try:
+        ev = (s.query(EnterticketEvent)
+              .filter(EnterticketEvent.concert_id == concert.id)
+              .order_by(EnterticketEvent.last_synced_at.desc().nullslast()).first())
+        if ev is not None:
+            vendidas = int(_et_valid_sales_filter(s.query(func.count()), ev)
+                           .filter(EnterticketSale.is_invitation.is_(False)).scalar() or 0)
+            recaudado = _et_money(_et_valid_sales_filter(s.query(func.sum(EnterticketSale.price)), ev)
+                                  .filter(EnterticketSale.is_invitation.is_(False)).scalar())
+            if vendidas > 0:
+                return {"tickets": vendidas, "revenue": float(recaudado or 0), "source": "ENTERTICKET"}
+    except Exception:
+        app.logger.exception("[resultado] no se pudo leer la venta de Enterticket")
+    try:
+        totales, _h, _l, brutos, _gh = sales_maps_unified(s, today_local(), [concert.id])
+        vendidas = int(totales.get(concert.id, 0) or 0)
+        if vendidas > 0:
+            return {"tickets": vendidas, "revenue": float(brutos.get(concert.id, 0) or 0),
+                    "source": "REPORTE"}
+    except Exception:
+        app.logger.exception("[resultado] no se pudo leer el reporte de ventas")
+    return vacio
+
+
 def _concert_result_module_payload(s, concert, calc, label=None):
     """Payload de UNA actividad para sim_partners.js (socios + comisionistas + serie 0–100%)."""
     fine = []
@@ -122428,8 +122471,15 @@ def _concert_result_module_payload(s, concert, calc, label=None):
     for a in sorted((getattr(concert, "zone_agents", None) or []), key=lambda x: (x.created_at or datetime.min)):
         name = (a.concept or "").strip() or (a.promoter.nick if a.promoter else "Comisionista")
         commissions_meta.append({"name": name, "logo": ((a.promoter.logo_url if a.promoter else "") or ""), "desc": ""})
+    vendido = _concert_sold_now(s, concert)
+    sellable = (calc["ticketing"]["sellable"] if calc else 0)
+    # DÓNDE ESTAMOS AHORA: la barra nace ahí y lo marca, para que se vea la realidad antes que
+    # cualquier escenario.
+    sold_pct = (int(round(min(vendido["tickets"] * 100.0 / sellable, 100))) if (sellable and vendido["tickets"]) else None)
     return {"label": label or "", "partners": partners, "commissions": commissions_meta, "series": fine,
-            "sellable": (calc["ticketing"]["sellable"] if calc else 0), "break_even_pct": be_pct, "break_even_tickets": be_tickets}
+            "sellable": sellable, "break_even_pct": be_pct, "break_even_tickets": be_tickets,
+            "sold": vendido["tickets"], "sold_pct": sold_pct, "sold_revenue": vendido["revenue"],
+            "sold_source": vendido["source"]}
 
 
 def _concert_needs_production_owner(session_db, concert) -> bool:
@@ -123148,7 +123198,8 @@ def _concert_result_context(s, concert):
                                  .filter(EnterticketSale.is_invitation.is_(False)).first())
         except Exception:
             et_income = False
-        return {"calc": calc, "module": module, "et_income": et_income}
+        return {"calc": calc, "module": module, "et_income": et_income,
+                "sold": _concert_sold_now(s, concert)}
     except Exception:
         return None
 

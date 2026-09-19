@@ -158,6 +158,16 @@
     }
     var gradient = 'linear-gradient(90deg,' + stops.join(',') + ')';
 
+    /* DÓNDE ESTAMOS AHORA: la suma de lo vendido de todas las fechas del payload. La barra NACE
+       en ese punto (no al 100%) y lo deja marcado: lo primero es la realidad; los escenarios se
+       ven moviéndola. ⚠️ Lo pidió Dani (sep 2026): «tiene que marcar el punto que está ahora y
+       poder moverse hasta el 100% de ventas». */
+    var soldTickets = acts.reduce(function (n, a) { return n + (Number(a.sold) || 0); }, 0);
+    var soldPct = null;
+    if (soldTickets > 0 && sellable > 0) {
+      soldPct = Math.max(0, Math.min(100, Math.round(soldTickets * 100 / sellable)));
+    }
+
     var hasPartners = partnersOrder.length > 0;
     var html = '';
     html += '<div class="simp-top d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">';
@@ -170,7 +180,14 @@
         '<span class="simp-be__label">Empate · ' + fmtInt(be.tickets) + ' ent (' + be.pct + '%)</span>' +
         '<span class="simp-be__arrow"></span></div>';
     }
-    html += '<input type="range" min="0" max="100" step="1" value="100" class="simp-range" style="background:' + gradient + ';" aria-label="Porcentaje de venta">';
+    if (soldPct !== null) {
+      html += '<div class="simp-now" style="left:' + soldPct + '%;" title="Lo vendido hasta ahora">' +
+        '<span class="simp-now__arrow"></span>' +
+        '<span class="simp-now__label">Ahora · ' + fmtInt(soldTickets) + ' ent (' + soldPct + '%)</span>' +
+        '</div>';
+    }
+    html += '<input type="range" min="0" max="100" step="1" value="' + (soldPct === null ? 100 : soldPct) +
+      '" class="simp-range" style="background:' + gradient + ';" aria-label="Porcentaje de venta">';
     html += '</div>';
     if (!be) html += '<div class="small text-warning mt-1"><i class="fa fa-triangle-exclamation me-1"></i>No se alcanza el punto de empate ni al 100% de la venta.</div>';
     html += '<div class="d-flex flex-wrap gap-3 my-2" data-simp-totals></div>';
@@ -208,7 +225,8 @@
 
     function render(pct) {
       var pt = agg[pct];
-      live.textContent = pct + '% · ' + fmtInt(pt.tickets) + ' de ' + fmtInt(sellable) + ' entradas';
+      live.textContent = pct + '% · ' + fmtInt(pt.tickets) + ' de ' + fmtInt(sellable) + ' entradas' +
+        ((soldPct !== null && pct === soldPct) ? ' · lo vendido ahora' : '');
       var cls = pt.resultado >= 0 ? 'text-success' : 'text-danger';
       totalsEl.innerHTML =
         '<div class="sim-stat"><div class="sim-stat__n ' + cls + '"><span class="sim-amt" title="Neto: sin IVA y sin SGAE">' + fmtEur(pt.resultado) + '</span></div><div class="sim-stat__l">Resultado a este % de venta</div></div>' +
@@ -271,7 +289,8 @@
       range.style.setProperty('--simp-pct', pct);
     }
     range.addEventListener('input', function () { render(parseInt(this.value, 10) || 0); });
-    render(100);
+    // Se abre en DONDE ESTAMOS (y en el 100% cuando todavía no se ha vendido nada).
+    render(soldPct === null ? 100 : soldPct);
   }
 
   function init() {

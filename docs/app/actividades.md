@@ -387,6 +387,23 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
   con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
   ticketing ni previsión de ingresos no se muestra nada.
+- ⚠️⚠️⚠️ **LA BARRA DE SIMULAR EL RESULTADO LLEGA AL 100% DEL AFORO, Y MARCA DÓNDE ESTAMOS**
+  (sep 2026, lo pidió Dani: «tiene que marcar el punto que está ahora y poder moverse hasta el 100%
+  de ventas, para ver escenarios; ahora te lleva solo hasta el 100% de lo vendido ahora, no del
+  potencial»). Con la actividad sincronizada con **Enterticket**, el adaptador metía como cantidad
+  **las entradas VENDIDAS** —para que «Ingresos @100%» diera la recaudación exacta—, así que el
+  100% de la barra ERA lo ya vendido: no se podía simular nada por encima **y el punto de empate se
+  calculaba en % de lo vendido**, no del aforo.
+  · La cantidad es ahora el **aforo a la venta** (`_concert_capacity_from_ticket_types`, el mismo que
+  usan el reporte y el sold out) con el **precio medio REAL** de la venta: la serie 0–100% recorre
+  todo el aforo y el punto de empate sale en % del aforo, con los gastos de verdad.
+  · **DÓNDE ESTAMOS AHORA** (`_concert_sold_now`, punto único: Enterticket y, si no, el reporte de
+  ventas): la barra **nace en ese punto** —no al 100%— y lo deja marcado debajo («Ahora · N ent
+  (X%)», en el azul de la casa; el empate va arriba en negro). La galleta **«Vendido ahora»** dice
+  las entradas, el % y la recaudación real, que es el dato que antes daba «Ingresos @100%».
+  ⚠️ Esto cambia también, a mejor, el «@100%» de la **gira** y de la sub-pestaña de fecha
+  (`_group_concert_econ`): @100% es el potencial, que es lo que significa.
+  ⚠️ Prueba de regresión: `tools/check_resultado.py`.
 - **PROMOCIÓN · la ficha se lee como la de una ACTIVIDAD** (ago 2026): misma cabecera
   (`ficha-hero` con foto redonda del artista —clicable con `data-artist-link`—, «eyebrow» de lo que
   es, título + **etiqueta de estado que se pincha** para cambiarlo, `ficha-hero__facts` con iconos y

@@ -61068,64 +61068,84 @@ def _press_activity_data(session_db, ref: dict) -> dict:
     }
 
 
-def _concert_module_poster(session_db, concert) -> str:
-    """EL CARTEL de una actividad para su módulo: el APROBADO y, si no hay, el que esté SUBIDO.
+def _concert_reference_poster(concert, session_db=None) -> str:
+    """⚠️⚠️ EL CARTEL DE REFERENCIA DE UNA ACTIVIDAD · **PUNTO ÚNICO** (sep 2026, lo pidió Dani).
 
-    ⚠️⚠️ Lo pidió Dani (sep 2026): «el cartel se tiene que ver si está subido». Un cartel pasa por
-    **dos** vistos buenos (PENDING → DESIGN_OK → APPROVED), así que entre medias el módulo se
-    quedaba **sin cartel aunque estuviera ahí** — que es lo que se vio al actualizar una actividad.
-    ⚠️⚠️ Y seguía sin verse en casos que sí son «está subido» (Dani lo dijo tres veces): un cartel
-    **en PDF** —lo que manda la imprenta— no daba imagen ninguna (ahora `_artwork_pdf_preview` le
-    saca la primera página), y un cartel que cuelga de la **GIRA, el CICLO o el EVENTO** solo valía
-    si estaba aprobado. Se recorre, de lo más concreto a lo más amplio: lo aprobado de la actividad
-    o de su grupo → lo subido de la actividad → lo subido de su grupo.
-    ⚠️ **NO se cae a `_concert_poster_url`** (el de la cabecera de las invitaciones) aunque sea el
-    otro punto único del cartel: ese **no mira el visto bueno**, así que colaría un cartel
-    RECHAZADO. Lo que busca aquí ya cubre todo lo que cubre aquel, menos justo eso.
-    ⚠️ Esto NO cambia `_concert_artwork_share_assets`: lo que se le manda al artista o al promotor
-    sigue siendo **solo lo aprobado**. Aquí es la viñeta de una invitación o de una nota, que la
-    compone alguien de la casa mirándola.
-    ⚠️ Un cartel RECHAZADO no vale nunca (está mal por definición) ni uno archivado."""
+    Es «el cartel de esta actividad»: el que se usa en las **entradas**, en las **comunicaciones**
+    (notas de prensa, envíos a compradores, invitaciones corporativas), en la cabecera de las
+    invitaciones y en la miniatura de un enlace. Antes había **dos** funciones con criterios
+    distintos, y por eso el mismo cartel se veía en un sitio y no en otro.
+
+    La regla, tal cual la dijo Dani:
+    · **EL CARTEL PRINCIPAL MANDA, Y LOS DE SOLD OUT NO CUENTAN NUNCA.** «Aunque se suban carteles
+      de Sold Out, el cartel principal de una actividad sigue siendo el cartel de referencia; los
+      Sold Out son solo para comunicar el sold out». Viven en la MISMA solicitud pero con
+      `category='SOLDOUT'`, así que aquí solo entra **`POSTER`** (un logotipo tampoco).
+    · **Solo lo reemplaza una ACTUALIZACIÓN DE DATOS**: cuando cambia la fecha o el sitio, los
+      carteles se archivan solos y se vuelven a pedir (`_artwork_request_refresh` →
+      `_archive_current_artwork_assets`, que a propósito **respeta los de Sold Out**). Por eso aquí
+      un cartel archivado no vale: ya dice otra fecha.
+    · **El que esté SUBIDO vale aunque le falte un visto bueno** (un cartel pasa por dos: diseño y
+      contratación), porque esto lo compone alguien de la casa mirándolo. Un **RECHAZADO** no vale
+      nunca: está mal por definición.
+    · Si la actividad no tiene ninguno, el de su **CICLO**, su **GIRA** o su **EVENTO** (de lo más
+      concreto a lo más amplio): los carteles generales son los de esa fecha también.
+    · **Un cartel en PDF también cuenta**: se usa su primera página (`_artwork_pdf_preview`), que es
+      lo que manda la imprenta. ⚠️ Generarla necesita `session_db`; sin sesión solo se aprovecha la
+      que ya esté hecha (así `_concert_poster_url` conserva su firma de siempre).
+
+    Orden: el **principal** · lo **aprobado** · lo **más reciente**.
+    """
     if concert is None:
         return ""
 
     def _src(a) -> str:
-        """La imagen de una pieza; de un PDF, su primera página (se genera la primera vez)."""
-        url = _artwork_image_src(a) or ""
-        if not url and _artwork_kind_of(a) == "PDF":
-            url = _artwork_pdf_preview(session_db, a)
+        # ⚠️ El cartel de una actividad es una IMAGEN (o la primera página de un PDF, que es lo que
+        #    manda la imprenta). Un cartel en **VÍDEO no vale, ni siquiera con su miniatura**: es un
+        #    anuncio para redes, no el cartel — y esto es la cara de la actividad.
+        clase = _artwork_kind_of(a)
+        if clase == "PDF":
+            url = (getattr(a, "poster_url", None) or "").strip()
+            if not url and session_db is not None:
+                url = _artwork_pdf_preview(session_db, a)
+        elif clase == "IMAGE":
+            url = (getattr(a, "file_url", None) or "").strip()
+        else:
+            url = ""
         return _absolute_media_url(url) if url else ""
 
     def _de(piezas) -> str:
-        # El PRINCIPAL primero (si hay varios, es el que se enseña en las cabeceras).
-        for a in sorted(piezas, key=lambda x: (not bool(getattr(x, "is_primary", False)),
-                                               getattr(x, "created_at", None) or datetime.min)):
+        vivas = []
+        for a in (piezas or []):
             if bool(getattr(a, "is_archived", False)):
                 continue
             if (getattr(a, "validation_status", None) or "").upper() == "REJECTED":
                 continue
+            # ⚠️⚠️ NI SOLD OUT NI LOGOTIPOS: el cartel de la actividad es el CARTEL.
             if _artwork_asset_category(a) != "POSTER":
                 continue
+            vivas.append(a)
+        vivas.sort(key=lambda a: (not bool(getattr(a, "is_primary", False)),
+                                  (getattr(a, "validation_status", None) or "").upper() != "APPROVED",
+                                  -((getattr(a, "created_at", None) or datetime.min).timestamp()
+                                    if getattr(a, "created_at", None) else 0)))
+        for a in vivas:
             url = _src(a)
             if url:
                 return url
         return ""
 
     try:
-        url = _de(_concert_artwork_share_assets(session_db, concert))
-        if url:
-            return url
-    except Exception:
-        app.logger.exception("[diseño de comunicaciones] no se pudo leer el cartel aprobado de la actividad")
-    try:
         req = getattr(concert, "artwork_request", None)
-        url = _de((getattr(req, "assets", None) or []) if req else [])
+        url = _de((getattr(req, "assets", None) or []) if req is not None else [])
         if url:
             return url
     except Exception:
-        app.logger.exception("[diseño de comunicaciones] no se pudo leer el cartel subido de la actividad")
+        app.logger.exception("[carteleria] no se pudo leer el cartel de la actividad")
+    if session_db is None:
+        return ""
     try:
-        # Su CICLO, su gira y por último su evento: los carteles generales son los de esta fecha.
+        # Su CICLO, su gira y por último su evento.
         grupos = sorted(_concert_group_refs(concert),
                         key=lambda kg: ARTWORK_GROUP_SHARE_ORDER.index(kg[0])
                         if kg[0] in ARTWORK_GROUP_SHARE_ORDER else 99)
@@ -61135,8 +61155,13 @@ def _concert_module_poster(session_db, concert) -> str:
             if url:
                 return url
     except Exception:
-        app.logger.exception("[diseño de comunicaciones] no se pudo leer el cartel de la gira o el ciclo")
+        app.logger.exception("[carteleria] no se pudo leer el cartel de la gira o el ciclo")
     return ""
+
+
+def _concert_module_poster(session_db, concert) -> str:
+    """El cartel de la actividad para su módulo de una comunicación. Es el punto único de arriba."""
+    return _concert_reference_poster(concert, session_db)
 
 
 def _place_map_url(concert) -> str:
@@ -149086,32 +149111,16 @@ def _photo_owner_group_company_id(session_db, ot, owner):
 
 
 def _concert_poster_url(concert) -> str:
-    """URL del cartel PRINCIPAL del concierto si hay cartelería subida (imagen no archivada;
-    se prioriza la etiqueta que contenga «principal»/«cartel»/«vertical»). Vacío si no hay."""
-    if not concert:
-        return ""
-    req = getattr(concert, "artwork_request", None)
-    # ⚠️ Solo CARTELES: el de Sold Out vive en la misma solicitud y no puede acabar de cabecera de
-    # las invitaciones ni de miniatura de un enlace.
-    assets = [a for a in (getattr(req, "assets", None) or [])
-              if not bool(getattr(a, "is_archived", False))
-              and _artwork_asset_category(a) == "POSTER"]
+    """URL del CARTEL PRINCIPAL de la actividad. Es el **punto único** `_concert_reference_poster`.
 
-    # ⚠️ Aquí hace falta una IMAGEN de verdad (es la cabecera de las invitaciones y de los enlaces):
-    # un cartel en VÍDEO no vale, ni siquiera con su miniatura. De qué es cada cartel lo dice el
-    # punto único `_artwork_kind_of`.
-    images = [a for a in assets
-              if _artwork_kind_of(a) == "IMAGE" and (getattr(a, "file_url", None) or "").strip()]
-    if not images:
-        return ""
-    # 1) El marcado como principal manualmente. 2) Si solo hay uno, ese. 3) Fallback: el más reciente.
-    for a in images:
-        if bool(getattr(a, "is_primary", False)):
-            return (getattr(a, "file_url", "") or "").strip()
-    if len(images) == 1:
-        return (getattr(images[0], "file_url", "") or "").strip()
-    images.sort(key=lambda a: getattr(a, "created_at", None) or datetime.min, reverse=True)
-    return (getattr(images[0], "file_url", "") or "").strip()
+    ⚠️⚠️ Antes tenía su propio criterio —y por eso el mismo cartel se veía en un sitio y no en
+    otro—: un cartel en **PDF** no daba nada, y los carteles de la **GIRA o el CICLO** no contaban.
+    Lo que NO cambia y no puede cambiar: **los carteles de SOLD OUT nunca son el cartel de la
+    actividad** (son para comunicar el sold out) y un cartel archivado por una actualización de
+    datos tampoco (ya dice otra fecha).
+    ⚠️ Sin sesión de BD no se genera la miniatura de un PDF que todavía no la tenga (se aprovecha la
+    que haya): quien pueda, que llame al punto único con su `session_db`."""
+    return _concert_reference_poster(concert)
 
 
 def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
@@ -182019,7 +182028,10 @@ def _invgen_brand_logo_url(session_db, concert) -> str:
 def _invgen_image_options(session_db, concert) -> list[dict]:
     """Las imágenes que ya tenemos de la actividad, para elegir la de la entrada sin subir nada."""
     opts = []
-    poster = _concert_poster_url(concert)
+    # ⚠️ CON la sesión: así un cartel en **PDF** también sirve de imagen de la entrada (se le saca su
+    #    primera página la primera vez). Es el mismo punto único que las comunicaciones, para que la
+    #    entrada y el correo no puedan enseñar carteles distintos.
+    poster = _concert_reference_poster(concert, session_db)
     if poster:
         opts.append({"key": "poster", "label": "Cartel de la actividad", "url": _absolute_media_url(poster)})
     try:

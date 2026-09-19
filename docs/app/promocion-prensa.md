@@ -819,15 +819,17 @@
   a la vez** (sep 2026, lo pidió Dani). **Así se llama el editor**: es el MISMO para una **nota de
   prensa**, una **comunicación a compradores** y una **invitación corporativa**, así que lo que se
   toque aquí vale para las tres (es la regla de siempre: un punto único).
-  · ⚠️⚠️ **EL CARTEL SEGUÍA SIN VERSE, Y ERAN DOS COSAS MÁS** (Dani lo dijo tres veces). La primera
+  · ⚠️⚠️ **EL CARTEL SEGUÍA SIN VERSE, Y ERAN VARIAS COSAS** (Dani lo dijo cuatro veces). La primera
   ronda ya aceptaba el cartel **subido sin aprobar**, pero faltaban: **un cartel en PDF** —lo que
   manda la imprenta— **no daba imagen NINGUNA** en toda la app, y **el cartel que cuelga de la
-  GIRA, el CICLO o el EVENTO** solo valía si estaba aprobado. `_concert_module_poster` recorre
-  ahora, de lo más concreto a lo más amplio: lo **aprobado** (de la actividad o de su grupo) → lo
-  **subido** de la actividad → lo **subido** de su grupo.
-  ⚠️ **NO se cae a `_concert_poster_url`** (el otro punto único del cartel, el de la cabecera de las
-  invitaciones): ese **no mira el visto bueno** y colaría un cartel RECHAZADO. Lo de aquí ya cubre
-  todo lo que cubre aquel, menos justo eso.
+  GIRA, el CICLO o el EVENTO** solo valía si estaba aprobado.
+  ⚠️⚠️ Y la de verdad: **había DOS funciones del cartel con criterios distintos**, así que el mismo
+  cartel se veía en un sitio y no en otro. Hoy hay **un punto único**,
+  **`_concert_reference_poster`**, que usan la **entrada**, la **comunicación**, la cabecera de las
+  invitaciones y la miniatura de un enlace — y su regla es la que dijo Dani: **los carteles de SOLD
+  OUT nunca son el cartel de la actividad** (son solo para comunicar el sold out), el **principal**
+  manda, y lo único que lo reemplaza es una **actualización de datos**. Un cartel en **vídeo**
+  tampoco vale de cartel, ni con su miniatura. El detalle, en `docs/app/carteleria.md`.
   · **LA MINIATURA DE UN CARTEL EN PDF** (`_artwork_pdf_preview`): se saca la **primera página** y
   se guarda como JPEG en el **mismo `poster_url`** que ya usan los vídeos, así lo aprovecha todo lo
   que pinta miniaturas sin cambiar nada más (`_artwork_image_src` devuelve para un PDF lo mismo que

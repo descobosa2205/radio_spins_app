@@ -6,8 +6,10 @@ prensa**, un envío **a compradores** y una **notificación corporativa**. Lo qu
 toca a las tres, así que esto tiene que seguir en verde.
 
 Comprueba, contra la app REAL y la BD de PRUEBA:
-  · EL CARTEL del módulo de una actividad: el aprobado, el SUBIDO sin aprobar, el de la GIRA o el
-    CICLO, el que llega en PDF (se le saca la primera página) y que un RECHAZADO no vale nunca
+  · EL CARTEL DE REFERENCIA de una actividad (`_concert_reference_poster`, punto único de la
+    entrada Y de la comunicación): el aprobado, el SUBIDO sin aprobar, el de la GIRA o el CICLO, el
+    que llega en PDF (se le saca la primera página), y que NO valen nunca un RECHAZADO, un cartel
+    de **SOLD OUT** ni un cartel en **vídeo**
   · La MINIATURA de un cartel en PDF: se guarda en `poster_url` y no se vuelve a generar; un PDF
     vectorial (sin imágenes dentro) no inventa ninguna
   · LA PALETA: la actividad, el single y el logo se arrastran VACÍOS y luego se elige (no se listan
@@ -127,6 +129,13 @@ def datos():
         gira = s.query(PurchasedTour).filter(PurchasedTour.name == "Gira Comunicación").first()
         if gira is None:
             gira = PurchasedTour(name="Gira Comunicación", artist_id=art.id); s.add(gira); s.flush()
+        # ⚠️ IDEMPOTENTE: la cartelería de la GIRA no cuelga de la actividad, así que no se va al
+        #    borrar los conciertos. Sin limpiarla, la segunda pasada ya encuentra un cartel de gira
+        #    y «sin nada, la fecha de la gira no tiene cartel» fallaría sin que nada esté roto.
+        (s.query(ConcertArtworkRequest)
+         .filter(ConcertArtworkRequest.group_kind == "TOUR", ConcertArtworkRequest.group_id == gira.id)
+         .delete(synchronize_session=False))
+        s.flush()
         c2 = Concert(artist_id=art.id, festival_name="Comunicación Gira", activity_type="CONCIERTO",
                      sale_type="VENDIDO", capacity=500, date=hoy + timedelta(days=31), status="CONFIRMADO",
                      venue_id=ven.id, purchased_tour_id=gira.id, created_by_user_id=u.id)
@@ -153,6 +162,10 @@ def cliente(uid):
 def limpia(d):
     s = A.db()
     try:
+        (s.query(ConcertArtworkRequest)
+         .filter(ConcertArtworkRequest.group_kind == "TOUR",
+                 ConcertArtworkRequest.group_id == A.to_uuid(d["gira"]))
+         .delete(synchronize_session=False))
         s.query(PressRelease).filter(PressRelease.id == A.to_uuid(d["nota"])).delete(synchronize_session=False)
         for cid in (d["cid"], d["cid2"]):
             c = s.get(Concert, A.to_uuid(cid))
@@ -232,6 +245,53 @@ def main():
         s.commit(); s.expire_all()
         check("el cartel de la gira SIN aprobar también se ve",
               (A._press_activity_data(s, {"concert_id": cid2}).get("poster_url") or "").endswith("gira.jpg"))
+
+        print("3 bis · los carteles de SOLD OUT NUNCA son el cartel de la actividad")
+        # Lo dijo Dani: «aunque se suban carteles de Sold Out, el cartel principal sigue siendo el
+        # de referencia; los Sold Out son solo para comunicar el sold out». Viven en la MISMA
+        # solicitud, con category='SOLDOUT'.
+        a1.is_archived = False
+        a1.validation_status = "APPROVED"
+        a1.is_primary = True
+        a2.is_archived = True                      # fuera el PDF, para no mezclar
+        s.commit(); s.expire_all()
+        cc = s.get(Concert, A.to_uuid(cid))
+        check("con solo el cartel, la entrada y la comunicación enseñan el MISMO",
+              A._concert_reference_poster(cc, s)
+              == (A._press_activity_data(s, {"concert_id": cid}).get("poster_url") or "")
+              == A._concert_poster_url(cc) != "", A._concert_reference_poster(cc, s))
+        for nombre, w, h in (("story.jpg", 1080, 1920), ("cuadrado.jpg", 1080, 1080)):
+            s.add(ConcertArtworkAsset(artwork_request_id=req_id, format_label=nombre,
+                                      file_url="https://storage.prueba/" + nombre, kind="IMAGE",
+                                      category="SOLDOUT", validation_status="APPROVED", width=w, height=h))
+        s.commit(); s.expire_all()
+        A._artwork_pick_primary_by_squareness(s.get(ConcertArtworkRequest, req_id), "SOLDOUT")
+        s.commit(); s.expire_all()
+        cc = s.get(Concert, A.to_uuid(cid))
+        check("el cartel sigue siendo el PRINCIPAL", A._concert_poster_url(cc).endswith("cartel.jpg"),
+              A._concert_poster_url(cc))
+        check("… en la comunicación",
+              (A._press_activity_data(s, {"concert_id": cid}).get("poster_url") or "").endswith("cartel.jpg"))
+        check("… y en la entrada",
+              (A._invgen_image_options(s, cc)[0]["url"] or "").endswith("cartel.jpg"),
+              A._invgen_image_options(s, cc)[:1])
+        a1.is_archived = True; s.commit(); s.expire_all()      # se archiva por actualización de datos
+        cc = s.get(Concert, A.to_uuid(cid))
+        check("sin cartel normal, los de Sold Out NO ocupan su sitio", A._concert_poster_url(cc) == "",
+              A._concert_poster_url(cc))
+        check("ni la entrada los ofrece",
+              not [o for o in A._invgen_image_options(s, cc) if o["key"] == "poster"],
+              A._invgen_image_options(s, cc))
+
+        print("3 ter · un cartel en VÍDEO tampoco es el cartel")
+        s.add(ConcertArtworkAsset(artwork_request_id=req_id, format_label="Anuncio",
+                                  file_url="https://storage.prueba/anuncio.mp4", kind="VIDEO",
+                                  category="POSTER", validation_status="APPROVED",
+                                  poster_url="https://storage.prueba/anuncio.jpg"))
+        s.commit(); s.expire_all()
+        cc = s.get(Concert, A.to_uuid(cid))
+        check("un vídeo no ocupa el sitio del cartel, ni con su miniatura",
+              A._concert_poster_url(cc) == "", A._concert_poster_url(cc))
     finally:
         s.close()
 

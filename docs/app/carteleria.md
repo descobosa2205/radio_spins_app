@@ -805,3 +805,27 @@
   ⚠️ `_artwork_can_be_primary` **no cambia**: el cartel PRINCIPAL (el que representa la actividad en
   una cabecera o en la miniatura de un enlace) sigue teniendo que ser una IMAGEN de verdad.
   → Quién lo usa y por qué, en `docs/app/promocion-prensa.md` («Diseño de comunicaciones»).
+
+- ⚠️⚠️⚠️ **EL CARTEL DE REFERENCIA DE UNA ACTIVIDAD ES UNO SOLO, Y LOS DE SOLD OUT NO CUENTAN**
+  (sep 2026, lo dijo Dani y era la causa de «el módulo de actividades de las comunicaciones sigue
+  sin cargar el cartel»): *«aunque se suban carteles de Sold Out, el cartel principal de una
+  actividad sigue siendo el cartel de referencia, excepto que se reemplacen por actualización de
+  datos; para entradas y comunicaciones el cartel principal sigue siendo el que se usa, ya que los
+  Sold Out son solo para comunicar el sold out»*.
+  · **Punto ÚNICO: `_concert_reference_poster(concert, session_db=None)`**. Antes había **dos**
+  funciones con criterios distintos —`_concert_poster_url` (la cabecera de las invitaciones, las
+  miniaturas de los enlaces, las entradas) y la del módulo de una comunicación—, y por eso **el
+  mismo cartel se veía en un sitio y no en otro**. Hoy `_concert_poster_url` es una línea que llama
+  al punto único, y las entradas (`_invgen_image_options`) y el módulo también.
+  · **La regla**: solo **`category='POSTER'`** (ni SOLD OUT ni logotipos) · ni archivado ni
+  rechazado · vale lo **subido aunque le falte un visto bueno** · orden **principal → aprobado →
+  el más reciente** · si la actividad no tiene, el de su **ciclo, gira o evento** · un cartel en
+  **PDF** cuenta (su primera página) y uno en **VÍDEO no**, ni con su miniatura (es un anuncio para
+  redes, no el cartel).
+  ⚠️ Lo ÚNICO que reemplaza al cartel es una **actualización de datos**: al cambiar la fecha o el
+  sitio, `_artwork_request_refresh` → `_archive_current_artwork_assets` los archiva y los vuelve a
+  pedir — y esa función **respeta a propósito los de Sold Out**, que siguen valiendo.
+  ⚠️ `_concert_poster_url(concert)` no recibe sesión (se llama desde ocho sitios), así que **no
+  genera** la miniatura de un PDF que todavía no la tenga: aprovecha la que haya. Quien tenga
+  sesión llama al punto único con ella.
+  · Cubierto por `tools/check_diseno_comunicaciones.py` (apartados 3 bis y 3 ter).

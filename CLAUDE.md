@@ -152,6 +152,14 @@ deja el bootstrap sin ejecutar, así que el `ALTER` no corre y el ORM pide una c
 arregla llamando a SU `ensure_*` en cada base que se use para probar:
 `models.ensure_bag_expense_schema()` sobre `radiotest`, `radiocorp`, `radiocaja`…
 
+⚠️⚠️ **UNA COMPROBACIÓN QUE ESCRIBE EN UN DATO COMPARTIDO FALLA EN LA SEGUNDA PASADA** (sep 2026,
+pasó dos veces con `check_invitaciones_generadas`). Un apartado le cambiaba la dirección al recinto
+de la semilla «para tener algo que poner debajo», y el apartado 1 de la pasada siguiente —que espera
+la dirección sembrada— salía en rojo **sin que hubiera nada roto**; lo mismo con la cartelería de una
+GIRA, que no cuelga de la actividad y no se va al borrar los conciertos. **Las comprobaciones son
+IDEMPOTENTES**: o no tocan lo compartido, o lo dejan como estaba, o lo borran al empezar. Y la
+prueba de que lo son es **pasarlas dos veces seguidas**.
+
 ⚠️⚠️ **CON LA BD DE PRUEBA LLENA, LAS COMPROBACIONES SE QUEDAN SIN CONEXIONES Y MIENTEN** (sep
 2026). El pool de la app es **6+6**, y una herramienta que recorre cientos de pantallas acaba
 pidiendo más: salta un `QueuePool limit … timed out` y esa pantalla **se cuenta como un 500** que no

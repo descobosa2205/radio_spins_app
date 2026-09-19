@@ -810,15 +810,13 @@ def main():
         try:
             concert = s.get(A.Concert, A.to_uuid(cid))
             cfg = s.query(InvitationGenConfig).filter(InvitationGenConfig.concert_id == A.to_uuid(cid)).first()
-            # Un recinto con dirección, para que haya algo que poner debajo.
-            v = s.get(A.Venue, concert.venue_id) if concert.venue_id else None
-            if v is not None:
-                v.address, v.municipality = "Calle Betis, 31", "Sevilla"
-                s.commit()
+            # ⚠️ NO se le cambia la dirección al recinto: el de la semilla ya la trae, y escribirle
+            #    otra dejaba la BD de prueba CONTAMINADA — el apartado 1 de la siguiente pasada
+            #    fallaba («el recinto y la dirección salen») sin que hubiera nada roto.
             ctx = A._invgen_ticket_context(s, concert, cfg, sample=True)
             recinto = [f for f in ctx["facts"] if f[1] == "Recinto"]
             check("el RECINTO trae su dirección como nota (para pintarla debajo)",
-                  bool(recinto) and len(recinto[0]) > 3 and "Calle Betis" in (recinto[0][3] or ""),
+                  bool(recinto) and len(recinto[0]) > 3 and "Calle Larga 1" in (recinto[0][3] or ""),
                   recinto)
             check("y la dirección ya NO es un punto aparte",
                   not any(f[1] == "Dirección" for f in ctx["facts"]), [f[1] for f in ctx["facts"]])

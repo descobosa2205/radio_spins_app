@@ -439,6 +439,56 @@ try:
 finally:
     s.close()
 
+print("\n── 4c. UN CORREO Y UN TELÉFONO, SIEMPRE EN SU CAMPO ──────────────────")
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «algunas importaciones han puesto el domicilio como correo; un
+# email y un teléfono lo tiene que detectar siempre y ponerlo en su campo correcto… y aplícalo a
+# todo lo existente». El rótulo de la columna se equivoca; el VALOR no.
+import promoter_import as PI
+csv3 = ("Invitado;Dirección;Teléfono\n"
+        "Rosa Prat;rosa@medio.com;600777111\n"
+        "Tomás Gil;Calle Luna 7 - tomas@medio.com;600777222\n"
+        "Eva Soto;Calle Sol 5;600777333\n")
+d3 = PI.parse_file(csv3.encode("utf-8"), "x.csv")
+m3 = {str(c["index"]): (c["field"] or {"field": PI.TARGET_ALT, "label": c["header"]}) for c in d3["columns"]}
+v3 = [f["values"] for f in PI.apply_mapping(d3["rows"], m3)]
+check("un correo que viene en la columna del DOMICILIO acaba en el campo del correo",
+      v3[0].get("contact_email") == "rosa@medio.com" and not v3[0].get("address"), v3[0])
+check("un domicilio que lleva el correo detrás conserva la dirección y coge el correo",
+      (v3[1].get("address") or "").startswith("Calle Luna") and v3[1].get("contact_email") == "tomas@medio.com", v3[1])
+check("y un domicilio normal no se toca", v3[2].get("address") == "Calle Sol 5" and not v3[2].get("contact_email"), v3[2])
+
+# LO QUE YA ESTABA GUARDADO: se arregla solo, y quien tenía el correo de domicilio deja de salir
+# como «sin correo» en su lista.
+s = models.SessionLocal()
+try:
+    malo = models.Promoter(nick="Correo de domicilio", address="dedomicilio@medio.com")
+    s.add(malo); s.commit()
+    lst3 = models.CorporateGuestList(user_id=A.to_uuid(UID), name="Con el correo mal")
+    s.add(lst3); s.commit()
+    g3 = models.CorporateGuest(list_id=lst3.id, promoter_id=malo.id, name="Correo de domicilio", email=None)
+    s.add(g3); s.commit()
+    LID3 = str(lst3.id)
+finally:
+    s.close()
+js3 = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID3).get_json() or {}
+check("antes de arreglarlo sale como que le falta el correo", js3.get("with_email") == 0, js3)
+s = models.SessionLocal()
+try:
+    with A.app.test_request_context("/"):
+        hechos = A._repair_contact_fields(s)
+    check("el arreglo de lo existente mueve el correo a su campo", hechos.get("promoter_email", 0) >= 1, hechos)
+    p3 = s.query(models.Promoter).filter(models.Promoter.nick == "Correo de domicilio").first()
+    check("y la ficha queda con su correo y sin ese domicilio",
+          (p3.contact_email or "") == "dedomicilio@medio.com" and not (p3.address or ""), (p3.contact_email, p3.address))
+    with A.app.test_request_context("/"):
+        otra = A._repair_contact_fields(s)
+    check("pasarlo otra vez no cambia nada (es idempotente)", not any(otra.values()), otra)
+finally:
+    s.close()
+js4 = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID3).get_json() or {}
+check("y DESPUÉS ya no sale entre los que les falta correo: queda agregado y ya",
+      js4.get("with_email") == 1 and (js4.get("rows") or [{}])[0].get("email") == "dedomicilio@medio.com", js4)
+
 print("\n── 5. LA INVITACIÓN: crear, diseñar y enviar ──────────────────────────")
 r = cli.post("/invitaciones-corporativas/nueva",
              data={"lists": [LID], "concert_id": CID, "subject": "Te invito a Los Ñus"})

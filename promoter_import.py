@@ -150,6 +150,79 @@ def guess_field(header) -> str | None:
     return None
 
 
+# ⚠️⚠️ UN CORREO Y UN TELÉFONO SE RECONOCEN POR LO QUE SON, no por el rótulo de su columna (sep
+# 2026, lo pidió Dani: «algunas importaciones han puesto el domicilio como correo; un email y un
+# teléfono lo tiene que detectar siempre y ponerlo en su campo»). El rótulo se equivoca —«Dirección
+# de correo» se leía como el DOMICILIO, «Contacto» no se reconocía—, pero el VALOR no miente.
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def looks_like_email(value) -> bool:
+    """¿ESE valor es un correo (él entero, no que lo contenga)?"""
+    text = _cell_text(value).strip()
+    if not text or " " in text:
+        return False
+    return bool(_EMAIL_RE.fullmatch(text))
+
+
+def email_inside(value) -> str:
+    """El correo que hay DENTRO de un texto («Av. X 3 · juan@x.com» → «juan@x.com»). Vacío si no hay
+    ninguno o si hay más de uno (ahí no se puede saber cuál es el suyo)."""
+    encontrados = _EMAIL_RE.findall(_cell_text(value))
+    return encontrados[0] if len(encontrados) == 1 else ""
+
+
+def looks_like_phone(value) -> bool:
+    """¿ESE valor es un teléfono? Entre 9 y 15 dígitos, con el `+` del país como única letra.
+
+    ⚠️ El mínimo de NUEVE deja fuera un código postal (5) y el «solo dígitos» deja fuera un DNI o un
+    CIF (llevan letra) y un IBAN (empieza por dos letras y tiene 24 caracteres)."""
+    text = _cell_text(value).strip()
+    if not text:
+        return False
+    limpio = re.sub(r"[\s.\-()/]", "", text)
+    if limpio.startswith("+"):
+        limpio = "+" + limpio[1:].replace("+", "")
+    if not re.fullmatch(r"\+?\d{9,15}", limpio):
+        return False
+    return True
+
+
+def place_by_content(values: dict, alt: list | None = None) -> tuple[dict, list]:
+    """Pone cada CORREO y cada TELÉFONO en SU campo, esté en la columna que esté.
+
+    · Un valor que **es** un correo y está en otro campo se MUEVE a `contact_email` (si está libre;
+      si no, se guarda como dato extra con el nombre de su columna: no se pierde ni se pisa).
+    · Un texto que CONTIENE un correo (un domicilio con el correo detrás) se queda como está y el
+      correo se COPIA a `contact_email` si estaba vacío: así el dato vale y no se rompe el texto.
+    · Lo mismo con un teléfono que está donde no toca.
+    ⚠️ Solo se toca lo que es INEQUÍVOCO y solo cuando el campo de destino está vacío.
+    """
+    values = dict(values or {})
+    alt = list(alt or [])
+    for campo, destino, es_ese in (("contact_email", "contact_email", looks_like_email),
+                                   ("contact_phone", "contact_phone", looks_like_phone)):
+        for clave in [k for k in list(values) if k != destino]:
+            valor = (values.get(clave) or "").strip()
+            if not valor or not es_ese(valor):
+                continue
+            if not (values.get(destino) or "").strip():
+                values[destino] = normalize_value(destino, valor)
+            elif normalize_value(destino, valor) != values.get(destino):
+                alt.append({"label": FIELD_LABELS.get(clave, clave), "value": valor})
+            values.pop(clave, None)
+    # Un correo METIDO en un texto más largo (el caso del domicilio): se copia, no se mueve.
+    if not (values.get("contact_email") or "").strip():
+        for clave, valor in list(values.items()):
+            if clave == "contact_email":
+                continue
+            dentro = email_inside(valor)
+            if dentro:
+                values["contact_email"] = normalize_value("contact_email", dentro)
+                break
+    return values, alt
+
+
 def clean_tax_id(value) -> str:
     return re.sub(r"[^0-9A-Z]", "", strip_accents(str(value or "")).upper())
 
@@ -394,6 +467,8 @@ def apply_mapping(rows: list[list], mapping: dict) -> list[dict]:
             limpio = normalize_value(destino, crudo)
             if limpio:
                 values[destino] = limpio
+        # ⚠️ Y lo último: cada CORREO y cada TELÉFONO a SU campo, esté en la columna que esté.
+        values, alt = place_by_content(values, alt)
         if values or alt:
             out.append({"values": values, "alt": alt})
     return out

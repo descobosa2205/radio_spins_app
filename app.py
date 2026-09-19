@@ -171074,6 +171074,88 @@ def buyers_export_csv():
 # la PRIMERA PETICIÓN de cada worker (~10 s con la BD real): encolaba las peticiones y el escáner
 # de puertos de Render acababa matando la instancia por probes lentas ("No open ports") -> web
 # caída/en blanco aunque el código estaba bien.
+# ── LO QUE SE IMPORTÓ CON EL CORREO O EL TELÉFONO EN EL CAMPO EQUIVOCADO ─────────────────────
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «algunas importaciones han puesto el DOMICILIO como correo; esto
+# está mal, un email y un teléfono lo tiene que detectar siempre y ponerlo en su campo correcto…
+# y aplícalo a todo lo existente». El lector ya lo hace con lo que entra (`place_by_content`), pero
+# lo que YA está guardado hay que arreglarlo: mientras el correo esté en el domicilio, esa persona
+# sale como «sin correo» en las listas de invitados y no se le puede mandar nada.
+# Se ejecuta UNA vez por arranque, en segundo plano y con transacciones cortas.
+CONTACT_REPAIR_FIELDS = ("address", "fiscal_address", "hotel_notes", "travel_notes")
+
+
+def _repair_contact_fields(session_db, *, limit: int = 5000) -> dict:
+    """Mueve a su campo los correos y teléfonos que se guardaron donde no tocaba.
+
+    ⚠️ SOLO lo inequívoco y SOLO si el destino está vacío: nunca se pisa un dato escrito.
+      · el campo entero ES un correo (o un teléfono) → se mueve y el campo de origen se vacía;
+      · el campo CONTIENE un correo (un domicilio con el correo detrás) → se COPIA y el texto se
+        queda como está (romper una dirección sería peor que dejarla).
+    Devuelve lo tocado, para poder decirlo en el log."""
+    hechos = {"promoter_email": 0, "promoter_phone": 0, "guest_email": 0}
+    filtro = or_(*[getattr(Promoter, campo).ilike("%@%") for campo in CONTACT_REPAIR_FIELDS])
+    sospechosos = (session_db.query(Promoter)
+                   .filter(or_(filtro,
+                               and_(func.coalesce(Promoter.contact_phone, "") == "",
+                                    Promoter.address.op("~")(r"^[\s+()./-]*[0-9][0-9\s+()./-]{8,}$"))))
+                   .limit(limit).all())
+    for p in sospechosos:
+        for campo in CONTACT_REPAIR_FIELDS:
+            valor = (getattr(p, campo, None) or "").strip()
+            if not valor:
+                continue
+            if promoter_import.looks_like_email(valor):
+                if not (p.contact_email or "").strip():
+                    p.contact_email = valor.lower()
+                    hechos["promoter_email"] += 1
+                setattr(p, campo, None)          # ahí no pintaba nada
+                continue
+            dentro = promoter_import.email_inside(valor)
+            if dentro and not (p.contact_email or "").strip():
+                p.contact_email = dentro.lower()
+                hechos["promoter_email"] += 1
+        domicilio = (getattr(p, "address", None) or "").strip()
+        if domicilio and promoter_import.looks_like_phone(domicilio):
+            if not (p.contact_phone or "").strip():
+                p.contact_phone = domicilio
+                hechos["promoter_phone"] += 1
+            p.address = None
+    # Y en las listas de invitados: el correo metido en el teléfono (o al revés).
+    invitados = (session_db.query(CorporateGuest)
+                 .filter(or_(func.coalesce(CorporateGuest.phone, "").ilike("%@%"),
+                             func.coalesce(CorporateGuest.email, "").op("~")(r"^[\s+()./-]*[0-9][0-9\s+()./-]{8,}$")))
+                 .limit(limit).all())
+    for g in invitados:
+        telefono = (g.phone or "").strip()
+        correo = (g.email or "").strip()
+        if telefono and promoter_import.looks_like_email(telefono):
+            if not correo:
+                g.email = telefono.lower()
+                hechos["guest_email"] += 1
+            g.phone = None
+        elif correo and promoter_import.looks_like_phone(correo):
+            if not (g.phone or "").strip():
+                g.phone = correo
+            g.email = None
+    if any(hechos.values()):
+        session_db.commit()
+    return hechos
+
+
+def _repair_contact_fields_bg() -> None:
+    """La reparación de arriba, una vez por arranque y sin molestar a nadie."""
+    session_db = db()
+    try:
+        hechos = _repair_contact_fields(session_db)
+        if any(hechos.values()):
+            app.logger.info("[contactos] arreglados datos en su campo: %s", hechos)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[contactos] no se pudieron arreglar los correos/teléfonos mal guardados")
+    finally:
+        session_db.close()
+
+
 def _bootstrap_personnel_bg():
     import tempfile
     lock_path = os.path.join(tempfile.gettempdir(), "app33_personnel_bootstrap.lock")
@@ -171087,6 +171169,8 @@ def _bootstrap_personnel_bg():
         _ensure_access_caches()
         _bootstrap_access_and_personnel()
         app.logger.info("[accesos] siembra de accesos/personal completada en segundo plano")
+        # Y de paso, lo que se importó con el correo o el teléfono en el campo equivocado.
+        _repair_contact_fields_bg()
     except Exception:
         app.logger.exception("[accesos] la siembra en segundo plano falló; la web sigue con el estado ya existente en BD (se aplicará en el próximo arranque)")
 
@@ -183231,6 +183315,9 @@ def corporate_import_new(list_id):
                  if str((x or {}).get("value") or "").strip()]
         if not values and not extra:
             return jsonify({"ok": False, "error": "No hay nada que guardar de esta persona."}), 400
+        # ⚠️ Cada CORREO y cada TELÉFONO a SU campo aunque se haya escrito en otro (el mismo punto
+        # único que la lectura del fichero): así no acaba un correo guardado como domicilio.
+        values, extra = promoter_import.place_by_content(values, extra)
         correo = (values.get("contact_email") or "").strip().lower()
         # ⚠️ Un correo que YA tenemos es el MISMO tercero: no se crea otra ficha (es el criterio de
         # la importación de terceros y el de los contactos de un medio).

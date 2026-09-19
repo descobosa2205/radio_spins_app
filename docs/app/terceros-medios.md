@@ -151,6 +151,25 @@ debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado g
   «638123456.0» y un CP como «41001.0» (los dos bugs salieron en la primera prueba).
   · **Lo que no se reconoce NO se calla**: la columna se devuelve sin campo y la pantalla pregunta a
   qué campo va, deja **guardarla como «dato extra»** con el nombre de la columna, o dejarla fuera.
+  · ⚠️⚠️⚠️ **UN CORREO Y UN TELÉFONO VAN SIEMPRE A SU CAMPO, LOS DIGA COMO LOS DIGA LA COLUMNA**
+  (sep 2026, lo pidió Dani: «algunas importaciones han puesto el domicilio como correo; esto está
+  mal, un email y un teléfono lo tiene que detectar siempre y configurarlo en su campo correcto»).
+  El **rótulo** se equivoca —«Dirección de correo» se leía como el DOMICILIO— pero **el valor no
+  miente**: `place_by_content` (en `promoter_import`, al final de `apply_mapping`) recoloca cada
+  dato por lo que ES (`looks_like_email` · `looks_like_phone` · `email_inside`).
+    · El valor **entero** es un correo (o un teléfono) → se **MUEVE** a su campo y el de origen se
+      vacía; si el destino ya tenía algo distinto, el valor se guarda como **dato extra** (no se
+      pisa ni se pierde).
+    · El texto **contiene** un correo («Calle Luna 7 · juan@x.com») → el correo se **COPIA** y la
+      dirección se queda como está: romper un domicilio sería peor que dejarlo.
+    ⚠️ El teléfono se reconoce por **9 a 15 dígitos** (con el `+` del país): así un **código postal**
+    (5), un **DNI/CIF** (llevan letra) y un **IBAN** no se confunden con uno.
+  · ⚠️⚠️ **Y LO QUE YA ESTABA GUARDADO SE ARREGLA SOLO** («aplícalo a todo lo existente»):
+  **`_repair_contact_fields`** corre **una vez por arranque**, en segundo plano (detrás de la siembra
+  de accesos) y es **idempotente**. Mueve a su campo los correos y teléfonos que quedaron en el
+  domicilio, la dirección fiscal o las notas de viaje/hotel —y en una lista de invitados, el correo
+  metido en el teléfono—, **solo cuando el destino está vacío** y el valor es inequívoco. Mientras
+  el correo esté en el domicilio, esa persona sale como «sin correo» y no se le puede mandar nada.
   · **Cuatro pasos** (`_promoter_import_modal.html` + `static/js/promoter_import.js`, clases `.pi-*`):
   fichero → columnas → **resumen (nuevos / ya existían)** → los que ya existían **uno a uno en
   PANTALLA PARTIDA**, eligiendo en cada campo qué se queda. El fichero se lee UNA vez

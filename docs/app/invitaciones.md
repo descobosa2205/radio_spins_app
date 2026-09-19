@@ -398,6 +398,11 @@
   **quitarlo de la lista**. Al acabar la vuelta, si quedan (los saltados, o los de antes si se
   entró por el medio), **se dice cuántos y se sigue con ellos**; cuando no queda ninguno lo dice y
   la galleta ámbar y el botón desaparecen solos.
+  ⚠️⚠️ **Y EL CORREO QUE SE IMPORTÓ COMO DOMICILIO** (sep 2026, lo vio Dani: «algunas importaciones
+  han puesto el domicilio como correo»): el lector recoloca ya cada dato **por lo que es**
+  (`promoter_import.place_by_content`) y lo que YA estaba guardado lo arregla **`_repair_contact_fields`**
+  al arrancar. Cuenta aquí porque mientras el correo esté en el domicilio, esa persona sale como
+  «sin correo» en la lista para siempre. → `docs/app/terceros-medios.md`
   ⚠️ El correo se guarda **en los dos sitios**: en la fila y —si su ficha lo tenía vacío— en la
   **ficha del tercero**, que es donde vale para el resto de la app. Lo que ya estaba escrito no se
   pisa. Y si ese correo ya está en otra ficha, el invitado se **engancha a ella**: es la misma
@@ -442,7 +447,7 @@
   ⚠️⚠️ **`url_for("concert_detail_view")` toma `cid`, NO `concert_id`** (bug real cazado por la
   prueba): con el nombre mal, `url_for` revienta y **se cae la pantalla entera** (la de «cerrado por
   mantenimiento»). Es la trampa de siempre: un nombre de parámetro no se adivina, se mira.
-  ⚠️ Probado con la app real (`tools/check_invitaciones_corporativas.py`, **123 comprobaciones**): el
+  ⚠️ Probado con la app real (`tools/check_invitaciones_corporativas.py`, **131 comprobaciones**): el
   módulo y sus datos, la paleta, las listas, **el fichero de punta a punta** (que se revisa y no crea
   nada al subirlo, los tres bloques, el porqué de cada coincidencia, añadir los marcados, el alta uno
   a uno con sus datos extra, corregir una columna sin volver a subirlo y que reimportarlo no duplica

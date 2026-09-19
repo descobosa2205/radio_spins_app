@@ -10,6 +10,7 @@
        invite — una INVITACIÓN CORPORATIVA: a MIS listas de invitados, desde MI correo.
      Todo lo demás —la previsualización, la prueba, el pie, el contador y el envío— es común.
    · `mode` (solo en las notas): send (la primera vez) · resend (otra tanda) · share (por email). #}
+{% from '_recipient_row.html' import recip_face with context %}
 {% set scope = scope|default('press') %}
 {% set es_invite = scope == 'invite' %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -34,7 +35,8 @@
 </div>
 
 <div class="pr-send" data-pr-send data-send-url="{{ send_url }}" data-test-url="{{ test_url }}" data-search-url="{{ search_url }}"
-     data-mode="{{ mode }}" data-my-email="{{ my_email }}" data-sender="{{ pr.sender_kind or 'BACKOFFICE' }}">
+     data-mode="{{ mode }}" data-my-email="{{ my_email }}" data-sender="{{ pr.sender_kind or 'BACKOFFICE' }}"
+     data-avatar-fallback="{{ DEFAULT_AVATAR_URL }}">
   <div class="pr-send__steps">
     <h4 class="mb-1">{% if es_invite %}Enviar la invitación{% else %}{{ 'Compartir por email' if mode == 'share' else ('Reenviar la nota de prensa' if mode == 'resend' else 'Enviar la nota de prensa') }}{% endif %}</h4>
     <div class="text-muted small mb-3">Asunto: <b>{{ email_subject }}</b></div>
@@ -129,9 +131,7 @@
                     <label class="pr-recip-item" data-search="{{ (gst.nick ~ ' ' ~ gst.name ~ ' ' ~ gst.email ~ ' ' ~ (gst.link.label if gst.link else ''))|lower }}">
                       <input type="checkbox" class="form-check-input" checked data-pr-recip
                              data-kind="GUEST" data-ref="{{ gst.id }}" data-email="{{ gst.email }}" data-name="{{ gst.name }}" data-media="" data-group="{{ l.name }}">
-                      {% if gst.logo_url %}<img src="{{ gst.logo_url }}" alt="" class="pr-recip-item__ava" data-avatar="1">{% endif %}
-                      <span class="pr-recip-item__t"><b>{{ gst.nick }}</b>
-                        <small>{% if gst.link %}{{ gst.link.label }}{% if gst.link.relation %} · {{ gst.link.relation }}{% endif %} · {% endif %}{{ gst.email }}</small></span>
+                      {{ recip_face({'name': gst.nick, 'email': gst.email, 'photo': gst.logo_url, 'link': gst.link}) }}
                       {% if gst.mail_status == 'error' %}
                         <span class="ci-guest__mark ci-guest__mark--bad ms-auto" title="{{ 'Ese correo no existe (lo rechazó el servidor)' if gst.mail_hard else 'El último correo no le llegó' }}{% if gst.mail_error %} · {{ gst.mail_error }}{% endif %}"><i class="fa fa-triangle-exclamation"></i></span>
                       {% elif gst.mail_status == 'unopened' %}
@@ -195,8 +195,8 @@
                     <label class="pr-recip-item" data-search="{{ (c.name ~ ' ' ~ c.email ~ ' ' ~ c.program)|lower }}">
                       <input type="checkbox" class="form-check-input" checked data-pr-recip
                              data-kind="MEDIA" data-ref="{{ c.ref_id }}" data-email="{{ c.email }}" data-name="{{ c.name }}" data-media="{{ c.media_name }}" data-group="{{ _tipo }}">
-                      <span class="pr-recip-item__t"><b>{{ c.name }}</b>{% if c.full_name and c.full_name != c.name %} <span class="text-muted">· {{ c.full_name }}</span>{% endif %}
-                        <small>{{ c.email }}{% if c.program %} · {{ c.program }}{% endif %}{% if c.role %} · {{ c.role }}{% endif %}</small></span>
+                      {{ recip_face({'name': c.name, 'email': c.email, 'photo': c.photo, 'link': c.link,
+                                     'sub': (c.full_name if (c.full_name and c.full_name != c.name) else '')}) }}
                     </label>
                   {% endfor %}
                 </div>
@@ -215,8 +215,8 @@
               {% for p in groups.promoters %}
                 <label class="pr-recip-item">
                   <input type="checkbox" class="form-check-input" data-pr-recip data-kind="PROMOTER" data-ref="{{ p.ref_id }}" data-email="{{ p.email }}" data-name="{{ p.name }}" data-media="" data-group="Promotores">
-                  <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" alt="" class="pr-recip-item__ava" data-avatar="1">
-                  <span class="pr-recip-item__t"><b>{{ p.name }}</b><small>{{ p.email }}{% for t in p.tag_labels %} · {{ t }}{% endfor %}</small></span>
+                  {{ recip_face({'name': p.name, 'email': p.email, 'photo': p.photo, 'link': p.link,
+                                 'sub': (p.tag_labels|join(' · '))}) }}
                 </label>
               {% else %}
                 <div class="alert alert-light border mb-0 small">No hay promotores con correo.</div>
@@ -234,8 +234,7 @@
                 {% for p in a.rows %}
                   <label class="pr-recip-item">
                     <input type="checkbox" class="form-check-input" data-pr-recip data-kind="PROMOTER" data-ref="{{ p.ref_id }}" data-email="{{ p.email }}" data-name="{{ p.name }}" data-media="" data-group="{{ a.label }}">
-                    <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" alt="" class="pr-recip-item__ava" data-avatar="1">
-                    <span class="pr-recip-item__t"><b>{{ p.name }}</b><small>{{ p.email }}</small></span>
+                    {{ recip_face({'name': p.name, 'email': p.email, 'photo': p.photo, 'link': p.link}) }}
                   </label>
                 {% else %}
                   <div class="alert alert-light border mb-0 small">Todavía no hay ningún tercero marcado como miembro de {{ a.label }} (con correo).</div>
@@ -251,7 +250,7 @@
             <label class="form-check m-0"><input type="checkbox" class="form-check-input me-2" data-pr-prev-toggle checked>Volver a mandársela a quienes ya la recibieron <span class="badge text-bg-light border">{{ previous|length }}</span></label>
             <div class="pr-recip-groups mt-1 d-none" data-pr-prev-list>
               {% for p in previous %}
-                <label class="pr-recip-item"><input type="checkbox" class="form-check-input" checked data-pr-recip data-kind="{{ p.kind }}" data-ref="{{ p.ref_id }}" data-email="{{ p.email }}" data-name="{{ p.name }}" data-media="{{ p.media_name }}"><span class="pr-recip-item__t"><b>{{ p.name or p.email }}</b><small>{{ p.email }}{% if p.media_name %} · {{ p.media_name }}{% endif %}</small></span></label>
+                <label class="pr-recip-item"><input type="checkbox" class="form-check-input" checked data-pr-recip data-kind="{{ p.kind }}" data-ref="{{ p.ref_id }}" data-email="{{ p.email }}" data-name="{{ p.name }}" data-media="{{ p.media_name }}">{{ recip_face({'name': (p.name or p.email), 'email': p.email, 'photo': '', 'sub': p.media_name}) }}</label>
               {% endfor %}
             </div>
             <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-pr-prev-show>ver la lista</button>

@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from '_recipient_row.html' import recip_face with context %}
 {% block content %}
 {# LA FICHA DE UNA INVITACIÓN CORPORATIVA: a quién se le mandó, QUIÉN LA HA ABIERTO y a quién no le
    llegó (y por qué). Lo que no salió no puede ser invisible. #}
@@ -81,23 +82,12 @@
                azul) y debajo, más pequeña y con su logo, su VINCULACIÓN. #}
             {% for r in recipients %}
               <tr>
+                {# ⚠️ LA MISMA FILA que en los otros envíos: la pinta el macro compartido, así que
+                   si se toca allí cambia también aquí. #}
                 <td>
-                  <div class="ci-guest ci-guest--flat">
-                    {% if r.logo_url %}<img src="{{ r.logo_url }}" alt="" loading="lazy">
-                    {% else %}<span class="ci-guest__ph"><i class="fa fa-user"></i></span>{% endif %}
-                    <span class="ci-guest__t">
-                      {% if r.promoter_url %}<a class="ci-guest__nick" href="{{ r.promoter_url }}" title="{{ r.name }}"><b>{{ r.nick }}</b></a>
-                      {% else %}<b class="ci-guest__nick">{{ r.nick }}</b>{% endif %}
-                      {% if r.link %}
-                        <small class="ci-guest__link">
-                          {% if r.link.logo_url %}<img src="{{ r.link.logo_url }}" alt="" loading="lazy">
-                          {% else %}<i class="fa {{ r.link.icon }} fa-fw"></i>{% endif %}
-                          <span>{{ r.link.label }}{% if r.link.relation %} · {{ r.link.relation }}{% endif %}</span></small>
-                      {% else %}
-                        <small><i class="fa fa-envelope fa-fw"></i>{{ r.email }}</small>
-                      {% endif %}
-                    </span>
-                  </div>
+                  <span class="pr-recip-item">
+                    {{ recip_face({'name': r.nick, 'email': r.email, 'photo': r.logo_url, 'link': r.link}) }}
+                  </span>
                 </td>
                 <td class="small text-muted">{{ r.list_label }}</td>
                 <td class="small">

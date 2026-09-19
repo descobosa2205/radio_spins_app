@@ -1,0 +1,45 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   LA FILA DE UN DESTINATARIO · la MISMA en los tres envíos
+   (una nota de prensa, una comunicación a compradores y una invitación corporativa).
+
+   ⚠️⚠️ Lo pidió Dani (sep 2026): «el listado de los seleccionados tiene que salir **con foto o
+   logo**, y **las vinculaciones también con foto y logo**; el **email al lado del nombre pero SIN
+   negrita**, y **debajo la vinculación**».
+
+   Se lee así:
+       [foto]  Nick   correo@dominio.com        ← el correo al lado, en gris, sin negrita
+               [logo] Radio Ñ · director        ← la vinculación, debajo y con su logo
+
+   ⚠️ Es un MACRO para que las listas de los tres envíos se pinten EXACTAMENTE igual: si se toca
+   aquí, cambian las tres. Un macro no ve los globales de la plantilla, así que recibe todo.
+   ⚠️ Se importa **`with context`**: sin eso `DEFAULT_AVATAR_URL` llegaría vacío y la foto de quien
+   no tiene saldría como un `<img src="">` (la trampa de siempre de esta casa).
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+
+{# `r` trae: name · email · photo · link {label, relation, logo_url, icon} · sub (por si no hay
+   vinculación y sí algo que decir: el programa de un contacto, «Tercero»…). #}
+{% macro recip_face(r) %}
+  {% if r.photo %}
+    <img src="{{ r.photo }}" alt="" class="pr-recip-item__ava" data-avatar="1" loading="lazy">
+  {% else %}
+    <img src="{{ DEFAULT_AVATAR_URL }}" alt="" class="pr-recip-item__ava" data-avatar="1" loading="lazy">
+  {% endif %}
+  <span class="pr-recip-item__t">
+    <span class="pr-recip-item__l1">
+      <b>{{ r.name }}</b>
+      {% if r.email %}<span class="pr-recip-item__mail">{{ r.email }}</span>{% endif %}
+    </span>
+    {% if r.link and r.link.label %}
+      <small class="pr-recip-item__link">
+        {% if r.link.logo_url %}
+          <img src="{{ r.link.logo_url }}" alt="" loading="lazy">
+        {% else %}
+          <i class="fa {{ r.link.icon or 'fa-link' }} fa-fw"></i>
+        {% endif %}
+        <span>{{ r.link.label }}{% if r.link.relation %} · {{ r.link.relation }}{% endif %}</span>
+      </small>
+    {% elif r.sub %}
+      <small class="pr-recip-item__link"><span>{{ r.sub }}</span></small>
+    {% endif %}
+  </span>
+{% endmacro %}

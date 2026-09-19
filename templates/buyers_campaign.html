@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from '_recipient_row.html' import recip_face with context %}
 {% block content %}
 {# UNA COMUNICACIÓN YA ENVIADA a una base de datos de compradores: lo que se mandó y a quién.
    ⚠️ El correo se pinta con el MISMO HTML que salió, así que se ve tal cual lo recibieron. #}
@@ -61,13 +62,21 @@
     <div class="card h-100">
       <div class="card-header"><i class="fa fa-users me-1"></i>A quién le llegó
         <span class="badge text-bg-light border ms-1">{{ camp.recipients|length }}</span></div>
+      {# ⚠️ La MISMA fila que en los otros envíos (lo pidió Dani): la foto o el logo, el nombre con
+         el correo al lado y sin negrita, y debajo la vinculación si la hay. Un comprador es alguien
+         que compró una entrada, así que normalmente no tiene ni ficha ni vinculación: se queda en
+         la foto por defecto y su correo al lado. #}
       <div class="table-responsive" style="max-height:520px;overflow:auto">
         <table class="table table-sm align-middle mb-0">
           <tbody>
             {% for r in camp.recipients %}
               <tr>
-                <td class="small">{{ r.name or '—' }}</td>
-                <td class="small text-muted">{{ r.target }}</td>
+                <td colspan="2">
+                  <span class="pr-recip-item">
+                    {{ recip_face({'name': (r.name or r.target), 'email': r.target,
+                                   'photo': r.photo, 'link': r.link}) }}
+                  </span>
+                </td>
                 <td class="text-end">
                   {% if r.opted_out %}<i class="fa fa-bell-slash text-muted me-1" title="Se dio de baja de las comunicaciones publicitarias"></i>{% endif %}
                   {% if r.status == 'ENVIADO' %}<i class="fa fa-check text-success" title="Enviado"></i>

@@ -2783,18 +2783,24 @@ def _artist_cash_expenses(session_db, artist, year: int | None) -> dict:
     except Exception:
         app.logger.exception("[caja] no se pudieron leer las bolsas del artista")
         bolsas = []
+    # ⚠️ LOS GASTOS DE TODAS SUS BOLSAS, EN UNA SOLA CONSULTA. Uno por bolsa era un N+1 que con
+    # decenas de bolsas se notaba —y en la pestaña «Caja» de administración se multiplicaba por cada
+    # artista—. Con la base en Frankfurt, cada consulta de más son milisegundos que se suman.
+    por_bolsa: dict = {}
+    if bolsas:
+        try:
+            for g in (session_db.query(BagExpense)
+                      .filter(BagExpense.bag_id.in_([b.id for b in bolsas])).all()):
+                por_bolsa.setdefault(str(g.bag_id), []).append(g)
+        except Exception:
+            app.logger.exception("[caja] no se pudieron leer los gastos de las bolsas")
     for bag in bolsas:
         dia = (getattr(bag, "closed_at", None).date() if getattr(bag, "closed_at", None)
                else (getattr(bag, "start_date", None) or getattr(bag, "end_date", None)
                      or (getattr(bag, "created_at", None).date() if getattr(bag, "created_at", None) else None)))
         if year and getattr(dia, "year", None) != year:
             continue
-        try:
-            gastos = (session_db.query(BagExpense)
-                      .filter(BagExpense.bag_id == bag.id).all())
-        except Exception:
-            app.logger.exception("[caja] no se pudieron leer los gastos de una bolsa")
-            continue
+        gastos = por_bolsa.get(str(bag.id), [])
         coste = _bag_cash_cost(session_db, bag, gastos)
         if not _bag_cash_counts(bag):
             # ⚠️ No suma. Lo que sigue ABIERTO se cuenta aparte para poder decirlo («y además hay
@@ -3007,6 +3013,15 @@ def _group_cash_data(session_db, kind: str, obj, year: int | None) -> dict:
         except Exception:
             app.logger.exception("[caja] no se pudieron leer las bolsas del grupo")
             bolsas = []
+        # Los gastos de todas esas bolsas, en UNA consulta (el mismo N+1 que en la de un artista).
+        por_bolsa: dict = {}
+        if bolsas:
+            try:
+                for g in (session_db.query(BagExpense)
+                          .filter(BagExpense.bag_id.in_([b.id for b in bolsas])).all()):
+                    por_bolsa.setdefault(str(g.bag_id), []).append(g)
+            except Exception:
+                app.logger.exception("[caja] no se pudieron leer los gastos de las bolsas del grupo")
         for bag in bolsas:
             dia = (getattr(bag, "closed_at", None).date() if getattr(bag, "closed_at", None)
                    else (getattr(bag, "start_date", None) or getattr(bag, "end_date", None)))
@@ -3014,7 +3029,7 @@ def _group_cash_data(session_db, kind: str, obj, year: int | None) -> dict:
                 años.add(dia.year)
             if year and getattr(dia, "year", None) != year:
                 continue
-            coste = _bag_cash_cost(session_db, bag)
+            coste = _bag_cash_cost(session_db, bag, por_bolsa.get(str(bag.id), []))
             if not _bag_cash_counts(bag):
                 if not _bag_is_closed(bag) and coste > 0:
                     abiertas += 1
@@ -3098,6 +3113,26 @@ def _cash_links(session_db, artist, year: int | None, *, scope: str = "artist") 
     }
 
 
+def _cash_all_years(session_db) -> set:
+    """Los años en los que hay ALGO, de toda la casa: es lo que ofrece el selector de la pestaña.
+
+    ⚠️ Cuatro consultas, UNA vez. Sacarlos de cada artista (`_artist_cash_years`) serían cuatro por
+    cada uno — y con cien artistas eso es lo que convierte la pantalla en una espera."""
+    años = {today_local().year}
+    consultas = ((Concert.date, None),
+                 (RoyaltyLiquidation.period_end, None),
+                 (WorkflowBag.start_date, None),
+                 (ArtistLedgerEntry.entry_date, None))
+    for columna, _x in consultas:
+        try:
+            for (d,) in session_db.query(columna).filter(columna.isnot(None)).distinct().all():
+                if d:
+                    años.add(d.year)
+        except Exception:
+            app.logger.exception("[caja] no se pudieron leer los años")
+    return años
+
+
 def _cash_overview(session_db, year: int | None) -> dict:
     """LA LISTA de la pestaña: cada sujeto con sus CUATRO datos, ya del año elegido.
 
@@ -3112,8 +3147,8 @@ def _cash_overview(session_db, year: int | None) -> dict:
     except Exception:
         app.logger.exception("[caja] no se pudieron leer las liquidaciones")
         liquidaciones = []
-    prefetch = {"liquidations": liquidaciones}
-    filas, años = [], set()
+    prefetch = {"liquidations": liquidaciones, "skip_years": True}
+    filas, años = [], _cash_all_years(session_db)
     totales = {"artist_billed": Decimal("0"), "office_invested": Decimal("0"),
                "office_income": Decimal("0"), "office_result": Decimal("0")}
     for artist in _cash_subjects(session_db):
@@ -3122,7 +3157,6 @@ def _cash_overview(session_db, year: int | None) -> dict:
         except Exception:
             app.logger.exception("[caja] no se pudo calcular la caja de %s", getattr(artist, "name", ""))
             continue
-        años.update(datos.get("years") or [])
         b = datos["balance"]
         if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"]]):
             continue
@@ -3150,7 +3184,6 @@ def _cash_overview(session_db, year: int | None) -> dict:
         except Exception:
             app.logger.exception("[caja] no se pudo calcular la caja de un grupo")
             continue
-        años.update(datos.get("years") or [])
         b = datos["balance"]
         if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"]]):
             continue
@@ -3265,7 +3298,11 @@ def _artist_cash_data(session_db, artist, year: int | None = None, prefetch: dic
     adelantos_abiertos = [a for a in adelantos if not a["closed"]]
     return {
         "year": year,
-        "years": _artist_cash_years(session_db, artist),
+        # ⚠️ En la pestaña «Caja» de administración los años se calculan UNA vez para todos
+        # (`skip_years`): hacerlo por artista son cuatro consultas más por cada uno, y con cien
+        # artistas eso es lo que convierte la pantalla en una espera.
+        "years": ([] if (prefetch or {}).get("skip_years")
+                  else _artist_cash_years(session_db, artist)),
         "income": ingresos,
         "expense": gastos,
         "advances": adelantos,
@@ -62041,7 +62078,45 @@ def _press_pdf_bytes(session_db, pr) -> bytes:
 
 # ── LISTADOS ─────────────────────────────────────────────────────────────────────────────────
 
-def _press_recipient_payload(r) -> dict:
+def _press_recipient_faces(session_db, filas) -> dict:
+    """LA CARA de cada destinatario de una nota (foto + vinculación), en DOS consultas.
+
+    ⚠️ Lo pidió Dani: «el listado de los seleccionados tiene que salir con foto o logo, y las
+    vinculaciones también con foto y logo». Se resuelve **en bloque** por tipo: una consulta por
+    fila en una lista de cientos de destinatarios dejaría la ficha de la nota sin abrir."""
+    por_tipo: dict = {}
+    for r in (filas or []):
+        ref = getattr(r, "ref_id", None)
+        if ref:
+            por_tipo.setdefault((getattr(r, "kind", "") or "").upper(), set()).add(ref)
+    caras: dict = {}
+    ids_medios = por_tipo.get("MEDIA") or set()
+    if ids_medios:
+        try:
+            for c, m in (session_db.query(MediaContact, MediaOutlet)
+                         .join(MediaOutlet, MediaOutlet.id == MediaContact.media_id)
+                         .filter(MediaContact.id.in_(list(ids_medios))).all()):
+                caras[str(c.id)] = {
+                    "photo": (m.logo_url or ""),
+                    "link": {"label": (m.name or ""),
+                             "relation": ((c.program or "").strip() or (c.role or "").strip()),
+                             "logo_url": (m.logo_url or ""),
+                             "icon": _media_type_icon(_media_type_label(m.media_type))},
+                }
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudieron leer las caras de los medios")
+    ids_terceros = (por_tipo.get("PROMOTER") or set())
+    if ids_terceros:
+        try:
+            for p in session_db.query(Promoter).filter(Promoter.id.in_(list(ids_terceros))).all():
+                caras[str(p.id)] = {"photo": (p.logo_url or ""),
+                                    "link": _recipient_link_of_promoter(session_db, p)}
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudieron leer las caras de los terceros")
+    return caras
+
+
+def _press_recipient_payload(r, faces: dict | None = None) -> dict:
     """Una fila de destinatario tal como se pinta en la ficha (y en su refresco en vivo y en los
     pop-ups del listado): cuándo salió, si la ha ABIERTO (cuántas veces, la primera y la última) y,
     si se sospecha que la REENVIÓ, desde cuándo. Un solo sitio para las tres pantallas."""
@@ -62073,6 +62148,9 @@ def _press_recipient_payload(r) -> dict:
         "opened_label": abierta,
         "forwarded": bool(r.forwarded), "forwarded_at": _lbl(fwd_at), "forwarded_label": reenviada,
         "group_label": (getattr(r, "group_label", None) or ""),
+        # Su foto y su vinculación (las resuelve `_press_recipient_faces` en bloque).
+        "photo": ((faces or {}).get(str(getattr(r, "ref_id", "") or "")) or {}).get("photo", ""),
+        "link": ((faces or {}).get(str(getattr(r, "ref_id", "") or "")) or {}).get("link"),
     }
 
 
@@ -62155,6 +62233,28 @@ def _press_rows_for_entity(kind: str, oid) -> list[dict]:
 
 # ── A QUIÉN se le manda ──────────────────────────────────────────────────────────────────────
 
+def _recipient_link_of_promoter(session_db, promoter) -> dict | None:
+    """LA VINCULACIÓN de un tercero, tal como se pinta en la fila de un destinatario.
+
+    ⚠️ Punto único de los TRES envíos (nota de prensa, compradores e invitación corporativa): lo
+    pidió Dani, «las vinculaciones también con foto y logo». Sale de `_promoter_link_summary`, que
+    es el mismo resumen que se enseña en el resto de la app, con `publisher_fallback=False`: la
+    editorial no es una vinculación."""
+    if promoter is None:
+        return None
+    try:
+        v = _promoter_link_summary(session_db, promoter, publisher_fallback=False) or {}
+    except Exception:
+        app.logger.exception("[envíos] no se pudo leer la vinculación de un destinatario")
+        return None
+    if not (v.get("label") or "").strip():
+        return None
+    return {"label": (v.get("label") or "").strip(),
+            "relation": (v.get("relation_title") or "").strip(),
+            "logo_url": (v.get("logo_url") or "").strip(),
+            "icon": (v.get("icon") or "fa-link")}
+
+
 def _press_recipient_candidates(session_db) -> list[dict]:
     """Los contactos de los medios marcados para recibir NOTAS DE PRENSA, agrupados por medio (solo
     los que tienen correo: sin correo no hay a quién mandársela)."""
@@ -62164,13 +62264,32 @@ def _press_recipient_candidates(session_db) -> list[dict]:
              .order_by(func.lower(MediaOutlet.name).asc(), MediaContact.created_at.asc()).all())
     medios: dict = {}
     etiquetas = _media_tags_map(session_db, {str(m.id) for _c, m in filas})
+    # ⚠️ La FOTO de un contacto sale de SU FICHA de tercero si la tiene (es la persona), y si no, del
+    # logo de su medio: una fila sin cara no se distingue de la de al lado.
+    fichas = {}
+    ids_terceros = {c.promoter_id for c, _m in filas if getattr(c, "promoter_id", None)}
+    if ids_terceros:
+        try:
+            for p in session_db.query(Promoter).filter(Promoter.id.in_(list(ids_terceros))).all():
+                fichas[str(p.id)] = p
+        except Exception:
+            app.logger.exception("[envíos] no se pudieron leer las fichas de los contactos")
     for c, m in filas:
         g = medios.setdefault(str(m.id), {"media_id": str(m.id), "media_name": m.name or "—", "media_logo": m.logo_url or "",
                                           "media_type": m.media_type or "", "tags": etiquetas.get(str(m.id), []),
                                           "contacts": []})
+        ficha = fichas.get(str(getattr(c, "promoter_id", "") or ""))
+        foto = ((getattr(ficha, "logo_url", "") or "").strip() if ficha is not None else "") or (m.logo_url or "")
+        # LA VINCULACIÓN de un contacto de prensa es SU MEDIO (con su logo), y la relación, lo que
+        # hace ahí: su programa o su cargo. Si además su ficha tiene vinculaciones, mandan esas.
+        vinculo = _recipient_link_of_promoter(session_db, ficha) if ficha is not None else None
+        if vinculo is None:
+            vinculo = {"label": (m.name or ""), "relation": ((c.program or "").strip() or (c.role or "").strip()),
+                       "logo_url": (m.logo_url or ""), "icon": _media_type_icon(_media_type_label(m.media_type))}
         g["contacts"].append({"kind": "MEDIA", "ref_id": str(c.id), "name": _media_contact_name(c),
                               "full_name": _media_contact_full_name(c), "email": (c.email or "").strip().lower(),
-                              "role": (c.role or "").strip(), "program": (c.program or "").strip(), "media_name": m.name or ""})
+                              "role": (c.role or "").strip(), "program": (c.program or "").strip(),
+                              "media_name": m.name or "", "photo": foto, "link": vinculo})
     return list(medios.values())
 
 
@@ -62211,7 +62330,9 @@ def _press_recipient_groups(session_db, medios: list[dict]) -> dict:
             continue
         fila = {"kind": "PROMOTER", "ref_id": str(p.id), "name": _promoter_display_name(p), "email": correo,
                 "photo": (p.logo_url or "").strip(), "tags": asociaciones,
-                "tag_labels": [PROMOTER_ASSOC_LABELS[k] for k in asociaciones]}
+                "tag_labels": [PROMOTER_ASSOC_LABELS[k] for k in asociaciones],
+                # Su VINCULACIÓN, con su logo (lo pidió Dani): es lo que dice quién es.
+                "link": _recipient_link_of_promoter(session_db, p)}
         promotores.append(fila)
         for k in asociaciones:
             por_asociacion[k].append(fila)
@@ -62229,13 +62350,13 @@ def _press_contact_search(session_db, q: str) -> list[dict]:
         return []
     out, vistos = [], set()
 
-    def add(kind, ref_id, name, email, sub, photo=""):
+    def add(kind, ref_id, name, email, sub, photo="", link=None):
         email = (email or "").strip().lower()
         if not email or email in vistos:
             return
         vistos.add(email)
         out.append({"kind": kind, "ref_id": str(ref_id) if ref_id else "", "name": name or email, "email": email,
-                    "sub": sub or "", "photo": photo or ""})
+                    "sub": sub or "", "photo": photo or "", "link": link})
 
     like = _sa_contains_text
     for c, m in (session_db.query(MediaContact, MediaOutlet).join(MediaOutlet, MediaOutlet.id == MediaContact.media_id)
@@ -62248,7 +62369,8 @@ def _press_contact_search(session_db, q: str) -> list[dict]:
     if clausula is not None:
         for p in session_db.query(Promoter).filter(clausula).limit(15).all():
             correo, _tel = _promoter_email_phone(p)
-            add("PROMOTER", p.id, _promoter_display_name(p), correo, "Tercero", p.logo_url or "")
+            add("PROMOTER", p.id, _promoter_display_name(p), correo, "Tercero", p.logo_url or "",
+                _recipient_link_of_promoter(session_db, p))
     inactivos = _inactive_user_ids(session_db)
     for u, prof in (session_db.query(User, UserProfile).outerjoin(UserProfile, UserProfile.user_id == User.id)
                     .filter(or_(like(User.email, q), like(UserProfile.nick, q), like(UserProfile.first_name, q), like(UserProfile.last_name, q)))
@@ -62885,9 +63007,10 @@ def promo_press_detail(release_id):
         _press_ensure_token(s, pr)
         ctx = _press_editor_context(s, pr)
         ctx["web_html"] = _press_web_html(s, pr, pr.public_token)
-        ctx["recipients"] = [_press_recipient_payload(r) for r in
-                             sorted(pr.recipients, key=lambda z: (z.sent_at or z.created_at or _now_madrid()), reverse=True)
-                             if r.batch != "TEST"]
+        _dest = [r for r in sorted(pr.recipients, key=lambda z: (z.sent_at or z.created_at or _now_madrid()),
+                                   reverse=True) if r.batch != "TEST"]
+        _caras = _press_recipient_faces(s, _dest)     # en bloque: nunca una consulta por fila
+        ctx["recipients"] = [_press_recipient_payload(r, _caras) for r in _dest]
         # Si se eligieron por GRUPOS (un tipo de medio, los promotores, una asociación), la lista de a
         # quién se mandó va agrupada por esas etiquetas.
         grupos_dest: dict = {}
@@ -62953,9 +63076,9 @@ def promo_press_recipients_json(release_id):
         pr = _press_by_id(s, release_id)
         if not pr:
             return jsonify({"ok": False, "error": "No existe."}), 404
-        filas = [_press_recipient_payload(r) for r in
-                 sorted(pr.recipients, key=lambda z: (z.sent_at or z.created_at or _now_madrid()), reverse=True)
-                 if r.batch != "TEST"]
+        _dest = [r for r in sorted(pr.recipients, key=lambda z: (z.sent_at or z.created_at or _now_madrid()),
+                                   reverse=True) if r.batch != "TEST"]
+        filas = [_press_recipient_payload(r, _press_recipient_faces(s, _dest)) for r in _dest]
         return jsonify({"ok": True, "rows": filas})
     finally:
         s.close()
@@ -170049,8 +170172,14 @@ def _buyer_campaign_detail(session_db, campaign_id) -> dict | None:
         "source": _buyer_source(session_db,
                                 event_pk=(str(c.event_id) if c.event_id else ""),
                                 list_pk=(str(c.list_id) if c.list_id else "")),
+        # ⚠️ La fila se pinta con el MISMO macro que los otros envíos (foto · nombre con el correo
+        # al lado · vinculación debajo). Un comprador es alguien que compró una entrada y **casi
+        # nunca tiene ficha**, así que va sin foto y sin vinculación: la fila usa la de por defecto.
+        # No se busca su ficha por el correo a propósito: en una lista de miles sería una consulta
+        # por fila.
         "recipients": [{"name": (r.name or ""), "target": (r.target or ""),
                         "status": (r.status or ""), "error": (r.error or ""),
+                        "photo": "", "link": None,
                         "opted_out": r.opted_out_at is not None} for r in dest],
     }
 

@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from '_recipient_row.html' import recip_face with context %}
 {% block content %}
 {# ═══════════════ UNA NOTA DE PRENSA (verla) ═══════════════
    A la izquierda lo que es y lo que se hace con ella (enviar, editar si no se ha enviado, PDF,
@@ -115,7 +116,12 @@
             <div class="pr-recip">
               <span class="pr-recip__st {{ 'is-err' if r.error else ('is-sent' if r.sent else 'is-wait') }}"
                     title="{{ r.error or ('Enviada el ' ~ r.sent_at if r.sent else 'Pendiente de salir') }}"><i class="fa {{ 'fa-triangle-exclamation' if r.error else ('fa-check' if r.sent else 'fa-clock') }}"></i></span>
-              <span class="pr-recip__who"><b>{{ r.name or r.email }}</b>{% if r.media_name %} <span class="text-muted">· {{ r.media_name }}</span>{% endif %}<br><small class="text-muted">{{ r.email }}</small></span>
+              {# ⚠️ LA MISMA CARA que en los demás envíos: la foto o el logo, el nombre con el
+                 correo al lado y sin negrita, y debajo la vinculación con su logo. #}
+              <span class="pr-recip__who">
+                {{ recip_face({'name': (r.name or r.email), 'email': r.email, 'photo': r.photo,
+                               'link': r.link, 'sub': r.media_name}) }}
+              </span>
               <span class="pr-recip__icons">
                 {% if r.opened %}<span class="pr-recip__ico is-open" title="{{ r.opened_label }}"><i class="fa fa-envelope-open"></i></span>{% endif %}
                 {% if r.forwarded %}<span class="pr-recip__ico is-fwd" title="{{ r.forwarded_label }}"><i class="fa fa-share"></i></span>{% endif %}

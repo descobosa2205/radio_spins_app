@@ -6962,7 +6962,7 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .pr-recips{ display:flex; flex-direction:column; gap:.35rem; }
 .pr-recip{ display:flex; align-items:flex-start; gap:.5rem; font-size:.88rem; }
 /* a la derecha de cada destinatario: ABIERTA (cuántas veces y cuándo, al pasar el ratón) y REENVIADA */
-.pr-recip__who{ flex:1 1 auto; min-width:0; }
+.pr-recip__who{ flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:.5rem; }
 .pr-recip__icons{ display:inline-flex; gap:.3rem; flex:0 0 auto; margin-left:auto; padding-top:2px; }
 .pr-recip__ico{ width:24px; height:24px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:.72rem; cursor:help; }
 .pr-recip__ico.is-open{ background:#e0f2f8; color:var(--brand-accent,#007CA2); }
@@ -7037,7 +7037,22 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .pr-recip-item:hover{ background:#f8f9fa; }
 .pr-recip-item__t{ display:flex; flex-direction:column; line-height:1.2; min-width:0; }
 .pr-recip-item__t small{ color:#6b7280; overflow:hidden; text-overflow:ellipsis; }
-.pr-recip-item__ava{ width:26px; height:26px; border-radius:50%; object-fit:cover; }
+.pr-recip-item__ava{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; object-fit:cover; }
+/* ⚠️⚠️ LA FILA DE UN DESTINATARIO (lo pidió Dani): la foto o el logo, el nombre con **el correo al
+   lado y sin negrita**, y **debajo la vinculación con su logo**. Es la misma en los tres envíos
+   (nota de prensa, compradores e invitación corporativa) porque la pinta un solo macro. */
+.pr-recip-item__l1{ display:flex; align-items:baseline; gap:.4rem; min-width:0; }
+.pr-recip-item__l1 b{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pr-recip-item__mail{ font-weight:400; font-size:.82rem; color:#6b7280;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pr-recip-item__link{ display:flex !important; align-items:center; gap:.3rem; min-width:0; }
+.pr-recip-item__link img{ flex:0 0 auto; width:15px !important; height:15px !important;
+  border-radius:50%; object-fit:cover; max-width:none; }
+.pr-recip-item__link > span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* En la lista del buscador, lo mismo. */
+.ta-item__mail{ font-weight:400; color:#6b7280; font-size:.84rem; }
+.ta-item__vlogo{ width:14px !important; height:14px !important; border-radius:50%; object-fit:cover;
+  max-width:none; margin-right:.25rem; vertical-align:-2px; }
 @media (max-width: 991.98px){
   .pr-send{ grid-template-columns:1fr; }
   .pr-send__preview{ position:static; }

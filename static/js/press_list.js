@@ -75,8 +75,7 @@
         ? esc(r.opened_label || ('Abierta ' + (r.open_count || 1) + (r.open_count === 1 ? ' vez' : ' veces')))
         : (r.error ? ('<span class="text-danger">No salió: ' + esc(r.error) + '</span>') : (r.sent_at ? ('Enviada el ' + r.sent_at + (r.opened ? ' · <span class="text-success">abierta</span>' : '')) : 'Pendiente de salir'));
       return '<div class="pr-recip"><span class="pr-recip__st ' + st + '"><i class="fa ' + ico + '"></i></span>' +
-        '<span class="pr-recip__who"><b>' + esc(r.name || r.email) + '</b>' + (r.media_name ? ' <span class="text-muted">· ' + esc(r.media_name) + '</span>' : '') +
-        '<br><small class="text-muted">' + esc(r.email) + ' · ' + det + '</small></span>' +
+        '<span class="pr-recip__who">' + caraRecip(r, det) + '</span>' +
         '<span class="pr-recip__icons">' +
         (r.forwarded ? '<span class="pr-recip__ico is-fwd" title="' + esc(r.forwarded_label || 'Posiblemente reenviada') + '"><i class="fa fa-share"></i></span>' : '') +
         '</span></div>';
@@ -280,13 +279,31 @@
     if (stat) pop(stat); else pop(el);
     return true;
   }
+  /* ⚠️⚠️ LA CARA DE UN DESTINATARIO, la misma que pinta el servidor (`_recipient_row.html`) y la
+     misma que en los otros dos envíos: la foto o el logo, el nombre con **el correo al lado y sin
+     negrita**, y **debajo la vinculación con su logo** (lo pidió Dani). Si se toca allí, se toca
+     aquí: son los dos sitios donde se pinta esta fila. */
+  function caraRecip(r, extra) {
+    var v = r.link || null;
+    var abajo = (v && v.label)
+      ? ((v.logo_url ? '<img src="' + esc(v.logo_url) + '" alt="">' : '<i class="fa ' + esc(v.icon || 'fa-link') + ' fa-fw"></i>')
+         + '<span>' + esc(v.label) + (v.relation ? ' · ' + esc(v.relation) : '') + '</span>')
+      : (r.media_name ? '<span>' + esc(r.media_name) + '</span>' : '');
+    if (extra) abajo = (abajo || '<span></span>') + '<span class="text-muted"> · ' + extra + '</span>';
+    return (r.photo ? '<img src="' + esc(r.photo) + '" alt="" class="pr-recip-item__ava" data-avatar="1">' : '') +
+      '<span class="pr-recip-item__t">' +
+        '<span class="pr-recip-item__l1"><b>' + esc(r.name || r.email) + '</b>' +
+        '<span class="pr-recip-item__mail">' + esc(r.email) + '</span></span>' +
+        (abajo ? '<small class="pr-recip-item__link">' + abajo + '</small>' : '') +
+      '</span>';
+  }
+
   function filaRecip(r) {
     var cls = r.error ? 'is-err' : (r.sent_at ? 'is-sent' : 'is-wait');
     var ico = r.error ? 'fa-triangle-exclamation' : (r.sent_at ? 'fa-check' : 'fa-clock');
     var tit = r.error || (r.sent_at ? ('Enviada el ' + r.sent_at) : 'Pendiente de salir');
     return '<div class="pr-recip"><span class="pr-recip__st ' + cls + '" title="' + esc(tit) + '"><i class="fa ' + ico + '"></i></span>' +
-      '<span class="pr-recip__who"><b>' + esc(r.name || r.email) + '</b>' + (r.media_name ? ' <span class="text-muted">· ' + esc(r.media_name) + '</span>' : '') +
-      '<br><small class="text-muted">' + esc(r.email) + '</small></span>' +
+      '<span class="pr-recip__who">' + caraRecip(r, '') + '</span>' +
       '<span class="pr-recip__icons">' +
       (r.opened ? '<span class="pr-recip__ico is-open" title="' + esc(r.opened_label || 'Abierta') + '"><i class="fa fa-envelope-open"></i></span>' : '') +
       (r.forwarded ? '<span class="pr-recip__ico is-fwd" title="' + esc(r.forwarded_label || 'Posiblemente reenviada') + '"><i class="fa fa-share"></i></span>' : '') +

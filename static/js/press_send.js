@@ -161,6 +161,24 @@
     });
   });
 
+  /* ⚠️⚠️ LA CARA DE UN DESTINATARIO, igual que la del servidor (`_recipient_row.html`): la foto,
+     el nombre con **el correo al lado y sin negrita**, y debajo la **vinculación con su logo**. Lo
+     pidió Dani, y tiene que verse igual venga la fila de donde venga. */
+  function cara(fila, email) {
+    var foto = fila.photo || (root.getAttribute('data-avatar-fallback') || '');
+    var v = fila.link || null;
+    var abajo = (v && v.label)
+      ? ((v.logo_url ? '<img src="' + esc(v.logo_url) + '" alt="">' : '<i class="fa ' + esc(v.icon || 'fa-link') + ' fa-fw"></i>')
+         + '<span>' + esc(v.label) + (v.relation ? ' · ' + esc(v.relation) : '') + '</span>')
+      : (fila.sub ? '<span>' + esc(fila.sub) + '</span>' : '');
+    return (foto ? '<img src="' + esc(foto) + '" alt="" class="pr-recip-item__ava" data-avatar="1">' : '') +
+      '<span class="pr-recip-item__t">' +
+        '<span class="pr-recip-item__l1"><b>' + esc(fila.name || email) + '</b>' +
+        '<span class="pr-recip-item__mail">' + esc(email) + '</span></span>' +
+        (abajo ? '<small class="pr-recip-item__link">' + abajo + '</small>' : '') +
+      '</span>';
+  }
+
   function añade(fila) {
     var email = (fila.email || '').trim().toLowerCase();
     if (!email || !/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email)) return false;
@@ -170,8 +188,7 @@
     var lab = document.createElement('label');
     lab.className = 'pr-recip-item';
     lab.innerHTML = '<input type="checkbox" class="form-check-input" checked data-pr-recip data-kind="' + esc(fila.kind || 'MANUAL') + '" data-ref="' + esc(fila.ref_id || '') + '" data-email="' + esc(email) + '" data-name="' + esc(fila.name || '') + '" data-media="' + esc(fila.media_name || '') + '">' +
-      (fila.photo ? '<img src="' + esc(fila.photo) + '" alt="" class="pr-recip-item__ava" data-avatar="1">' : '') +
-      '<span class="pr-recip-item__t"><b>' + esc(fila.name || email) + '</b><small>' + esc(email) + (fila.sub ? ' · ' + esc(fila.sub) : '') + '</small></span>' +
+      cara(fila, email) +
       '<button type="button" class="btn btn-link btn-sm text-muted p-0 ms-auto" data-pr-remove title="Quitar"><i class="fa fa-xmark"></i></button>';
     box.appendChild(lab);
     cuenta();
@@ -212,9 +229,16 @@
         var b = caja();
         if (!rows.length) { cierra(); return; }
         b.innerHTML = rows.map(function (r) {
+          // ⚠️ La vinculación, con su logo: es lo que dice quién es (lo pidió Dani).
+          var v = r.link || null;
+          var abajo = v && v.label
+            ? ((v.logo_url ? '<img class="ta-item__vlogo" src="' + esc(v.logo_url) + '" alt="">' : '')
+               + esc(v.label) + (v.relation ? ' · ' + esc(v.relation) : ''))
+            : esc(r.sub || '');
           return '<button type="button" class="ta-item" data-pr-pick="' + esc(JSON.stringify(r)) + '">' +
             (r.photo ? '<img src="' + esc(r.photo) + '" alt="">' : '<span class="ta-item__noimg"></span>') +
-            '<span class="ta-item__t">' + esc(r.name) + '<small class="ta-item__s">' + esc(r.email) + (r.sub ? ' · ' + esc(r.sub) : '') + '</small></span></button>';
+            '<span class="ta-item__t">' + esc(r.name) + ' <span class="ta-item__mail">' + esc(r.email) + '</span>' +
+            (abajo ? '<small class="ta-item__s">' + abajo + '</small>' : '') + '</span></button>';
         }).join('');
         b.style.display = 'block';
         if (window.app33FloatList) window.app33FloatList.place(busc, b, { abajo: true, max: 300 });

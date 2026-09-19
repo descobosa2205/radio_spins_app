@@ -699,6 +699,39 @@
     }
     // Butacas seleccionadas en DISEÑO (mover/orientar/agrupar en bloque).
     function dselKeys(){ return Object.keys(dsel).filter(function(k){ return dsel[k]; }); }
+    /* ⚠️⚠️ LAS BUTACAS DE UN BLOQUE (sep 2026, lo pidió Dani: «pinchas un bloque y en las opciones
+       seleccionar todo, se seleccionan todos los asientos de ESE bloque, no los fondos ni otras
+       cosas»). Punto único: lo usan el menú del botón derecho, el botón del panel y ⌘A/Ctrl+A.
+       ⚠️ Solo BUTACAS de verdad (`state==='seat'`): ni huecos, ni apagadas, ni escaleras. Y solo de
+       SECCIONES: el plano de fondo, el contorno y el escenario son `elements`, no entran nunca. */
+    function seatKeysOf(s){
+      var out = [];
+      if(!s || s.kind === 'floor') return out;      // una zona de pie no tiene butacas que marcar
+      secRows(s).rows.forEach(function(row){ row.seats.forEach(function(p){
+        if(p.state === 'seat') out.push(s.id + '|' + row.rowIdx + '|' + p.slot);
+      }); });
+      return out;
+    }
+    /* Marca las butacas de `s` (o las de TODO el plano si no se pasa ninguna). En diseño van a
+       `dsel` —que es lo que mueve, agrupa, numera y borra— y en categorías a `sel`, que es lo que
+       se arrastra hasta una categoría. Devuelve cuántas ha marcado. */
+    function selectSeatsOf(s, additive){
+      var keys = [];
+      if(s) keys = seatKeysOf(s);
+      else sections.forEach(function(x){ keys = keys.concat(seatKeysOf(x)); });
+      if(!keys.length) return 0;
+      if(mode === 'cats'){
+        if(!additive) sel = {};
+        keys.forEach(function(k){ sel[k] = 1; });
+        updateSelPop(); queueRender();
+        return keys.length;
+      }
+      if(!additive){ dsel = {}; dselO = {}; }   // ⚠️ fuera los ELEMENTOS: si el sector sigue marcado, arrastrar movería dos veces
+      keys.forEach(function(k){ dsel[k] = 1; });
+      if(s) selId = s.id;
+      updateDPop(); renderSide(); queueRender();
+      return keys.length;
+    }
     function dselOkeys(){ return Object.keys(dselO).filter(function(k){ return dselO[k]; }); }
     // Selección por RECUADRO: butacas sueltas/detectadas (dsel) + elementos/sectores (dselO) dentro.
     function marqueeSelect(a, b, add){
@@ -1611,7 +1644,8 @@
         html += '<h6 class="vmap-h"><i class="fa fa-image me-1"></i>Plano de fondo</h6>';
         if(!bgE){
           html += '<div class="vmap-tools"><button type="button" class="btn btn-sm btn-outline-secondary" data-bg-upload><i class="fa fa-image me-1"></i>Subir plano</button></div>'+
-            '<p class="text-muted small mb-0">Sube una imagen del plano para calcar el recinto encima (gradas, sectores…).</p>';
+            '<p class="text-muted small mb-0">Sube una imagen del plano para calcar el recinto encima (gradas, sectores…).'+
+            ((sections.length||elements.length)?' Si ya hay bloques, el plano nuevo se coloca <b>debajo</b> para no taparlos: arrástralo a su sitio.':'')+'</p>';
         } else {
           html += '<div class="vmap-param"><label>Opacidad</label><input type="range" class="form-range" min="10" max="100" step="5" value="'+Math.round((bgE.opacity!=null?bgE.opacity:0.6)*100)+'" data-bg-op></div>'+
             '<div class="vmap-tools">'+
@@ -1646,6 +1680,11 @@
         var el = elements.find(function(x){return x.id===selId;});
         if(s){
           html += '<h6 class="vmap-h"><i class="fa fa-sliders me-1"></i>Sección: '+esc(s.name||'')+'</h6>';
+          // ⚠️ Lo pidió Dani: con un bloque pinchado, marcar TODAS sus butacas de una vez (y solo
+          //    las suyas) para ponerles fila, numeración o categoría sin ir una a una.
+          if(s.kind!=='floor'){
+            html += '<div class="vmap-tools mb-1"><button type="button" class="btn btn-sm btn-outline-danger" data-sel-seats title="Marca todas las butacas de este bloque (⌘A / Ctrl+A)"><i class="fa fa-object-group me-1"></i>Seleccionar sus butacas</button></div>';
+          }
           html += '<div class="vmap-param"><label>Nombre</label><input type="text" class="form-control form-control-sm" data-p="name" value="'+esc(s.name||'')+'"></div>';
           if(s.kind!=='floor'){
             html += '<div class="vmap-param"><label>Alias <i class="fa fa-circle-info text-muted" title="Otros nombres con los que las ticketeras llaman a este sector en los PDF (separados por comas)."></i></label><input type="text" class="form-control form-control-sm" data-p="aliases" value="'+esc(s.aliases||'')+'" placeholder="201, SECTOR 201"></div>';
@@ -2154,12 +2193,24 @@
             var img=new Image();
             img.onload=function(){
               var ar=(img.naturalWidth||4)/(img.naturalHeight||3);
-              var cc=contentCenter() || {x:view.x+view.w/2, y:view.y+view.h/2};
               var W=1600, H=Math.round(W/(ar||1.333));
+              /* ⚠️⚠️ UN PLANO NUEVO NO SE PONE ENCIMA DE LO QUE YA HAY (sep 2026, lo pidió Dani:
+                 «si ya hay bloques creados y se sube un nuevo plano, no se tiene que añadir encima
+                 de los ya existentes, sino en algún punto donde no haya nada, para que no afecte y
+                 luego arrastrarlo para colocarlo»). Se coloca DEBAJO de todo el contenido, con un
+                 hueco, y centrado con él — el mismo criterio que la importación de Excel. Con el
+                 plano vacío, en el centro de la vista, como siempre. */
+              var bbBg = contentBounds();
+              var pos = bbBg ? {x:(bbBg.mx+bbBg.Mx)/2, y: bbBg.My + 140 + H/2}
+                             : (contentCenter() || {x:view.x+view.w/2, y:view.y+view.h/2});
               pushUndo('bg');
               var ex=elements.find(function(x){return x.type==='bgimage';});
               if(ex){ ex.url=r.j.url; }   // «Cambiar»: conserva posición/tamaño/opacidad
-              else { elements.push({id:'bgimg', type:'bgimage', url:r.j.url, x:cc.x, y:cc.y, w:W, h:H, rot:0, opacity:0.6, locked:false}); }
+              else {
+                elements.push({id:'bgimg', type:'bgimage', url:r.j.url, x:pos.x, y:pos.y, w:W, h:H, rot:0, opacity:0.6, locked:false});
+                // Se enseña entero, que si no queda fuera de la pantalla y parece que no ha subido.
+                if(bbBg){ selId='bgimg'; fitAll(); }
+              }
               renderSide(); queueRender();
             };
             img.onerror=function(){ alert('La imagen se subió pero no se pudo cargar.'); };
@@ -2363,6 +2414,7 @@
       if(add && add.dataset.add==='draw'){ drawArm = !drawArm; if(drawArm){ seatArm=false; tool=null; } setHint(); renderSide(); return; }
       if(e.target.closest('[data-arm-seat]')){ seatArm = !seatArm; if(seatArm){ drawArm=false; tool=null; detectArm=false; } setHint(); renderSide(); return; }
       var grp=e.target.closest('[data-group]'); if(grp){ groupSelectedSeats(grp.getAttribute('data-group')); return; }
+      if(e.target.closest('[data-sel-seats]')){ selectSeatsOf(sections.find(function(x){ return x.id===selId; })); return; }
       if(e.target.closest('[data-del-multi]')){ deleteSelected(); return; }
       if(add){
         pushUndo('add');
@@ -2543,6 +2595,13 @@
         // Barra espaciadora mantenida = MANO (desplazarse sin tocar piezas); solo bloquea el
         // scroll de la página cuando el puntero está sobre el plano.
         if(e.key===' ' || e.code==='Space'){ spaceHeld=true; svg.classList.add('vmap-hand'); if(overCanvas) e.preventDefault(); return; }
+        /* ⌘A / Ctrl+A = SELECCIONAR TODO: con un bloque pinchado, sus butacas; sin nada pinchado,
+           las de todo el plano. Nunca el plano de fondo ni el contorno (no son butacas). */
+        if((e.key==='a' || e.key==='A') && (e.ctrlKey || e.metaKey)){
+          var sSel = selId ? sections.find(function(x){ return x.id===selId; }) : null;
+          if(selectSeatsOf(sSel, e.shiftKey)) e.preventDefault();
+          return;
+        }
         if((e.key==='z' || e.key==='Z') && (e.ctrlKey || e.metaKey)){ e.preventDefault(); undo(); return; }
         if((e.key==='c' || e.key==='C') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && copySelected()) e.preventDefault(); return; }
         if((e.key==='v' || e.key==='V') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && clipboard){ e.preventDefault(); pasteClipboard(); } return; }
@@ -2562,6 +2621,12 @@
         if(hitId){ selId = hitId; renderSide(); queueRender(); }
         lastPtr = client2world(ev.clientX, ev.clientY);
         var items = '';
+        // ⚠️ «Seleccionar sus butacas» solo donde hay butacas: en un plano de fondo, en el
+        //    contorno o en una zona de pie no hay nada que marcar y el botón engañaría.
+        var secHit = hitId ? sections.find(function(x){ return x.id === hitId; }) : null;
+        if(secHit && seatKeysOf(secHit).length){
+          items += '<button type="button" data-ctx="selseats"><i class="fa fa-object-group fa-fw me-1"></i>Seleccionar sus butacas</button>';
+        }
         if(hitId){
           items += '<button type="button" data-ctx="copy"><i class="fa fa-copy fa-fw me-1"></i>Copiar</button>'+
                    '<button type="button" data-ctx="dup"><i class="fa fa-clone fa-fw me-1"></i>Duplicar</button>'+
@@ -2580,7 +2645,8 @@
         var b = ev.target.closest('[data-ctx]'); if(!b) return;
         var act2 = b.getAttribute('data-ctx');
         hideCtx();
-        if(act2==='copy'){ copySelected(); }
+        if(act2==='selseats'){ selectSeatsOf(sections.find(function(x){ return x.id === selId; })); }
+        else if(act2==='copy'){ copySelected(); }
         else if(act2==='paste'){ pasteClipboard(lastPtr); }
         else if(act2==='del'){ deleteSelected(); }
         else if(act2==='front' || act2==='back'){ reorderSelected(act2); }

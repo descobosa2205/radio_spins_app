@@ -9,6 +9,7 @@
 - Mapa de butacas del recinto (diseñador, pestaña Ticketing): VenueSeatMap.layout_json
 - FORMATO del recinto que usa cada ACTIVIDAD (Concert.seat_map_id, ago 2026): un recinto puede
 - Plano en vivo
+- EL DISEÑADOR DEL PLANO: «Seleccionar sus butacas» y un plano nuevo que no tapa nada
 - AUTORIZACIONES DE ACCESO A MENORES — ago 2026. Pestaña «Menores» de la ficha de la
 - EL RECINTO: o se elige de la base o SE DICE QUE NO SE CONOCE. En la ficha de la
 - CREAR UN RECINTO: SOLO LA BARRA, y los campos salen rellenos
@@ -159,3 +160,26 @@
   arrancar: los scripts en línea de una plantilla corren ANTES que los globales del layout, así que
   al cargar `app33FloatList` todavía no existe (la lista se quedaba dentro de su bocadillo).
 
+- ⚠️⚠️ **EL DISEÑADOR DEL PLANO · «SELECCIONAR SUS BUTACAS» Y UN PLANO NUEVO QUE NO TAPA NADA**
+  (sep 2026, lo pidió Dani).
+  · **«Seleccionar sus butacas»**: con un bloque pinchado, marca **todas las butacas de ESE
+  bloque** —y solo butacas de verdad: ni huecos, ni apagadas, ni escaleras, ni el **plano de
+  fondo**, ni el contorno, ni el escenario (esos son `elements`, no secciones)—. Está en **los tres
+  sitios**: el **menú del botón derecho** sobre el bloque, el **panel de la sección** y **⌘A /
+  Ctrl+A** (con un bloque pinchado, el suyo; sin nada pinchado, las de todo el plano; con Mayús,
+  suma). Punto único **`seatKeysOf(s)`** + **`selectSeatsOf(s, additive)`**, que sirve para los dos
+  modos: en **diseño** llena `dsel` (mover, agrupar, poner fila y numeración, borrar) y en
+  **categorías** llena `sel` (la tarjeta que se arrastra hasta una categoría).
+  ⚠️ Al marcar las butacas se **sueltan los elementos** (`dselO = {}`): si el sector siguiera
+  marcado, arrastrar movería el sector **y** sus butacas, es decir, dos veces.
+  ⚠️ El menú del botón derecho **no ofrece la opción donde no hay butacas** (una zona de pie, el
+  plano de fondo, el escenario): un botón que no hace nada engaña.
+  · **UN PLANO NUEVO NO SE PONE ENCIMA DE LO QUE YA HAY**: al subir una imagen de plano con bloques
+  ya creados, se colocaba en el **centro del contenido**, o sea tapándolo todo. Ahora cae **debajo**
+  de todo, con un hueco, centrada con ello, y **se enseña entera** (`fitAll`) para poder
+  arrastrarla a su sitio. Con el plano vacío, en el centro de la vista como siempre; y **«Cambiar»**
+  sigue conservando sitio, tamaño y opacidad. Es el mismo criterio que ya seguía la **importación
+  de Excel** (cada importación añade sus bloques debajo de lo que haya, y cada hoja debajo de la
+  anterior).
+  · Prueba: **`tools/check_plano_recinto.py`** (24 comprobaciones del cableado; el comportamiento se
+  vio funcionando en el navegador).

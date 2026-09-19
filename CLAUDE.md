@@ -136,6 +136,8 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_ics_import.py` · `check_ics_download.py` | motor de iCal y la **salida a la red** de verdad | al tocar `ics_import.py` |
 | `check_audio_tags.py` | metadatos que se escriben en lo que se descarga | al tocar `audio_tags.py` |
 | `check_press_render.py` | notas de prensa: el correo sale como se ve en el editor | al tocar `press_render.py` |
+| `check_diseno_comunicaciones.py` | el editor que vale para los tres envíos: el cartel de una actividad (también en PDF), los módulos que se arrastran vacíos y elegir varios a la vez | al tocar `press_editor.js`, `press_render.py` o el cartel de una actividad |
+| `check_plano_recinto.py` | el diseñador del plano: marcar las butacas de un bloque y que un plano nuevo no tape lo que ya hay | al tocar `venue_map.js` |
 | `check_hoja_ruta.py` · `check_externos.py` · `check_invitaciones_generadas.py` | esas épicas de punta a punta con la app real | al tocarlas |
 | `check_invitaciones_corporativas.py` | la lista de invitados de cada uno y su envío (el módulo de la actividad, el fichero, que sale desde su correo y que nadie ve lo de nadie) | al tocar las invitaciones corporativas o el editor de diseños |
 | `check_anuncio_carteleria.py` | pedirle al promotor la fecha de anuncio y los carteles, los dos vistos buenos y el recordatorio del día | al tocar el anuncio o la cartelería |

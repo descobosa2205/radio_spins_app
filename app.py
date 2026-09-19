@@ -2540,7 +2540,7 @@ def _artist_cash_repertoire_ids(session_db, artist) -> set:
     return ids
 
 
-def _artist_cash_royalties(session_db, artist, year: int | None) -> list[dict]:
+def _artist_cash_royalties(session_db, artist, year: int | None, liquidaciones=None) -> list[dict]:
     """LOS ROYALTIES, semestre a semestre, con el BENEFICIO REAL DE LA COMPAÑÍA.
 
     ⚠️⚠️ Lo pidió Dani con estas palabras: «el beneficio de la compañía es el importe facturado de
@@ -2561,14 +2561,23 @@ def _artist_cash_royalties(session_db, artist, year: int | None) -> list[dict]:
     ⚠️ Un royalty pagado NO entra en los gastos: sale aquí, restando. Meterlo también en «invertido»
     lo contaría dos veces."""
     repertorio = _artist_cash_repertoire_ids(session_db, artist)
-    try:
-        consulta = session_db.query(RoyaltyLiquidation)
-        if year:
-            consulta = consulta.filter(func.extract("year", RoyaltyLiquidation.period_end) == year)
-        liquidaciones = consulta.order_by(RoyaltyLiquidation.period_end.desc()).limit(3000).all()
-    except Exception:
-        app.logger.exception("[caja] no se pudieron leer las liquidaciones de royalties")
+    if not repertorio:
         return []
+    # ⚠️ Con `liquidaciones` ya cargadas no se vuelve a consultar: la pestaña Caja de administración
+    # las lee UNA vez para TODOS los sujetos (si no, sería una consulta de miles de filas por
+    # artista y la pantalla no abriría).
+    if liquidaciones is None:
+        try:
+            consulta = session_db.query(RoyaltyLiquidation)
+            if year:
+                consulta = consulta.filter(func.extract("year", RoyaltyLiquidation.period_end) == year)
+            liquidaciones = consulta.order_by(RoyaltyLiquidation.period_end.desc()).limit(3000).all()
+        except Exception:
+            app.logger.exception("[caja] no se pudieron leer las liquidaciones de royalties")
+            return []
+    elif year:
+        liquidaciones = [l for l in liquidaciones
+                         if getattr(getattr(l, "period_end", None), "year", None) == year]
     # Por SEMESTRE: lo que ingresa la compañía por su repertorio, lo que se paga por él en total, y
     # lo que se le paga a ÉL.
     por_periodo: dict = {}
@@ -2642,7 +2651,7 @@ def _artist_cash_concert_settled(concert) -> tuple:
     return _artist_cash_concert_cache(concert), "caché", Decimal("0")
 
 
-def _artist_cash_income(session_db, artist, year: int | None) -> dict:
+def _artist_cash_income(session_db, artist, year: int | None, prefetch: dict | None = None) -> dict:
     """LO QUE FACTURA EL ARTISTA, por tipos. Punto único de la sección «Ingresos»."""
     filas = []
     aid = artist.id
@@ -2652,7 +2661,7 @@ def _artist_cash_income(session_db, artist, year: int | None) -> dict:
     # por él** —los royalties del propio artista y los de cualquier otro que cobre de sus obras—.
     # Un royalty pagado **no es gasto ni inversión: reduce el ingreso** (lo pidió Dani así), por eso
     # se resta aquí y no aparece en «invertido»: contarlo en los dos sitios sería contarlo dos veces.
-    for r in _artist_cash_royalties(session_db, artist, year):
+    for r in _artist_cash_royalties(session_db, artist, year, (prefetch or {}).get("liquidations")):
         detalle = []
         if r["income"]:
             detalle.append("Facturado %s" % format_eur(r["income"]))
@@ -2892,6 +2901,103 @@ def _artist_cash_pack(filas: list[dict], catalogo) -> dict:
     }
 
 
+# ══ LA PESTAÑA «CAJA» DE ADMINISTRACIÓN ═══════════════════════════════════════════════════════
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «en administración vamos a crear también la pestaña de caja; ahí
+# podrás ver todos los artistas o eventos… con resumen por años de cada artista con el balance, con
+# la opción de total también. **Igual que la ficha del artista pero se ve ahí directamente. Lo que
+# se cambie en las fichas de los artistas o aquí se cambia en ambos lados.**»
+# Por eso aquí NO hay un segundo motor ni una segunda pantalla: la lista y la ficha de cada sujeto
+# salen de **`_artist_cash_data`** y de **`_artist_cash.html`**, los mismos de la ficha del artista.
+# ⚠️ Un EVENTO no es otra tabla: se espeja como artista (`Artist.event_id`), así que su caja es la de
+# su espejo — y por eso el espejo, que no se enseña en ninguna parte, aquí SÍ se ofrece con su
+# nombre de evento.
+
+def _cash_subject_label(artist) -> tuple:
+    """(nombre, qué es, icono) de un sujeto de la caja: un artista o un evento."""
+    if getattr(artist, "event_id", None):
+        return ((getattr(artist, "name", "") or "Evento"), "Evento", "fa-calendar-day")
+    return ((getattr(artist, "name", "") or "Artista"), "Artista", "fa-guitar")
+
+
+def _cash_subjects(session_db) -> list:
+    """TODOS los sujetos que tienen caja: los artistas y los eventos (por su espejo)."""
+    try:
+        return (session_db.query(Artist).order_by(Artist.name.asc()).all())
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer los sujetos")
+        return []
+
+
+def _cash_links(session_db, artist, year: int | None, *, scope: str = "artist") -> dict:
+    """LOS ENLACES de la pantalla de la caja (el año y el PDF), según desde dónde se esté mirando.
+
+    ⚠️ La pantalla es **la misma** en la ficha del artista y en la pestaña «Caja» de Administración
+    (lo pidió Dani), así que lo único que cambia son estos enlaces: se componen aquí, en un sitio,
+    y no dentro de la plantilla — meterlos allí con un `url_for` fijo la ataría a una de las dos."""
+    años = _artist_cash_years(session_db, artist)
+    def _url(y):
+        if scope == "admin":
+            return url_for("administracion_view", tab="caja", sujeto=str(artist.id),
+                           **({"anio": y} if y else {}))
+        return url_for("artist_detail_view", artist_id=artist.id, tab="caja",
+                       **({"anio": y} if y else {}))
+    enlaces = [{"label": "Todo", "url": _url(None), "on": not year}]
+    for y in años[:6]:
+        enlaces.append({"label": str(y), "url": _url(y), "on": (year == y)})
+    return {
+        "cash_year_links": enlaces,
+        # El PDF de lo que hay A LA VISTA: el año elegido, o todo (lo pidió Dani así).
+        "cash_pdf_url": url_for("artist_cash_pdf", artist_id=artist.id,
+                                **({"anio": year} if year else {})),
+    }
+
+
+def _cash_overview(session_db, year: int | None) -> dict:
+    """LA LISTA de la pestaña: cada sujeto con sus CUATRO datos, ya del año elegido.
+
+    ⚠️ Los números salen del MISMO `_artist_cash_data` que la ficha del artista: si se toca el
+    cálculo, cambian los dos a la vez (es lo que pidió Dani). Lo único que se hace aquí es leer las
+    liquidaciones de royalties **una sola vez** para todos —si no, sería una consulta de miles de
+    filas por artista y la pantalla no abriría—.
+    ⚠️ Un sujeto **sin nada** no se pinta: una lista de cien artistas a cero no dice nada."""
+    try:
+        liquidaciones = (session_db.query(RoyaltyLiquidation)
+                         .order_by(RoyaltyLiquidation.period_end.desc()).limit(5000).all())
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las liquidaciones")
+        liquidaciones = []
+    prefetch = {"liquidations": liquidaciones}
+    filas, años = [], set()
+    totales = {"artist_billed": Decimal("0"), "office_invested": Decimal("0"),
+               "office_income": Decimal("0"), "office_result": Decimal("0")}
+    for artist in _cash_subjects(session_db):
+        try:
+            datos = _artist_cash_data(session_db, artist, year, prefetch)
+        except Exception:
+            app.logger.exception("[caja] no se pudo calcular la caja de %s", getattr(artist, "name", ""))
+            continue
+        años.update(datos.get("years") or [])
+        b = datos["balance"]
+        if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"]]):
+            continue
+        nombre, que_es, icono = _cash_subject_label(artist)
+        filas.append({
+            "id": str(artist.id), "name": nombre, "kind_label": que_es, "icon": icono,
+            "photo": (getattr(artist, "photo_url", "") or ""),
+            "artist_billed": b["artist_billed"], "office_invested": b["office_invested"],
+            "office_income": b["office_income"], "office_result": b["office_result"],
+            "positive": b["positive"], "open_bags": b["open_bags"], "open_amount": b["open_amount"],
+            "url": url_for("administracion_view", tab="caja", sujeto=str(artist.id),
+                           **({"anio": year} if year else {})),
+        })
+        for k in totales:
+            totales[k] += b[k]
+    # El que MÁS mueve, primero: es lo que se viene a mirar.
+    filas.sort(key=lambda f: (f["artist_billed"] + f["office_invested"]), reverse=True)
+    return {"rows": filas, "totals": totales,
+            "years": sorted(años, reverse=True), "year": year}
+
+
 def _artist_cash_advances(session_db, artist) -> list[dict]:
     """LOS ADELANTOS del artista y en qué punto están (lo pidió Dani: «arranque de gira»,
     «adelanto discográfico»…). Es el mismo dato que avisa al ir a pagarle (`PartyDebt`)."""
@@ -2967,12 +3073,12 @@ def _artist_cash_years(session_db, artist) -> list[int]:
     return sorted(años, reverse=True)
 
 
-def _artist_cash_data(session_db, artist, year: int | None = None) -> dict:
+def _artist_cash_data(session_db, artist, year: int | None = None, prefetch: dict | None = None) -> dict:
     """TODA LA CAJA DE UN ARTISTA · **el punto único** de las tres secciones.
 
     Se calcula al vuelo: aquí no se guarda ningún total (si se guardara, se desparejaría del dato
     en cuanto alguien corrigiera una factura o un caché)."""
-    ingresos = _artist_cash_income(session_db, artist, year)
+    ingresos = _artist_cash_income(session_db, artist, year, prefetch)
     gastos = _artist_cash_expenses(session_db, artist, year)
     adelantos = _artist_cash_advances(session_db, artist)
 
@@ -3022,17 +3128,55 @@ def _artist_cash_data(session_db, artist, year: int | None = None) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 
 # Las columnas de la plantilla, en su orden. (clave, título, ancho, ayuda)
+# ⚠️⚠️ LOS TRES IMPORTES SE LLAMAN COMO LO QUE SON (sep 2026, lo pidió Dani: «el campo ingreso
+# artista, ingreso oficina, gasto oficina — reemplaza inversión y beneficios por estos campos»).
+# Antes ponía «Inversión realizada / Beneficio artista / Beneficio compañía», que no es lo mismo:
+# lo que se apunta de un artista es lo que INGRESA él, lo que INGRESA la oficina y lo que GASTA.
+# ⚠️ Cambiar el orden de esta tupla cambiaría el de la plantilla, y una plantilla vieja subida
+# después se leería corrida: por eso la subida casa las columnas **por su título** (la cabecera) y
+# solo cae al orden de aquí si el fichero no trae cabecera.
 ARTIST_CASH_SHEET_COLUMNS = (
     ("date", "Fecha", 14, "dd/mm/aaaa"),
     ("kind", "Ingreso o gasto", 16, "Ingreso · Gasto"),
-    ("category", "Tipo", 30, "El de la lista de abajo"),
+    ("category", "Tipo", 30, "El de la lista"),
     ("concept", "Concepto", 38, "Qué fue"),
-    ("invested", "Inversión realizada", 18, "Lo que costó"),
-    ("artist", "Beneficio artista", 18, "Lo que se llevó el artista"),
-    ("company", "Beneficio compañía", 18, "Lo que se llevó la empresa"),
+    ("artist", "Ingreso artista", 18, "Lo que ingresó el artista"),
+    ("company", "Ingreso oficina", 18, "Lo que ingresó la empresa"),
+    ("invested", "Gasto oficina", 18, "Lo que gastó la empresa"),
     ("group_company", "Empresa del grupo", 26, "Cuál de las nuestras"),
     ("notes", "Notas", 30, ""),
 )
+# Los títulos que ha tenido cada columna: una plantilla bajada ANTES del cambio de nombres se sigue
+# leyendo bien (se casa por el título, y estos son los de antes).
+ARTIST_CASH_SHEET_ALIASES = {
+    "artist": ("beneficio artista", "ingreso artista"),
+    "company": ("beneficio compania", "ingreso oficina", "beneficio compañia"),
+    "invested": ("inversion realizada", "gasto oficina", "inversion"),
+}
+
+
+def _artist_cash_sheet_map(fila) -> dict | None:
+    """Si esa fila es LA CABECERA, devuelve {clave: posición}; si no, None.
+
+    ⚠️⚠️ La subida casaba las columnas **por su sitio**, así que al cambiar los nombres (y el orden)
+    de los importes, una plantilla bajada antes y subida después habría metido el gasto en el
+    ingreso del artista **sin avisar de nada**. Casando por el TÍTULO eso no puede pasar, y la
+    plantilla se puede reordenar cuando haga falta."""
+    if not fila:
+        return None
+    titulos = {}
+    for clave, titulo, _a, _h in ARTIST_CASH_SHEET_COLUMNS:
+        titulos[_norm_text_key(titulo)] = clave
+        for alias in ARTIST_CASH_SHEET_ALIASES.get(clave, ()):  # los nombres que tuvo antes
+            titulos[_norm_text_key(alias)] = clave
+    salida, vistos = {}, set()
+    for i, celda in enumerate(fila):
+        clave = titulos.get(_norm_text_key(str(celda or "")))
+        if clave and clave not in vistos:
+            salida[clave] = i
+            vistos.add(clave)
+    # Es la cabecera si trae la fecha y al menos otras tres columnas reconocidas.
+    return salida if ("date" in salida and len(salida) >= 4) else None
 
 
 def _artist_cash_entry_rows(session_db, artist) -> list[dict]:
@@ -3078,6 +3222,167 @@ def _artist_cash_entry_rows(session_db, artist) -> list[dict]:
     return salida
 
 
+@app.get("/artistas/<artist_id>/caja/resumen.pdf", endpoint="artist_cash_pdf")
+@admin_required
+def artist_cash_pdf(artist_id):
+    """EL RESUMEN DE LA CAJA EN PDF, de lo que hay A LA VISTA (el año elegido, o todo).
+
+    ⚠️ Lo pidió Dani: «con la cabecera del artista, el resumen de estado y debajo **cada categoría de
+    gastos o ingreso desglosado por bolsas**». Sale del MISMO `_artist_cash_data` que la pantalla:
+    el papel no puede decir un número distinto del que se está mirando.
+    ⚠️ El permiso lo pone el gate por la regla de PREFIJO `artist_cash*` → `artists.caja` (exacto,
+    sin heredar de «Artistas»), la misma que la plantilla de Excel: aquí no hace falta nada más."""
+    if not REPORTLAB_AVAILABLE:
+        return abort(503)
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if artist is None:
+            abort(404)
+        year = _artist_cash_year(request.args.get("anio"))
+        datos = _artist_cash_data(session_db, artist, year)
+        nombre, que_es, _icono = _cash_subject_label(artist)
+        pdf = _artist_cash_pdf_bytes(session_db, artist, datos, nombre, que_es, year)
+        fichero = _safe_download_filename("Caja %s%s" % (nombre, (" %s" % year) if year else ""), "caja") + ".pdf"
+    finally:
+        session_db.close()
+    resp = send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True, download_name=fichero)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _artist_cash_pdf_bytes(session_db, artist, datos: dict, nombre: str, que_es: str,
+                           year: int | None) -> bytes:
+    """El PDF de la caja, con la CABECERA DE LA CASA (el logo del grupo arriba a la derecha y la
+    banda en el rojo corporativo), los cuatro datos y, debajo, cada categoría con sus bolsas."""
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=28, rightMargin=28, topMargin=22, bottomMargin=22)
+    styles = getSampleStyleSheet()
+    ancho = 539
+    story = []
+
+    def esc(v) -> str:
+        return (str(v or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    def img(url, w, h):
+        u = (url or "").strip()
+        if not u:
+            return None
+        try:
+            req = Request(u, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=15) as resp:
+                return RLImage(BytesIO(resp.read()), width=w, height=h, kind="proportional")
+        except Exception:
+            return None
+
+    # ── La cabecera de la casa: el logo del grupo a la derecha y la banda roja ────────────────
+    logo = img(_external_url_for("static", filename="img/logo_33_producciones.png"), 110, 40) or ""
+    fila = Table([["", logo]], colWidths=[ancho - 120, 120])
+    fila.setStyle(TableStyle([("ALIGN", (1, 0), (1, 0), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story.append(fila)
+    periodo = ("Año %d" % year) if year else "Todo lo que hay"
+    banda = Table([[Paragraph(
+        "<font size=7 color='#ffffff'><b>%s</b></font><br/>" % esc(que_es.upper())
+        + "<font size=15 color='#ffffff'><b>%s</b></font>" % esc(nombre)
+        + "<br/><font size=8.5 color='#ffffff'>Caja · %s</font>" % esc(periodo),
+        ParagraphStyle("CajaBanda", parent=styles["Normal"], alignment=TA_CENTER, leading=15))]],
+        colWidths=[ancho])
+    banda.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#E33D48")),
+        ("ROUNDEDCORNERS", [7, 7, 7, 7]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
+    story.append(banda)
+    story.append(Spacer(1, 8))
+
+    # ── El resumen: los CUATRO datos, con los nombres de la pantalla ─────────────────────────
+    b = datos["balance"]
+    lbl = ParagraphStyle("CajaLbl", parent=styles["Normal"], fontSize=7, leading=9,
+                         textColor=colors.HexColor("#6b7280"), alignment=TA_CENTER)
+    val = ParagraphStyle("CajaVal", parent=styles["Normal"], fontSize=12, leading=15,
+                         fontName="Helvetica-Bold", alignment=TA_CENTER)
+    val_ok = ParagraphStyle("CajaValOk", parent=val, textColor=colors.HexColor("#198754"))
+    val_ko = ParagraphStyle("CajaValKo", parent=val, textColor=colors.HexColor("#dc3545"))
+    tarjetas = [
+        ("FACTURADO POR EL ARTISTA", b["artist_billed"], val),
+        ("INVERTIDO POR COMPAÑÍA", b["office_invested"], val),
+        ("INGRESADO POR COMPAÑÍA", b["office_income"], val),
+        ("RESULTADO PARA COMPAÑÍA", b["office_result"], (val_ok if b["positive"] else val_ko)),
+    ]
+    resumen = Table([[Paragraph(esc(t), lbl) for t, _v, _e in tarjetas],
+                     [Paragraph(esc(format_eur(v)), e) for _t, v, e in tarjetas]],
+                    colWidths=[ancho / 4.0] * 4)
+    resumen.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+    story.append(resumen)
+    if b.get("open_bags"):
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(
+            "Y además hay %d bolsa(s) todavía abierta(s) por %s: no cuentan en el balance hasta "
+            "que se cierren." % (b["open_bags"], esc(format_eur(b["open_amount"]))),
+            ParagraphStyle("CajaNota", parent=styles["Normal"], fontSize=7.5, leading=10,
+                           textColor=colors.HexColor("#6b7280"))))
+    story.append(Spacer(1, 10))
+
+    # ── Cada CATEGORÍA con su desglose por bolsas ────────────────────────────────────────────
+    sec = ParagraphStyle("CajaSec", parent=styles["Normal"], fontSize=10, leading=13,
+                         fontName="Helvetica-Bold", textColor=colors.HexColor("#E33D48"))
+    gru = ParagraphStyle("CajaGru", parent=styles["Normal"], fontSize=8.5, leading=11,
+                         fontName="Helvetica-Bold")
+    fil = ParagraphStyle("CajaFil", parent=styles["Normal"], fontSize=8, leading=10)
+    sub = ParagraphStyle("CajaSub", parent=styles["Normal"], fontSize=6.8, leading=8.5,
+                         textColor=colors.HexColor("#6b7280"))
+    num = ParagraphStyle("CajaNum", parent=fil, alignment=TA_RIGHT)
+
+    def seccion(titulo, bloque, es_ingreso):
+        story.append(Paragraph(esc(titulo), sec))
+        story.append(Spacer(1, 3))
+        if not bloque["groups"]:
+            story.append(Paragraph("Todavía no hay nada apuntado.", sub))
+            story.append(Spacer(1, 8))
+            return
+        for g in bloque["groups"]:
+            total_g = g["artist_amount"] if es_ingreso else g["invested"]
+            cab = Table([[Paragraph(esc(g["label"]), gru),
+                          Paragraph(esc(format_eur(total_g)), ParagraphStyle(
+                              "CajaGruNum", parent=gru, alignment=TA_RIGHT))]],
+                        colWidths=[ancho - 110, 110])
+            cab.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8f9fa")),
+                ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5)]))
+            story.append(cab)
+            datos_filas = []
+            for r in g["rows"]:
+                detalle = " · ".join([x for x in [r["subtitle"], r["date_label"], r["note"]] if x])
+                izq = Paragraph("<b>%s</b>%s" % (esc(r["title"]),
+                                                 ("<br/><font size=6.8 color='#6b7280'>%s</font>" % esc(detalle)) if detalle else ""), fil)
+                if es_ingreso:
+                    der = Paragraph(esc(format_eur(r["artist_amount"]))
+                                    + (("<br/><font size=6.8 color='#6b7280'>Compañía %s</font>"
+                                        % esc(format_eur(r["office_amount"]))) if r["office_amount"] else ""), num)
+                else:
+                    der = Paragraph(esc(format_eur(r["invested"])), num)
+                datos_filas.append([izq, der])
+            if datos_filas:
+                t = Table(datos_filas, colWidths=[ancho - 110, 110])
+                t.setStyle(TableStyle([
+                    ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor("#f1f3f5")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5)]))
+                story.append(t)
+            story.append(Spacer(1, 5))
+        story.append(Spacer(1, 4))
+
+    seccion("Ingresos", datos["income"], True)
+    seccion("Gastos e inversión", datos["expense"], False)
+    doc.build(story)
+    return buf.getvalue()
+
+
 @app.get("/artistas/<artist_id>/caja/plantilla.xlsx", endpoint="artist_cash_template")
 @admin_required
 def artist_cash_template(artist_id):
@@ -3094,6 +3399,8 @@ def artist_cash_template(artist_id):
         nombre = (getattr(artist, "name", "") or "Artista").strip()
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.datavalidation import DataValidation
         wb = Workbook()
         ws = wb.active
         ws.title = "Apuntes"
@@ -3106,11 +3413,18 @@ def artist_cash_template(artist_id):
             celda.fill = PatternFill("solid", fgColor="F1F3F5")
         # Una fila de EJEMPLO, en gris: se borra y se escribe encima.
         hoy = today_local()
-        ejemplo = [hoy.strftime("%d/%m/%Y"), "Gasto", "Contenidos discográficos",
-                   "Grabación del single «Ejemplo»", "3.500,00", "0", "0",
-                   (session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).first().name
-                    if session_db.query(GroupCompany).count() else ""), "Se puede borrar"]
-        ws.append(ejemplo)
+        empresas_alta = [(getattr(e, "name", "") or "").strip()
+                         for e in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+                         if (getattr(e, "name", "") or "").strip()]
+        # ⚠️ La fila de ejemplo se compone por CLAVE, no por posición: así no se descoloca si mañana
+        # se reordenan las columnas (que es justo el fallo que se viene a evitar).
+        modelo = {"date": hoy.strftime("%d/%m/%Y"), "kind": "Gasto",
+                  "category": "Contenidos discográficos",
+                  "concept": "Grabación del single «Ejemplo»",
+                  "artist": "0", "company": "0", "invested": "3.500,00",
+                  "group_company": (empresas_alta[0] if empresas_alta else ""),
+                  "notes": "Se puede borrar"}
+        ws.append([modelo.get(clave, "") for clave, _t, _a, _h in ARTIST_CASH_SHEET_COLUMNS])
         for celda in ws[4]:
             celda.font = Font(italic=True, color="9AA4AE")
         for i, (_k, _t, ancho, _h) in enumerate(ARTIST_CASH_SHEET_COLUMNS, start=1):
@@ -3118,6 +3432,49 @@ def artist_cash_template(artist_id):
         for fila in ws.iter_rows(min_row=4):
             for celda in fila:
                 celda.alignment = Alignment(vertical="top", wrap_text=True)
+
+        # ══ LOS DESPLEGABLES ═══════════════════════════════════════════════════════════════════
+        # ⚠️⚠️ Lo pidió Dani: «el campo tipo va a ser de menú desplegable con las opciones que
+        # tenemos **para que todo cuadre bien**», y lo mismo la empresa del grupo. Escribir a mano
+        # «Marketng» o «33 Producc.» hacía que el apunte cayera en «Otros» o se quedara sin empresa,
+        # y eso solo se veía después, en el balance.
+        # ⚠️ Las listas van en una hoja aparte (`Listas`, oculta): un desplegable escrito «a mano»
+        # dentro de la validación no puede pasar de 255 caracteres, y las empresas no caben.
+        listas = wb.create_sheet("Listas")
+        def _columna_lista(col: int, titulo: str, valores: list) -> str:
+            listas.cell(row=1, column=col, value=titulo).font = Font(bold=True)
+            for i, v in enumerate(valores, start=2):
+                listas.cell(row=i, column=col, value=v)
+            letra = get_column_letter(col)
+            return "Listas!$%s$2:$%s$%d" % (letra, letra, max(2, len(valores) + 1))
+        # El TIPO: los de ingreso y los de gasto juntos (Excel no sabe cambiar la lista según otra
+        # celda sin fórmulas frágiles, y la hoja de ayuda ya dice cuál es de cada uno).
+        tipos = [e for _k, e, _i in ARTIST_CASH_INCOME_GROUPS]
+        for _k, e, _i in ARTIST_CASH_EXPENSE_GROUPS:
+            if e not in tipos:
+                tipos.append(e)
+        rangos = {
+            "kind": _columna_lista(1, "Ingreso o gasto", [e for _k, e in ARTIST_CASH_KINDS]),
+            "category": _columna_lista(2, "Tipo", tipos),
+            "group_company": _columna_lista(3, "Empresa del grupo", empresas_alta),
+        }
+        posiciones = {clave: i for i, (clave, _t, _a, _h) in enumerate(ARTIST_CASH_SHEET_COLUMNS, start=1)}
+        for clave, rango in rangos.items():
+            if not rango:
+                continue
+            dv = DataValidation(type="list", formula1="=%s" % rango, allow_blank=True, showDropDown=False)
+            # ⚠️ Un valor que no esté en la lista se AVISA pero no se bloquea: si mañana se da de alta
+            # una empresa nueva, una plantilla vieja tiene que poder subirse igual.
+            dv.error = "Elige un valor de la lista para que el apunte entre donde toca."
+            dv.errorTitle = "Ese valor no está en la lista"
+            dv.errorStyle = "warning"
+            ws.add_data_validation(dv)
+            letra = get_column_letter(posiciones[clave])
+            dv.add("%s4:%s500" % (letra, letra))
+        listas.sheet_state = "hidden"
+        listas.column_dimensions["A"].width = 22
+        listas.column_dimensions["B"].width = 30
+        listas.column_dimensions["C"].width = 30
 
         ayuda = wb.create_sheet("Cómo se rellena")
         ayuda.append(["Cómo se rellena"])
@@ -3144,8 +3501,15 @@ def artist_cash_template(artist_id):
         ayuda.append([])
         ayuda.append(["«Empresa del grupo» (tal cual está dada de alta)"])
         ayuda[ayuda.max_row][0].font = Font(bold=True)
-        for empresa in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all():
-            ayuda.append([(getattr(empresa, "name", "") or "").strip()])
+        for empresa_nombre in empresas_alta:
+            ayuda.append([empresa_nombre])
+        ayuda.append([])
+        ayuda.append(["Los tres importes"])
+        ayuda[ayuda.max_row][0].font = Font(bold=True)
+        ayuda.append(["«Ingreso artista»: lo que ingresó ÉL (su parte)."])
+        ayuda.append(["«Ingreso oficina»: lo que ingresó la empresa del grupo."])
+        ayuda.append(["«Gasto oficina»: lo que gastó la empresa del grupo (la inversión)."])
+        ayuda.append(["Se puede rellenar solo el que corresponda; los demás, a 0 o en blanco."])
         ayuda.column_dimensions["A"].width = 64
 
         buf = BytesIO()
@@ -3217,12 +3581,22 @@ def artist_cash_upload(artist_id):
         lote = _uuid_token()
         nombre_archivo = (archivo.filename or "").strip()[:200]
         creados, fallos = 0, []
+        # ⚠️ Las columnas se casan por su TÍTULO en cuanto aparece la cabecera; hasta entonces (o si
+        # el fichero no la trae) manda el orden de `ARTIST_CASH_SHEET_COLUMNS`.
+        mapa = None
         for n, fila in enumerate(ws.iter_rows(values_only=True), start=1):
             if not fila or all(v in (None, "") for v in fila):
                 continue
-            celdas = list(fila) + [None] * len(ARTIST_CASH_SHEET_COLUMNS)
-            valores = {clave: celdas[i] for i, (clave, _t, _a, _h)
-                       in enumerate(ARTIST_CASH_SHEET_COLUMNS)}
+            nueva_cabecera = _artist_cash_sheet_map(fila)
+            if nueva_cabecera:
+                mapa = nueva_cabecera
+                continue
+            celdas = list(fila) + [None] * (len(ARTIST_CASH_SHEET_COLUMNS) + 4)
+            if mapa:
+                valores = {clave: celdas[i] for clave, i in mapa.items()}
+            else:
+                valores = {clave: celdas[i] for i, (clave, _t, _a, _h)
+                           in enumerate(ARTIST_CASH_SHEET_COLUMNS)}
             crudo_fecha = valores.get("date")
             # La cabecera y el título se saltan solos: no traen una fecha válida.
             dia = _artist_cash_cell_date(crudo_fecha)
@@ -3637,6 +4011,11 @@ def artist_detail_view(artist_id):
             cash=(_artist_cash_data(session_db, artist, _artist_cash_year(request.args.get("anio")))
                   if tab == "caja" else None),
             cash_entries=(_artist_cash_entry_rows(session_db, artist) if tab == "caja" else []),
+            # ⚠️ Los enlaces del año y del PDF los compone QUIEN INCLUYE la pantalla: la misma vale
+            # aquí y en la pestaña «Caja» de Administración (`_cash_links`, el punto único).
+            **(_cash_links(session_db, artist, _artist_cash_year(request.args.get("anio")),
+                           scope="artist") if tab == "caja" else
+               {"cash_year_links": [], "cash_pdf_url": ""}),
             cash_income_groups=ARTIST_CASH_INCOME_GROUPS,
             cash_expense_groups=ARTIST_CASH_EXPENSE_GROUPS,
             cash_companies=((session_db.query(GroupCompany)
@@ -97281,6 +97660,9 @@ ADMINISTRATION_TABS = [
     ("liquidaciones", "Liquidaciones"),
     ("pagos", "Pagos"),
     ("cobros", "Cobros"),
+    # ⚠️ LA CAJA: todos los artistas y eventos con su balance, y la caja de cada uno tal cual se ve
+    # en su ficha (la MISMA pantalla y el MISMO motor: lo que se toque cambia en los dos sitios).
+    ("caja", "Caja"),
     ("embargos", "Embargos"),
     ("altas", "Altas"),
 ]
@@ -99163,6 +99545,11 @@ def _resolve_request_resource_key() -> str | None:
                     "personnel_expense_deadline_toggle", "personnel_expense_deadline_toggle_all"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
+            # ⚠️⚠️ LA PESTAÑA «CAJA» ENSEÑA LO MISMO QUE LA CAJA DE UN ARTISTA, así que pide **el
+            # mismo permiso** (`artists.caja`, que se comprueba EXACTO y no se hereda de «Artistas»).
+            # Darle uno propio de administración sería una segunda puerta a los mismos importes.
+            if admin_tab == "caja":
+                return "artists.caja"
             if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos", "altas"}:
                 return f"administracion.{admin_tab}"
             return "administracion"
@@ -113803,6 +114190,30 @@ def administracion_view():
         if embargo_subtab not in {"activas", "archivadas"}:
             embargo_subtab = "activas"
 
+        # ── LA PESTAÑA «CAJA» ────────────────────────────────────────────────────────────────
+        # ⚠️⚠️ Sin motor propio ni pantalla propia: la lista sale de `_cash_overview` (que llama al
+        # MISMO `_artist_cash_data` de la ficha) y, al elegir un sujeto, se incluye la MISMA
+        # `_artist_cash.html`. Lo que se cambie aquí o en la ficha cambia en los dos sitios.
+        cash_year = _artist_cash_year(request.args.get("anio"))
+        cash_subject = (session_db.get(Artist, _safe_uuid(request.args.get("sujeto")))
+                        if (tab == "caja" and request.args.get("sujeto")) else None)
+        cash_overview = _cash_overview(session_db, cash_year) if (tab == "caja" and cash_subject is None) else None
+        cash_ctx = {}
+        if tab == "caja" and cash_subject is not None:
+            _nombre, _que_es, _icono = _cash_subject_label(cash_subject)
+            cash_ctx = {
+                "cash": _artist_cash_data(session_db, cash_subject, cash_year),
+                "cash_entries": _artist_cash_entry_rows(session_db, cash_subject),
+                "artist": cash_subject,
+                "cash_subject_name": _nombre,
+                "cash_subject_kind": _que_es,
+                "cash_subject_icon": _icono,
+                "cash_income_groups": ARTIST_CASH_INCOME_GROUPS,
+                "cash_expense_groups": ARTIST_CASH_EXPENSE_GROUPS,
+                "cash_companies": (session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()),
+                **_cash_links(session_db, cash_subject, cash_year, scope="admin"),
+            }
+
         # Las LISTAS se cargan solo de la pestaña en la que estás (antes se cargaban las 8 siempre,
         # más un N+1 por bolsa). Los NÚMEROS de todas las pestañas los da `_admin_pending_counts`,
         # que solo cuenta, así que la barra sigue estando al día se mire desde donde se mire.
@@ -113924,7 +114335,11 @@ def administracion_view():
         return render_template(
             "administracion.html",
             tab=tab,
-            tabs=ADMINISTRATION_TABS,
+            # ⚠️⚠️ LO QUE NO SE PUEDE ABRIR NO SE PINTA (la regla de la casa, y lo cazó
+            # `tools/check_permisos.py`): la pestaña «Caja» pide `artists.caja`, que NO se hereda de
+            # «Administración», así que a quien no lo tenga ni se le ofrece — si no, se comía un 403.
+            tabs=[(k, l) for k, l in ADMINISTRATION_TABS
+                  if k != "caja" or is_master() or has_access_key("artists.caja")],
             group_companies=session_db.query(GroupCompany).order_by(GroupCompany.name).all() if tab == "altas" else [],
             **altas_ctx,
             pending_subtab=pending_subtab,
@@ -113972,6 +114387,10 @@ def administracion_view():
             admin_expense_embargo_alerts=admin_expense_embargo_alerts,
             bag_totals=bag_totals,
             bag_cash=bag_cash,
+            cash_overview=cash_overview,
+            cash_subject=cash_subject,
+            cash_year=cash_year,
+            **cash_ctx,
             BAG_CASH_INCLUDE=BAG_CASH_INCLUDE,
             BAG_CASH_EXCLUDE=BAG_CASH_EXCLUDE,
             payment_methods=BAG_PAYMENT_METHODS,

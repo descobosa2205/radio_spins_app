@@ -399,6 +399,132 @@ try:
 finally:
     s.close()
 
+print("\n── 9. LA PESTAÑA «CAJA» DE ADMINISTRACIÓN ─────────────────────────────")
+# ⚠️ No hay segundo motor ni segunda pantalla: la lista sale del MISMO `_artist_cash_data` y, al
+# abrir un sujeto, se incluye la MISMA `_artist_cash.html` (lo pidió Dani: «lo que se cambie en las
+# fichas de los artistas o aquí se cambia en ambos lados»).
+r = cli.get("/administracion?tab=caja")
+html = r.get_data(as_text=True)
+check("la pestaña Caja abre (200)", r.status_code == 200, r.status_code)
+check("sale el artista con su balance", "Los Ñus" in html)
+for rotulo in ("Facturado por los artistas", "Invertido por compañía",
+               "Ingresado por compañía", "Resultado para compañía"):
+    check("el total de todos dice «%s»" % rotulo, rotulo in html)
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        art = s.get(models.Artist, A.to_uuid(AID))
+        d = A._artist_cash_data(s, art, None)
+        vista = A._cash_overview(s, None)
+        mio = [f for f in vista["rows"] if f["id"] == AID]
+        check("la lista dice EXACTAMENTE lo mismo que su ficha",
+              mio and mio[0]["office_invested"] == d["balance"]["office_invested"]
+              and mio[0]["office_income"] == d["balance"]["office_income"],
+              (mio and mio[0], d["balance"]))
+    finally:
+        s.close()
+html = cli.get("/administracion?tab=caja&sujeto=%s" % AID).get_data(as_text=True)
+check("al abrir un sujeto se ve SU caja, la misma de la ficha",
+      "Facturado por el artista" in html and "Invertido por compañía" in html)
+check("con el enlace a su ficha", "Abrir su ficha" in html)
+check("y el selector de año lleva a la pestaña (no a la ficha)",
+      "/administracion?tab=caja&amp;sujeto=" in html or "administracion" in html)
+check("el año filtra", cli.get("/administracion?tab=caja&anio=%d" % HOY.year).status_code == 200)
+
+# EL PDF del resumen.
+r = cli.get("/artistas/%s/caja/resumen.pdf" % AID)
+check("el PDF del resumen se genera", r.status_code == 200 and r.get_data()[:4] == b"%PDF", r.status_code)
+check("y es un adjunto con su nombre", "attachment" in (r.headers.get("Content-Disposition") or ""),
+      r.headers.get("Content-Disposition"))
+check("el PDF por año también", cli.get("/artistas/%s/caja/resumen.pdf?anio=%d" % (AID, HOY.year)).status_code == 200)
+check("la pantalla ofrece el PDF", "resumen.pdf" in cli.get("/artistas/%s?tab=caja" % AID).get_data(as_text=True))
+
+print("\n── 10. LA PLANTILLA: desplegables y los tres importes ─────────────────")
+import openpyxl, io as _io
+r = cli.get("/artistas/%s/caja/plantilla.xlsx" % AID)
+check("la plantilla se baja", r.status_code == 200, r.status_code)
+wb = openpyxl.load_workbook(_io.BytesIO(r.get_data()))
+ws = wb["Apuntes"]
+cabecera = [c.value for c in ws[3]]
+check("los importes se llaman como lo que son",
+      "Ingreso artista" in cabecera and "Ingreso oficina" in cabecera and "Gasto oficina" in cabecera,
+      cabecera)
+check("y ya no ponen «inversión» ni «beneficio»",
+      not any("Inversión" in (c or "") or "Beneficio" in (c or "") for c in cabecera), cabecera)
+check("hay una hoja de listas, oculta", "Listas" in wb.sheetnames and wb["Listas"].sheet_state == "hidden")
+dvs = {str(dv.sqref).split(":")[0][0]: dv for dv in ws.data_validations.dataValidation}
+cols = {t: chr(ord("A") + i) for i, t in enumerate(cabecera)}
+for titulo in ("Ingreso o gasto", "Tipo", "Empresa del grupo"):
+    check("«%s» es un desplegable" % titulo, cols[titulo] in dvs, sorted(dvs))
+    if cols[titulo] in dvs:
+        check("…y tira de la lista de la hoja", "Listas!" in (dvs[cols[titulo]].formula1 or ""),
+              dvs[cols[titulo]].formula1)
+check("la lista del tipo trae los de ingreso y los de gasto",
+      len([c for c in wb["Listas"]["B"] if c.value]) >= 8, len([c for c in wb["Listas"]["B"] if c.value]))
+check("y la de empresas, las dadas de alta",
+      any((c.value or "") == "33 Producciones" for c in wb["Listas"]["C"]))
+
+# LA SUBIDA: con la plantilla NUEVA y con una VIEJA (columnas en el otro orden y con los nombres
+# de antes). ⚠️ Es lo que impide que un gasto acabe contado como ingreso del artista.
+def _sube(filas, cabecera_filas):
+    libro = openpyxl.Workbook()
+    hoja = libro.active
+    hoja.title = "Apuntes"
+    hoja.append(["Caja de Los Ñus · apuntes anteriores"])
+    hoja.append([])
+    hoja.append(cabecera_filas)
+    for f in filas:
+        hoja.append(f)
+    buf = _io.BytesIO()
+    libro.save(buf)
+    return cli.post("/artistas/%s/caja/subir" % AID,
+                    data={"archivo": (_io.BytesIO(buf.getvalue()), "apuntes.xlsx")},
+                    content_type="multipart/form-data", follow_redirects=True)
+
+_sube([["01/03/2024", "Gasto", "Promoción", "Cartelería vieja", "0", "0", "1.250,00", "33 Producciones", ""]],
+      ["Fecha", "Ingreso o gasto", "Tipo", "Concepto", "Ingreso artista", "Ingreso oficina",
+       "Gasto oficina", "Empresa del grupo", "Notas"])
+s = models.SessionLocal()
+try:
+    fila = (s.query(models.ArtistLedgerEntry)
+            .filter(models.ArtistLedgerEntry.concept == "Cartelería vieja").first())
+    check("con la plantilla NUEVA, el gasto entra como gasto",
+          fila is not None and A._money_value(fila.amount_invested) == D("1250")
+          and A._money_value(fila.amount_artist) == D("0"),
+          fila and (fila.amount_invested, fila.amount_artist))
+finally:
+    s.close()
+
+# ⚠️⚠️ La plantilla VIEJA traía «Inversión realizada / Beneficio artista / Beneficio compañía» EN
+# OTRO ORDEN: leyéndola por posición, esos 900 € de gasto habrían entrado como ingreso del artista.
+_sube([["02/03/2024", "Gasto", "Marketing", "Campaña antigua", "900,00", "0", "0", "33 Producciones", ""]],
+      ["Fecha", "Ingreso o gasto", "Tipo", "Concepto", "Inversión realizada", "Beneficio artista",
+       "Beneficio compañía", "Empresa del grupo", "Notas"])
+s = models.SessionLocal()
+try:
+    fila = (s.query(models.ArtistLedgerEntry)
+            .filter(models.ArtistLedgerEntry.concept == "Campaña antigua").first())
+    check("una plantilla VIEJA se lee por su cabecera, no por el sitio",
+          fila is not None and A._money_value(fila.amount_invested) == D("900")
+          and A._money_value(fila.amount_artist) == D("0"),
+          fila and (fila.amount_invested, fila.amount_artist))
+    check("y entra como PENDIENTE (no suma hasta validarla)",
+          fila is not None and (fila.status or "") == "PENDIENTE", fila and fila.status)
+    check("con su empresa del grupo", fila is not None and fila.company_id is not None)
+finally:
+    s.close()
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        art = s.get(models.Artist, A.to_uuid(AID))
+        d = A._artist_cash_data(s, art, None)
+        check("lo subido y sin validar NO cuenta en el balance",
+              d["balance"]["office_invested"] == D("6700"), d["balance"]["office_invested"])
+        check("pero se dice cuántos esperan", d["balance"]["pending_entries"] == 2,
+              d["balance"]["pending_entries"])
+    finally:
+        s.close()
+
 print("\n════════════════════════════════════════════════════════════")
 print("  %d comprobaciones OK · %d FALLAN" % (len(OK), len(KO)))
 if KO:

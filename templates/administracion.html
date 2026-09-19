@@ -1077,6 +1077,95 @@
       </table>
     </div>
   </div>
+{% elif tab == 'caja' %}
+  {# ══════════════════════════════════════════════════════════════════════════════════════════
+     LA CAJA, DESDE ADMINISTRACIÓN
+     ⚠️⚠️ Aquí NO hay un segundo motor ni una segunda pantalla (lo pidió Dani: «lo que se cambie en
+     las fichas de los artistas o aquí se cambia en ambos lados»). La lista sale del MISMO
+     `_artist_cash_data` que la ficha del artista y, al elegir un sujeto, se incluye la MISMA
+     `_artist_cash.html`.
+     ══════════════════════════════════════════════════════════════════════════════════════════ #}
+  {% if cash_subject %}
+    <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('administracion_view', tab='caja') }}"
+         title="Volver a todos"><i class="fa fa-arrow-left"></i></a>
+      {% if cash_subject.photo_url %}
+        <img src="{{ cash_subject.photo_url }}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+      {% else %}
+        <span class="ac-ph"><i class="fa {{ cash_subject_icon }}"></i></span>
+      {% endif %}
+      <div class="min-w-0">
+        <div class="fw-semibold">{{ cash_subject_name }}</div>
+        <div class="small text-muted">{{ cash_subject_kind }} · Caja</div>
+      </div>
+      <a class="btn btn-sm btn-outline-secondary ms-auto"
+         href="{{ url_for('artist_detail_view', artist_id=cash_subject.id, tab='caja') }}">
+        <i class="fa fa-up-right-from-square me-1"></i>Abrir su ficha</a>
+    </div>
+    {% include '_artist_cash.html' %}
+  {% else %}
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-wallet me-2 text-danger"></i>Caja</h5>
+        <div class="small text-muted">Lo que factura cada artista, lo que se ha invertido en él y lo
+          que deja. Solo cuenta lo que ya está <strong>cerrado</strong>.</div>
+      </div>
+      <div class="ac-bar__years">
+        <a class="ac-year {{ 'is-on' if not cash_year }}" href="{{ url_for('administracion_view', tab='caja') }}">Todo</a>
+        {% for y in cash_overview.years[:6] %}
+          <a class="ac-year {{ 'is-on' if cash_year == y }}"
+             href="{{ url_for('administracion_view', tab='caja', anio=y) }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# EL TOTAL de todos, arriba: es la pregunta con la que se entra aquí. #}
+    {% set t = cash_overview.totals %}
+    <div class="ac-cards mb-3">
+      <div class="ac-card">
+        <div class="ac-card__k"><i class="fa fa-guitar me-1"></i>Facturado por los artistas</div>
+        <div class="ac-card__v">{{ t.artist_billed|eur }}</div>
+      </div>
+      <div class="ac-card">
+        <div class="ac-card__k"><i class="fa fa-receipt me-1"></i>Invertido por compañía</div>
+        <div class="ac-card__v">{{ t.office_invested|eur }}</div>
+      </div>
+      <div class="ac-card">
+        <div class="ac-card__k"><i class="fa fa-building me-1"></i>Ingresado por compañía</div>
+        <div class="ac-card__v">{{ t.office_income|eur }}</div>
+      </div>
+      <div class="ac-card {{ 'ac-card--ok' if t.office_result >= 0 else 'ac-card--ko' }}">
+        <div class="ac-card__k"><i class="fa fa-chart-line me-1"></i>Resultado para compañía</div>
+        <div class="ac-card__v">{{ t.office_result|eur }}</div>
+      </div>
+    </div>
+
+    {% if cash_overview.rows %}
+      <div class="ac-list">
+        {% for r in cash_overview.rows %}
+          {# ⚠️ La fila entera es un `<a>`: dentro NO va ningún otro enlace ni botón (un `<a>` dentro
+             de otro parte el HTML). Lo que se quiera hacer con la caja se hace al abrirla. #}
+          <a class="ac-list__row" href="{{ r.url }}">
+            {% if r.photo %}<img src="{{ r.photo }}" alt="" loading="lazy">
+            {% else %}<span class="ac-ph"><i class="fa {{ r.icon }}"></i></span>{% endif %}
+            <span class="ac-list__t">
+              <b>{{ r.name }}</b>
+              <small>{{ r.kind_label }}{% if r.open_bags %} · {{ r.open_bags }} bolsa{{ '' if r.open_bags == 1 else 's' }} abierta{{ '' if r.open_bags == 1 else 's' }}{% endif %}</small>
+            </span>
+            <span class="ac-list__n"><small>Factura</small><b>{{ r.artist_billed|eur }}</b></span>
+            <span class="ac-list__n"><small>Invertido</small><b>{{ r.office_invested|eur }}</b></span>
+            <span class="ac-list__n"><small>Ingresado</small><b>{{ r.office_income|eur }}</b></span>
+            <span class="ac-list__n ac-list__n--res {{ 'is-ok' if r.positive else 'is-ko' }}">
+              <small>Resultado</small><b>{{ r.office_result|eur }}</b></span>
+            <i class="fa fa-chevron-right text-muted"></i>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border">Todavía no hay ningún artista con movimientos cerrados.</div>
+    {% endif %}
+  {% endif %}
+
 {% elif tab == 'embargos' %}
   {% set current_orders = embargo_active_orders if embargo_subtab == 'activas' else embargo_archived_orders %}
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">

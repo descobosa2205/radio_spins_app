@@ -6,6 +6,11 @@
 
 ## Qué hay aquí
 
+- ⚠️ SOLO CUENTA LO YA CERRADO, y sobre el BALANCE FINAL (sep 2026)
+- ⚠️ ROYALTIES · el beneficio es lo facturado MENOS todo lo que se paga
+- ⚠️ ACTIVIDADES · el contrato reparte el importe FINAL de la liquidación
+- LA PESTAÑA «CAJA» DE ADMINISTRACIÓN (la misma pantalla y el mismo motor)
+- EL PDF del resumen, y la PLANTILLA con desplegables
 - QUÉ ES LA CAJA y por qué no guarda ni un número
 - INGRESOS · lo que FACTURA el artista (no lo que entra en la casa)
 - GASTOS · lo que pagan las empresas del grupo, y **la regla del caché**
@@ -14,6 +19,98 @@
 - LOS APUNTES DE ANTES DE LA APP · el Excel y su validación uno a uno
 
 ---
+
+
+## ⚠️⚠️ SOLO CUENTA LO YA CERRADO, y sobre el BALANCE FINAL (sep 2026)
+
+Lo pidió Dani: «el planteamiento está bien pero **los datos no son reales ni exactos**». Eran dos
+cosas, las dos corregidas:
+
+- **Una bolsa solo entra en la caja cuando está CERRADA** y administración ha dicho que se incluye
+  (`_bag_cash_counts`). Antes sumaban **todas**, abiertas incluidas — y eso es lo que se VA a
+  gastar, no lo gastado. Las que siguen abiertas se cuentan aparte y **se dicen** («y además hay N
+  bolsas todavía abiertas por X €»), porque un total más bajo sin explicación parece un fallo.
+- **Lo que cuenta es el BALANCE FINAL, no el gasto realizado** (`_bag_cash_cost`, el punto único):
+  lo que **cubre el promotor** (o se le refactura) y lo que **cubre el artista** no es nuestro, y lo
+  que asume la bolsa de una actividad **lo paga su caché**. La línea lo dice: «Fuera del balance
+  500 € (lo cubre el artista o el promotor)».
+
+**LA DECISIÓN** vive en la bolsa (`WorkflowBag.cash_impact` · `cash_decided_at` ·
+`cash_decided_by_nick`) y se toma **al cerrar la liquidación en administración**, que es el único
+momento en el que alguien la está revisando **con el coste final delante**. Si la bolsa se cierra
+por otro camino (al pagarse lo último), se da por **INCLUIDA** —el caso normal— y queda **dicha y
+cambiable** en el panel de la bolsa (`bag_cash_impact_save`, solo administración y dirección):
+dejarla sin decidir la haría desaparecer de la caja en silencio.
+⚠️ Las bolsas que **ya estaban cerradas** entraron de una vez (`_bag_cash_backfill`, marca en los
+ajustes): si no, el balance de todos los artistas habría cambiado de golpe sin que nadie tocara nada.
+
+## ⚠️⚠️ ROYALTIES · el beneficio es lo facturado MENOS todo lo que se paga
+
+`_artist_cash_royalties`. Lo pidió Dani con estas palabras: «el beneficio de la compañía es el
+importe facturado de royalties de ese artista **menos los royalties pagados** por el repertorio del
+artista incluido a otros **y los del propio artista**; los royalties pagados **no se consideran
+inversión o gasto: solo reducen el ingreso**».
+
+Antes se restaba **solo la parte del artista** (`total_income − total_amount`), así que **lo que
+cobran los demás beneficiarios de SUS MISMAS obras** —un autor invitado, un tercero con su
+porcentaje— se contaba como beneficio nuestro. Y no lo es: ese dinero sale de la casa.
+
+- El **repertorio** son sus canciones y sus discos (`_artist_cash_repertoire_ids`).
+- **Lo que ingresa la compañía** por una obra es el `income` de esa obra en ese semestre, y se cuenta
+  **UNA sola vez** aunque la cobren varios: todos los beneficiarios ven la misma base.
+- **Lo que se paga** es la suma de los `amount` de **todas** las liquidaciones de ese semestre cuyas
+  líneas sean de su repertorio.
+- Todo sale del **congelado** (`snapshot`), que es lo que de verdad se liquidó, y va **sin IVA**.
+⚠️ Puede salir **negativo** (se liquidó más de lo ingresado ese semestre): se dice tal cual.
+⚠️ Y **un royalty pagado NO aparece en «invertido»**: contarlo ahí lo contaría dos veces.
+
+## ⚠️⚠️ ACTIVIDADES · el contrato reparte el importe FINAL de la liquidación
+
+`_artist_cash_concert_settled`. Lo pidió Dani: «que se calculen las liquidaciones de actividades con
+caché **acorde a los porcentajes de contratos**, aunque se tenga finalmente en cuenta **el importe
+final de la liquidación**, ya que administración puede realizar cambios en el último momento».
+
+O sea: el **REPARTO** lo dice el contrato del artista (como hasta ahora), pero el **IMPORTE** sobre
+el que se reparte es el **plan de pagos** (`Concert.payment_terms_json`) —donde administración
+factura, marca cobrado y corrige a última hora— y solo si no lo hay manda el **caché pactado**. La
+línea dice cuál de los dos se está usando y, si falta por cobrar, cuánto.
+
+## LA PESTAÑA «CAJA» DE ADMINISTRACIÓN
+
+`/administracion?tab=caja`. Lo pidió Dani: «igual que la ficha del artista pero se ve ahí
+directamente; **lo que se cambie en las fichas de los artistas o aquí se cambia en ambos lados**».
+
+⚠️⚠️ Por eso aquí **NO hay un segundo motor ni una segunda pantalla**: la lista sale de
+`_cash_overview`, que llama al **mismo `_artist_cash_data`**, y al abrir un sujeto se incluye la
+**misma `_artist_cash.html`**. Lo único propio son los enlaces del año y del PDF, que los compone
+**`_cash_links`** según desde dónde se mire (meterlos en la plantilla con un `url_for` fijo la
+ataría a uno de los dos sitios).
+- Arriba, **el total de todos**; debajo, un sujeto por fila con sus cuatro datos y las bolsas
+  abiertas que todavía no cuentan. Ordenados por lo que más mueven.
+- Un **evento** no es otra tabla: se espeja como artista (`Artist.event_id`), así que su caja es la
+  de su espejo — y aquí ese espejo SÍ se ofrece, con su nombre y con la etiqueta «Evento».
+- ⚠️ **El permiso es `artists.caja`**, el mismo de la pestaña del artista (exacto, sin heredar):
+  darle uno propio de administración sería **una segunda puerta a los mismos importes**. Y la
+  pestaña **no se pinta** a quien no lo tiene — lo cazó `tools/check_permisos.py`.
+- ⚠️ Las liquidaciones de royalties se leen **UNA vez para todos** (`prefetch`): una consulta de
+  miles de filas por artista dejaría la pantalla sin abrir.
+
+## EL PDF del resumen, y la PLANTILLA con desplegables
+
+- **`artist_cash_pdf`** (`/artistas/<id>/caja/resumen.pdf`): el resumen **de lo que hay a la vista**
+  (el año elegido, o todo), con la **cabecera de la casa** (el logo del grupo arriba a la derecha y
+  la banda en el rojo corporativo), los **cuatro datos** y, debajo, **cada categoría desglosada por
+  bolsas** con su nota. Sale del MISMO `_artist_cash_data` que la pantalla: el papel no puede decir
+  un número distinto del que se está mirando.
+- **LA PLANTILLA** (`artist_cash_template`): los tres importes se llaman ahora como lo que son —
+  **«Ingreso artista» · «Ingreso oficina» · «Gasto oficina»**— y **«Ingreso o gasto», «Tipo» y
+  «Empresa del grupo» son DESPLEGABLES** (lo pidió Dani, «para que todo cuadre bien»): las listas
+  van en una hoja `Listas` **oculta**, porque un desplegable escrito dentro de la validación no
+  pasa de 255 caracteres y las empresas no caben.
+  ⚠️⚠️ **Y LA SUBIDA CASA LAS COLUMNAS POR SU TÍTULO** (`_artist_cash_sheet_map`), no por su sitio:
+  la plantilla vieja traía los importes **en otro orden y con otros nombres**, así que leyéndola por
+  posición un **gasto habría entrado como ingreso del artista sin avisar de nada**. Los nombres de
+  antes están en `ARTIST_CASH_SHEET_ALIASES`, así que una plantilla vieja se sigue subiendo bien.
 
 ## QUÉ ES LA CAJA y por qué no guarda ni un número
 
@@ -161,6 +258,10 @@ De lo anterior a la app no hay ni una fila, así que el cuadro de mando empezar�
 | qué | dónde |
 |---|---|
 | el motor (punto único) | `app.py` · `_artist_cash_data` y sus `_artist_cash_*` |
+| ¿esta bolsa va a la caja? | `app.py` · `_bag_cash_*` (+ `WorkflowBag.cash_impact`) |
+| la pestaña de Administración | `app.py` · `_cash_overview` / `_cash_links` · `templates/administracion.html` (tab `caja`) |
+| el PDF del resumen | `app.py` · `artist_cash_pdf` / `_artist_cash_pdf_bytes` |
+| la prueba de regresión | `tools/check_caja_artista.py` (89 comprobaciones con la app real) |
 | el Excel y la validación | `app.py` · `artist_cash_template` / `_upload` / `_validate` / `_delete` / `_batch_undo` |
 | la pantalla | `templates/_artist_cash.html` (incluido desde `artist_detail.html`) |
 | los estilos | `static/css/styles.css` · bloque `.ac-*` |

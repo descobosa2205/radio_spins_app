@@ -8210,6 +8210,26 @@ body.accsc-open{ overflow:hidden; }
 /* Lo que TODAVÍA no cuenta en el balance (las bolsas abiertas): se dice, no se esconde. */
 .ac-note{ font-size:.82rem; color:#6c757d; background:#f8f9fa; border:1px solid #e9ecef;
   border-radius:.6rem; padding:.45rem .7rem; }
+/* LA LISTA de la pestaña «Caja» de Administración: un sujeto por fila con sus cuatro datos.
+   ⚠️ La fila entera es un enlace, así que dentro NO va ningún otro enlace ni botón. */
+.ac-list{ display:grid; gap:.4rem; }
+.ac-list__row{ display:flex; align-items:center; gap:.75rem; border:1px solid #e9ecef;
+  border-radius:12px; padding:.55rem .8rem; background:#fff; color:inherit; text-decoration:none; }
+.ac-list__row:hover{ border-color:var(--brand-primary,#E33D48); background:#fffafa; }
+.ac-list__row img, .ac-ph{ flex:0 0 auto; width:38px; height:38px; border-radius:50%; object-fit:cover; }
+.ac-ph{ display:inline-flex; align-items:center; justify-content:center; background:#f1f3f5; color:#868e96; }
+.ac-list__t{ min-width:0; flex:1 1 auto; line-height:1.2; }
+.ac-list__t b{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ac-list__t small{ display:block; font-size:.76rem; color:#6c757d; }
+.ac-list__n{ flex:0 0 auto; min-width:7.5rem; text-align:right; line-height:1.2; }
+.ac-list__n small{ display:block; font-size:.68rem; text-transform:uppercase; letter-spacing:.03em; color:#adb5bd; }
+.ac-list__n b{ font-variant-numeric:tabular-nums; }
+.ac-list__n--res.is-ok b{ color:#198754; }
+.ac-list__n--res.is-ko b{ color:#dc3545; }
+@media (max-width: 991.98px){
+  .ac-list__row{ flex-wrap:wrap; }
+  .ac-list__n{ min-width:6rem; text-align:left; }
+}
 /* El resultado: verde si la casa gana, rojo si todavía está invirtiendo. */
 .ac-card--ok{ border-color:rgba(25,135,84,.35); background:rgba(25,135,84,.05); }
 .ac-card--ok .ac-card__v{ color:#146c43; }

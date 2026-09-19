@@ -101,17 +101,25 @@
   </div>
 {% endmacro %}
 
-{# ── LA BARRA DE ARRIBA: el año y el Excel ──────────────────────────────────────────────────── #}
+{# ── LA BARRA DE ARRIBA: el año, el PDF y el Excel ──────────────────────────────────────────
+   ⚠️⚠️ ESTA PANTALLA SE USA EN DOS SITIOS: la pestaña «Caja» de la ficha de un artista y la pestaña
+   «Caja» de Administración. Es la MISMA (lo pidió Dani: «lo que se cambie en las fichas de los
+   artistas o aquí se cambia en ambos lados»), así que los enlaces del año y del PDF los compone
+   quien la incluye (`cash_year_links`, `cash_pdf_url`) en vez de construirse aquí con un `url_for`
+   fijo — que es lo que la ataría a una de las dos. #}
 <div class="ac-bar mb-3">
   <div class="ac-bar__years">
-    <a class="ac-year {% if not cash.year %}is-on{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='caja') }}">Todo</a>
-    {% for y in cash.years[:6] %}
-      <a class="ac-year {% if cash.year == y %}is-on{% endif %}"
-         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='caja', anio=y) }}">{{ y }}</a>
+    {% for y in cash_year_links %}
+      <a class="ac-year {% if y.on %}is-on{% endif %}" href="{{ y.url }}">{{ y.label }}</a>
     {% endfor %}
   </div>
   <div class="ac-bar__tools">
+    {% if cash_pdf_url %}
+      <a class="btn btn-sm btn-outline-danger" href="{{ cash_pdf_url }}" target="_blank" rel="noopener"
+         title="Bajar el resumen en PDF de lo que hay a la vista (el año elegido, o todo)">
+        <i class="fa fa-file-pdf me-1"></i>PDF
+      </a>
+    {% endif %}
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('artist_cash_template', artist_id=artist.id) }}"
        title="Bajar la plantilla de Excel para los apuntes de antes de la app">
       <i class="fa fa-file-excel me-1"></i>Plantilla

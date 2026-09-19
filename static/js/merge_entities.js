@@ -39,7 +39,7 @@
       searchUrl: btn.getAttribute('data-merge-search'),
       compareUrl: btn.getAttribute('data-merge-compare'),
       executeUrl: btn.getAttribute('data-merge-execute'),
-      cmp: null, choices: {}, survivor: 'a'
+      cmp: null, choices: {}, docs: {}, survivor: 'a'
     };
     $q('[data-merge-title-label]').textContent = state.label.toLowerCase();
     $q('[data-merge-src-name]').textContent = state.name;
@@ -99,6 +99,15 @@
     if (e.target.closest('[data-merge-back]')) { stepShow('search'); return; }
     var card = e.target.closest('[data-merge-survivor]');
     if (card && state.cmp) { setSurvivor(card.getAttribute('data-merge-survivor')); return; }
+    var doc = e.target.closest('[data-merge-doc]');
+    if (doc && state.cmp) {
+      var dk = doc.getAttribute('data-doc-key');
+      state.docs[dk] = doc.getAttribute('data-merge-doc');
+      modalEl.querySelectorAll('[data-merge-doc][data-doc-key="' + dk + '"]').forEach(function (c) {
+        c.classList.toggle('is-picked', c === doc);
+      });
+      return;
+    }
     var val = e.target.closest('[data-merge-choice]');
     if (val && state.cmp) {
       var key = val.getAttribute('data-key');
@@ -118,6 +127,7 @@
       .then(function (cmp) {
         state.cmp = cmp;
         state.choices = {};
+        state.docs = {};
         renderCompare();
         stepShow('compare');
         setSurvivor('a');
@@ -159,7 +169,51 @@
       };
       return '<tr><td class="small text-muted">' + esc(f.label) + '</td>' + cell('a', f.a) + cell('b', f.b) + '</tr>';
     }).join('');
+    renderDocs();
   }
+  /* ⚠️⚠️ LOS DOCUMENTOS: lo que sube cada ficha (DNI, carnet, pasaporte, tarjetas, matrículas) NO
+     cuelga de ninguna clave ajena, así que antes se perdía al fusionar. Ahora se dice qué va a
+     pasar con cada uno ANTES de fusionar: los que solo tiene una ficha se MANTIENEN, y los que
+     tienen las dos se eligen (no se duplica un DNI). */
+  function renderDocs() {
+    var caja = $q('[data-merge-docs]');
+    if (!caja) return;
+    var d = (state.cmp && state.cmp.documents) || {};
+    var conflictos = d.conflicts || [], mantiene = d.kept || [], otros = d.other || 0;
+    if (!conflictos.length && !mantiene.length && !otros) { caja.classList.add('d-none'); return; }
+    var c = state.cmp;
+    var tarjeta = function (lado, key, doc, nombre) {
+      return '<button type="button" class="w-100 text-start merge-val merge-doc" data-merge-doc="' + lado + '" data-doc-key="' + esc(key) + '">' +
+        '<span class="d-flex align-items-center gap-2">' +
+        (doc.photo
+          ? '<img src="' + esc(doc.photo) + '" alt="" style="width:46px;height:32px;object-fit:cover;border-radius:4px;border:1px solid #eee;background:#fff;">'
+          : '<i class="fa fa-id-card text-muted"></i>') +
+        '<span class="min-w-0"><span class="d-block small fw-semibold text-truncate">' + esc(nombre) + '</span>' +
+        '<span class="d-block small text-muted text-truncate">' + esc(doc.sub || '—') + '</span></span></span></button>';
+    };
+    var html = '';
+    conflictos.forEach(function (cf) {
+      html += '<div class="border rounded-3 p-2 mb-2">' +
+        '<div class="small mb-2"><i class="fa fa-triangle-exclamation text-warning me-1"></i>' +
+        'Las dos fichas tienen <strong>' + esc(cf.kind_label) + '</strong>. ¿Con cuál te quedas?</div>' +
+        '<div class="row g-2">' +
+        '<div class="col-12 col-md-6">' + tarjeta('a', cf.key, cf.a, c.a.name) + '</div>' +
+        '<div class="col-12 col-md-6">' + tarjeta('b', cf.key, cf.b, c.b.name) + '</div>' +
+        '</div></div>';
+    });
+    if (mantiene.length) {
+      html += '<div class="small text-muted"><i class="fa fa-circle-check text-success me-1"></i>' +
+        'Se mantienen <strong>' + mantiene.length + '</strong> documento' + (mantiene.length === 1 ? '' : 's') + ': ' +
+        esc(mantiene.map(function (m) { return m.kind_label; }).join(' · ')) + '.</div>';
+    }
+    if (otros) {
+      html += '<div class="small text-muted"><i class="fa fa-circle-check text-success me-1"></i>' +
+        'Y ' + otros + ' papel' + (otros === 1 ? '' : 'es') + ' de alta/PRL, que pasan enteros.</div>';
+    }
+    $q('[data-merge-docs-body]').innerHTML = html;
+    caja.classList.remove('d-none');
+  }
+
   function setSurvivor(side) {
     state.survivor = side;
     modalEl.querySelectorAll('[data-merge-survivor]').forEach(function (cd) {
@@ -175,6 +229,13 @@
       state.choices[f.key] = pick;
       modalEl.querySelectorAll('[data-merge-choice][data-key="' + f.key + '"]').forEach(function (cel) {
         cel.classList.toggle('is-picked', cel.getAttribute('data-merge-choice') === pick);
+      });
+    });
+    // Y de un documento que tienen los dos, por defecto el del que se conserva.
+    (((state.cmp || {}).documents || {}).conflicts || []).forEach(function (cf) {
+      state.docs[cf.key] = side;
+      modalEl.querySelectorAll('[data-merge-doc][data-doc-key="' + cf.key + '"]').forEach(function (cel) {
+        cel.classList.toggle('is-picked', cel.getAttribute('data-merge-doc') === side);
       });
     });
   }
@@ -197,6 +258,12 @@
     add('keep_id', keep.id);
     add('drop_id', drop.id);
     add('choices_json', JSON.stringify(choices));
+    // Los documentos que tienen los dos: «keep» = el del que se conserva, «drop» = el del otro.
+    var docs = {};
+    Object.keys(state.docs || {}).forEach(function (k) {
+      docs[k] = (state.docs[k] === state.survivor) ? 'keep' : 'drop';
+    });
+    add('docs_json', JSON.stringify(docs));
     add('next', window.location.href);
     // form.submit() programático NO dispara el evento submit: el token CSRF se añade a mano.
     var meta = document.querySelector('meta[name="csrf-token"]');

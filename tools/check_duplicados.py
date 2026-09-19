@@ -311,5 +311,163 @@ check("Terceros NO enseña «Parejas descartadas»", "Parejas descartadas" not i
 check("ni «Fichas unidas a su persona de la oficina»", "Fichas unidas a su persona" not in html_t)
 check("pero sigue enseñando lo que SÍ hay que hacer (las fichas repetidas)", "Fichas repetidas" in html_t)
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# LOS DOCUMENTOS DE LAS DOS FICHAS NO SE PIERDEN (sep 2026, lo pidió Dani)
+# ⚠️ `person_documents` es POLIMÓRFICO (owner_type/owner_id): no cuelga de ninguna clave ajena, así
+# que `_merge_repoint_references` no lo veía y al fusionar todo lo que había subido la ficha que
+# desaparecía se quedaba HUÉRFANO (el fichero seguía en Storage pero ya no era de nadie).
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+print("\n── Los DOCUMENTOS al fusionar ─────────────────────────────────────────")
+import datetime as _dt
+s = A.db()
+p1 = models.Promoter(nick="Docs Uno %s" % suf, first_name="Ana", last_name="Docs %s" % suf)
+p2 = models.Promoter(nick="Docs Dos %s" % suf, first_name="Ana", last_name="Docs %s" % suf)
+s.add(p1); s.add(p2); s.flush()
+id1, id2 = p1.id, p2.id
+# La que se CONSERVA: su DNI y una tarjeta de Renfe.
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=id1, kind="DNI", doc_number="11111111H",
+                            full_name="Ana Docs", front_url="https://x/dni-bueno.jpg"))
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=id1, kind="LOYALTY", company="Renfe",
+                            doc_number="RF-1"))
+# La que DESAPARECE: otro DNI (choca), un pasaporte y un carnet que solo tiene ella, la MISMA
+# tarjeta de Renfe (no se puede duplicar) y otra distinta.
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=id2, kind="DNI", doc_number="22222222J",
+                            full_name="Ana Docs", front_url="https://x/dni-otro.jpg"))
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=id2, kind="PASSPORT", doc_number="PAS-9",
+                            expiry_date=_dt.date(2030, 1, 1)))
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=id2, kind="LICENSE", doc_number="CAR-7"))
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=id2, kind="LOYALTY", company="Renfe",
+                            doc_number="RF-1"))
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=id2, kind="LOYALTY", company="Iberia",
+                            doc_number="IB-2"))
+# Y un papel de alta/PRL de la que desaparece: se mueve entero, sin preguntar.
+s.add(models.PersonComplianceDoc(owner_type="PROMOTER", owner_id=id2, doc_type="PRL_FORMACION",
+                                 file_url="https://x/prl.pdf"))
+s.commit()
+
+# 1) LA COMPARACIÓN dice lo que va a pasar ANTES de fusionar.
+r = cli.get("/promotores/fusion/comparar?a=%s&b=%s" % (id1, id2))
+js = r.get_json() or {}
+docs = js.get("documents") or {}
+check("la comparación dice qué pasa con los documentos", r.status_code == 200 and docs, r.status_code)
+claves = sorted(c["key"] for c in docs.get("conflicts") or [])
+check("el DNI, que lo tienen las DOS, sale para elegir", "DNI" in claves, claves)
+check("y la MISMA tarjeta de Renfe también (no se duplica)",
+      any(k.startswith("LOYALTY|RF1") for k in claves), claves)
+check("un pasaporte que solo tiene una NO se pregunta", "PASSPORT" not in claves, claves)
+tipos_ok = sorted(k["kind"] for k in docs.get("kept") or [])
+check("se dice que el pasaporte, el carnet y la otra tarjeta se MANTIENEN",
+      tipos_ok == ["LICENSE", "LOYALTY", "PASSPORT"], tipos_ok)
+check("y que el papel de PRL se mueve también", docs.get("other") == 1, docs.get("other"))
+check("cada opción se puede reconocer (su número y su imagen)",
+      all((c["a"]["sub"] and c["b"]["sub"]) for c in docs.get("conflicts") or []),
+      docs.get("conflicts"))
+
+# 2) LA FUSIÓN: del DNI se elige el de la que DESAPARECE; del resto, lo que hay por defecto.
+r = cli.post("/promotores/fusion", data={"keep_id": str(id1), "drop_id": str(id2),
+                                         "choices_json": "{}",
+                                         "docs_json": '{"DNI": "drop"}', "next": "/promotores"})
+s = A.db()
+check("la ficha duplicada desaparece", s.get(models.Promoter, id2) is None, r.status_code)
+quedan = (s.query(models.PersonDocument)
+          .filter(models.PersonDocument.owner_type == "PROMOTER",
+                  models.PersonDocument.owner_id == id1).all())
+porkind = {}
+for d in quedan:
+    porkind.setdefault(d.kind, []).append(d)
+check("NADA se queda huérfano: no queda ni un documento de la ficha borrada",
+      not s.query(models.PersonDocument).filter(models.PersonDocument.owner_id == id2).all())
+check("el PASAPORTE que solo tenía la borrada se mantiene", len(porkind.get("PASSPORT") or []) == 1, sorted(porkind))
+check("y el CARNET también", len(porkind.get("LICENSE") or []) == 1, sorted(porkind))
+check("el DNI NO se duplica: queda UNO", len(porkind.get("DNI") or []) == 1, len(porkind.get("DNI") or []))
+check("y es EL QUE SE ELIGIÓ (el de la ficha que desaparecía)",
+      (porkind.get("DNI") or [None])[0] is not None and porkind["DNI"][0].doc_number == "22222222J",
+      (porkind.get("DNI") or [None])[0] and porkind["DNI"][0].doc_number)
+renfes = [d for d in (porkind.get("LOYALTY") or []) if (d.doc_number or "") == "RF-1"]
+check("la MISMA tarjeta de Renfe tampoco se duplica", len(renfes) == 1, len(renfes))
+check("pero la otra tarjeta sí se mantiene", len(porkind.get("LOYALTY") or []) == 2,
+      [(d.company, d.doc_number) for d in (porkind.get("LOYALTY") or [])])
+check("el papel de PRL pasa a la ficha que se conserva",
+      len(s.query(models.PersonComplianceDoc).filter(
+          models.PersonComplianceDoc.owner_type == "PROMOTER",
+          models.PersonComplianceDoc.owner_id == id1).all()) == 1)
+s.close()
+
+# 3) LA FUSIÓN AUTOMÁTICA (el integrante de un artista que ya era tercero) tampoco los pierde:
+#    ahí no hay a quién preguntar, así que se queda el del que sobrevive y lo demás pasa entero.
+print("\n── Y en la fusión AUTOMÁTICA ──────────────────────────────────────────")
+s = A.db()
+q1 = models.Promoter(nick="Auto Uno %s" % suf)
+q2 = models.Promoter(nick="Auto Dos %s" % suf)
+s.add(q1); s.add(q2); s.flush()
+qa, qb = q1.id, q2.id
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=qa, kind="DNI", doc_number="33333333P"))
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=qb, kind="DNI", doc_number="44444444D"))
+s.add(models.PersonDocument(owner_type="PROMOTER", owner_id=qb, kind="PASSPORT", doc_number="PAS-AUTO"))
+s.commit()
+with A.app.test_request_context("/"):
+    ok_auto = A._promoter_merge_into(s, s.get(models.Promoter, qa), s.get(models.Promoter, qb))
+    s.commit()
+check("la fusión automática funciona", ok_auto is True)
+finales = (s.query(models.PersonDocument)
+           .filter(models.PersonDocument.owner_type == "PROMOTER",
+                   models.PersonDocument.owner_id == qa).all())
+check("el DNI sigue siendo UNO (el del que sobrevive)",
+      len([d for d in finales if d.kind == "DNI"]) == 1 and
+      [d for d in finales if d.kind == "DNI"][0].doc_number == "33333333P",
+      [(d.kind, d.doc_number) for d in finales])
+check("y el pasaporte que solo tenía el otro NO se pierde",
+      len([d for d in finales if d.kind == "PASSPORT"]) == 1, [(d.kind, d.doc_number) for d in finales])
+check("no queda nada huérfano",
+      not s.query(models.PersonDocument).filter(models.PersonDocument.owner_id == qb).all())
+s.close()
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# EL CÓDIGO IPI SOLO SE LE PIDE A UN AUTOR (sep 2026, lo pidió Dani: «para no saturar de campos
+# las fichas de terceros de forma innecesaria»)
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+print("\n── El código IPI, solo en la ficha de un autor ────────────────────────")
+s = A.db()
+n1 = models.Promoter(nick="Sin IPI %s" % suf)                      # un tercero cualquiera
+n2 = models.Promoter(nick="Autor marcado %s" % suf, roles_manual=["AUTHOR"])
+n3 = models.Promoter(nick="Con IPI %s" % suf, ipi="00123456789")   # ya lo tiene guardado
+n4 = models.Promoter(nick="Arreglista %s" % suf)                   # firma una obra como ARREGLISTA
+s.add(n1); s.add(n2); s.add(n3); s.add(n4); s.flush()
+cancion = models.Song(title="Obra de prueba %s" % suf, release_date=_dt.date(2026, 1, 1))
+s.add(cancion); s.flush()
+s.add(models.SongEditorialShare(song_id=cancion.id, promoter_id=n4.id, role="ARRANGER", pct=100))
+s.commit()
+with A.app.test_request_context("/"):
+    check("un tercero normal NO es autor", A._promoter_is_author(s, n1) is False)
+    check("uno marcado como «Autores / compositores» SÍ", A._promoter_is_author(s, n2) is True)
+    check("uno que YA tiene un IPI guardado también (un dato no se esconde nunca)",
+          A._promoter_is_author(s, n3) is True)
+    check("y un ARREGLISTA que firma una obra, también", A._promoter_is_author(s, n4) is True)
+ids_ipi = {k: str(v.id) for k, v in (("n1", n1), ("n2", n2), ("n3", n3), ("n4", n4))}
+s.close()
+html = cli.get("/promotores/%s" % ids_ipi["n1"]).get_data(as_text=True)
+check("en la ficha de un tercero normal el campo IPI NI SE PINTA",
+      'data-ipi-box' in html and 'd-none" data-ipi-box' in html.replace("col-12 col-md-6 ", ""), None)
+check("y va DESHABILITADO (un campo oculto se envía igual y habría borrado el IPI)",
+      'name="ipi"' in html and "disabled" in html.split('name="ipi"')[1][:120], None)
+for clave, quien in (("n2", "uno marcado como autor"), ("n3", "uno que ya tiene IPI"), ("n4", "un arreglista")):
+    html = cli.get("/promotores/%s" % ids_ipi[clave]).get_data(as_text=True)
+    trozo = html.split("data-ipi-box")[0][-90:] if "data-ipi-box" in html else ""
+    check("en la ficha de %s SÍ se pide el IPI" % quien, "d-none" not in trozo, trozo[-60:])
+
+# ⚠️ LA TRAMPA DE SIEMPRE: un campo oculto SE ENVÍA IGUAL. Si el formulario de un tercero sin IPI
+# mandara `ipi=""`, el centinela `if "ipi" in request.form` lo daría por borrado a propósito. Se
+# comprueba que guardar SIN mandar el campo deja el IPI como estaba.
+s = A.db()
+n3b = s.get(models.Promoter, A.to_uuid(ids_ipi["n3"]))
+nick_n3 = n3b.nick
+s.close()
+cli.post("/promotores/%s/update" % ids_ipi["n3"], data={"nick": nick_n3}, follow_redirects=True)
+s = A.db()
+check("guardar la ficha SIN mandar el campo NO borra el IPI que había",
+      (s.get(models.Promoter, A.to_uuid(ids_ipi["n3"])).ipi or "") == "00123456789",
+      s.get(models.Promoter, A.to_uuid(ids_ipi["n3"])).ipi)
+s.close()
+
 print("\n%d bien · %d mal" % (len(OK), len(KO)))
 sys.exit(1 if KO else 0)

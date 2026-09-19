@@ -612,10 +612,18 @@
                     <input type="file" class="form-control" name="logo" accept="image/*">
                   </div>
                   {# EL CÓDIGO IPI: el «DNI» de un autor en las sociedades de gestión. Se escribe una
-                     vez aquí y a partir de ahí sale solo en cada obra suya (y en su Label Copy). #}
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">Código IPI <span class="text-muted small fw-normal">(solo autores y compositores)</span></label>
-                    <input class="form-control" name="ipi" value="{{ promoter.ipi or '' }}" placeholder="Ej.: 00123456789">
+                     vez aquí y a partir de ahí sale solo en cada obra suya (y en su Label Copy).
+                     ⚠️⚠️ **SOLO SE LE PIDE A UN AUTOR** (`_promoter_is_author`: marcado como autor,
+                     que firme alguna obra —ahí entra el arreglista— o que ya tenga uno guardado):
+                     en los demás terceros el campo NI SE PINTA, para no saturar la ficha de campos
+                     que no son suyos (lo pidió Dani).
+                     ⚠️ Y cuando está oculto va **`disabled`**: un campo escondido SE ENVÍA IGUAL, y
+                     al guardar cualquier otra cosa habría borrado el IPI de quien lo tuviera (el
+                     centinela `if "ipi" in request.form` solo protege si NO llega). #}
+                  <div class="col-12 col-md-6 {{ '' if promoter_is_author else 'd-none' }}" data-ipi-box>
+                    <label class="form-label">Código IPI <span class="text-muted small fw-normal">(solo autores, compositores y arreglistas)</span></label>
+                    <input class="form-control" name="ipi" value="{{ promoter.ipi or '' }}" placeholder="Ej.: 00123456789"
+                           {{ '' if promoter_is_author else 'disabled' }}>
                     <div class="form-text">Su identificador en las sociedades de gestión (SGAE…). Es opcional.</div>
                   </div>
                   {# COMPAÑÍA MATRIZ: el grupo al que pertenece (otro tercero), para ver junto todo
@@ -923,6 +931,27 @@
     };
     if (tipo) tipo.addEventListener('change', pinta);
     pinta();
+
+    /* ⚠️⚠️ EL CÓDIGO IPI ES DE UN AUTOR, Y SOLO DE UN AUTOR (lo pidió Dani: «si no, que no aparezca
+       el campo, para no saturar de campos las fichas de terceros»). El servidor decide si se pinta
+       (`_promoter_is_author`); aquí solo se hace que APAREZCA en el momento en que se marca
+       «Autores / compositores», sin tener que guardar y volver.
+       ⚠️ Al esconderlo se DESHABILITA: un campo oculto se envía igual, y guardar cualquier otra
+       cosa habría borrado el IPI de quien lo tuviera. */
+    var cajaIpi = form.querySelector('[data-ipi-box]');
+    var esAutor = form.querySelector('input[name="roles_manual[]"][value="AUTHOR"]');
+    if (cajaIpi && esAutor) {
+      var campoIpi = cajaIpi.querySelector('[name="ipi"]');
+      var pintaIpi = function () {
+        // Si ya tiene un IPI puesto, el campo se queda: un dato guardado no se esconde nunca.
+        var hay = !!(campoIpi && (campoIpi.value || '').trim());
+        var ver = esAutor.checked || hay;
+        cajaIpi.classList.toggle('d-none', !ver);
+        if (campoIpi) campoIpi.disabled = !ver;
+      };
+      esAutor.addEventListener('change', pintaIpi);
+      pintaIpi();
+    }
 
     // PREFERENCIA de comunicación: la pregunta solo existe si tiene correo Y teléfono, y aparece o
     // desaparece según se rellenen los dos campos (sin recargar).

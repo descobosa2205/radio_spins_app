@@ -3909,6 +3909,14 @@ def _promoter_merge_into(session_db, keep, drop) -> bool:
                     setattr(keep, campo, valor)
         session_db.add(keep)
         session_db.flush()
+        # ⚠️⚠️ LOS DOCUMENTOS TAMBIÉN AQUÍ: esta fusión es AUTOMÁTICA (el integrante de un artista
+        # que ya era tercero) y no hay nadie a quien preguntar, así que de lo que tengan los dos se
+        # queda el del que sobrevive — pero **nada se pierde**: lo que solo tenía el que desaparece
+        # pasa entero. Sin esto, sus documentos se quedaban huérfanos en silencio.
+        try:
+            _merge_apply_documents(session_db, MERGE_KINDS["promoter"], keep.id, drop.id, {})
+        except Exception:
+            app.logger.exception("Fusión de terceros: no se pudieron mover los documentos")
         _merge_repoint_references(session_db, Promoter, keep.id, drop.id)
         try:
             _merge_repoint_polymorphic(session_db, MERGE_KINDS["promoter"], keep.id, drop.id)
@@ -59296,6 +59304,31 @@ def _promoter_assoc_tags(p) -> list[str]:
     return out
 
 
+def _promoter_is_author(session_db, p) -> bool:
+    """⚠️⚠️ ¿ESTE TERCERO ES UN AUTOR? (autor, compositor o **arreglista**). Punto ÚNICO, y la razón
+    de que exista: **el código IPI solo se le pide a quien lo tiene** — lo pidió Dani, «para no
+    saturar de campos las fichas de terceros de forma innecesaria».
+
+    Se es autor por cualquiera de estas tres, y las tres cuentan:
+      · está marcado a mano como **«Autores / compositores»** en su ficha (`roles_manual`);
+      · **firma alguna obra** (`SongEditorialShare`, con cualquiera de los roles de autoría — ahí
+        entra el arreglista);
+      · **ya tiene un IPI guardado**. ⚠️ Esta tercera no es un capricho: un campo que tiene un dato
+        no se puede esconder, porque entonces ese dato no habría forma de verlo ni de corregirlo."""
+    if p is None:
+        return False
+    if "AUTHOR" in _promoter_manual_roles(p):
+        return True
+    if (getattr(p, "ipi", "") or "").strip():
+        return True
+    try:
+        return bool(session_db.query(SongEditorialShare.id)
+                    .filter(SongEditorialShare.promoter_id == p.id).limit(1).first())
+    except Exception:
+        app.logger.exception("[terceros] no se pudo mirar si es autor")
+        return False
+
+
 def _promoter_manual_roles(p) -> list[str]:
     """Las categorías marcadas a mano en un tercero (solo las del catálogo, sin repetir)."""
     crudo = getattr(p, "roles_manual", None)
@@ -80894,6 +80927,9 @@ def promoter_detail_view(pid):
             entity_link_context={'type': 'promoter', 'id': str(promoter.id), 'label': promoter.nick or 'tercero'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=(can_edit_catalogs() or can_edit_discografica()),
+            # ⚠️ EL CÓDIGO IPI SOLO SE LE PIDE A UN AUTOR (`_promoter_is_author`): en los demás
+            # terceros ni siquiera se pinta el campo. Lo pidió Dani, para no saturar las fichas.
+            promoter_is_author=_promoter_is_author(session, promoter),
             person_documents=_person_documents_for(session, "PROMOTER", promoter.id),
             # CRUZADOS con los documentos: ningún campo vacío si el dato está en su DNI o pasaporte.
             identity_fields=_person_identity_fields({
@@ -171912,6 +171948,155 @@ def _merge_repoint_polymorphic(s, cfg, keep_id, drop_id):
     return total
 
 
+# ══ LOS DOCUMENTOS DE LAS DOS FICHAS ══════════════════════════════════════════════════════════
+# ⚠️⚠️ **AL FUSIONAR, LOS DOCUMENTOS NO SE PIERDEN** (sep 2026, lo pidió Dani). Los documentos de una
+# persona (`PersonDocument`: DNI, carnet, pasaporte, tarjetas de fidelización, matrículas), su
+# documentación de alta y PRL (`PersonComplianceDoc`) y lo que se le haya pedido
+# (`PersonDocRequest`) **no cuelgan de una FK**: son POLIMÓRFICOS (`owner_type` + `owner_id`). Por
+# eso `_merge_repoint_references` —que recorre claves ajenas— no los veía, y al fusionar dos fichas
+# **todo lo que había subido la que desaparecía se quedaba huérfano**: los ficheros seguían en
+# Storage, pero ya no eran de nadie y no había forma de llegar a ellos.
+# ⚠️ Y CUANDO LOS DOS TIENEN EL MISMO, NO SE DUPLICA: se pregunta con cuál se queda. Lo de arriba y
+# lo de abajo es lo mismo que pasó con las vinculaciones: sin FK, nadie los movía.
+
+# De qué categorías de la fusión cuelgan documentos de persona, y con qué `owner_type`.
+MERGE_DOC_OWNERS = {"promoter": "PROMOTER"}
+# De estos SOLO SE TIENE UNO: si lo traen los dos, hay que elegir. De los demás (una tarjeta de
+# fidelización, una matrícula) se pueden tener varios, así que solo chocan si son literalmente el
+# mismo número.
+PERSON_DOC_SINGLE_KINDS = ("DNI", "LICENSE", "PASSPORT")
+PERSON_DOC_KIND_LABELS = {"DNI": "DNI", "LICENSE": "Carnet de conducir", "PASSPORT": "Pasaporte",
+                          "LOYALTY": "Tarjeta de fidelización", "PLATE": "Matrícula"}
+# Las tablas polimórficas que hay que mover enteras (ahí no hay nada que elegir: son documentos
+# fechados, y tener el PRL de dos años es lo normal).
+MERGE_DOC_TABLES = ("person_compliance_docs", "person_doc_requests")
+
+
+def _merge_doc_key(doc) -> str:
+    """Qué hace que dos documentos sean EL MISMO: de los que solo se tiene uno, el tipo; de los que
+    se pueden tener varios, el tipo **y su número** (dos tarjetas de Renfe distintas son dos)."""
+    kind = (doc.kind or "").upper()
+    if kind in PERSON_DOC_SINGLE_KINDS:
+        return kind
+    return "%s|%s" % (kind, re.sub(r"[^0-9A-Za-z]", "", (doc.doc_number or "")).upper())
+
+
+def _merge_doc_card(doc) -> dict:
+    """Un documento tal como se enseña para elegir: lo justo para reconocerlo de un vistazo."""
+    kind = (doc.kind or "").upper()
+    partes = []
+    if doc.doc_number:
+        partes.append(doc.doc_number)
+    if doc.full_name:
+        partes.append(doc.full_name)
+    if doc.company:
+        partes.append(doc.company)
+    if doc.expiry_date:
+        partes.append("caduca el %s" % doc.expiry_date.strftime("%d/%m/%Y"))
+    return {"id": str(doc.id), "kind": kind,
+            "kind_label": PERSON_DOC_KIND_LABELS.get(kind, kind.capitalize()),
+            "sub": " · ".join(partes), "photo": (doc.front_url or "")}
+
+
+def _merge_documents_plan(session_db, cfg, a_id, b_id) -> dict:
+    """QUÉ VA A PASAR CON LOS DOCUMENTOS de las dos fichas, para decirlo ANTES de fusionar.
+
+    · `conflicts`: los que tienen los DOS (el mismo DNI, el mismo carnet…) — hay que elegir uno.
+    · `kept`: los que solo tiene uno de los dos; esos se mantienen sin preguntar nada.
+    · `other`: cuántos papeles de alta/PRL y peticiones se mueven también (informativo)."""
+    owner = MERGE_DOC_OWNERS.get(_merge_kind_of(cfg) or "")
+    vacio = {"conflicts": [], "kept": [], "other": 0}
+    if not owner:
+        return vacio
+    docs = (session_db.query(PersonDocument)
+            .filter(PersonDocument.owner_type == owner,
+                    PersonDocument.owner_id.in_([a_id, b_id]))
+            .order_by(PersonDocument.sort_order.asc(), PersonDocument.created_at.asc()).all())
+    por_lado = {"a": {}, "b": {}}
+    for d in docs:
+        por_lado["a" if str(d.owner_id) == str(a_id) else "b"].setdefault(_merge_doc_key(d), []).append(d)
+    conflictos, mantiene = [], []
+    for clave in sorted(set(por_lado["a"]) | set(por_lado["b"])):
+        da, db_ = por_lado["a"].get(clave), por_lado["b"].get(clave)
+        if da and db_:
+            conflictos.append({"key": clave, "kind_label": _merge_doc_card(da[0])["kind_label"],
+                               "a": _merge_doc_card(da[0]), "b": _merge_doc_card(db_[0])})
+        else:
+            for d in (da or db_ or []):
+                mantiene.append(_merge_doc_card(d))
+    from sqlalchemy import select as _sel
+    otros = 0
+    md = PersonDocument.__table__.metadata
+    for nombre in MERGE_DOC_TABLES:
+        t = md.tables.get(nombre)
+        if t is None:
+            continue
+        otros += int(session_db.execute(
+            _sel(func.count()).select_from(t)
+            .where(t.c.owner_type == owner, t.c.owner_id.in_([a_id, b_id]))).scalar() or 0)
+    return {"conflicts": conflictos, "kept": mantiene, "other": otros}
+
+
+def _merge_apply_documents(session_db, cfg, keep_id, drop_id, decisiones: dict) -> int:
+    """Mueve al ganador TODO lo que la ficha que desaparece tenía subido. Devuelve cuántas filas.
+
+    ⚠️ De un documento que tienen los dos se queda **el elegido** y el otro se descarta: no se
+    duplica un DNI. Si no se ha elegido nada, se queda el del ganador (que es lo que la pantalla
+    marca por defecto)."""
+    owner = MERGE_DOC_OWNERS.get(_merge_kind_of(cfg) or "")
+    if not owner:
+        return 0
+    movidas = 0
+    docs = (session_db.query(PersonDocument)
+            .filter(PersonDocument.owner_type == owner,
+                    PersonDocument.owner_id.in_([keep_id, drop_id])).all())
+    por_clave = {}
+    for d in docs:
+        lado = "keep" if str(d.owner_id) == str(keep_id) else "drop"
+        por_clave.setdefault(_merge_doc_key(d), {"keep": [], "drop": []})[lado].append(d)
+    for clave, lados in por_clave.items():
+        if lados["keep"] and lados["drop"]:
+            # Lo tienen los dos: se queda UNO. Por defecto, el del ganador.
+            elegido = "drop" if (decisiones or {}).get(clave) == "drop" else "keep"
+            for d in lados["drop" if elegido == "keep" else "keep"]:
+                session_db.delete(d)
+            for d in lados[elegido]:
+                if str(d.owner_id) != str(keep_id):
+                    d.owner_id = keep_id
+                    movidas += 1
+            continue
+        for d in lados["drop"]:
+            d.owner_id = keep_id
+            movidas += 1
+    session_db.flush()
+    # Los papeles de alta/PRL y las peticiones se mueven ENTEROS: son documentos fechados y tener
+    # los de dos años es lo normal, así que aquí no hay nada que preguntar.
+    md = PersonDocument.__table__.metadata
+    for nombre in MERGE_DOC_TABLES:
+        t = md.tables.get(nombre)
+        if t is None:
+            continue
+        try:
+            with session_db.begin_nested():
+                res = session_db.execute(t.update()
+                                         .where(t.c.owner_type == owner, t.c.owner_id == drop_id)
+                                         .values(owner_id=keep_id))
+            movidas += res.rowcount or 0
+        except _IntegrityError:
+            # Una fila que ya existiría para el ganador: era el mismo papel dos veces.
+            with session_db.begin_nested():
+                session_db.execute(t.delete().where(t.c.owner_type == owner, t.c.owner_id == drop_id))
+    return movidas
+
+
+def _merge_kind_of(cfg) -> str:
+    """La clave de `MERGE_KINDS` de esa configuración (para no tener que pasarla a mano)."""
+    for clave, valor in MERGE_KINDS.items():
+        if valor is cfg:
+            return clave
+    return ""
+
+
 def _merge_cfg_or_404(kind):
     cfg = MERGE_KINDS.get(kind)
     if not cfg:
@@ -172122,6 +172307,9 @@ def _merge_compare_view(kind):
             fields.append({"key": f, "label": _MERGE_FIELD_LABELS.get(f, f.replace("_", " ").capitalize()), "a": va, "b": vb})
         payload = lambda r: {"id": str(r.id), "name": _merge_display(cfg, r), "photo": getattr(r, cfg["photo"], None) or ""}
         return jsonify({"a": payload(a), "b": payload(b), "fields": fields,
+                        # ⚠️ LOS DOCUMENTOS DE LAS DOS FICHAS: los que solo tiene una se mantienen
+                        # sin preguntar; los que tienen las dos (el mismo DNI) hay que elegirlos.
+                        "documents": _merge_documents_plan(s, cfg, a.id, b.id),
                         "notes": _merge_notes(kind, s, a, b)})
     finally:
         s.close()
@@ -172151,7 +172339,16 @@ def _merge_execute_view(kind):
         chosen_vals = {f: getattr(drop, f) for f, side in (choices or {}).items() if side == "drop" and f in valid}
         keep_name = _merge_display(cfg, keep)
         drop_name = _merge_display(cfg, drop)
-        moved = _merge_repoint_references(s, model, keep.id, drop.id)
+        # ⚠️⚠️ LOS DOCUMENTOS VAN LOS PRIMEROS, y ANTES de borrar la ficha que desaparece: no cuelgan
+        # de ninguna FK (son polimórficos), así que si no se mueven aquí se quedan huérfanos — el
+        # fichero sigue en Storage pero ya no es de nadie.
+        try:
+            docs_choices = json.loads(request.form.get("docs_json") or "{}")
+        except Exception:
+            docs_choices = {}
+        moved = _merge_apply_documents(s, cfg, keep.id, drop.id,
+                                       {k: v for k, v in (docs_choices or {}).items() if v in ("keep", "drop")})
+        moved += _merge_repoint_references(s, model, keep.id, drop.id)
         moved += _merge_repoint_polymorphic(s, cfg, keep.id, drop.id)
         s.delete(drop)
         s.flush()

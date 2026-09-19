@@ -144,6 +144,14 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_gratuito.py` | que en una actividad gratuita no asome la salida a la venta (configuración, ficha, aviso al artista, ficha del promotor) | al tocar la salida a la venta o lo gratuito |
 | `diag_reparto_editorial.py` | dónde se corta el reparto editorial de un autor (solo lee) | al depurar royalties |
 
+⚠️⚠️ **CON LA BD DE PRUEBA LLENA, LAS COMPROBACIONES SE QUEDAN SIN CONEXIONES Y MIENTEN** (sep
+2026). El pool de la app es **6+6**, y una herramienta que recorre cientos de pantallas acaba
+pidiendo más: salta un `QueuePool limit … timed out` y esa pantalla **se cuenta como un 500** que no
+existe (pasó con `/acceso-terceros` y con `/conciertos?tab=vista`, las dos buenas al pedirlas a
+mano). **Antes de dar por bueno un 500 de `check_divs` o `check_permisos`, repetir con el pool
+grande** y solo entonces creerlo:
+`DB_POOL_SIZE=40 DB_MAX_OVERFLOW=40 /tmp/python/bin/python3 tools/check_divs.py`
+
 **Ver la app en el navegador**: `.claude/launch.json` → `tools/dev_server.py` (Flask contra la BD de
 PRUEBA, cerrojos puestos, CSRF desactivado y auto-reload de plantillas). Se abre con `preview_start`.
 ⚠️ **No recarga `app.py`**: al tocar Python hay que reiniciarlo.

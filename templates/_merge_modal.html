@@ -50,6 +50,14 @@
               <tbody data-merge-fields></tbody>
             </table>
           </div>
+          {# ⚠️⚠️ LOS DOCUMENTOS DE LAS DOS FICHAS (lo pidió Dani): los que solo tiene una se
+             MANTIENEN sin preguntar nada; los que tienen las dos —el mismo DNI— no se duplican, se
+             elige con cuál se queda. Lo manda el servidor en `documents`. #}
+          <div class="d-none mt-3" data-merge-docs>
+            <div class="fw-semibold small mb-2"><i class="fa fa-id-card me-1 text-danger"></i>Documentos</div>
+            <div data-merge-docs-body></div>
+          </div>
+
           <div class="alert alert-warning small py-2 mt-3 mb-0">
             <i class="fa fa-triangle-exclamation me-1"></i>La fusión <strong>no se puede deshacer</strong>: el elemento no conservado desaparece (sus datos y referencias pasan al conservado).
           </div>

@@ -1354,6 +1354,9 @@ button.rm-act__fact{ background:none; border:0; padding:0; font:inherit; color:i
 .merge-val { border:1px solid #e3e7ec; background:#fff; border-radius:.5rem; padding:.3rem .55rem; font-size:.88rem; word-break:break-word; }
 .merge-val.is-picked { border-color:#E33D48; background:#fdeced; box-shadow:inset 0 0 0 1px #E33D48; }
 .merge-val--empty { background:#f8f9fa; }
+/* La tarjeta de un DOCUMENTO al elegir con cuál de los dos se queda la ficha fusionada. */
+.merge-doc { padding:.4rem; }
+.merge-doc .min-w-0 { min-width:0; }
 .invitation-seat.is-pending { opacity:.5; pointer-events:none; }
 #inv-tab-tickets.is-selecting { -webkit-user-select:none; user-select:none; }
 #inv-tab-tickets.is-selecting .invitation-seat[data-ticket-id] { cursor:pointer; touch-action:none; }

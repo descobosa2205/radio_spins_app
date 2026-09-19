@@ -21,6 +21,8 @@
 - Migraciones en local
 - ALTA / ACTUALIZACIÓN de un tercero por ENLACE PÚBLICO (/alta/<token>): en Terceros, botón
 - PromoterCompany NO TIENE COLUMNA name (bug real, sep 2026): su nombre es legal_name
+- AL FUSIONAR DOS FICHAS, LOS DOCUMENTOS NO SE PIERDEN (y lo que tienen las dos se pregunta)
+- EL CÓDIGO IPI SOLO SE LE PIDE A UN AUTOR (autor, compositor o arreglista)
 
 ---
 
@@ -461,3 +463,45 @@ debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado g
   pulsar un botón no puede hacer de más.
   ⚠️ Las dos rutas van bajo `/promotores`, así que heredan el permiso de la sección (como la fusión).
   ⚠️ Cubierto por `tools/check_duplicados.py` (41 comprobaciones) y probado en el navegador.
+
+
+- ⚠️⚠️⚠️ **AL FUSIONAR DOS FICHAS, LOS DOCUMENTOS NO SE PIERDEN** (sep 2026, lo pidió Dani). Lo que
+  sube una ficha —su **DNI, carnet, pasaporte, tarjetas de fidelización y matrículas**
+  (`PersonDocument`), su **documentación de alta y PRL** (`PersonComplianceDoc`) y lo que se le haya
+  **pedido** (`PersonDocRequest`)— **no cuelga de una clave ajena**: es POLIMÓRFICO (`owner_type` +
+  `owner_id`). Por eso `_merge_repoint_references` —que recorre las FKs— no lo veía, y al fusionar
+  **todo lo que había subido la ficha que desaparecía se quedaba huérfano**: el fichero seguía en
+  Storage, pero ya no era de nadie y no había forma de llegar a él. Es exactamente la misma trampa
+  que las vinculaciones: sin FK, nadie las movía.
+  · Punto único **`_merge_apply_documents`**, que corre **ANTES de borrar la ficha** (después ya no
+  hay de dónde moverlos) tanto en la fusión a mano (`_merge_execute_view`) como en la **automática**
+  (`_promoter_merge_into`, el integrante de un artista que ya era tercero — ahí no hay a quién
+  preguntar, así que se queda el del que sobrevive y **lo demás pasa entero**).
+  · ⚠️ **LO QUE TIENEN LOS DOS NO SE DUPLICA: SE PREGUNTA** (`_merge_documents_plan`, que la pantalla
+  de fusión enseña antes de fusionar). Qué es «el mismo documento» lo dice **`_merge_doc_key`**: de
+  los que **solo se tiene uno** (`PERSON_DOC_SINGLE_KINDS`: DNI, carnet, pasaporte) basta el tipo;
+  de los que se pueden tener varios (una tarjeta de fidelización, una matrícula) hace falta además
+  **su número** — dos tarjetas de Renfe distintas son dos, la misma es una. Por defecto se queda el
+  del que se conserva; cada opción se enseña con su número, su nombre, su caducidad y su imagen,
+  para poder reconocerla.
+  · Los **papeles de alta/PRL y las peticiones** se mueven **enteros**, sin preguntar: son
+  documentos fechados y tener los de dos años es lo normal.
+  ⚠️ Si mañana otra categoría de la fusión tuviera documentos de persona, se añade a
+  **`MERGE_DOC_OWNERS`** (hoy solo el tercero) y funciona sola.
+  ⚠️ Probado con la app real (`tools/check_duplicados.py`): con el código viejo los documentos de la
+  ficha borrada se quedan huérfanos; con el nuevo, el pasaporte y el carnet que solo tenía una se
+  mantienen, el DNI queda UNO (el elegido), la misma tarjeta no se duplica, la otra sí, y el PRL
+  pasa a la que se conserva.
+
+- ⚠️⚠️ **EL CÓDIGO IPI SOLO SE LE PIDE A UN AUTOR** (sep 2026, lo pidió Dani: «solo aparece cuando es
+  autor / compositor / arreglista; si no, que no aparezca el campo, para no saturar de campos las
+  fichas de terceros de forma innecesaria»). Punto único **`_promoter_is_author(session, p)`**: lo es
+  quien está marcado como **«Autores / compositores»** (`roles_manual`), quien **firma alguna obra**
+  (`SongEditorialShare` — ahí entra el **arreglista**) o quien **ya tiene un IPI guardado**.
+  ⚠️ Esa tercera no es un capricho: **un campo que tiene un dato no se puede esconder**, porque
+  entonces ese dato no habría forma de verlo ni de corregirlo.
+  ⚠️ Y cuando no se pinta, el input va **`disabled`**: **un campo oculto SE ENVÍA IGUAL**, y el
+  centinela de `_promoter_apply_form` (`if "ipi" in request.form`) solo protege si NO llega —
+  guardar cualquier otra cosa habría borrado el IPI de quien lo tuviera.
+  ⚠️ En la ficha, el campo **aparece en cuanto se marca «Autores / compositores»**, sin guardar y
+  volver (el servidor decide si nace visible; el JS solo lo enseña al vuelo).

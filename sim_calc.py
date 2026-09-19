@@ -161,6 +161,88 @@ def ticketing_aggregates(categories, iva_ticket=IVA_TICKET, sgae_rate=SGAE_RATE,
     }
 
 
+def ticket_tranches(categories, offers=None, sold_now=0):
+    """EL AFORO, EN TRAMOS, con su precio efectivo — de lo que se vende primero a lo que se vende
+    al final. Es lo que permite simular OFERTAS: el ingreso deja de ser proporcional a la venta.
+
+    Cada tramo: `{"qty", "price_net", "fee_price", "label"}` donde
+      · `price_net`  = lo que se ingresa por esa entrada (sin IVA, con la SGAE dentro);
+      · `fee_price`  = el precio sobre el que se calculan los GASTOS DE GESTIÓN de la ticketera
+        (⚠️ una oferta puede NO afectarlos: entonces la ticketera sigue cobrando por el precio de
+        antes, que es como funciona de verdad).
+
+    ORDEN (lo pidió Dani, sep 2026): primero **lo que ya está vendido** —al precio al que se
+    vendió—, luego **las ofertas** (son lo que se pone a la venta ahora) y por último el resto a su
+    precio. Así, al mover la barra del resultado, se recorre lo que de verdad va a pasar.
+    """
+    tramos = []
+    pendiente_vendido = max(int(sold_now or 0), 0)
+    for idx, c in enumerate(categories or []):
+        q = max(int(_f(c.get("quantity"))), 0)
+        inv = max(int(_f(c.get("invitations"))), 0)
+        sellable = max(q - inv, 0)
+        precio = _f(c.get("price_net"))
+        if sellable <= 0:
+            continue
+        # 1 · Lo YA VENDIDO de esta categoría (se reparte por orden de categorías).
+        vendido = min(pendiente_vendido, sellable)
+        pendiente_vendido -= vendido
+        libre = sellable - vendido
+        if vendido:
+            tramos.append({"qty": vendido, "price_net": precio, "fee_price": precio,
+                           "label": "vendido", "category": idx})
+        # 2 · Las OFERTAS de esta categoría (o las que valen para todas), por orden.
+        for of in (offers or []):
+            if libre <= 0:
+                break
+            cat = of.get("category")
+            if cat not in (None, "", idx):
+                continue
+            cuantas = libre if of.get("scope_all") else min(max(int(_f(of.get("qty"))), 0), libre)
+            if cuantas <= 0:
+                continue
+            kind = (of.get("kind") or "DISCOUNT").upper()
+            if kind == "PACK":
+                # 2x1 → se llevan `buy` y pagan `pay`: el precio efectivo por entrada baja.
+                buy = max(int(_f(of.get("pack_buy")) or 0), 1)
+                pay = max(min(int(_f(of.get("pack_pay")) or 0), buy), 0)
+                efectivo = precio * (float(pay) / float(buy))
+            else:
+                efectivo = precio
+                if _f(of.get("discount_pct")):
+                    efectivo -= precio * (_f(of.get("discount_pct")) / 100.0)
+                if _f(of.get("discount_amount")):
+                    efectivo -= _f(of.get("discount_amount"))
+            efectivo = max(efectivo, 0.0)
+            tramos.append({"qty": cuantas, "price_net": efectivo,
+                           # ⚠️ Si la oferta NO afecta a los gastos de gestión, la ticketera sigue
+                           # cobrando por el precio de antes.
+                           "fee_price": (efectivo if of.get("affects_fees") else precio),
+                           "label": (of.get("label") or "oferta"), "category": idx})
+            libre -= cuantas
+        # 3 · Y lo que queda, a su precio.
+        if libre > 0:
+            tramos.append({"qty": libre, "price_net": precio, "fee_price": precio,
+                           "label": "", "category": idx})
+    return tramos
+
+
+def tranche_income(tramos, tickets_sold, sgae_rate=SGAE_RATE):
+    """Lo que se ingresa con esas entradas vendidas, recorriendo los tramos en orden.
+
+    Devuelve `{"taquilla", "ticket_net", "fee_base"}` (todo sin IVA; `ticket_net` ya sin SGAE)."""
+    quedan = max(int(tickets_sold or 0), 0)
+    taquilla = fee_base = 0.0
+    for t in tramos or []:
+        if quedan <= 0:
+            break
+        n = min(int(t["qty"]), quedan)
+        taquilla += n * t["price_net"]
+        fee_base += n * t.get("fee_price", t["price_net"])
+        quedan -= n
+    return {"taquilla": taquilla, "ticket_net": taquilla * (1.0 - sgae_rate), "fee_base": fee_base}
+
+
 def _prepare(data):
     """Pre-calcula partes fijas y normaliza componentes de coste."""
     # Tasas configurables por simulación (rueda del Ticketing); por defecto las de la casa.
@@ -169,6 +251,9 @@ def _prepare(data):
     iva_extra = _f(data.get("iva_extra")) if data.get("iva_extra") not in (None, "") else IVA_EXTRA
     agg = ticketing_aggregates(data.get("categories"), iva_ticket=iva_ticket, sgae_rate=sgae_rate, iva_extra=iva_extra)
     sellable = agg["sellable"]
+    # EL AFORO EN TRAMOS: lo ya vendido, las ofertas y el resto. Sin ofertas ni venta previa es UN
+    # solo tramo por categoría a su precio, así que los números no cambian en nada.
+    tramos = ticket_tranches(data.get("categories"), data.get("offers"), data.get("sold_now"))
 
     caches = []
     for c in data.get("caches") or []:
@@ -218,6 +303,8 @@ def _prepare(data):
 
     return {
         "agg": agg,
+        "tranches": tramos,
+        "sgae_rate": sgae_rate,
         "sellable": sellable,
         "is_international": bool(data.get("is_international")),
         "allows_bars": bool(data.get("allows_bars")),
@@ -253,8 +340,14 @@ def evaluate(prep, tickets_sold):
     f = (tickets_sold / sellable) if sellable else 0.0
     avg = agg["avg_price_sin_iva"]
 
-    taquilla = agg["taquilla_sin_iva"] * f
-    ticket_net = agg["ticket_net"] * f
+    # ⚠️⚠️ EL INGRESO SALE DE LOS TRAMOS (sep 2026): con OFERTAS —un descuento, un 2x1— el ingreso
+    # ya no es proporcional a lo vendido, porque las primeras entradas no valen lo mismo que las
+    # últimas. Sin ofertas ni venta previa, los tramos son el aforo a su precio y sale lo mismo que
+    # antes (proporcional), así que ninguna simulación de las de siempre cambia.
+    ing = tranche_income(prep.get("tranches"), tickets_sold, prep.get("sgae_rate", SGAE_RATE))
+    taquilla = ing["taquilla"]
+    ticket_net = ing["ticket_net"]
+    fee_base = ing["fee_base"]
     extras_net = agg["extras_net"] * f
 
     # --- Cachés ---
@@ -278,7 +371,9 @@ def evaluate(prep, tickets_sold):
     # --- LAS BASES sobre las que cobran comisionistas y socios (van antes: no dependen de ellos) ---
     fees_net = (prep.get("fee_per_ticket_net") or 0.0) * tickets_sold
     if prep.get("fee_pct"):
-        fees_net += (prep["fee_pct"] / 100.0) * taquilla / (1.0 + IVA_GENERAL)
+        # ⚠️ Sobre lo que de verdad cobra la ticketera: si una oferta NO le afecta, sigue cobrando
+        # por el precio de antes (`fee_base`), no por el rebajado.
+        fees_net += (prep["fee_pct"] / 100.0) * fee_base / (1.0 + IVA_GENERAL)
     base_gross = ticket_net + extras_net          # sin IVA y sin SGAE
     base_net = base_gross - fees_net              # …y sin los gastos de gestión de la ticketera
 

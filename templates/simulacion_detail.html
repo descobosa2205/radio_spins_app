@@ -814,11 +814,40 @@
     </div>
     {% endfor %}
 
+    {# ══════════ OFERTAS (descuentos y packs) ══════════
+       ⚠️⚠️ Lo pidió Dani (sep 2026) para plantear escenarios: un DESCUENTO (% o importe) o un PACK
+       (te llevas 2 y pagas 1) sobre un tipo de entradas o sobre todas, para todo lo que quede o
+       para un número concreto. ⚠️ Tiene que haber AFORO: si se pide de más, se dice el límite real.
+       ⚠️ Y se marca si la oferta afecta también a los GASTOS DE GESTIÓN: si no, la ticketera sigue
+       cobrando por el precio de antes. #}
+    <div class="card mb-3" style="border-left:4px solid #16a34a;">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold text-success"><i class="fa fa-tags me-1"></i>Ofertas</span>
+        <span class="small text-muted" data-of-free>Quedan <strong>0</strong> entradas a la venta</span>
+        <span class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-success" data-of-add="DISCOUNT"><i class="fa fa-percent me-1"></i>Descuento</button>
+          <button type="button" class="btn btn-sm btn-outline-success" data-of-add="PACK"><i class="fa fa-gift me-1"></i>Pack (2x1)</button>
+        </span>
+      </div>
+      <div class="card-body">
+        <div data-of-rows></div>
+        <div class="small text-muted" data-of-empty>Sin ofertas. Añade una para ver el escenario con ella.</div>
+        {% if active_activity and active_activity.sold_now %}
+          <div class="small text-muted mt-2"><i class="fa fa-circle-info me-1"></i>Esta simulación viene de una
+            actividad con <strong>{{ active_activity.sold_now|k }}</strong> entradas ya vendidas: una oferta solo
+            puede alcanzar al aforo que queda.</div>
+        {% endif %}
+      </div>
+    </div>
+    <input type="hidden" name="offers_json" id="offersJson">
+
     <div class="d-flex justify-content-end">
       <button class="btn btn-primary" type="submit"><i class="fa fa-save me-1"></i>Guardar ticketing</button>
     </div>
   </form>
   <script type="application/json" id="ticketingData">{{ ticketing_payload|tojson }}</script>
+  <script type="application/json" id="offersData">{{ offers_payload|tojson }}</script>
+  <script type="application/json" id="soldNowData">{{ (active_activity.sold_now if active_activity else 0)|tojson }}</script>
   <script type="application/json" id="venueTplData">{{ venue_tpl|tojson }}</script>
   {% if show_venue_tpl_prompt and active_activity and active_activity.venue %}
   {# Aviso de primera vez: el recinto tiene plantilla de ticketing guardada #}
@@ -1545,6 +1574,7 @@ function numv(x){
   form.addEventListener('submit', function(e){
     document.getElementById('ticketingJson').value = JSON.stringify(collect());
     document.getElementById('ticketingTaxJson').value = JSON.stringify(collectTax());
+    if (typeof ofSync === 'function') ofSync();   // las OFERTAS van con el ticketing
     if(!hasVenue) return;
     var modal = document.getElementById('tkSyncModal');
     if(modal && window.bootstrap && sig(collect()) !== sig(venueTpl)){
@@ -1552,12 +1582,142 @@ function numv(x){
       bootstrap.Modal.getOrCreateInstance(modal).show();
     }
   });
-  function fillHidden(){ document.getElementById('ticketingJson').value = JSON.stringify(collect()); document.getElementById('ticketingTaxJson').value = JSON.stringify(collectTax()); }
+  function fillHidden(){ document.getElementById('ticketingJson').value = JSON.stringify(collect()); document.getElementById('ticketingTaxJson').value = JSON.stringify(collectTax()); if (typeof ofSync === 'function') ofSync(); }
   var bh=document.getElementById('tkApplyHere'); if(bh) bh.addEventListener('click', function(){ document.getElementById('applyToVenue').value='0'; fillHidden(); form.submit(); });
   var bv=document.getElementById('tkApplyVenue'); if(bv) bv.addEventListener('click', function(){ document.getElementById('applyToVenue').value='1'; fillHidden(); form.submit(); });
 
   initial.forEach(function(c){ addCat((c.zone||'PISTA').toUpperCase(), c); });
   recompute();
+
+  /* ══════════ OFERTAS: descuentos y packs ══════════
+     ⚠️ Lo pidió Dani (sep 2026): probar escenarios con una oferta. Una oferta alcanza a un número
+     de ENTRADAS (en un 2x1 limitado a 100 packs, son 200 entradas) y NUNCA a más de las que quedan
+     a la venta: si se pide de más, se avisa con el límite real (y el servidor lo recorta igual).
+     ⚠️ «También a los gastos de gestión»: si no se marca, la ticketera sigue cobrando por el
+     precio de antes, que es lo normal en una promoción. */
+  var ofRows = document.querySelector('[data-of-rows]');
+  var ofEmpty = document.querySelector('[data-of-empty]');
+  var ofFree = document.querySelector('[data-of-free]');
+  var soldNow = 0;
+  try { soldNow = JSON.parse(document.getElementById('soldNowData').textContent) || 0; } catch(e){ soldNow = 0; }
+
+  function catOptions(sel){
+    var cats = collect();
+    var html = '<option value="">Todas las categorías</option>';
+    cats.forEach(function(c, i){
+      html += '<option value="' + i + '"' + (String(sel) === String(i) ? ' selected' : '') + '>' +
+              ((c.name || ('Categoría ' + (i+1))) + ' · ' + (c.zone || 'PISTA')) + '</option>';
+    });
+    return html;
+  }
+  function libreTotal(){
+    var n = 0;
+    collect().forEach(function(c){ n += Math.max((parseInt(c.qty,10)||0) - (parseInt(c.inv,10)||0), 0); });
+    return Math.max(n - soldNow, 0);
+  }
+  function libreDe(catIdx){
+    var cats = collect();
+    if (catIdx === '' || catIdx === null || catIdx === undefined) return libreTotal();
+    var c = cats[parseInt(catIdx,10)];
+    if (!c) return 0;
+    var libre = Math.max((parseInt(c.qty,10)||0) - (parseInt(c.inv,10)||0), 0);
+    /* Lo ya vendido se descuenta por orden de categorías, igual que en el motor. */
+    var pend = soldNow;
+    for (var i = 0; i < cats.length; i++){
+      var l = Math.max((parseInt(cats[i].qty,10)||0) - (parseInt(cats[i].inv,10)||0), 0);
+      var usa = Math.min(pend, l); pend -= usa;
+      if (i === parseInt(catIdx,10)) return Math.max(l - usa, 0);
+    }
+    return libre;
+  }
+  function ofSync(){
+    var filas = ofRows ? ofRows.querySelectorAll('[data-of-row]') : [];
+    if (ofEmpty) ofEmpty.classList.toggle('d-none', filas.length > 0);
+    if (ofFree) ofFree.innerHTML = 'Quedan <strong>' + libreTotal().toLocaleString('es-ES') + '</strong> entradas a la venta';
+    filas.forEach(function(f){
+      var cat = f.querySelector('[data-of-cat]');
+      var qty = f.querySelector('[data-of-qty]');
+      var todas = f.querySelector('[data-of-all]');
+      var aviso = f.querySelector('[data-of-warn]');
+      var tope = libreDe(cat ? cat.value : '');
+      if (qty) qty.disabled = !!(todas && todas.checked);
+      var pedido = parseInt(qty && qty.value, 10) || 0;
+      if (aviso){
+        var pasa = !(todas && todas.checked) && pedido > tope;
+        aviso.classList.toggle('d-none', !pasa);
+        if (pasa) aviso.textContent = 'Solo quedan ' + tope.toLocaleString('es-ES') + ' entradas: se ajustará a ese máximo.';
+      }
+    });
+    var json = [];
+    filas.forEach(function(f){
+      var g = function(sel){ var el = f.querySelector(sel); return el ? el.value : ''; };
+      var chk = function(sel){ var el = f.querySelector(sel); return !!(el && el.checked); };
+      json.push({ kind: f.getAttribute('data-of-row'),
+                  cat: (g('[data-of-cat]') === '' ? null : parseInt(g('[data-of-cat]'), 10)),
+                  label: g('[data-of-label]'),
+                  pct: parseFloat(g('[data-of-pct]')) || 0,
+                  amount: parseFloat(g('[data-of-amount]')) || 0,
+                  buy: parseInt(g('[data-of-buy]'), 10) || 0,
+                  pay: parseInt(g('[data-of-pay]'), 10) || 0,
+                  all: chk('[data-of-all]'),
+                  qty: parseInt(g('[data-of-qty]'), 10) || 0,
+                  fees: chk('[data-of-fees]') });
+    });
+    var hid = document.getElementById('offersJson');
+    if (hid) hid.value = JSON.stringify(json);
+  }
+  function ofAdd(kind, d){
+    d = d || {};
+    var f = document.createElement('div');
+    f.className = 'border rounded p-2 mb-2';
+    f.setAttribute('data-of-row', kind);
+    f.innerHTML =
+      '<div class="row g-2 align-items-end">' +
+        '<div class="col-12 col-md-3"><label class="form-label small mb-0">' +
+          (kind === 'PACK' ? '<i class="fa fa-gift me-1 text-success"></i>Pack' : '<i class="fa fa-percent me-1 text-success"></i>Descuento') +
+          '</label><input class="form-control form-control-sm" data-of-label placeholder="Nombre (opcional)" value="' + (d.label || '') + '"></div>' +
+        '<div class="col-12 col-md-3"><label class="form-label small mb-0">¿A qué entradas?</label>' +
+          '<select class="form-select form-select-sm" data-of-cat>' + catOptions(d.cat) + '</select></div>' +
+        (kind === 'PACK'
+          ? '<div class="col-6 col-md-2"><label class="form-label small mb-0">Te llevas</label>' +
+            '<input type="number" min="2" class="form-control form-control-sm" data-of-buy value="' + (d.buy || 2) + '"></div>' +
+            '<div class="col-6 col-md-2"><label class="form-label small mb-0">Pagas</label>' +
+            '<input type="number" min="1" class="form-control form-control-sm" data-of-pay value="' + (d.pay || 1) + '"></div>'
+          : '<div class="col-6 col-md-2"><label class="form-label small mb-0">Descuento %</label>' +
+            '<input type="number" step="0.01" min="0" class="form-control form-control-sm" data-of-pct value="' + (d.pct || '') + '"></div>' +
+            '<div class="col-6 col-md-2"><label class="form-label small mb-0">o € por entrada</label>' +
+            '<input type="number" step="0.01" min="0" class="form-control form-control-sm" data-of-amount value="' + (d.amount || '') + '"></div>') +
+        '<div class="col-12 col-md-2 d-grid"><label class="form-label small mb-0">&nbsp;</label>' +
+          '<button type="button" class="btn btn-sm btn-outline-danger" data-of-del><i class="fa fa-trash"></i></button></div>' +
+      '</div>' +
+      '<div class="row g-2 align-items-center mt-1">' +
+        '<div class="col-12 col-md-4"><div class="form-check"><input class="form-check-input" type="checkbox" data-of-all' + (d.all ? ' checked' : '') + '>' +
+          '<label class="form-check-label small">Todas las que queden a la venta</label></div></div>' +
+        '<div class="col-6 col-md-3"><div class="input-group input-group-sm">' +
+          '<input type="number" min="0" class="form-control" data-of-qty placeholder="Nº de entradas" value="' + (d.qty || '') + '">' +
+          '<span class="input-group-text">entradas</span></div></div>' +
+        '<div class="col-6 col-md-5"><div class="form-check"><input class="form-check-input" type="checkbox" data-of-fees' + (d.fees ? ' checked' : '') + '>' +
+          '<label class="form-check-label small">También a los <strong>gastos de gestión</strong></label></div></div>' +
+        '<div class="col-12"><div class="small text-warning d-none" data-of-warn></div></div>' +
+      '</div>';
+    ofRows.appendChild(f);
+    ofSync();
+  }
+  document.addEventListener('click', function(ev){
+    var add = ev.target.closest('[data-of-add]');
+    if (add){ ofAdd(add.getAttribute('data-of-add')); return; }
+    var del = ev.target.closest('[data-of-del]');
+    if (del){ var fila = del.closest('[data-of-row]'); if (fila) fila.remove(); ofSync(); return; }
+  });
+  document.addEventListener('input', function(ev){ if (ev.target.closest('[data-of-rows]')) ofSync(); });
+  document.addEventListener('change', function(ev){ if (ev.target.closest('[data-of-rows]')) ofSync(); });
+
+  try {
+    (JSON.parse(document.getElementById('offersData').textContent) || []).forEach(function(o){
+      ofAdd((o.kind || 'DISCOUNT').toUpperCase(), o);
+    });
+  } catch(e){}
+  ofSync();
 
   // Primera vez con recinto que tiene plantilla: ofrecer aplicarla.
   var tplModal = document.getElementById('tkTplModal');

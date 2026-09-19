@@ -288,6 +288,7 @@ from models import (
     SimulationPartner,
     SimulationArtist,
     SimulationTicketCategory,
+    SimulationOffer,
     SimulationTicketExtra,
     SimulationIncomeItem,
     SimulationCache,
@@ -67730,11 +67731,27 @@ def _sim_build_calc_data(sim, activity, artist_intl=None, prorateo=0.0):
     base_intl = bool(sim.artist.is_international) if sim.artist else False
     act_intl = artist_intl.get(str(activity.artist_id), base_intl) if activity.artist_id else base_intl
     cats = []
+    orden_cat = {}
     for c in (activity.ticket_categories or []):
+        orden_cat[str(c.id)] = len(cats)
         cats.append({
             "zone": c.zone, "price_net": float(_sim_d(c.price_net)),
             "quantity": int(c.quantity or 0), "invitations": int(c.invitations or 0),
             "extras": [{"amount_gross": float(_sim_d(e.amount_gross))} for e in (c.extras or [])],
+        })
+    # LAS OFERTAS (descuentos y packs) y lo que YA ESTÁ VENDIDO: con eso el ingreso deja de ser
+    # proporcional —las primeras entradas no valen lo mismo que las últimas— y se pueden plantear
+    # escenarios sobre lo que de verdad queda por vender.
+    offers = []
+    for o in sorted((getattr(activity, "offers", None) or []), key=lambda x: (x.sort_order or 0, x.created_at or datetime.min)):
+        offers.append({
+            "kind": (o.kind or "DISCOUNT").upper(),
+            "label": (o.label or ""),
+            "category": (orden_cat.get(str(o.category_id)) if o.category_id else None),
+            "discount_pct": float(_sim_d(o.discount_pct)), "discount_amount": float(_sim_d(o.discount_amount)),
+            "pack_buy": int(o.pack_buy or 0), "pack_pay": int(o.pack_pay or 0),
+            "scope_all": bool(o.scope_all), "qty": int(o.scope_qty or 0),
+            "affects_fees": bool(o.affects_fees),
         })
     caches = []
     for c in (activity.caches or []):
@@ -67791,6 +67808,15 @@ def _sim_build_calc_data(sim, activity, artist_intl=None, prorateo=0.0):
     _tax = _sim_tax_cfg(activity)
     return {
         "is_international": act_intl,
+        "offers": offers,
+        "sold_now": int(getattr(activity, "sold_now", 0) or 0),
+        # LOS SOCIOS también al motor: quien cobra sobre el ingreso es un gasto más y quien cobra
+        # sobre el beneficio solo se come la pérdida si la soporta (el mismo criterio que la ficha).
+        "partners": [{"key": (str(p.company_id or p.promoter_id or p.id)),
+                      "pct": float(_sim_d(p.pct)),
+                      "base": (getattr(p, "pct_base", None) or "PROFIT").upper(),
+                      "bears_losses": (not bool(getattr(p, "no_loss", False)))}
+                     for p in _sim_partners_for_activity(sim, activity)],
         "allows_bars": bool(activity.venue.allows_bars) if activity.venue else False,
         "categories": cats, "caches": caches, "commissions": commissions,
         "production": production, "subventions": subventions, "sponsorships": sponsorships,
@@ -67981,6 +68007,8 @@ def _sim_partner_row_payload(p):
         "promoter_id": (str(p.promoter_id) if p.promoter_id else ""),
         "label": (p.name or ""),
         "no_loss": bool(getattr(p, "no_loss", False)),
+        # Sobre qué cobra: las mismas tres bases que en una actividad.
+        "base": (getattr(p, "pct_base", None) or "PROFIT").upper(),
     }
 
 
@@ -68536,6 +68564,19 @@ def _simulation_detail_response(s, sim, public=False, public_token=""):
         tab=tab,
         summary=summary,
         ticketing_payload=ticketing_payload,
+        # LAS OFERTAS de esa fecha (descuentos y packs), para pintarlas y volver a guardarlas.
+        offers_payload=([{
+            "kind": (o.kind or "DISCOUNT").upper(),
+            "label": (o.label or ""),
+            "cat": next((i for i, c in enumerate(sorted(active_activity.ticket_categories or [],
+                                                        key=lambda x: x.sort_order or 0))
+                         if str(c.id) == str(o.category_id)), None),
+            "pct": float(_sim_d(o.discount_pct)), "amount": float(_sim_d(o.discount_amount)),
+            "buy": int(o.pack_buy or 0), "pay": int(o.pack_pay or 0),
+            "all": bool(o.scope_all), "qty": int(o.scope_qty or 0),
+            "fees": bool(o.affects_fees),
+        } for o in sorted((getattr(active_activity, "offers", None) or []),
+                          key=lambda x: (x.sort_order or 0))] if active_activity else []),
         calc=calc,
         tax_cfg=(_sim_tax_cfg(active_activity) if active_activity else _sim_tax_cfg(None)),
         # Lo de la casa (para el texto de «por defecto» y los respaldos del JS): que salga
@@ -69396,6 +69437,7 @@ def simulation_ticketing_save(sid):
         for c in list(act.ticket_categories or []):
             s.delete(c)
         s.flush()
+        creadas = []
         for i, row in enumerate(data):
             if not isinstance(row, dict):
                 continue
@@ -69413,6 +69455,7 @@ def simulation_ticketing_save(sid):
             )
             s.add(cat)
             s.flush()
+            creadas.append(cat)
             for j, ex in enumerate(row.get("extras") or []):
                 if not isinstance(ex, dict):
                     continue
@@ -69425,6 +69468,63 @@ def simulation_ticketing_save(sid):
                 ))
         # Sincronización opcional con el recinto: actualizar su plantilla (de aquí en adelante).
         # Solo toca el FORMATO PRINCIPAL del recinto (los demás formatos no se pisan).
+        # ── LAS OFERTAS (descuentos y packs) ───────────────────────────────────────────────────
+        # ⚠️⚠️ TIENE QUE HABER AFORO: una oferta no puede alcanzar a más entradas de las que quedan
+        # a la venta (y con la actividad ya en marcha, lo ya VENDIDO no se toca). Si se pide de más,
+        # se recorta al límite REAL y se dice cuál era — es lo que pidió Dani.
+        for o in list(getattr(act, "offers", None) or []):
+            s.delete(o)
+        s.flush()
+        try:
+            ofertas = json.loads(request.form.get("offers_json") or "[]")
+        except Exception:
+            ofertas = []
+        libre_total = max(sum(int(c.quantity or 0) - int(c.invitations or 0) for c in creadas)
+                          - int(getattr(act, "sold_now", 0) or 0), 0)
+        libre_cat = {}
+        for idx, c in enumerate(creadas):
+            libre_cat[idx] = max(int(c.quantity or 0) - int(c.invitations or 0), 0)
+        # Lo ya vendido se descuenta por orden de categorías (igual que en el motor).
+        pendiente = int(getattr(act, "sold_now", 0) or 0)
+        for idx in sorted(libre_cat):
+            usa = min(pendiente, libre_cat[idx])
+            libre_cat[idx] -= usa
+            pendiente -= usa
+        recortadas = []
+        for i, row in enumerate(ofertas if isinstance(ofertas, list) else []):
+            if not isinstance(row, dict):
+                continue
+            kind = str(row.get("kind") or "DISCOUNT").upper()
+            if kind not in ("DISCOUNT", "PACK"):
+                kind = "DISCOUNT"
+            cat_idx = row.get("cat")
+            cat_idx = int(cat_idx) if (str(cat_idx).lstrip("-").isdigit() and 0 <= int(cat_idx) < len(creadas)) else None
+            todas = bool(row.get("all"))
+            tope = (libre_cat.get(cat_idx, 0) if cat_idx is not None else libre_total)
+            qty = 0 if todas else max(_sim_int(row.get("qty")), 0)
+            if not todas and qty > tope:
+                recortadas.append("%s → %s" % (format_thousands(qty), format_thousands(tope)))
+                qty = tope
+            if not todas and qty <= 0:
+                continue
+            s.add(SimulationOffer(
+                activity_id=act.id,
+                category_id=(creadas[cat_idx].id if cat_idx is not None else None),
+                kind=kind, label=(str(row.get("label") or "").strip() or None),
+                discount_pct=_sim_d(row.get("pct")), discount_amount=_sim_d(row.get("amount")),
+                pack_buy=max(_sim_int(row.get("buy")), 0) or None,
+                pack_pay=max(_sim_int(row.get("pay")), 0) or None,
+                scope_all=todas, scope_qty=(0 if todas else qty),
+                affects_fees=bool(row.get("fees")), sort_order=i))
+            # Lo que ocupa esta oferta ya no está libre para la siguiente.
+            gastado = tope if todas else qty
+            if cat_idx is not None:
+                libre_cat[cat_idx] = max(libre_cat.get(cat_idx, 0) - gastado, 0)
+            libre_total = max(libre_total - gastado, 0)
+        if recortadas:
+            flash("No hay tanto aforo libre: alguna oferta se ha ajustado al máximo real (%s)."
+                  % " · ".join(recortadas[:3]), "warning")
+
         if _truthy(request.form.get("apply_to_venue")) and act.venue_id:
             _sm_v = _venue_seatmap_default(s, act.venue_id)
             for vc in _venue_ticket_categories_for(s, act.venue_id, _sm_v):
@@ -72300,6 +72400,121 @@ def promo_escort_save(promotion_id):
     return redirect(request.form.get("next")
                     or request.referrer
                     or url_for("promo_detail_view", promotion_id=promotion_id))
+
+
+@app.post("/conciertos/<cid>/simular", endpoint="concert_simulate")
+@admin_required
+def concert_simulate(cid):
+    """SIMULAR SOBRE ESTA ACTIVIDAD: crea una simulación con **la situación de hoy** y lleva a ella.
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026): «pinchar y abrir una simulación sobre el evento actual, cargando
+    los datos y la situación actual, para calcular escenarios; se carga todo incluido el ticketing,
+    el ingreso actual y la venta con la que ya se cuenta».
+    · Se copia **el ticketing** (los tipos de entrada con su aforo y su precio ⚠️ pasado a SIN IVA,
+      que es como se escribe en una simulación), los **cachés**, los **comisionistas**, los
+      **socios** y el **presupuesto** como gastos de producción.
+    · Y se apunta **lo ya vendido** (`sold_now`): a partir de ahí, las ofertas que se prueben solo
+      tocan **el aforo que queda**, que es lo único que se puede cambiar a estas alturas.
+    """
+    if not can_edit_simulations():
+        return forbid("No tienes permisos para crear simulaciones.")
+    s = db()
+    try:
+        c = s.get(Concert, _safe_uuid(cid))
+        if c is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(url_for("concerts_view", tab="vista"))
+        vendido = _concert_sold_now(s, c)
+        sim = Simulation(
+            artist_id=c.artist_id, event_id=getattr(c, "event_id", None),
+            managing_company_id=getattr(c, "group_company_id", None),
+            kind="CONCERT", status="ACTIVE",
+            title="Escenarios · %s" % ((c.artist.name if c.artist else None)
+                                       or (c.festival_name or "").strip() or "actividad"),
+            created_by_user_id=_safe_uuid(session.get("user_id")),
+        )
+        s.add(sim)
+        s.flush()
+        act = SimulationActivity(
+            simulation_id=sim.id, sort_order=0,
+            label=(_concert_venue_name(c) or None),
+            event_date=c.date, venue_id=c.venue_id,
+            artist_id=c.artist_id,
+            source_concert_id=c.id, sold_now=int(vendido.get("tickets") or 0),
+        )
+        s.add(act)
+        s.flush()
+        # ── TICKETING: los tipos de entrada, con su precio SIN IVA ──────────────────────────────
+        orden = 0
+        for t in sorted((getattr(c, "ticket_types", None) or []), key=lambda x: (x.name or "")):
+            s.add(SimulationTicketCategory(
+                activity_id=act.id, zone="PISTA", name=(t.name or "General"),
+                price_net=_money_value(sim_calc.net_price_from_gross(float(_sim_d(t.price)))),
+                quantity=int(t.qty_for_sale or 0), invitations=0, sort_order=orden))
+            orden += 1
+        if orden == 0:
+            # Sin tipos configurados: el aforo a la venta y el precio medio REAL de lo vendido.
+            aforo = int(_concert_capacity_from_ticket_types(c) or 0)
+            medio = ((vendido.get("revenue") or 0.0) / vendido["tickets"]) if vendido.get("tickets") else 0.0
+            if aforo > 0:
+                s.add(SimulationTicketCategory(
+                    activity_id=act.id, zone="PISTA", name="General",
+                    price_net=_money_value(sim_calc.net_price_from_gross(medio)),
+                    quantity=aforo, invitations=0, sort_order=0))
+        # ── CACHÉS ─────────────────────────────────────────────────────────────────────────────
+        for i, ch in enumerate(getattr(c, "caches", None) or []):
+            variable = (ch.kind or "FIXED").upper() == "VARIABLE"
+            s.add(SimulationCache(
+                activity_id=act.id, label=(ch.concept or None),
+                mode=("VARIABLE" if variable else "FIXED"),
+                amount=_money_value(ch.amount or 0),
+                includes_iva=((ch.amount_base or "").upper() == "GROSS"),
+                var_type=("PER_TICKET" if (ch.variable_basis or "").upper() == "TICKETS" else "PERCENT"),
+                var_value=_money_value(ch.pct or ch.amount or 0), sort_order=i))
+        # ── COMISIONISTAS ──────────────────────────────────────────────────────────────────────
+        for i, a in enumerate(getattr(c, "zone_agents", None) or []):
+            variable = (a.commission_type or "PERCENT").upper() != "AMOUNT"
+            base = (a.commission_base or "GROSS").upper()
+            s.add(SimulationCommission(
+                activity_id=act.id, promoter_id=a.promoter_id,
+                name=((a.concept or "").strip() or None),
+                mode=("VARIABLE" if variable else "FIXED"),
+                amount=_money_value(a.commission_amount or 0),
+                var_type=({"PROFIT": "PERCENT_PROFIT", "NET": "PERCENT_NET"}.get(base, "PERCENT_GROSS")
+                          if variable else None),
+                var_value=_money_value(a.commission_pct or 0),
+                exempt_amount=_money_value(a.exempt_amount or 0), sort_order=i))
+        # ── SOCIOS (con su base y si soportan las pérdidas) ─────────────────────────────────────
+        orden = 0
+        for sh in (getattr(c, "company_shares", None) or []):
+            s.add(SimulationPartner(simulation_id=sim.id, activity_id=act.id, company_id=sh.company_id,
+                                    pct=_money_value(sh.pct or 0), pct_base=(sh.pct_base or "PROFIT"),
+                                    no_loss=(not bool(getattr(sh, "bears_losses", True))), sort_order=orden))
+            orden += 1
+        for sh in (getattr(c, "promoter_shares", None) or []):
+            s.add(SimulationPartner(simulation_id=sim.id, activity_id=act.id, promoter_id=sh.promoter_id,
+                                    pct=_money_value(sh.pct or 0), pct_base=(sh.pct_base or "PROFIT"),
+                                    no_loss=(not bool(getattr(sh, "bears_losses", True))), sort_order=orden))
+            orden += 1
+        # ── EL PRESUPUESTO, como gastos de producción ──────────────────────────────────────────
+        for i, b in enumerate(s.query(ConcertBudgetItem)
+                              .filter(ConcertBudgetItem.concert_id == c.id,
+                                      ConcertBudgetItem.status != "ELIMINADO").all()):
+            s.add(SimulationProductionItem(
+                activity_id=act.id, category=(b.category or "OTROS"),
+                concept=((b.concept or "").strip() or ""), amount_net=_money_value(b.amount_net or 0),
+                quantity=1, sort_order=i))
+        s.commit()
+        flash("Simulación creada con la situación de hoy: %s entradas vendidas. Prueba escenarios y ofertas."
+              % format_thousands(vendido.get("tickets") or 0), "success")
+        return redirect(url_for("simulation_detail_view", sid=str(sim.id)))
+    except Exception as exc:
+        s.rollback()
+        app.logger.exception("[resultado] no se pudo crear la simulación de la actividad")
+        flash("No se pudo crear la simulación: %s" % str(exc)[:160], "danger")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="resultado"))
+    finally:
+        s.close()
 
 
 @app.post('/conciertos/<cid>/responsable-produccion', endpoint='concert_production_owner_save')

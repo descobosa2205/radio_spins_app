@@ -6,6 +6,8 @@
 
 ## Qué hay aquí
 
+- LOS GASTOS DE GESTIÓN DE LA TICKETERA (y las tres bases: bruto, neto y beneficio)
+- SIMULAR SOBRE UNA ACTIVIDAD, Y LAS OFERTAS (descuentos y packs) del ticketing
 - RECAUDACIÓN del reporte de ventas = el interruptor ECONÓMICO de «Reporte de ventas»
 - Integración Enterticket (ticketing en tiempo casi real): cliente HTTP en enterticket_utils.py
 - COMPRADORES · listados, categorías, importación a mano y ENVÍOS. La base de
@@ -1155,3 +1157,27 @@ el cartel dependía de ese número, cuando lo que decía era cómo iba la venta 
   no las soporta, su etiqueta **«No soporta pérdidas»**.
   ⚠️ En el formulario, «¿Soporta pérdidas?» es un **`<select>`, no una casilla**: en una lista de
   filas (`name[]`) una casilla sin marcar no se envía y las filas se desalinean.
+
+- ⚠️⚠️ **SIMULAR SOBRE UNA ACTIVIDAD, Y LAS OFERTAS** (sep 2026, lo pidió Dani). En la pestaña
+  **Resultado** hay un botón **«Simular sobre esta actividad»** (`concert_simulate`): abre una
+  simulación con **la situación de hoy** —el ticketing (con el precio ya **sin IVA**, que es como se
+  escribe en una simulación), los cachés, los comisionistas, los socios con su base y sus pérdidas,
+  y el presupuesto como gastos— y, sobre todo, con **lo que ya está vendido**
+  (`SimulationActivity.sold_now` + `source_concert_id`). La actividad no se toca.
+  · **LAS OFERTAS** (`SimulationOffer`, en la pestaña Ticketing de la simulación): un **DESCUENTO**
+  (en % o en € por entrada) o un **PACK** («te llevas 2 y pagas 1»), sobre **un tipo de entradas o
+  todas**, y con su **alcance**: todo lo que quede a la venta o **un número de entradas**. Se pueden
+  añadir **todas las que hagan falta**.
+  ⚠️ El número es de **ENTRADAS**: un 2x1 limitado a 100 packs son **200 entradas**.
+  ⚠️⚠️ **TIENE QUE HABER AFORO**: una oferta no puede alcanzar a más entradas de las que quedan a la
+  venta (y **lo ya vendido no cuenta**: esas entradas ya se vendieron a su precio). Si se pide de
+  más, la pantalla avisa **con el límite real** mientras se escribe y el servidor la **recorta** a
+  ese máximo diciéndolo.
+  ⚠️ Y cada oferta dice si **afecta también a los gastos de gestión**: si no, la ticketera sigue
+  cobrando por el precio de antes, que es lo normal en una promoción.
+  · **EL MOTOR TRABAJA POR TRAMOS** (`sim_calc.ticket_tranches` + `tranche_income`): con una oferta,
+  el ingreso **deja de ser proporcional** a lo vendido (las primeras entradas no valen lo mismo que
+  las últimas). El aforo se recorre en este orden: **lo ya vendido** (a su precio) → **las ofertas**
+  (que es lo que se pone a la venta ahora) → **el resto**. ⚠️ Sin ofertas ni venta previa es un solo
+  tramo por categoría a su precio, así que **los números de siempre no cambian en nada**.
+  ⚠️ Prueba de regresión: `tools/check_ofertas.py` (21 comprobaciones).

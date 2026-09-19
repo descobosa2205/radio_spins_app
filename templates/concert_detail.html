@@ -4309,6 +4309,15 @@
             {% endfor %}
           </tbody>
         </table></div>
+        {# ⚠️ SIMULAR SOBRE ESTA ACTIVIDAD (lo pidió Dani): se abre una simulación con la
+           situación de HOY —ticketing, cachés, socios, gastos y lo ya vendido— para probar
+           escenarios y ofertas sin tocar la actividad. #}
+        <form method="post" action="{{ url_for('concert_simulate', cid=concert.id) }}" class="mb-3">
+          <button class="btn btn-outline-danger btn-sm" type="submit">
+            <i class="fa fa-flask me-1"></i>Simular sobre esta actividad</button>
+          <span class="small text-muted ms-2">Se abre una simulación con lo de hoy (incluida la venta
+            actual) para probar escenarios y ofertas. La actividad no se toca.</span>
+        </form>
         <h6 class="mb-2">Reparto por socios y riesgo</h6>
         <div data-sim-partners="concertResultData"></div>
         <script type="application/json" id="concertResultData">{{ result_module|tojson }}</script>

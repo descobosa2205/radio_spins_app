@@ -7312,6 +7312,10 @@ class SimulationActivity(Base):
     # Contenedor de "gastos generales" (compartidos del ciclo/festival): is_shared=True, sin ticketing.
     is_shared = Column(Boolean, nullable=False, server_default=text("false"))
     settings = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # De qué ACTIVIDAD real salió esta simulación y cuántas entradas llevaba vendidas entonces:
+    # con eso la simulación arranca en la situación de verdad y las ofertas solo tocan lo que queda.
+    source_concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"), index=True)
+    sold_now = Column(Integer, nullable=False, server_default=text("0"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     simulation = relationship("Simulation", back_populates="activities")
@@ -7320,6 +7324,11 @@ class SimulationActivity(Base):
     ticket_categories = relationship(
         "SimulationTicketCategory", back_populates="activity",
         cascade="all, delete-orphan", order_by="SimulationTicketCategory.sort_order",
+    )
+    # Las OFERTAS del ticketing (descuentos y packs).
+    offers = relationship(
+        "SimulationOffer", back_populates="activity",
+        cascade="all, delete-orphan", order_by="SimulationOffer.sort_order",
     )
     income_items = relationship(
         "SimulationIncomeItem", back_populates="activity",
@@ -7354,6 +7363,9 @@ class SimulationPartner(Base):
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"), index=True)
     name = Column(Text)  # etiqueta/snapshot (socio sin ficha o para preservar el nombre)
     pct = Column(Numeric, nullable=False, server_default=text("0"))
+    # SOBRE QUÉ COBRA: el ingreso bruto (sin IVA ni SGAE), el ingreso neto (menos los gastos de
+    # gestión de la ticketera) o el beneficio. Las mismas tres bases que en una actividad.
+    pct_base = Column(Text, nullable=False, server_default=text("'PROFIT'"))   # GROSS | NET | PROFIT
     # No soporta pérdidas: participa del beneficio pero no asume riesgo; su parte de gasto se
     # reparte entre el resto de socios proporcionalmente a su %.
     no_loss = Column(Boolean, nullable=False, server_default=text("false"))
@@ -7393,6 +7405,40 @@ class SimulationTicketCategory(Base):
         "SimulationTicketExtra", back_populates="category",
         cascade="all, delete-orphan", order_by="SimulationTicketExtra.sort_order",
     )
+
+
+class SimulationOffer(Base):
+    """UNA OFERTA del ticketing de una simulación: un descuento o un pack (2x1).
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026) para poder plantear escenarios: «descuento en porcentaje o
+    importe sobre un tipo de entradas o para todas, y ofertas de packs (te llevas dos y pagas una),
+    con su alcance — todas las que queden o un número concreto».
+    · `category_id` vacío = **para todas** las categorías.
+    · `scope_all` = todo lo que quede a la venta; si no, `scope_qty` **entradas** (en un 2x1
+      limitado a 100 packs, son 200 entradas: el número que se guarda es el de ENTRADAS).
+    · ⚠️ `affects_fees`: si la oferta **no** afecta a los gastos de gestión, la ticketera sigue
+      cobrando por el precio de antes (es lo normal en una promoción).
+    """
+
+    __tablename__ = "simulation_offers"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
+    category_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_ticket_categories.id", ondelete="CASCADE"), index=True)
+    kind = Column(Text, nullable=False, server_default=text("'DISCOUNT'"))   # DISCOUNT | PACK
+    label = Column(Text)
+    discount_pct = Column(Numeric)       # DISCOUNT: % de descuento
+    discount_amount = Column(Numeric)    # DISCOUNT: € de descuento por entrada (sin IVA)
+    pack_buy = Column(Integer)           # PACK: te llevas N…
+    pack_pay = Column(Integer)           # …y pagas M
+    scope_all = Column(Boolean, nullable=False, server_default=text("false"))
+    scope_qty = Column(Integer, nullable=False, server_default=text("0"))    # en ENTRADAS
+    affects_fees = Column(Boolean, nullable=False, server_default=text("false"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    activity = relationship("SimulationActivity", back_populates="offers")
+    category = relationship("SimulationTicketCategory")
 
 
 class SimulationTicketExtra(Base):
@@ -8971,6 +9017,31 @@ def ensure_simulations_schema():
         "ALTER TABLE IF EXISTS simulations           ADD COLUMN IF NOT EXISTS poster_url text;",
         "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS artist_id uuid REFERENCES artists(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS is_shared boolean NOT NULL DEFAULT false;",
+        # OFERTAS del ticketing de una simulación (descuentos y packs) y de qué actividad se copió.
+        """
+        CREATE TABLE IF NOT EXISTS simulation_offers (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            activity_id uuid NOT NULL REFERENCES simulation_activities(id) ON DELETE CASCADE,
+            category_id uuid REFERENCES simulation_ticket_categories(id) ON DELETE CASCADE,
+            kind text NOT NULL DEFAULT 'DISCOUNT',
+            label text,
+            discount_pct numeric,
+            discount_amount numeric,
+            pack_buy integer,
+            pack_pay integer,
+            scope_all boolean NOT NULL DEFAULT false,
+            scope_qty integer NOT NULL DEFAULT 0,
+            affects_fees boolean NOT NULL DEFAULT false,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_sim_offers_activity ON simulation_offers(activity_id);",
+        # Sobre qué cobra un socio de una simulación (las tres bases de la casa).
+        "ALTER TABLE IF EXISTS simulation_partners ADD COLUMN IF NOT EXISTS pct_base text NOT NULL DEFAULT 'PROFIT';",
+        # De qué ACTIVIDAD se ha sacado la simulación (para simular sobre lo que ya está en marcha).
+        "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS source_concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS sold_now integer NOT NULL DEFAULT 0;",
         "ALTER TABLE IF EXISTS simulation_caches      ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS simulation_commissions ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS simulation_commissions ADD COLUMN IF NOT EXISTS media_outlet_id uuid REFERENCES media_outlets(id) ON DELETE SET NULL;",

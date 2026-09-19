@@ -55040,7 +55040,11 @@ def ticketers_view():
                 raise ValueError("El nombre de la ticketera es obligatorio.")
 
             logo_url = upload_image(logo, "ticketers") if logo and getattr(logo, "filename", "") else None
-            t = Ticketer(name=name, logo_url=logo_url, link_url=link_url)
+            t = Ticketer(name=name, logo_url=logo_url, link_url=link_url,
+                         # LO QUE SE LLEVA POR VENDER (el importe, con IVA): cuenta en el resultado
+                         # y en las simulaciones de lo que promovemos nosotros.
+                         fee_fixed_gross=_money_value_or_none(request.form.get("fee_fixed_gross")),
+                         fee_pct=_money_value_or_none(request.form.get("fee_pct")))
             session_db.add(t)
             session_db.commit()
             flash("Ticketera creada.", "success")
@@ -55068,6 +55072,11 @@ def ticketer_update(tid):
 
     t.name = (request.form.get("name") or t.name or "").strip()
     t.link_url = (request.form.get("link_url") or "").strip() or None
+    # ⚠️ Centinela: solo se tocan si el formulario los trae (otra pantalla no los borra).
+    if "fee_fixed_gross" in request.form:
+        t.fee_fixed_gross = _money_value_or_none(request.form.get("fee_fixed_gross"))
+    if "fee_pct" in request.form:
+        t.fee_pct = _money_value_or_none(request.form.get("fee_pct"))
     logo = request.files.get("logo")
     try:
         if logo and getattr(logo, "filename", ""):
@@ -72945,12 +72954,18 @@ def _concert_sale_channel_rows(concert) -> list[dict]:
     rows = []
     for ct in (getattr(concert, 'ticketers', None) or []):
         t = getattr(ct, 'ticketer', None)
+        fees = _ticketer_fees(ct, t)
+        propios = (getattr(ct, 'fee_fixed_gross', None) is not None
+                   or getattr(ct, 'fee_pct', None) is not None)
         rows.append({
             'id': str(ct.ticketer_id),
             'name': (t.name if t else 'Ticketera'),
             'logo_url': (t.logo_url if t else '') or '',
             'sale_url': (ct.sale_url or '').strip(),
             'capacity_for_sale': int(ct.capacity_for_sale or 0),
+            # GASTOS DE GESTIÓN: los de este evento o, si no se han tocado, los de la ticketera.
+            'fee_fixed': float(fees['per_ticket']), 'fee_pct': float(fees['pct']),
+            'fee_own': bool(propios),
         })
     rows.sort(key=lambda r: r['name'].casefold())
     return rows
@@ -73021,6 +73036,11 @@ def concert_sale_channel_save(cid):
         cap = _parse_optional_positive_int(request.form.get('capacity_for_sale'))
         if cap is not None:
             row.capacity_for_sale = cap
+        # GASTOS DE GESTIÓN de ESTA ticketera en ESTE evento (vacío = los de su ficha).
+        if 'fee_fixed_gross' in request.form:
+            row.fee_fixed_gross = _money_value_or_none(request.form.get('fee_fixed_gross'))
+        if 'fee_pct' in request.form:
+            row.fee_pct = _money_value_or_none(request.form.get('fee_pct'))
         # Si ya hay link, la petición al promotor queda satisfecha.
         req = session.query(ConcertSaleChannelRequest).filter_by(concert_id=concert.id).first()
         if req and sale_url and req.status == 'ACTIVE':
@@ -122323,6 +122343,55 @@ def _concert_promoter_email_suggestions(session_db, concert):
     return suggestions
 
 
+# Los gastos de gestión de Enterticket, con la fórmula de la casa (`_et_revenue_breakdown`):
+# 0,50 € + IVA por entrada y 0,35% + IVA de pasarela. Son los que se ponen SOLOS a esa ticketera.
+ET_DEFAULT_FEE_FIXED = Decimal("0.61")
+ET_DEFAULT_FEE_PCT = Decimal("0.42")
+
+
+def _ticketer_fees(row, ticketer) -> dict:
+    """Los gastos de gestión que se aplican: los de ESTE evento y, si no se han tocado, los de la
+    ficha de la ticketera. Vacío = no se le ha puesto ninguno."""
+    def _pick(campo):
+        propio = getattr(row, campo, None) if row is not None else None
+        if propio is not None and str(propio) != "":
+            return _money_value(propio)
+        de_ficha = getattr(ticketer, campo, None) if ticketer is not None else None
+        return _money_value(de_ficha) if (de_ficha is not None and str(de_ficha) != "") else Decimal("0")
+    return {"per_ticket": _pick("fee_fixed_gross"), "pct": _pick("fee_pct")}
+
+
+def _concert_ticket_fees(s, concert) -> dict:
+    """LOS GASTOS DE GESTIÓN DE LA TICKETERA de una actividad, para el resultado y las simulaciones.
+
+    ⚠️ Solo cuentan cuando **promueve una empresa del grupo** (lo pidió Dani): si la recaudación no
+    es nuestra, lo que se lleve la ticketera no es un coste nuestro.
+    ⚠️ Con VARIAS ticketeras se PONDERAN por el aforo que vende cada una (y, si no está configurado,
+    a partes iguales): el motor trabaja con un único coste por entrada.
+    """
+    try:
+        if not _concert_is_group_promoted(s, concert):
+            return {}
+    except Exception:
+        return {}
+    filas = list(getattr(concert, "ticketers", None) or [])
+    if not filas:
+        return {}
+    total_aforo = sum(int(getattr(r, "capacity_for_sale", 0) or 0) for r in filas)
+    fijo = pct = Decimal("0")
+    for r in filas:
+        fees = _ticketer_fees(r, getattr(r, "ticketer", None))
+        if total_aforo > 0:
+            peso = Decimal(int(getattr(r, "capacity_for_sale", 0) or 0)) / Decimal(total_aforo)
+        else:
+            peso = Decimal(1) / Decimal(len(filas))
+        fijo += fees["per_ticket"] * peso
+        pct += fees["pct"] * peso
+    if fijo <= 0 and pct <= 0:
+        return {}
+    return {"per_ticket": float(fijo), "pct": float(pct)}
+
+
 def _concert_build_calc_data(s, concert):
     """ADAPTADOR Concierto→sim_calc: traduce los datos económicos del concierto al dict que
     consume `sim_calc.compute`. Best-effort y conservador (para no inflar ingresos):
@@ -122377,6 +122446,7 @@ def _concert_build_calc_data(s, concert):
                                "price_net": sim_calc.net_price_from_gross(_ff(t.price)), "extras": []})
     if not categories and concert.capacity and not concert.no_capacity:
         categories.append({"zone": "PISTA", "quantity": int(concert.capacity or 0), "invitations": 0, "price_net": 0.0, "extras": []})
+    ticket_fees = _concert_ticket_fees(s, concert)
     caches = []
     for c in (getattr(concert, "caches", None) or []):
         kind = (c.kind or "FIXED").upper()
@@ -122409,6 +122479,8 @@ def _concert_build_calc_data(s, concert):
         "is_international": bool(getattr(concert.artist, "is_international", False)) if concert.artist else False,
         "allows_bars": bool(getattr(concert.venue, "allows_bars", False)) if concert.venue else False,
         "income_overrides": {},
+        # Lo que se lleva la ticketera por vender (solo si promueve una empresa del grupo).
+        "ticket_fees": ticket_fees,
     }
 
 
@@ -167312,6 +167384,13 @@ def _et_ensure_concert_ticketer(s, ev: EnterticketEvent):
         tk = Ticketer(name="Enterticket", link_url="https://www.enterticket.es")
         s.add(tk)
         s.flush()
+    # ⚠️ LOS GASTOS DE GESTIÓN DE ENTERTICKET SE PONEN SOLOS (lo pidió Dani): son los de la fórmula
+    # de la casa —0,50 € + IVA por entrada y 0,35% + IVA de pasarela, `_et_revenue_breakdown`—, así
+    # que el resultado y las simulaciones ya los descuentan sin que nadie los escriba. Solo se
+    # rellenan si están VACÍOS: lo que ponga una persona manda.
+    if getattr(tk, "fee_fixed_gross", None) is None and getattr(tk, "fee_pct", None) is None:
+        tk.fee_fixed_gross = ET_DEFAULT_FEE_FIXED
+        tk.fee_pct = ET_DEFAULT_FEE_PCT
     ct = (s.query(ConcertTicketer)
           .filter(ConcertTicketer.concert_id == ev.concert_id,
                   ConcertTicketer.ticketer_id == tk.id).first())

@@ -1107,3 +1107,28 @@ el cartel dependía de ese número, cuando lo que decía era cómo iba la venta 
   fecha del evento, una de un artista invitado y una base antigua apuntada al espejo → **una** tarjeta
   «La Ruta del Aguilar» con el logo actual, las tres bases cuelgan del evento y la pantalla no enseña
   el logo antiguo en ningún sitio.
+
+- ⚠️⚠️ **LOS GASTOS DE GESTIÓN DE LA TICKETERA** (sep 2026, lo pidió Dani). Lo que se lleva la
+  ticketera por vender **no llegaba al resultado**: se contaba como ingreso lo que el público paga,
+  y de eso una parte nunca entra. Ahora es un dato de la casa:
+  · **Por TICKETERA** (`Ticketer.fee_fixed_gross` + `fee_pct`, en Bases de datos → Ticketeras): un
+  **fijo por entrada** y/o un **% de lo cobrado**, que se **suman** —así cobra una ticketera de
+  verdad—. ⚠️ El importe se guarda **CON IVA** (lo que viene en su factura) y el motor lo pasa a
+  neto, igual que el rebate.
+  · **Y SE PUEDEN CAMBIAR EN CADA EVENTO** (`ConcertTicketer`, en la pestaña Ticketing junto al
+  link de venta y el aforo): vacío = los de la ficha de la ticketera. Con **varias ticketeras** se
+  **ponderan por el aforo** que vende cada una (`_concert_ticket_fees`).
+  · **ENTERTICKET SE CONFIGURA SOLO**: al vincular el evento, su ticketera nace con los de la
+  fórmula de la casa —**0,50 € + IVA por entrada** y **0,35% + IVA** de pasarela, los mismos de
+  `_et_revenue_breakdown`—, así que el resultado ya los descuenta sin que nadie escriba nada. Solo
+  se ponen si están vacíos: lo que escriba una persona manda.
+  ⚠️⚠️ **SOLO CUENTAN SI PROMUEVE UNA EMPRESA DEL GRUPO** (`_concert_is_group_promoted`): si la
+  recaudación no es nuestra, lo que se lleve la ticketera no es un coste nuestro.
+  · En el motor son **MENOS INGRESO**, no un gasto de producción (`sim_calc`, `gastos_gestion`): es
+  dinero de la venta que nunca llega. Con eso, el **ingreso neto** es de verdad lo que entra por la
+  puerta — que es la base con la que cobran algunos socios y comisionistas.
+  · Y de ahí salen **LAS TRES BASES** que expone el motor en cada punto de la serie (`bases`):
+  **BRUTO** (ingreso sin IVA ni SGAE) · **NETO** (ese menos los gastos de gestión) · **BENEFICIO**
+  (lo que queda tras todos los gastos).
+  ⚠️ El punto de empate **sube** al descontarlos: es lo que de verdad hay que vender.
+  ⚠️ Prueba de regresión: `tools/check_resultado.py` (25 comprobaciones).

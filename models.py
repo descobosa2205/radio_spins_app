@@ -3402,6 +3402,12 @@ class Ticketer(Base):
     name = Column(Text, nullable=False, unique=True)
     logo_url = Column(Text)
     link_url = Column(Text)
+    # ── GASTOS DE GESTIÓN de esta ticketera (lo que se lleva por vender) ──────────────────────
+    # Se aplican LOS DOS y se suman, que es como cobra una ticketera de verdad: un fijo por entrada
+    # y un % de lo cobrado (en Enterticket, 0,50 € + IVA por entrada y 0,35% + IVA de pasarela).
+    # ⚠️ Se guardan CON IVA —lo que viene en su factura—; el motor del resultado los pasa a neto.
+    fee_fixed_gross = Column(Numeric)   # € por entrada vendida, IVA incluido
+    fee_pct = Column(Numeric)           # % sobre lo cobrado
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -3489,6 +3495,12 @@ class ConcertTicketer(Base):
 
     # Enlace de venta de ESTE evento en esa ticketera (p. ej. lo rellena la integración Enterticket).
     sale_url = Column(Text)
+
+    # ── GASTOS DE GESTIÓN para ESTE evento ────────────────────────────────────────────────────
+    # Lo normal es lo que tenga la ficha de la ticketera; aquí se puede cambiar para este evento
+    # (vacío = el de la ficha). Mismo criterio que el rebate: el importe va CON IVA.
+    fee_fixed_gross = Column(Numeric)   # € por entrada vendida, IVA incluido
+    fee_pct = Column(Numeric)           # % sobre lo cobrado
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -13477,6 +13489,13 @@ def ensure_enterticket_schema():
         "CREATE INDEX IF NOT EXISTS idx_buyer_events_event ON buyer_events(event_id);",
         # Enlace de venta por ticketera×concierto (lo rellena la integración al vincular).
         "ALTER TABLE IF EXISTS concert_ticketers ADD COLUMN IF NOT EXISTS sale_url text;",
+        # GASTOS DE GESTIÓN de la ticketera: los suyos por defecto y los de cada evento.
+        # ⚠️ Una columna nueva, SU propia sentencia (la regla de la casa: metida en un DO $$ con
+        # guarda podría no ejecutarse nunca y la app reventaría al leerla).
+        "ALTER TABLE IF EXISTS ticketers ADD COLUMN IF NOT EXISTS fee_fixed_gross numeric;",
+        "ALTER TABLE IF EXISTS ticketers ADD COLUMN IF NOT EXISTS fee_pct numeric;",
+        "ALTER TABLE IF EXISTS concert_ticketers ADD COLUMN IF NOT EXISTS fee_fixed_gross numeric;",
+        "ALTER TABLE IF EXISTS concert_ticketers ADD COLUMN IF NOT EXISTS fee_pct numeric;",
         # Tipos de entrada CREADOS por el espejo de Enterticket (solo esos se sobrescriben/borran).
         "ALTER TABLE IF EXISTS concert_ticket_types ADD COLUMN IF NOT EXISTS et_managed boolean NOT NULL DEFAULT false;",
 

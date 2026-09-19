@@ -226,6 +226,12 @@ def _prepare(data):
         "caches": caches,
         "commissions": commissions,
         "production": production,
+        # ── GASTOS DE GESTIÓN DE LA TICKETERA ────────────────────────────────────────────────
+        # Lo que se lleva la ticketera por vender: un fijo por entrada y/o un % de lo cobrado.
+        # ⚠️ Llegan CON IVA (como vienen en su factura) y aquí se pasan a NETO, que es en lo que
+        # trabaja todo el motor. Escalan con las entradas vendidas, como el resto.
+        "fee_per_ticket_net": _f((data.get("ticket_fees") or {}).get("per_ticket")) / (1.0 + IVA_GENERAL),
+        "fee_pct": _f((data.get("ticket_fees") or {}).get("pct")),
         # Ingresos omitidos / no aplican (clave -> 'OMIT'|'NA'): se calculan pero no suman.
         "income_overrides": dict(data.get("income_overrides") or {}),
     }
@@ -293,6 +299,14 @@ def evaluate(prep, tickets_sold):
         prod_net_total += net
         prod_by_cat[p["category"]] = prod_by_cat.get(p["category"], 0.0) + net
 
+    # --- GASTOS DE GESTIÓN de la ticketera (lo que se queda por vender) ---
+    # ⚠️ Son MENOS INGRESO, no un gasto de producción: es dinero de la venta que nunca llega. Así el
+    # «ingreso neto» (la base con la que cobran algunos socios y comisionistas) es de verdad lo que
+    # entra por la puerta.
+    fees_net = (prep.get("fee_per_ticket_net") or 0.0) * tickets_sold
+    if prep.get("fee_pct"):
+        fees_net += (prep["fee_pct"] / 100.0) * taquilla / (1.0 + IVA_GENERAL)
+
     # --- Ingresos ---
     rebate = max(REBATE_PCT * taquilla - REBATE_PER_TICKET * tickets_sold, 0.0)
     barras = (BARRAS_PER_TICKET * tickets_sold) if prep["allows_bars"] else 0.0
@@ -303,6 +317,8 @@ def evaluate(prep, tickets_sold):
         "ticketing": ticket_net, "complementos": extras_net, "rebate": rebate,
         "subvenciones": subv, "patrocinios": patro, "barras": barras,
         "incentivos": incentivos,
+        # Negativo a propósito: resta del total y se ve en el desglose como lo que es.
+        "gastos_gestion": -fees_net,
     }
     overrides = prep.get("income_overrides") or {}
     ingresos_total = sum(v for k, v in ingresos.items() if (overrides.get(k) or "").upper() not in ("OMIT", "NA"))
@@ -325,6 +341,13 @@ def evaluate(prep, tickets_sold):
     return {
         "tickets": tickets_sold,
         "ingresos": ingresos,
+        # ── LAS TRES BASES sobre las que puede cobrar un socio o un comisionista ─────────────
+        # BRUTO    = el ingreso sin IVA y sin SGAE (lo que entra por la taquilla, ya limpio).
+        # NETO     = ese bruto menos los gastos de gestión de la ticketera.
+        # BENEFICIO = lo que queda después de TODOS los gastos (el resultado).
+        "bases": {"GROSS": ticket_net + extras_net, "NET": ticket_net + extras_net - fees_net,
+                  "PROFIT": resultado},
+        "gastos_gestion": fees_net,
         "gastos": {
             "caches": cache_net_total, "retenciones": retention_added,
             "retenciones_total": retention_total, "comisiones": com_net_total,

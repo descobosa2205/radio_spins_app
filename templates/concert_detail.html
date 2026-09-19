@@ -4028,6 +4028,17 @@
                         <span class="small text-muted"><i class="fa fa-triangle-exclamation me-1 text-warning"></i>Sin link de venta</span>
                       {% endif %}
                       {% if ch.capacity_for_sale %}<span class="small text-muted d-block"><i class="fa fa-people-group me-1"></i>Aforo a la venta: {{ ch.capacity_for_sale|k }}</span>{% endif %}
+                      {# GASTOS DE GESTIÓN: lo que se lleva la ticketera por vender. Cuentan en el
+                         resultado y en las simulaciones cuando promueve una empresa del grupo. #}
+                      {% if ch.fee_fixed or ch.fee_pct %}
+                        <span class="small text-muted d-block" title="Lo que se lleva la ticketera. Cuenta en el resultado si promovemos nosotros.">
+                          <i class="fa fa-percent me-1"></i>Gestión:
+                          {% if ch.fee_fixed %}{{ ch.fee_fixed|eur }}/entrada{% endif %}
+                          {%- if ch.fee_fixed and ch.fee_pct %} + {% endif %}
+                          {%- if ch.fee_pct %}{{ ch.fee_pct }}%{% endif %}
+                          {% if not ch.fee_own %}<span class="badge text-bg-light border fw-normal ms-1">de la ticketera</span>{% endif %}
+                        </span>
+                      {% endif %}
                     </div>
                     {% if CAN_EDIT_CONCERTS %}
                     <form method="post" action="{{ url_for('concert_sale_channel_delete', cid=concert.id, tid=ch.id) }}" onsubmit="return confirm('¿Quitar este canal de venta?');">
@@ -4064,7 +4075,20 @@
                 <label class="form-label small">Aforo a la venta</label>
                 <input type="number" min="0" class="form-control" name="capacity_for_sale">
               </div>
+              {# GASTOS DE GESTIÓN de esta ticketera en este evento: si se dejan vacíos, valen los de
+                 su ficha (en Enterticket se ponen solos con la fórmula de la casa). #}
+              <div class="col-md-2">
+                <label class="form-label small">Gestión € / entrada <span class="text-muted">(con IVA)</span></label>
+                <input class="form-control" name="fee_fixed_gross" inputmode="decimal" placeholder="Lo de la ticketera">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small">Gestión %</label>
+                <input class="form-control" name="fee_pct" inputmode="decimal" placeholder="Lo de la ticketera">
+              </div>
               <div class="col-md-1 d-grid"><button class="btn btn-primary"><i class="fa fa-check"></i></button></div>
+              <div class="col-12"><div class="form-text">Lo que se lleva la ticketera por vender. Cuenta
+                en el resultado y en las simulaciones <strong>cuando la promueve una empresa del grupo</strong>.
+                Si lo dejas vacío, se usan los de la ficha de la ticketera.</div></div>
             </form>
           </div>
           {% endif %}

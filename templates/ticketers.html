@@ -42,6 +42,14 @@
               <label class="form-label">Logo (opcional)</label>
               <input type="file" name="logo" class="form-control" accept="image/*" />
             </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">Gastos de gestión <span class="text-muted">(opcional)</span></label>
+              <div class="d-flex gap-1">
+                <input class="form-control" name="fee_fixed_gross" inputmode="decimal" placeholder="€/entrada">
+                <input class="form-control" name="fee_pct" inputmode="decimal" placeholder="%">
+              </div>
+              <div class="form-text">Lo que se lleva por vender (el importe, con IVA).</div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -62,6 +70,9 @@
           <th style="width:64px">Logo</th>
           <th>Nombre</th>
           <th>Enlace</th>
+          {# LO QUE SE LLEVA POR VENDER: cuenta en el resultado y en las simulaciones de lo que
+             promovemos nosotros. En Enterticket se pone solo con la fórmula de la casa. #}
+          <th style="width:210px">Gastos de gestión<br><span class="text-muted fw-normal small">€/entrada (con IVA) y %</span></th>
           {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:180px">Acciones</th>{% endif %}
         </tr>
       </thead>
@@ -77,6 +88,14 @@
               </td>
               <td style="min-width:220px"><input class="form-control" name="name" value="{{ t.name }}">{% if t %}{{ linked_mini('ticketer', t.id) }}{% endif %}</td>
               <td style="min-width:260px"><input class="form-control" name="link_url" value="{{ t.link_url or '' }}"></td>
+              <td>
+                <div class="d-flex gap-1">
+                  <input class="form-control form-control-sm" name="fee_fixed_gross" inputmode="decimal"
+                         value="{{ t.fee_fixed_gross if t.fee_fixed_gross is not none else '' }}" placeholder="€/ent." title="Importe por entrada, con IVA">
+                  <input class="form-control form-control-sm" name="fee_pct" inputmode="decimal"
+                         value="{{ t.fee_pct if t.fee_pct is not none else '' }}" placeholder="%" title="% sobre lo cobrado">
+                </div>
+              </td>
               <td class="text-end">
                 <div class="d-flex justify-content-end gap-2 flex-wrap">
                   <input type="file" name="logo" class="form-control form-control-sm" accept="image/*" style="max-width:220px" />
@@ -107,6 +126,12 @@
               {% if t.link_url %}
                 <a href="{{ t.link_url }}" target="_blank">{{ t.link_url }}</a>
               {% endif %}
+            </td>
+            <td class="small text-muted">
+              {% if t.fee_fixed_gross %}{{ t.fee_fixed_gross|eur }}/entrada{% endif %}
+              {%- if t.fee_fixed_gross and t.fee_pct %} + {% endif %}
+              {%- if t.fee_pct %}{{ t.fee_pct }}%{% endif %}
+              {%- if not t.fee_fixed_gross and not t.fee_pct %}—{% endif %}
             </td>
           {% endif %}
         </tr>

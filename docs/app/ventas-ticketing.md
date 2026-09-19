@@ -1181,3 +1181,7 @@ el cartel dependía de ese número, cuando lo que decía era cómo iba la venta 
   (que es lo que se pone a la venta ahora) → **el resto**. ⚠️ Sin ofertas ni venta previa es un solo
   tramo por categoría a su precio, así que **los números de siempre no cambian en nada**.
   ⚠️ Prueba de regresión: `tools/check_ofertas.py` (21 comprobaciones).
+  · **Y LAS TRES BASES TAMBIÉN EN UNA SIMULACIÓN**: una comisión variable se cobra ya sobre el
+  **ingreso bruto**, el **ingreso neto** o el **beneficio** (las mismas que en una actividad). ⚠️ La
+  opción vieja «% sobre taquilla» se conserva **a propósito**: cambiarla le movería los números a
+  una simulación ya guardada.

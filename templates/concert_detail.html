@@ -1624,8 +1624,14 @@
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Colaboradores</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
       <div class="ficha-section__body" data-section-view>
         {% if concert.company_shares or concert.promoter_shares %}<div class="ficha-fields">
-        {% for s in concert.company_shares %}<div><div class="ficha-field__label">{{ s.company.name if s.company else 'Empresa' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% {{ 'del beneficio' if s.pct_base=='PROFIT' else ('del ingreso neto' if s.pct_base=='NET' else 'del ingreso bruto') }}{% if not s.bears_losses %} · <span class="badge text-bg-light border fw-normal">no soporta pérdidas</span>{% endif %}{% elif s.amount %}{{ s.amount|eur }}{% else %}Participa{% endif %}</div></div>{% endfor %}
-        {% for s in concert.promoter_shares %}<div><div class="ficha-field__label">{{ s.promoter.nick if s.promoter else 'Tercero' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% {{ 'del beneficio' if s.pct_base=='PROFIT' else ('del ingreso neto' if s.pct_base=='NET' else 'del ingreso bruto') }}{% if not s.bears_losses %} · <span class="badge text-bg-light border fw-normal">no soporta pérdidas</span>{% endif %}{% elif s.amount %}{{ s.amount|eur }}{% else %}Participa{% endif %}</div></div>{% endfor %}
+        {% for s in concert.company_shares %}<div><div class="ficha-field__label">
+          <img class="simp-avatar me-1" style="width:26px;height:26px;vertical-align:middle;"
+               src="{{ (s.company.logo_url if s.company else '') or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+          {{ s.company.name if s.company else 'Empresa' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% {{ 'del beneficio' if s.pct_base=='PROFIT' else ('del ingreso neto' if s.pct_base=='NET' else 'del ingreso bruto') }}{% if not s.bears_losses %} · <span class="badge text-bg-light border fw-normal">no soporta pérdidas</span>{% endif %}{% elif s.amount %}{{ s.amount|eur }}{% else %}Participa{% endif %}</div></div>{% endfor %}
+        {% for s in concert.promoter_shares %}<div><div class="ficha-field__label">
+          <img class="simp-avatar me-1" style="width:26px;height:26px;vertical-align:middle;"
+               src="{{ (s.promoter.logo_url if s.promoter else '') or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+          {{ s.promoter.nick if s.promoter else 'Tercero' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% {{ 'del beneficio' if s.pct_base=='PROFIT' else ('del ingreso neto' if s.pct_base=='NET' else 'del ingreso bruto') }}{% if not s.bears_losses %} · <span class="badge text-bg-light border fw-normal">no soporta pérdidas</span>{% endif %}{% elif s.amount %}{{ s.amount|eur }}{% else %}Participa{% endif %}</div></div>{% endfor %}
       </div>{% else %}<div class="ficha-empty">Sin colaboradores. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
       </div>
       {% if CAN_EDIT_CONCERTS %}

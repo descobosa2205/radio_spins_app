@@ -25,6 +25,8 @@
     Variable ·
     {%- if vt == 'PER_TICKET' %} {{ c.var_value|eur }} por entrada
     {%- elif vt == 'PERCENT_PROFIT' %} {{ c.var_value }}% sobre el beneficio
+    {%- elif vt == 'PERCENT_GROSS' %} {{ c.var_value }}% sobre el ingreso bruto
+    {%- elif vt == 'PERCENT_NET' %} {{ c.var_value }}% sobre el ingreso neto
     {%- else %} {{ c.var_value }}% sobre ingresos (taquilla)
     {%- endif -%}
     {%- if (c.var_threshold_type or '')|upper == 'TICKETS' %} · a partir de {{ c.var_threshold_value|k }} entradas
@@ -1866,7 +1868,15 @@ function numv(x){
     var vt=(o.var_type||''); var tt=(o.var_threshold_type||'NONE');
     var more = vt ? '' : 'd-none';
     var thrHidden = (tt==='NONE') ? 'd-none' : '';   // el valor del umbral solo si hay umbral
-    var profitOpt = opts.profit ? ('<option value="PERCENT_PROFIT" '+sel(vt,'PERCENT_PROFIT')+'>Porcentaje sobre el beneficio (%)</option>') : '';
+    /* ⚠️⚠️ LAS TRES BASES de la casa (sep 2026, lo pidió Dani), las mismas que en una actividad:
+       BRUTO = el ingreso sin IVA y sin SGAE · NETO = ese menos los gastos de gestión de la
+       ticketera · BENEFICIO = lo que queda tras todos los gastos, incluidas las comisiones de
+       otros. (La opción vieja «% sobre taquilla» se conserva para no cambiarle los números a una
+       simulación ya guardada.) */
+    var profitOpt = opts.profit ? (
+        '<option value="PERCENT_GROSS" '+sel(vt,'PERCENT_GROSS')+'>Porcentaje sobre el ingreso BRUTO (sin IVA ni SGAE)</option>'+
+        '<option value="PERCENT_NET" '+sel(vt,'PERCENT_NET')+'>Porcentaje sobre el ingreso NETO (sin gastos de gestión)</option>'+
+        '<option value="PERCENT_PROFIT" '+sel(vt,'PERCENT_PROFIT')+'>Porcentaje sobre el BENEFICIO</option>') : '';
     return '<div class="row g-2 align-items-end cv-wrap">'+
       '<div class="col-md-6"><label class="form-label small mb-0">Variable por</label>'+
         '<select class="form-select form-select-sm cv-type">'+

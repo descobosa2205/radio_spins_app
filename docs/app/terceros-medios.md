@@ -444,9 +444,14 @@ debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado g
   de las dos, esa pareja nueva **sí** se propone — que es justo lo que pidió Dani.
   · La pareja se guarda **ORDENADA** (`a` < `b`) y es **ÚNICA**, así que (A,B) y (B,A) son la misma
   fila; y si una de las dos fichas se borra o se fusiona, la fila se va con ella (`CASCADE`).
-  · **SE PUEDE DESHACER** (`promoters_duplicate_restore`): «Parejas descartadas» —plegado, es un
-  archivo, no trabajo— dice **quién lo dijo y cuándo** y tiene su «Deshacer». Una decisión de una
-  persona no puede ser invisible ni definitiva.
+  · **SE PUEDE DESHACER** (`promoters_duplicate_restore`): queda apuntado **quién lo dijo y
+  cuándo**, y el endpoint de deshacer sigue ahí.
+  ⚠️⚠️ **PERO ESOS DOS ARCHIVOS YA NO SE PINTAN** (sep 2026, lo pidió Dani: «fichas unidas y
+  parejas descartadas no se tiene que mostrar, eso ya está hecho y punto»): «Parejas descartadas» y
+  «Fichas unidas a su persona de la oficina» eran dos bloques plegados de trabajo **ya resuelto**, y
+  esta pantalla es para lo que hay que hacer. Lo decidido sigue valiendo igual (ninguna se vuelve a
+  proponer) y tampoco se calculan ya en cada carga. ⚠️ Con ellos se fue **el botón** de deshacer:
+  los endpoints siguen vivos, así que reponerlo es pintar el bloque otra vez.
   · ⚠️⚠️ **VARIAS DE UNA VEZ** (sep 2026, lo pidió Dani: «que si no se tarda mucho»): cada pareja
   tiene su **casilla** y se descartan todas las marcadas de golpe («Marcar todas» incluido).
   **Fusionar sigue siendo de una en una** —es irreversible y hay que mirar campo a campo—, pero

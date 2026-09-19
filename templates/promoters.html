@@ -135,70 +135,12 @@
 </div>
 {% endif %}
 
-{# LAS FICHAS YA UNIDAS a su persona de la oficina, con su «deshacer». Plegado: es un archivo. #}
-{% if office_linked and CAN_EDIT_SONGS_PROMOTERS %}
-<div class="mb-3">
-  <button class="btn btn-sm btn-link px-0" type="button" data-bs-toggle="collapse"
-          data-bs-target="#promoterOfficeLinked">
-    <i class="fa fa-link me-1"></i>Fichas unidas a su persona de la oficina ({{ office_linked|length }})</button>
-  <div class="collapse" id="promoterOfficeLinked">
-    <div class="card"><div class="card-body">
-      <div class="text-muted small mb-2">Son la misma persona: la ficha de tercero (la que factura) y
-        su usuario de la casa (el que entra en la app). Las dos siguen existiendo, pero la app ya sabe
-        que son la misma y no vuelve a proponerlas.</div>
-      {% for d in office_linked %}
-        <div class="d-flex flex-wrap gap-2 align-items-center border rounded-3 p-2 mb-2 bg-white">
-          <a class="small text-decoration-none text-reset" href="{{ url_for('promoter_detail_view', pid=d.promoter.id) }}">{{ d.promoter.name }}</a>
-          <span class="badge text-bg-light border fw-normal">Tercero</span>
-          <i class="fa fa-link text-muted"></i>
-          <a class="small text-decoration-none text-reset" href="{{ url_for('personnel_detail_view', user_id=d.user.id) }}">{{ d.user.name }}</a>
-          <span class="badge text-bg-light border fw-normal">Oficina</span>
-          <form method="post" action="{{ url_for('promoters_office_unlink') }}" class="ms-auto">
-            <input type="hidden" name="promoter_id" value="{{ d.promoter.id }}">
-            <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
-            <button type="submit" class="btn btn-sm btn-outline-secondary">
-              <i class="fa fa-rotate-left me-1"></i>Deshacer</button>
-          </form>
-        </div>
-      {% endfor %}
-    </div></div>
-  </div>
-</div>
-{% endif %}
-
-{# LAS PAREJAS DESCARTADAS («no son la misma»), por si hay que DESHACERLO: una decisión de una
-   persona no puede ser invisible ni definitiva (la fusión sí lo es, por eso esta no).
-   ⚠️ Sale plegada: es un archivo, no trabajo pendiente. #}
-{% if dismissed_pairs and CAN_EDIT_SONGS_PROMOTERS %}
-<div class="mb-3">
-  <button class="btn btn-sm btn-link px-0" type="button" data-bs-toggle="collapse"
-          data-bs-target="#promoterDismissed">
-    <i class="fa fa-user-xmark me-1"></i>Parejas descartadas ({{ dismissed_pairs|length }})</button>
-  <div class="collapse" id="promoterDismissed">
-    <div class="card"><div class="card-body">
-      <div class="text-muted small mb-2">Aquí está lo que se dijo que NO era la misma ficha. Si fue
-        un error, se puede deshacer y vuelve a salir como posible duplicado.</div>
-      {% for d in dismissed_pairs %}
-        <div class="d-flex flex-wrap gap-2 align-items-center border rounded-3 p-2 mb-2 bg-white">
-          <a class="small text-decoration-none text-reset" href="{{ url_for('promoter_detail_view', pid=d.a.id) }}">{{ d.a.name }}</a>
-          <span class="text-muted small">·</span>
-          <a class="small text-decoration-none text-reset" href="{{ url_for('promoter_detail_view', pid=d.b.id) }}">{{ d.b.name }}</a>
-          {% if d.by or d.at %}
-            <span class="small text-muted">— lo dijo {{ d.by or 'alguien' }}{% if d.at %} el {{ d.at }}{% endif %}</span>
-          {% endif %}
-          <form method="post" action="{{ url_for('promoters_duplicate_restore') }}" class="ms-auto">
-            <input type="hidden" name="a" value="{{ d.a.id }}">
-            <input type="hidden" name="b" value="{{ d.b.id }}">
-            <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
-            <button type="submit" class="btn btn-sm btn-outline-secondary">
-              <i class="fa fa-rotate-left me-1"></i>Deshacer</button>
-          </form>
-        </div>
-      {% endfor %}
-    </div></div>
-  </div>
-</div>
-{% endif %}
+{# ⚠️⚠️ LAS FICHAS YA UNIDAS Y LAS PAREJAS DESCARTADAS NO SE PINTAN (sep 2026, lo pidió Dani:
+   «fichas unidas y parejas descartadas no se tiene que mostrar, eso ya está hecho y punto»). Eran
+   dos archivos plegados de trabajo YA RESUELTO, y esta pantalla es para lo que hay que hacer.
+   ⚠️ Lo que decidieron sigue valiendo igual: ni una ficha unida ni una pareja descartada se vuelven
+   a proponer. Y sus «deshacer» siguen existiendo en el servidor (`promoters_office_unlink` ·
+   `promoters_duplicate_restore`), así que se puede rehacer una decisión sin tocar la base. #}
 
 {# LOS QUE SON ALGUIEN DE LA OFICINA. No se fusionan (un usuario de la casa y una ficha de tercero
    son dos cosas: una entra en la app, la otra factura), así que se DICEN con las dos fichas. #}

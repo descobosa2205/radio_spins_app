@@ -144,6 +144,8 @@ r = cli.post("/promotores/duplicados/descartar",
 s = A.db()
 grupos = A._promoter_duplicate_pairs(s, s.query(models.Promoter).all(), limite=5000)
 check("al decir «no son la misma», esa pareja deja de proponerse", not juntos(id1, id2, grupos), r.status_code)
+# ⚠️ La pantalla ya NO pinta las parejas descartadas («eso ya está hecho y punto», sep 2026), pero
+# el dato sigue apuntado con quién lo dijo: la decisión no se pierde y se puede deshacer.
 check("y queda apuntado quién lo dijo, para poder deshacerlo",
       any(d["a"]["id"] in (id1, id2) and d["b"]["id"] in (id1, id2) for d in A._promoter_dismissed_rows(s)))
 
@@ -227,7 +229,7 @@ check("y completa los huecos sin pisar nada (el DNI del personal pasa a la ficha
       (t2.tax_id or "") == "00000009X", t2.tax_id)
 ofi = A._promoter_office_duplicates(s, s.query(models.Promoter).all())
 check("ya no se propone", not any(x["promoter"]["id"] == pid for x in ofi))
-check("y sale entre las YA UNIDAS, para poder deshacerlo",
+check("y queda apuntada la unión, para poder deshacerla",
       any(x["promoter"]["id"] == pid for x in A._promoter_office_linked(s, s.query(models.Promoter).all())))
 s.close()
 r = cli.post("/promotores/duplicados/oficina/deshacer", data={"promoter_id": pid, "next": "/promotores"})
@@ -301,6 +303,13 @@ check("ni ninguna de la ficha consigo misma", not [f for f in filas if f.source_
 check("y las vinculaciones de otros ni se tocan", len(s.query(models.ThirdPartyLink).filter(
     models.ThirdPartyLink.source_id == vid["o1"]).all()) == 1)
 s.close()
+
+# ⚠️⚠️ Y LO QUE NO SE PINTA: los dos archivos de trabajo ya resuelto no salen en Terceros (sep
+# 2026, lo pidió Dani: «fichas unidas y parejas descartadas no se tiene que mostrar»).
+html_t = cli.get("/promotores").get_data(as_text=True)
+check("Terceros NO enseña «Parejas descartadas»", "Parejas descartadas" not in html_t)
+check("ni «Fichas unidas a su persona de la oficina»", "Fichas unidas a su persona" not in html_t)
+check("pero sigue enseñando lo que SÍ hay que hacer (las fichas repetidas)", "Fichas repetidas" in html_t)
 
 print("\n%d bien · %d mal" % (len(OK), len(KO)))
 sys.exit(1 if KO else 0)

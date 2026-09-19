@@ -53152,10 +53152,11 @@ def promoters_view():
             duplicate_pairs=_promoter_duplicate_pairs(session, promoters),
             # Y los que son, en realidad, alguien de la OFICINA (esos no se fusionan: se dicen).
             office_duplicates=_promoter_office_duplicates(session, promoters),
-            # Las parejas que ya se dijo que NO son la misma, por si hay que deshacerlo.
-            dismissed_pairs=_promoter_dismissed_rows(session),
-            # Y las fichas ya unidas a su persona de la oficina (también con su «deshacer»).
-            office_linked=_promoter_office_linked(session, promoters),
+            # ⚠️ NI las parejas descartadas NI las fichas ya unidas a alguien de la oficina: eran
+            # dos archivos de trabajo YA RESUELTO y no se pintan (sep 2026, lo pidió Dani: «eso ya
+            # está hecho y punto»). Lo decidido sigue valiendo —ninguna se vuelve a proponer— y sus
+            # «deshacer» siguen en el servidor (`promoters_office_unlink` ·
+            # `promoters_duplicate_restore`), así que tampoco se calculan en cada carga.
             import_fields=[{"key": k, "label": l} for k, l, _kind, _al in promoter_import.FIELDS],
             import_target_ignore=promoter_import.TARGET_IGNORE,
             import_target_alt=promoter_import.TARGET_ALT,

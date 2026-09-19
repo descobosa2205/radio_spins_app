@@ -2928,6 +2928,152 @@ def _cash_subjects(session_db) -> list:
         return []
 
 
+# ══ LA CAJA DE UNA GIRA COMPRADA O DE UN CICLO / FESTIVAL PROPIO ══════════════════════════════
+# ⚠️⚠️ Lo pidió Dani junto con la pestaña: «todos los artistas o eventos, **giras compradas o ciclos
+# o festivales propios**». No son artistas: son **agrupaciones de actividades** (`PurchasedTour` y
+# `CycleFestival` agrupan sus conciertos por FK real), así que su caja es **la de SUS actividades y
+# la de las bolsas de esas actividades**.
+# ⚠️⚠️ **NO SE SUMAN AL TOTAL DE LOS ARTISTAS**: ese mismo dinero ya está contado en la caja del
+# artista que toca. Son **otra forma de mirar lo mismo**, así que van en su propio bloque y con su
+# propio total — sumarlas sería contar dos veces.
+CASH_GROUP_KINDS = {
+    "TOUR": {"label": "Gira comprada", "icon": "fa-route"},
+    "CYCLE": {"label": "Ciclo o festival propio", "icon": "fa-calendar-week"},
+}
+
+
+def _cash_group_concert_filter(kind: str, gid):
+    """Las actividades de esa gira o de ese ciclo (por FK real, no por etiqueta)."""
+    if kind == "TOUR":
+        return Concert.purchased_tour_id == gid
+    return Concert.cycle_festival_id == gid
+
+
+def _group_cash_data(session_db, kind: str, obj, year: int | None) -> dict:
+    """LA CAJA de una gira comprada o de un ciclo/festival propio.
+
+    Misma forma y mismas piezas que la de un artista (`_artist_cash_row` / `_artist_cash_pack` /
+    `_bag_cash_cost`), para que la pantalla sea **la misma**. Lo que cambia es de dónde sale:
+      · INGRESOS — sus actividades, con el **importe final de la liquidación** repartido por el
+        contrato del artista que la toca (aquí no hay royalties: una gira no tiene repertorio);
+      · GASTOS — las bolsas de esas actividades, **solo las cerradas y que cuentan**, con su
+        balance final (lo que cubre el promotor no es nuestro y el caché paga lo suyo)."""
+    gid = getattr(obj, "id", None)
+    ingresos, gastos = [], []
+    abiertas, abiertas_coste = 0, Decimal("0")
+    años = set()
+    try:
+        consulta = (session_db.query(Concert)
+                    .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                             selectinload(Concert.caches))
+                    .filter(_cash_group_concert_filter(kind, gid))
+                    .filter(func.upper(func.coalesce(Concert.status, "")).notin_(["CANCELADO"]))
+                    .filter(Concert.date <= today_local()))
+        conciertos = consulta.order_by(Concert.date.desc()).limit(400).all()
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las actividades del grupo")
+        conciertos = []
+    ids_conciertos = []
+    for c in conciertos:
+        if getattr(c, "date", None):
+            años.add(c.date.year)
+        ids_conciertos.append(c.id)
+        if year and getattr(getattr(c, "date", None), "year", None) != year:
+            continue
+        importe, de_donde, cobrado = _artist_cash_concert_settled(c)
+        if importe <= 0:
+            continue
+        del_artista, de_la_oficina, etiqueta = _artist_cash_commitment_split(
+            session_db, getattr(c, "artist_id", None), c, importe)
+        donde = _place_label(_concert_city(c), _concert_province_value(c))
+        detalle = [("Liquidación %s" % format_eur(importe)) if de_donde == "liquidación"
+                   else ("Caché %s" % format_eur(importe))]
+        if etiqueta:
+            detalle.append(etiqueta)
+        if de_donde == "liquidación" and cobrado < importe:
+            detalle.append("cobrado %s" % format_eur(cobrado))
+        ingresos.append(_artist_cash_row(
+            group="ACTIVIDADES",
+            title=(getattr(getattr(c, "artist", None), "name", "") or _concert_venue_name(c) or donde or "Actividad"),
+            subtitle=" · ".join([x for x in [_concert_venue_name(c), donde] if x]),
+            day=getattr(c, "date", None), artist_amount=del_artista, office_amount=de_la_oficina,
+            url=_safe_url_for("concert_detail_view", cid=str(c.id)), note=" · ".join(detalle)))
+    # Las BOLSAS de esas actividades.
+    if ids_conciertos:
+        try:
+            bolsas = (session_db.query(WorkflowBag)
+                      .filter(func.upper(func.coalesce(WorkflowBag.linked_type, "")) == "CONCERT",
+                              WorkflowBag.linked_id.in_(ids_conciertos)).limit(400).all())
+        except Exception:
+            app.logger.exception("[caja] no se pudieron leer las bolsas del grupo")
+            bolsas = []
+        for bag in bolsas:
+            dia = (getattr(bag, "closed_at", None).date() if getattr(bag, "closed_at", None)
+                   else (getattr(bag, "start_date", None) or getattr(bag, "end_date", None)))
+            if getattr(dia, "year", None):
+                años.add(dia.year)
+            if year and getattr(dia, "year", None) != year:
+                continue
+            coste = _bag_cash_cost(session_db, bag)
+            if not _bag_cash_counts(bag):
+                if not _bag_is_closed(bag) and coste > 0:
+                    abiertas += 1
+                    abiertas_coste += coste
+                continue
+            if coste <= 0:
+                continue
+            gastos.append(_artist_cash_row(
+                group=_artist_cash_bag_group(session_db, bag),
+                title=(getattr(bag, "title", "") or "Bolsa"),
+                subtitle=BAG_TYPE_LABELS.get((getattr(bag, "bag_type", "") or "").upper(), ""),
+                day=dia, invested=coste,
+                url=_safe_url_for("bag_detail_view", bag_id=str(bag.id))))
+    datos_in = _artist_cash_pack(ingresos, ARTIST_CASH_INCOME_GROUPS)
+    datos_out = _artist_cash_pack(gastos, ARTIST_CASH_EXPENSE_GROUPS)
+    facturado, invertido = datos_in["artist_amount"], datos_out["invested"]
+    de_la_casa = datos_in["office_amount"]
+    años.add(today_local().year)
+    return {
+        "year": year, "years": sorted(años, reverse=True),
+        "income": datos_in, "expense": datos_out, "advances": [],
+        "balance": {
+            "artist_billed": facturado, "office_invested": invertido,
+            "office_income": de_la_casa, "office_result": de_la_casa - invertido,
+            "positive": (de_la_casa - invertido) >= 0,
+            "advance_pending": Decimal("0"), "advance_count": 0, "pending_entries": 0,
+            "open_bags": abiertas, "open_amount": abiertas_coste,
+        },
+    }
+
+
+def _cash_group_subjects(session_db) -> list:
+    """Las giras compradas y los ciclos/festivales propios, con su tipo."""
+    salida = []
+    try:
+        for t in session_db.query(PurchasedTour).order_by(PurchasedTour.start_date.desc().nullslast()).all():
+            salida.append(("TOUR", t))
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las giras compradas")
+    try:
+        for c in session_db.query(CycleFestival).order_by(CycleFestival.start_date.desc().nullslast()).all():
+            salida.append(("CYCLE", c))
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer los ciclos y festivales")
+    return salida
+
+
+def _cash_group_year_links(session_db, kind: str, obj, year: int | None) -> list:
+    """Los años de una gira o de un ciclo (el mismo selector, otros enlaces)."""
+    años = (_group_cash_data(session_db, kind, obj, None).get("years") or [])
+    def _url(y):
+        return url_for("administracion_view", tab="caja", sujeto="%s:%s" % (kind, obj.id),
+                       **({"anio": y} if y else {}))
+    enlaces = [{"label": "Todo", "url": _url(None), "on": not year}]
+    for y in años[:6]:
+        enlaces.append({"label": str(y), "url": _url(y), "on": (year == y)})
+    return enlaces
+
+
 def _cash_links(session_db, artist, year: int | None, *, scope: str = "artist") -> dict:
     """LOS ENLACES de la pantalla de la caja (el año y el PDF), según desde dónde se esté mirando.
 
@@ -2994,7 +3140,33 @@ def _cash_overview(session_db, year: int | None) -> dict:
             totales[k] += b[k]
     # El que MÁS mueve, primero: es lo que se viene a mirar.
     filas.sort(key=lambda f: (f["artist_billed"] + f["office_invested"]), reverse=True)
-    return {"rows": filas, "totals": totales,
+    # ⚠️⚠️ LAS GIRAS, CICLOS Y FESTIVALES VAN APARTE Y **NO SUMAN** AL TOTAL: ese mismo dinero ya
+    # está contado en la caja del artista que toca. Son otra forma de mirar lo mismo, así que
+    # sumarlas sería contarlo dos veces.
+    grupos = []
+    for kind, obj in _cash_group_subjects(session_db):
+        try:
+            datos = _group_cash_data(session_db, kind, obj, year)
+        except Exception:
+            app.logger.exception("[caja] no se pudo calcular la caja de un grupo")
+            continue
+        años.update(datos.get("years") or [])
+        b = datos["balance"]
+        if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"]]):
+            continue
+        meta = CASH_GROUP_KINDS[kind]
+        grupos.append({
+            "id": "%s:%s" % (kind, obj.id), "name": (getattr(obj, "name", "") or meta["label"]),
+            "kind_label": meta["label"], "icon": meta["icon"],
+            "photo": (getattr(obj, "logo_url", "") or ""),
+            "artist_billed": b["artist_billed"], "office_invested": b["office_invested"],
+            "office_income": b["office_income"], "office_result": b["office_result"],
+            "positive": b["positive"], "open_bags": b["open_bags"], "open_amount": b["open_amount"],
+            "url": url_for("administracion_view", tab="caja", sujeto="%s:%s" % (kind, obj.id),
+                           **({"anio": year} if year else {})),
+        })
+    grupos.sort(key=lambda f: (f["artist_billed"] + f["office_invested"]), reverse=True)
+    return {"rows": filas, "totals": totales, "groups": grupos,
             "years": sorted(años, reverse=True), "year": year}
 
 
@@ -114195,10 +114367,28 @@ def administracion_view():
         # MISMO `_artist_cash_data` de la ficha) y, al elegir un sujeto, se incluye la MISMA
         # `_artist_cash.html`. Lo que se cambie aquí o en la ficha cambia en los dos sitios.
         cash_year = _artist_cash_year(request.args.get("anio"))
-        cash_subject = (session_db.get(Artist, _safe_uuid(request.args.get("sujeto")))
-                        if (tab == "caja" and request.args.get("sujeto")) else None)
-        cash_overview = _cash_overview(session_db, cash_year) if (tab == "caja" and cash_subject is None) else None
-        cash_ctx = {}
+        cash_ctx, cash_subject, cash_group = {}, None, None
+        _sujeto = (request.args.get("sujeto") or "").strip() if tab == "caja" else ""
+        if _sujeto and ":" in _sujeto:
+            # Una GIRA comprada o un CICLO / festival propio: «TOUR:<id>» / «CYCLE:<id>».
+            _k, _sep, _gid = _sujeto.partition(":")
+            _k = _k.strip().upper()
+            _modelo = {"TOUR": PurchasedTour, "CYCLE": CycleFestival}.get(_k)
+            cash_group = session_db.get(_modelo, _safe_uuid(_gid)) if _modelo else None
+            if cash_group is not None:
+                _meta = CASH_GROUP_KINDS[_k]
+                cash_ctx = {
+                    "cash": _group_cash_data(session_db, _k, cash_group, cash_year),
+                    "cash_entries": [], "artist": None,
+                    "cash_subject_name": (getattr(cash_group, "name", "") or _meta["label"]),
+                    "cash_subject_kind": _meta["label"], "cash_subject_icon": _meta["icon"],
+                    "cash_income_groups": ARTIST_CASH_INCOME_GROUPS,
+                    "cash_expense_groups": ARTIST_CASH_EXPENSE_GROUPS, "cash_companies": [],
+                    "cash_year_links": _cash_group_year_links(session_db, _k, cash_group, cash_year),
+                    "cash_pdf_url": "",
+                }
+        elif _sujeto:
+            cash_subject = session_db.get(Artist, _safe_uuid(_sujeto))
         if tab == "caja" and cash_subject is not None:
             _nombre, _que_es, _icono = _cash_subject_label(cash_subject)
             cash_ctx = {
@@ -114213,6 +114403,8 @@ def administracion_view():
                 "cash_companies": (session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()),
                 **_cash_links(session_db, cash_subject, cash_year, scope="admin"),
             }
+        cash_overview = (_cash_overview(session_db, cash_year)
+                         if (tab == "caja" and not cash_ctx) else None)
 
         # Las LISTAS se cargan solo de la pestaña en la que estás (antes se cargaban las 8 siempre,
         # más un N+1 por bolsa). Los NÚMEROS de todas las pestañas los da `_admin_pending_counts`,
@@ -114389,6 +114581,7 @@ def administracion_view():
             bag_cash=bag_cash,
             cash_overview=cash_overview,
             cash_subject=cash_subject,
+            cash_group=cash_group,
             cash_year=cash_year,
             **cash_ctx,
             BAG_CASH_INCLUDE=BAG_CASH_INCLUDE,

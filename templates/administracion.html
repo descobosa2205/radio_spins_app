@@ -1085,12 +1085,13 @@
      `_artist_cash_data` que la ficha del artista y, al elegir un sujeto, se incluye la MISMA
      `_artist_cash.html`.
      ══════════════════════════════════════════════════════════════════════════════════════════ #}
-  {% if cash_subject %}
+  {% if cash_subject or cash_group %}
+    {% set _foto = (cash_subject.photo_url if cash_subject else cash_group.logo_url) %}
     <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('administracion_view', tab='caja') }}"
          title="Volver a todos"><i class="fa fa-arrow-left"></i></a>
-      {% if cash_subject.photo_url %}
-        <img src="{{ cash_subject.photo_url }}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+      {% if _foto %}
+        <img src="{{ _foto }}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
       {% else %}
         <span class="ac-ph"><i class="fa {{ cash_subject_icon }}"></i></span>
       {% endif %}
@@ -1098,9 +1099,16 @@
         <div class="fw-semibold">{{ cash_subject_name }}</div>
         <div class="small text-muted">{{ cash_subject_kind }} · Caja</div>
       </div>
-      <a class="btn btn-sm btn-outline-secondary ms-auto"
-         href="{{ url_for('artist_detail_view', artist_id=cash_subject.id, tab='caja') }}">
-        <i class="fa fa-up-right-from-square me-1"></i>Abrir su ficha</a>
+      {% if cash_subject %}
+        <a class="btn btn-sm btn-outline-secondary ms-auto"
+           href="{{ url_for('artist_detail_view', artist_id=cash_subject.id, tab='caja') }}">
+          <i class="fa fa-up-right-from-square me-1"></i>Abrir su ficha</a>
+      {% else %}
+        {# ⚠️ Una gira o un ciclo es OTRA FORMA DE MIRAR el mismo dinero: lo que aquí se ve ya está
+           contado en la caja del artista que toca. Se dice, para que nadie lo sume dos veces. #}
+        <span class="small text-muted ms-auto"><i class="fa fa-circle-info me-1"></i>Sus actividades
+          y sus bolsas. Este dinero ya cuenta también en la caja de cada artista.</span>
+      {% endif %}
     </div>
     {% include '_artist_cash.html' %}
   {% else %}
@@ -1163,6 +1171,34 @@
       </div>
     {% else %}
       <div class="alert alert-light border">Todavía no hay ningún artista con movimientos cerrados.</div>
+    {% endif %}
+
+    {# ⚠️⚠️ LAS GIRAS, CICLOS Y FESTIVALES VAN APARTE Y NO SUMAN AL TOTAL: ese mismo dinero ya está
+       contado en la caja del artista que toca. Es otra forma de mirar lo mismo. #}
+    {% if cash_overview.groups %}
+      <div class="mt-4 mb-2">
+        <div class="fw-semibold"><i class="fa fa-route me-2 text-danger"></i>Giras, ciclos y festivales</div>
+        <div class="small text-muted">Sus actividades y sus bolsas. <strong>No se suman arriba</strong>:
+          este dinero ya cuenta en la caja de cada artista.</div>
+      </div>
+      <div class="ac-list">
+        {% for r in cash_overview.groups %}
+          <a class="ac-list__row" href="{{ r.url }}">
+            {% if r.photo %}<img src="{{ r.photo }}" alt="" loading="lazy">
+            {% else %}<span class="ac-ph"><i class="fa {{ r.icon }}"></i></span>{% endif %}
+            <span class="ac-list__t">
+              <b>{{ r.name }}</b>
+              <small>{{ r.kind_label }}{% if r.open_bags %} · {{ r.open_bags }} bolsa{{ '' if r.open_bags == 1 else 's' }} abierta{{ '' if r.open_bags == 1 else 's' }}{% endif %}</small>
+            </span>
+            <span class="ac-list__n"><small>Factura</small><b>{{ r.artist_billed|eur }}</b></span>
+            <span class="ac-list__n"><small>Invertido</small><b>{{ r.office_invested|eur }}</b></span>
+            <span class="ac-list__n"><small>Ingresado</small><b>{{ r.office_income|eur }}</b></span>
+            <span class="ac-list__n ac-list__n--res {{ 'is-ok' if r.positive else 'is-ko' }}">
+              <small>Resultado</small><b>{{ r.office_result|eur }}</b></span>
+            <i class="fa fa-chevron-right text-muted"></i>
+          </a>
+        {% endfor %}
+      </div>
     {% endif %}
   {% endif %}
 

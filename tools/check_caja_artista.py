@@ -439,6 +439,64 @@ check("y es un adjunto con su nombre", "attachment" in (r.headers.get("Content-D
 check("el PDF por año también", cli.get("/artistas/%s/caja/resumen.pdf?anio=%d" % (AID, HOY.year)).status_code == 200)
 check("la pantalla ofrece el PDF", "resumen.pdf" in cli.get("/artistas/%s?tab=caja" % AID).get_data(as_text=True))
 
+print("\n── 9b. GIRAS COMPRADAS Y CICLOS PROPIOS ───────────────────────────────")
+# ⚠️ Su caja son SUS actividades y las bolsas de esas actividades. Va APARTE y no suma al total de
+# los artistas: ese mismo dinero ya está contado en la caja del artista que toca.
+s = models.SessionLocal()
+try:
+    art = s.get(models.Artist, A.to_uuid(AID))
+    gira = models.PurchasedTour(name="Gira de prueba", artist_id=art.id, artist_ids=[AID],
+                                start_date=AYER, status="ACTIVA")
+    s.add(gira); s.flush()
+    GIRA = str(gira.id)
+    ven = s.query(models.Venue).first()
+    c2 = models.Concert(artist_id=art.id, venue_id=ven.id, date=AYER, sale_type="VENDIDO",
+                        capacity=400, activity_type="CONCIERTO", status="CONFIRMADO",
+                        purchased_tour_id=gira.id,
+                        payment_terms_json=[{"concept": "Caché", "amount": 5000, "collected_at": "2026-02-01"}])
+    s.add(c2); s.flush()
+    C2 = str(c2.id)
+    bg = models.WorkflowBag(title="Bolsa de la gira", artist_id=art.id, artist_ids=[AID],
+                            bag_type="GIRA", status="CERRADA", start_date=AYER,
+                            linked_type="CONCERT", linked_id=c2.id, company_id=A.to_uuid(EMP),
+                            cash_impact="INCLUIR")
+    s.add(bg); s.flush()
+    s.add(models.BagExpense(bag_id=bg.id, concept="Autobús", amount_gross=D("1500"), covered_by="BOLSA"))
+    s.commit()
+finally:
+    s.close()
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        gira = s.get(models.PurchasedTour, A.to_uuid(GIRA))
+        d = A._group_cash_data(s, "TOUR", gira, None)
+        check("la gira factura lo de SUS actividades (el 80 % de 5.000)",
+              d["balance"]["artist_billed"] == D("4000.00"), d["balance"]["artist_billed"])
+        check("y la compañía ingresa su 20 %", d["balance"]["office_income"] == D("1000.00"),
+              d["balance"]["office_income"])
+        check("el gasto es el de las bolsas de esas actividades",
+              d["balance"]["office_invested"] == D("1500"), d["balance"]["office_invested"])
+        check("y el resultado, la resta", d["balance"]["office_result"] == D("-500.00"),
+              d["balance"]["office_result"])
+        vista = A._cash_overview(s, None)
+        check("la gira sale en su propio bloque", any(g["id"] == "TOUR:%s" % GIRA for g in vista["groups"]),
+              [g["id"] for g in vista["groups"]])
+        check("⚠️ y NO suma al total de los artistas",
+              vista["totals"]["office_invested"] == [f for f in vista["rows"] if f["id"] == AID][0]["office_invested"],
+              (vista["totals"]["office_invested"],))
+    finally:
+        s.close()
+html = cli.get("/administracion?tab=caja").get_data(as_text=True)
+check("la pestaña enseña el bloque de giras y ciclos", "Giras, ciclos y festivales" in html)
+check("y dice que no se suman arriba", "No se suman arriba" in html)
+r = cli.get("/administracion?tab=caja&sujeto=TOUR:%s" % GIRA)
+html = r.get_data(as_text=True)
+check("se abre la caja de la gira (200)", r.status_code == 200, r.status_code)
+check("con la misma pantalla", "Facturado por el artista" in html and "Invertido por compañía" in html)
+check("sin los botones de apuntes anteriores (una gira no los tiene)", "Subir apuntes" not in html)
+check("y diciendo que ese dinero ya cuenta en la caja del artista",
+      "ya cuenta también en la caja de cada artista" in html)
+
 print("\n── 10. LA PLANTILLA: desplegables y los tres importes ─────────────────")
 import openpyxl, io as _io
 r = cli.get("/artistas/%s/caja/plantilla.xlsx" % AID)
@@ -518,8 +576,9 @@ with A.app.test_request_context("/"):
     try:
         art = s.get(models.Artist, A.to_uuid(AID))
         d = A._artist_cash_data(s, art, None)
+        # 6.700 de antes + los 1.500 de la bolsa de la gira (que también es del artista).
         check("lo subido y sin validar NO cuenta en el balance",
-              d["balance"]["office_invested"] == D("6700"), d["balance"]["office_invested"])
+              d["balance"]["office_invested"] == D("8200"), d["balance"]["office_invested"])
         check("pero se dice cuántos esperan", d["balance"]["pending_entries"] == 2,
               d["balance"]["pending_entries"])
     finally:

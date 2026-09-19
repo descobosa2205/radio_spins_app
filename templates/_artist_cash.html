@@ -120,14 +120,17 @@
         <i class="fa fa-file-pdf me-1"></i>PDF
       </a>
     {% endif %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('artist_cash_template', artist_id=artist.id) }}"
-       title="Bajar la plantilla de Excel para los apuntes de antes de la app">
-      <i class="fa fa-file-excel me-1"></i>Plantilla
-    </a>
-    <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#cashUploadModal"
-            title="Subir el Excel con los apuntes anteriores">
-      <i class="fa fa-upload me-1"></i>Subir apuntes
-    </button>
+    {# ⚠️ Los apuntes de antes de la app son de un ARTISTA: una gira o un ciclo no los tiene. #}
+    {% if artist %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('artist_cash_template', artist_id=artist.id) }}"
+         title="Bajar la plantilla de Excel para los apuntes de antes de la app">
+        <i class="fa fa-file-excel me-1"></i>Plantilla
+      </a>
+      <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#cashUploadModal"
+              title="Subir el Excel con los apuntes anteriores">
+        <i class="fa fa-upload me-1"></i>Subir apuntes
+      </button>
+    {% endif %}
   </div>
 </div>
 
@@ -300,7 +303,10 @@
   </div>
 {% endif %}
 
-{# ── EL POP-UP DE SUBIR ─────────────────────────────────────────────────────────────────────── #}
+{# ── EL POP-UP DE SUBIR ───────────────────────────────────────────────────────────────────────
+   ⚠️ Solo cuando el sujeto es un ARTISTA: una gira o un ciclo no tiene apuntes anteriores (y sin
+   `artist` el `url_for` de dentro reventaría la pantalla entera). #}
+{% if artist %}
 <div class="modal fade" id="cashUploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" enctype="multipart/form-data"
@@ -331,3 +337,4 @@
     </form>
   </div>
 </div>
+{% endif %}

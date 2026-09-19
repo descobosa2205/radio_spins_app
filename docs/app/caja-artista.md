@@ -95,6 +95,18 @@ ataría a uno de los dos sitios).
 - ⚠️ Las liquidaciones de royalties se leen **UNA vez para todos** (`prefetch`): una consulta de
   miles de filas por artista dejaría la pantalla sin abrir.
 
+**GIRAS COMPRADAS Y CICLOS / FESTIVALES PROPIOS** van en **su propio bloque**, debajo
+(`_group_cash_data` + `_cash_group_subjects`). No son artistas: son **agrupaciones de actividades**
+(`PurchasedTour` y `CycleFestival` agrupan sus conciertos por FK real), así que su caja son **sus
+actividades** (con el importe final repartido por el contrato del artista que la toca; aquí no hay
+royalties) y **las bolsas de esas actividades**.
+⚠️⚠️ **NO SE SUMAN AL TOTAL DE ARRIBA**, y la pantalla lo dice: ese mismo dinero **ya está contado
+en la caja del artista** que toca. Son otra forma de mirar lo mismo, y sumarlas sería contarlo dos
+veces.
+⚠️ La misma pantalla vale para los dos (`_artist_cash.html`), pero los apuntes de antes de la app
+son **de un artista**: con `artist` vacío no se pintan ni la plantilla, ni «Subir apuntes», ni su
+pop-up — un `url_for` con `artist.id` ahí dentro habría tumbado la pantalla entera.
+
 ## EL PDF del resumen, y la PLANTILLA con desplegables
 
 - **`artist_cash_pdf`** (`/artistas/<id>/caja/resumen.pdf`): el resumen **de lo que hay a la vista**
@@ -261,7 +273,8 @@ De lo anterior a la app no hay ni una fila, así que el cuadro de mando empezar�
 | ¿esta bolsa va a la caja? | `app.py` · `_bag_cash_*` (+ `WorkflowBag.cash_impact`) |
 | la pestaña de Administración | `app.py` · `_cash_overview` / `_cash_links` · `templates/administracion.html` (tab `caja`) |
 | el PDF del resumen | `app.py` · `artist_cash_pdf` / `_artist_cash_pdf_bytes` |
-| la prueba de regresión | `tools/check_caja_artista.py` (89 comprobaciones con la app real) |
+| la caja de una gira / ciclo | `app.py` · `_group_cash_data` · `_cash_group_subjects` |
+| la prueba de regresión | `tools/check_caja_artista.py` (101 comprobaciones con la app real) |
 | el Excel y la validación | `app.py` · `artist_cash_template` / `_upload` / `_validate` / `_delete` / `_batch_undo` |
 | la pantalla | `templates/_artist_cash.html` (incluido desde `artist_detail.html`) |
 | los estilos | `static/css/styles.css` · bloque `.ac-*` |

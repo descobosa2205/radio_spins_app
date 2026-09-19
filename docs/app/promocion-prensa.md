@@ -28,6 +28,7 @@
 - LA FILA DE UN DESTINATARIO, LA MISMA EN LOS TRES ENVÍOS (foto, correo al lado y vinculación debajo)
 - EL MÓDULO DE VÍDEO DE YOUTUBE: la miniatura con el play y el pop-up que lo reproduce
 - UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA (sep 2026, notas de prensa y
+- «DISEÑO DE COMUNICACIONES»: el cartel en PDF, el single y el logo vacíos, y elegir VARIOS con ⌘
 
 ---
 
@@ -813,3 +814,49 @@
   · Solo se ofrecen las actividades **por venir** (ni canceladas ni aplazadas) y el cartel es el
   **primero aprobado de categoría POSTER**: un Sold Out o un logo no valen.
   → El detalle de las invitaciones corporativas, en `docs/app/invitaciones.md`.
+
+- ⚠️⚠️ **«DISEÑO DE COMUNICACIONES» · el cartel en PDF, el single y el logo vacíos, y elegir VARIOS
+  a la vez** (sep 2026, lo pidió Dani). **Así se llama el editor**: es el MISMO para una **nota de
+  prensa**, una **comunicación a compradores** y una **invitación corporativa**, así que lo que se
+  toque aquí vale para las tres (es la regla de siempre: un punto único).
+  · ⚠️⚠️ **EL CARTEL SEGUÍA SIN VERSE, Y ERAN DOS COSAS MÁS** (Dani lo dijo tres veces). La primera
+  ronda ya aceptaba el cartel **subido sin aprobar**, pero faltaban: **un cartel en PDF** —lo que
+  manda la imprenta— **no daba imagen NINGUNA** en toda la app, y **el cartel que cuelga de la
+  GIRA, el CICLO o el EVENTO** solo valía si estaba aprobado. `_concert_module_poster` recorre
+  ahora, de lo más concreto a lo más amplio: lo **aprobado** (de la actividad o de su grupo) → lo
+  **subido** de la actividad → lo **subido** de su grupo.
+  ⚠️ **NO se cae a `_concert_poster_url`** (el otro punto único del cartel, el de la cabecera de las
+  invitaciones): ese **no mira el visto bueno** y colaría un cartel RECHAZADO. Lo de aquí ya cubre
+  todo lo que cubre aquel, menos justo eso.
+  · **LA MINIATURA DE UN CARTEL EN PDF** (`_artwork_pdf_preview`): se saca la **primera página** y
+  se guarda como JPEG en el **mismo `poster_url`** que ya usan los vídeos, así lo aprovecha todo lo
+  que pinta miniaturas sin cambiar nada más (`_artwork_image_src` devuelve para un PDF lo mismo que
+  para un vídeo: su miniatura si la tiene). **Sin binarios nuevos**: `pypdf` saca las imágenes
+  EMBEBIDAS de la página —que es lo que lleva un cartel exportado de Photoshop o de Illustrator— y
+  Pillow la reescala. Un **PDF vectorial puro** no trae ninguna: entonces no hay miniatura y se cae
+  al respaldo de siempre, que es lo honesto. Clave DETERMINISTA (`artwork/pdf/<id>.jpg`, con
+  upsert) y caché negativa de 6 h, como el póster de un vídeo.
+  · **EL SINGLE Y EL LOGO, TAMBIÉN SOLO EL MÓDULO VACÍO** (como los datos de la actividad): se
+  arrastra y **luego** se elige cuál en el mismo pop-up con buscador. Listar todos los singles y
+  todos los logos llenaba la barra de entradas que hay que leer una a una.
+  ⚠️ **UN LOGO ES UNA IMAGEN**: el bloque que nace es `image` (se mueve, se redimensiona, se recorta
+  y se le pone enlace como a cualquier imagen) y lo que dice que ahí se elige un LOGO es
+  **`b.pick`**, no el tipo. Por eso todo el editor pregunta por **`clavePick(b)`** y no por
+  `b.type`, y `pick` **se guarda con el diseño** (`promo_press_save` + `blocks_of`, que solo acepta
+  las claves de `PICK_KEYS`): sin guardarlo, al reabrir un diseño un logo todavía sin elegir pediría
+  una FOTO. El hueco lo dice: «Logo · Pincha para elegir qué logo del grupo».
+  · **VARIOS MÓDULOS A LA VEZ con ⌘ (Mac) o Ctrl (Windows)**: `sel` es el último pinchado —el que
+  manda en el panel de la derecha y en la barra de formato— y `selExtra` los demás, así todo lo que
+  ya funcionaba con uno sigue igual. ⌘+clic **suma** y, si ya estaba, lo **quita**; se **mueven
+  juntos** arrastrando cualquiera de ellos o con las **flechas**; **Supr** los borra y **⌘C · ⌘V**
+  los copia y pega (quedan seleccionados, para seguir moviéndolos en bloque). El panel de la
+  derecha dice cuántos hay: con varios no se enseñan las propiedades de uno (serían las del último
+  y se cambiaría lo que no se ve).
+  ⚠️ **Pinchar SIN ⌘ uno que YA estaba marcado no deshace la selección**: se arrastra el grupo
+  entero (es lo que se espera); si se suelta **sin haberlo movido**, ahí sí se queda solo ese.
+  ⚠️ **Al coger un bloque se SUELTA el texto que se estuviera escribiendo, y eso va ANTES de lo de
+  ⌘**: con el cursor dentro de un texto, `escribiendo()` deja pasar las teclas al texto y Supr, ⌘C
+  y las flechas actuaban sobre una letra en vez de sobre los bloques marcados.
+  ⚠️ Moviendo varios **no hay imantado a las guías**: la guía es de UN borde y arrastraría al grupo
+  entero a saltos.
+  · Prueba de punta a punta: **`tools/check_diseno_comunicaciones.py`** (39 comprobaciones).

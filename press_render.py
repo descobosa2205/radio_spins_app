@@ -68,6 +68,10 @@ def text_defaults(kind: str) -> dict:
     return dict(TEXT_DEFAULTS["title" if kind == "title" else "text"])
 MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist",
                 "artwork", "activity", "youtube")
+# ⚠️ QUÉ SE ELIGE en un bloque que no lo dice su tipo. Hoy solo el LOGO: el bloque es una `image`
+# (se mueve, se redimensiona y se recorta como cualquier imagen) y esto le dice al editor que lo
+# que se elige al colocarlo es un logo del grupo, no una foto. No se pinta: es del editor.
+PICK_KEYS = ("logo",)
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # 1) SANEAR el HTML que llega del editor
@@ -289,6 +293,8 @@ def blocks_of(design: dict) -> list[dict]:
             b["opts"] = raw.get("opts") if isinstance(raw.get("opts"), dict) else {}
             b["ref"] = raw.get("ref") if isinstance(raw.get("ref"), dict) else {}
             b["data"] = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+            pick = str(raw.get("pick") or "").strip().lower()
+            b["pick"] = pick if pick in PICK_KEYS else ""
         out.append(b)
     return out
 
@@ -488,6 +494,10 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
     if is_pending(b):
         if not editing:
             return ""
+        # ⚠️ El LOGO es una `image` con `pick`: el hueco tiene que decir que lo que se elige es un
+        # LOGO del grupo, no una foto (es lo que se pincha para abrir su selector).
+        if tipo == "image" and (b.get("pick") or "") == "logo":
+            return _pending_card("Logo", "Pincha para elegir qué logo del grupo")
         return _pending_card(*{
             "image": ("Imagen", "Pincha para elegir la foto: de nuestras fotos, de los materiales del lanzamiento, o súbela"),
             "files": ("Archivos adjuntos", "Pincha para subir los archivos (o carpetas) que se van a poder descargar"),

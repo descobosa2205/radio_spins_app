@@ -36,7 +36,16 @@
   try { design = JSON.parse((document.getElementById('prDesign') || {}).textContent || '{}') || design; } catch (e) {}
   design.blocks = Array.isArray(design.blocks) ? design.blocks : [];
   design.bg = design.bg || {};
-  var k = 1, sel = null, dirty = false, assets = null;
+  /* ⚠️⚠️ SE PUEDEN SELECCIONAR VARIOS MÓDULOS A LA VEZ (sep 2026, lo pidió Dani: «pulsando el
+     botón comando en mac o el que corresponda en windows se pueden seleccionar varios módulos a la
+     vez de los que están añadidos»). `sel` es el ÚLTIMO pinchado —el que manda en el panel de la
+     derecha y en la barra de formato— y `selExtra` son los demás; así todo lo que ya funcionaba con
+     uno sigue igual y lo de varios se añade encima. */
+  var k = 1, sel = null, selExtra = [], dirty = false, assets = null;
+  function seleccionados() {
+    return (sel ? [sel] : []).concat(selExtra).filter(function (id) { return !!bloque(id); });
+  }
+  function estaSel(id) { return id === sel || selExtra.indexOf(id) >= 0; }
 
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -162,7 +171,7 @@
   }
   function refrescaModulo(b) {
     // El id viaja también: los ADJUNTOS cuelgan del id del bloque.
-    post(root.getAttribute('data-block-url'), { id: b.id, type: b.type, ref: b.ref || {}, opts: b.opts || {}, w: b.w }).then(function (js) {
+    post(root.getAttribute('data-block-url'), { id: b.id, type: b.type, pick: b.pick || '', ref: b.ref || {}, opts: b.opts || {}, w: b.w }).then(function (js) {
       var el = elDe(b.id); if (!el) return;
       var m = el.querySelector('.pr-blk__mod');
       if (js && js.ok) {
@@ -205,15 +214,30 @@
 
   /* ---------- seleccionar ---------- */
   function deselecciona() {
-    sel = null;
+    sel = null; selExtra = [];
     canvas.querySelectorAll('.pr-blk').forEach(function (e) { e.classList.remove('is-sel'); });
     toolbar.classList.add('d-none'); pintaProps(null);
   }
-  function selecciona(id) {
-    sel = id;
-    canvas.querySelectorAll('.pr-blk').forEach(function (e) { e.classList.toggle('is-sel', e.getAttribute('data-id') === id); });
-    var b = bloque(id);
-    toolbar.classList.toggle('d-none', !b || (b.type !== 'title' && b.type !== 'text'));
+  function pintaSeleccion() {
+    canvas.querySelectorAll('.pr-blk').forEach(function (e) {
+      e.classList.toggle('is-sel', estaSel(e.getAttribute('data-id')));
+    });
+  }
+  /* `aditiva` = se ha pinchado con ⌘ (Mac) o Ctrl (Windows): SUMA a lo que ya hay seleccionado, y
+     si ya estaba, lo QUITA. Sin ⌘, un clic deja seleccionado solo lo pinchado, como siempre. */
+  function selecciona(id, aditiva) {
+    if (!aditiva) { selExtra = []; sel = id; }
+    else if (estaSel(id)) {                       // ya estaba: se quita de la selección
+      selExtra = selExtra.filter(function (x) { return x !== id; });
+      if (id === sel) sel = selExtra.shift() || null;
+    } else {
+      if (sel && sel !== id) selExtra.push(sel);
+      sel = id;
+    }
+    pintaSeleccion();
+    var b = sel ? bloque(sel) : null;
+    if (!b) { toolbar.classList.add('d-none'); pintaProps(null); return; }
+    toolbar.classList.toggle('d-none', selExtra.length > 0 || (b.type !== 'title' && b.type !== 'text'));
     if (b && (b.type === 'title' || b.type === 'text')) {
       var st = b.style || {};
       var f = toolbar.querySelector('[data-pr-font]'); if (f) f.value = st.font || f.options[0].value;
@@ -243,10 +267,25 @@
     if (!box || !body) return;
     if (!b) { box.classList.add('d-none'); return; }
     box.classList.remove('d-none');
-    var kind = root.querySelector('[data-pr-props-kind]'); if (kind) kind.textContent = '— ' + (TIPO_LABEL[b.type] || b.type);
+    var kind = root.querySelector('[data-pr-props-kind]');
     // El panel va ARRIBA de la columna de la derecha: se enseña desde el principio, no donde se
     // hubiera quedado el scroll de la paleta.
     var side = root.querySelector('[data-pr-side]'); if (side) side.scrollTop = 0;
+    /* ⚠️ CON VARIOS SELECCIONADOS no se pueden enseñar las propiedades de uno (serían las del
+       último pinchado y se cambiaría lo que no se ve): se dice cuántos hay y qué se puede hacer
+       con ellos. Para tocar uno, se pincha ese solo. */
+    if (selExtra.length) {
+      var n = selExtra.length + 1;
+      if (kind) kind.textContent = '— ' + n + ' seleccionados';
+      body.innerHTML = '<div class="small text-muted mb-2">Hay <b>' + n + ' módulos</b> seleccionados: se ' +
+        'mueven juntos arrastrando cualquiera de ellos o con las <b>flechas</b>, y ⌘C · ⌘V los copia.</div>' +
+        '<div class="d-flex gap-2 flex-wrap">' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" data-pr-unsel><i class="fa fa-xmark me-1"></i>Quitar la selección</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-danger" data-pr-del><i class="fa fa-trash me-1"></i>Borrar los ' + n + '</button>' +
+        '</div>';
+      return;
+    }
+    if (kind) kind.textContent = '— ' + (TIPO_LABEL[b.type] || b.type);
     var o = b.opts || {};
     var html = '';
     if (b.type === 'contact') {
@@ -264,7 +303,8 @@
           (ref.orig_url && ref.orig_url !== ref.url ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-pr-image-orig title="Deshacer el recorte y volver a la imagen tal como se subió"><i class="fa fa-rotate-left me-1"></i>Original</button>' : '') +
           '</div>';
       }
-      html += '<button type="button" class="btn btn-sm btn-outline-' + (tieneImg ? 'secondary' : 'primary') + ' mb-3" data-pr-image-pick><i class="fa fa-image me-1"></i>' + (tieneImg ? 'Cambiar la imagen' : 'Elegir la imagen') + '</button>' +
+      var esLogo = b.pick === 'logo';
+      html += '<button type="button" class="btn btn-sm btn-outline-' + (tieneImg ? 'secondary' : 'primary') + ' mb-3" data-pr-image-pick><i class="fa ' + (esLogo ? 'fa-building' : 'fa-image') + ' me-1"></i>' + (tieneImg ? (esLogo ? 'Cambiar el logo' : 'Cambiar la imagen') : (esLogo ? 'Elegir el logo' : 'Elegir la imagen')) + '</button>' +
         '<label class="form-label small text-muted mb-1 d-flex justify-content-between">Esquinas redondeadas <span data-pr-range-val>' + (parseInt(o.radius || 0, 10) || 0) + ' px</span></label>' +
         '<input type="range" class="form-range mb-2" min="0" max="40" step="1" data-pr-opt-range="radius" value="' + (parseInt(o.radius || 0, 10) || 0) + '">' +
         '<label class="form-label small text-muted mb-1">Enlace al pinchar la imagen <span class="fw-normal">(opcional)</span></label>' +
@@ -290,15 +330,15 @@
     }
     /* QUÉ LLEVA el módulo (el single, el disco, el videoclip, los enlaces o la playlist): se elige
        al colocarlo y se cambia aquí. Es el MISMO selector, así que se comporta igual en los cinco. */
-    if (PICK[b.type]) {
-      var elegido = (opcionesDe(b.type) || []).filter(function (it) { return mismoRef(it.ref, b.ref); })[0];
+    if (PICK[clavePick(b)] && b.type !== 'image') {
+      var elegido = (opcionesDe(clavePick(b)) || []).filter(function (it) { return mismoRef(it.ref, b.ref); })[0];
       if (elegido) {
         html += '<div class="pr-props__pick mb-2">' +
           (elegido.cover ? '<img src="' + esc(elegido.cover) + '" alt="">' : '<span class="pr-props__pick-ph"><i class="fa fa-music"></i></span>') +
           '<span><b>' + esc(elegido.label || '') + '</b><small>' + esc(elegido.sub || '') + '</small></span></div>';
       }
       html += '<button type="button" class="btn btn-sm btn-outline-' + (elegido ? 'secondary' : 'primary') + ' mb-3" data-pr-pick-open>' +
-        '<i class="fa fa-list-ul me-1"></i>' + (elegido ? 'Cambiar' : PICK[b.type].titulo) + '</button>';
+        '<i class="fa fa-list-ul me-1"></i>' + (elegido ? 'Cambiar' : PICK[clavePick(b)].titulo) + '</button>';
     }
     if (b.type === 'audio' || b.type === 'album' || b.type === 'video' || b.type === 'photos' || b.type === 'artwork') {
       html += '<label class="form-check"><input type="checkbox" class="form-check-input" data-pr-opt="download"' + (o.download ? ' checked' : '') + '> Se puede <b>descargar</b>' +
@@ -336,8 +376,11 @@
   root.addEventListener('click', function (ev) {
     var al = ev.target.closest('[data-pr-opt-align]');
     if (al && sel) { var b = bloque(sel); b.opts = b.opts || {}; b.opts.align = al.getAttribute('data-pr-opt-align'); marca(); refrescaModulo(b); pintaProps(b); return; }
-    if (ev.target.closest('[data-pr-del]') && sel) { borra(sel); return; }
-    if (ev.target.closest('[data-pr-image-pick]') && sel) { abreImagen(bloque(sel)); return; }
+    if (ev.target.closest('[data-pr-unsel]')) { deselecciona(); return; }
+    if (ev.target.closest('[data-pr-del]') && sel) { borra(seleccionados()); return; }
+    if (ev.target.closest('[data-pr-image-pick]') && sel) {
+      var bi = bloque(sel); if (bi && bi.pick) abrePick(bi); else abreImagen(bi); return;
+    }
     if (ev.target.closest('[data-pr-image-crop]') && sel) { abreRecorte(bloque(sel)); return; }
     if (ev.target.closest('[data-pr-image-orig]') && sel) { var bo = bloque(sel); if (bo && bo.ref && bo.ref.orig_url) aplicaImagenBloque(bo, bo.ref.orig_url, 0, 0, bo.ref.orig_url); return; }
     if (ev.target.closest('[data-pr-files-open]') && sel) { abreArchivos(bloque(sel)); return; }
@@ -350,10 +393,13 @@
       design.blocks.push(c); pintaBloque(c); marca(); selecciona(c.id);
     }
   });
-  function borra(id) {
-    var el = elDe(id); if (el) el.remove();
-    design.blocks = design.blocks.filter(function (b) { return b.id !== id; });
-    sel = null; toolbar.classList.add('d-none'); pintaProps(null); marca();
+  /* Borra TODO lo seleccionado (uno o varios: con ⌘ se pueden marcar los que haga falta). */
+  function borra(ids) {
+    var lista = Array.isArray(ids) ? ids : [ids];
+    if (!lista.length) return;
+    lista.forEach(function (id) { var el = elDe(id); if (el) el.remove(); });
+    design.blocks = design.blocks.filter(function (b) { return lista.indexOf(b.id) < 0; });
+    sel = null; selExtra = []; toolbar.classList.add('d-none'); pintaProps(null); marca();
     canvas.style.height = Math.round(canvasH()) + 'px'; escala();
   }
 
@@ -363,17 +409,34 @@
     var el = ev.target.closest('.pr-blk');
     if (!el || !canEdit) return;
     var id = el.getAttribute('data-id'), b = bloque(id);
-    selecciona(id);
+    /* ⚠️ Con ⌘/Ctrl se SUMA a la selección y no se arrastra nada: el clic es para marcar. */
+    var aditiva = !!(ev.metaKey || ev.ctrlKey);
+    var yaEstaba = estaSel(id);
+    /* ⚠️⚠️ AL COGER UN BLOQUE SE SUELTA EL TEXTO QUE SE ESTUVIERA ESCRIBIENDO: si no, el cursor
+       sigue dentro del texto de antes y Supr, ⌘C y las FLECHAS actúan sobre una letra en vez de
+       sobre los bloques marcados (`escribiendo()` los deja pasar). Va ANTES de lo de ⌘: marcar
+       varios con el cursor puesto en un texto es justo el caso que fallaba. */
+    var act = document.activeElement;
+    if (act && act.closest && act.closest('.pr-blk__text')) act.blur();
+    /* ⚠️ Pinchar SIN ⌘ un bloque que YA estaba marcado NO deshace la selección: se arrastra el
+       grupo entero (es lo que se espera al mover varios). Si se suelta sin haberlo movido, ahí sí
+       se queda solo ese (lo resuelve `sueltaDrag`). */
+    if (!(!aditiva && yaEstaba)) selecciona(id, aditiva);
+    if (aditiva) { ev.preventDefault(); return; }
     var rs = ev.target.closest('.pr-blk__rs'), grip = ev.target.closest('.pr-blk__grip');
     // Un módulo se mueve agarrándolo por cualquier sitio; un texto, por su asa (dentro se escribe).
     if (!rs && !grip && esTexto(b)) return;
     ev.preventDefault();
-    // Al coger un bloque por el asa se SUELTA el texto que se estuviera escribiendo: así Supr y ⌘C
-    // actúan sobre el bloque y no sobre una letra del texto de antes.
-    var act = document.activeElement;
-    if (act && act.closest && act.closest('.pr-blk__text')) act.blur();
     drag = { id: id, modo: rs ? 'rs' : 'mv', dir: rs ? (rs.getAttribute('data-pr-rs') || 'se') : '',
       x0: ev.clientX, y0: ev.clientY, bx: b.x, by: b.y, bw: b.w, bh: b.h, moved: false };
+    /* ⚠️⚠️ CON VARIOS SELECCIONADOS SE MUEVEN TODOS A LA VEZ: se apunta dónde estaba cada uno y se
+       les aplica el MISMO desplazamiento que al que se agarra (si se agarra uno que no estaba
+       seleccionado, el clic ya ha dejado solo a ese). El tamaño se cambia de uno en uno. */
+    if (!rs && yaEstaba) {
+      drag.otros = seleccionados().filter(function (x) { return x !== id; }).map(function (x) {
+        var o = bloque(x); return { id: x, x: o.x, y: o.y };
+      });
+    }
     el.classList.add('is-dragging');
     try { el.setPointerCapture(ev.pointerId); } catch (e) {}
   });
@@ -405,11 +468,23 @@
       if (altoLibre) { b.y = arr; b.h = aba - arr; }
     }
     // Las GUÍAS: se imanta al borde o al ancho de los demás bloques (con Alt pulsado, no).
-    if (ev.altKey) limpiaGuias(); else alinea(b, drag.modo, drag.dir);
+    // ⚠️ Moviendo VARIOS no hay imantado: la guía es de UN borde y arrastraría al grupo entero a
+    //    saltos; el desplazamiento se aplica tal cual y se alinea a ojo.
+    if (ev.altKey || (drag.otros && drag.otros.length)) limpiaGuias(); else alinea(b, drag.modo, drag.dir);
     b.x = Math.max(0, Math.min(W - 40, b.x)); b.y = Math.max(0, b.y);
     b.w = Math.max(60, Math.min(W - b.x, b.w)); if (esTexto(b)) b.h = Math.max(24, b.h);
     if (conMedidas(b)) b.h = b.w * proporcion(b);          // no se deforma
     pintaBloque(b);
+    if (drag.otros) {
+      // Lo que se ha movido DE VERDAD el que se agarra (con sus topes), no el ratón.
+      var mx = b.x - drag.bx, my = b.y - drag.by;
+      drag.otros.forEach(function (o) {
+        var ob = bloque(o.id); if (!ob) return;
+        ob.x = Math.max(0, Math.min(W - 40, o.x + mx));
+        ob.y = Math.max(0, o.y + my);
+        pintaBloque(ob);
+      });
+    }
     canvas.style.height = Math.round(canvasH()) + 'px';
     escala();
   });
@@ -417,13 +492,18 @@
     if (!drag) return;
     var el = elDe(drag.id); if (el) el.classList.remove('is-dragging');
     var b = bloque(drag.id);
+    var drag2id = drag.id;
     var clic = !drag.moved && drag.modo === 'mv';
+    var varios = !!(drag.otros && drag.otros.length);
     if (b && !esTexto(b)) ajustaAltoModulo(b);
     if (b && esTexto(b)) crecerTexto(b);
     drag = null; limpiaGuias(); colocaToolbar();
+    // Con varios seleccionados, un clic sin mover deja marcado SOLO ese (no abre nada: se ha
+    // pinchado para quedarse con uno, que es lo que se espera).
+    if (clic && varios) { selecciona(drag2id, false); return; }
     if (clic) {
       // Un CLIC (sin mover) sobre una imagen o unos adjuntos abre su configuración.
-      if (b && b.type === 'image') abreImagen(b);
+      if (b && b.type === 'image') { if (b.pick) abrePick(b); else abreImagen(b); }
       else if (b && b.type === 'youtube') abreYoutube(b);
       else if (b && b.type === 'files') abreArchivos(b);
       else if (b && b.type === 'contact') abreContactos(b);
@@ -518,25 +598,44 @@
     canvas.style.height = Math.round(canvasH()) + 'px'; escala(); marca(); selecciona(n.id);
     return n;
   }
+  /* Copiar y pegar VARIOS: se pegan todos con el mismo desplazamiento y quedan seleccionados,
+     así se pueden seguir moviendo en bloque. */
+  function copiaVarios(ids) { return ids.map(function (id) { return copiaBloque(bloque(id)); }).filter(Boolean); }
+  function pegaVarios(lista) {
+    if (!lista || !lista.length) return;
+    var nuevos = lista.map(function (c) { return pegaBloque(c); });
+    sel = nuevos[nuevos.length - 1].id;
+    selExtra = nuevos.slice(0, -1).map(function (n) { return n.id; });
+    pintaSeleccion(); pintaProps(bloque(sel));
+  }
   document.addEventListener('keydown', function (ev) {
     var meta = ev.metaKey || ev.ctrlKey, tecla = (ev.key || '').toLowerCase();
     if (meta && tecla === 's') { ev.preventDefault(); guarda(); return; }
     if (!canEdit || escribiendo(ev)) return;
     var b = sel ? bloque(sel) : null;
-    if (b && (ev.key === 'Delete' || ev.key === 'Backspace')) { ev.preventDefault(); borra(sel); return; }
-    if (b && meta && tecla === 'c') { ev.preventDefault(); portapapeles = copiaBloque(b); marca('Bloque copiado'); return; }
-    if (b && meta && tecla === 'x') { ev.preventDefault(); portapapeles = copiaBloque(b); borra(sel); return; }
-    if (meta && tecla === 'v' && portapapeles) { ev.preventDefault(); pegaBloque(portapapeles); return; }
-    if (b && meta && tecla === 'd') { ev.preventDefault(); pegaBloque(copiaBloque(b)); return; }
+    // ⚠️ Todas las teclas actúan sobre TODO lo seleccionado (con ⌘ pueden ser varios).
+    var ids = seleccionados();
+    if (b && (ev.key === 'Delete' || ev.key === 'Backspace')) { ev.preventDefault(); borra(ids); return; }
+    if (b && meta && tecla === 'c') {
+      ev.preventDefault(); portapapeles = copiaVarios(ids);
+      marca(ids.length > 1 ? (ids.length + ' bloques copiados') : 'Bloque copiado'); return;
+    }
+    if (b && meta && tecla === 'x') { ev.preventDefault(); portapapeles = copiaVarios(ids); borra(ids); return; }
+    if (meta && tecla === 'v' && portapapeles) { ev.preventDefault(); pegaVarios(portapapeles); return; }
+    if (b && meta && tecla === 'd') { ev.preventDefault(); pegaVarios(copiaVarios(ids)); return; }
     if (b && ev.key === 'Escape') { deselecciona(); return; }
     if (b && /^Arrow(Up|Down|Left|Right)$/.test(ev.key)) {
       ev.preventDefault();
       var paso = ev.shiftKey ? 10 : 1;
-      if (ev.key === 'ArrowUp') b.y = Math.max(0, b.y - paso);
-      if (ev.key === 'ArrowDown') b.y += paso;
-      if (ev.key === 'ArrowLeft') b.x = Math.max(0, b.x - paso);
-      if (ev.key === 'ArrowRight') b.x = Math.min(W - 40, b.x + paso);
-      pintaBloque(b); canvas.style.height = Math.round(canvasH()) + 'px'; escala(); marca(); colocaToolbar();
+      ids.forEach(function (id) {
+        var bb = bloque(id); if (!bb) return;
+        if (ev.key === 'ArrowUp') bb.y = Math.max(0, bb.y - paso);
+        if (ev.key === 'ArrowDown') bb.y += paso;
+        if (ev.key === 'ArrowLeft') bb.x = Math.max(0, bb.x - paso);
+        if (ev.key === 'ArrowRight') bb.x = Math.min(W - 40, bb.x + paso);
+        pintaBloque(bb);
+      });
+      canvas.style.height = Math.round(canvasH()) + 'px'; escala(); marca(); colocaToolbar();
     }
   });
   canvas.addEventListener('pointerup', sueltaDrag);
@@ -718,6 +817,8 @@
       var pre = (extra && extra.ref && extra.ref.url) ? extra.ref : null;
       b.ref = pre ? { url: pre.url, w: pre.w || 0, h: pre.h || 0, alt: pre.alt || '' } : { url: '', w: 0, h: 0, alt: '' };
       b.opts = { href: '' }; b.h = 150;
+      // El módulo de LOGO se arrastra vacío y luego se elige cuál: nace con el tamaño de un logo.
+      if (extra && extra.pick) { b.pick = extra.pick; b.w = 180; b.h = 90; }
       if (pre) { b.w = 180; b.h = 90; }
     }
     else if (tipo === 'files') { b.ref = {}; b.opts = { title: 'Archivos adjuntos', color: (corporate[0] || '#E33D48') }; b.h = 96; }
@@ -736,18 +837,20 @@
     canvas.style.height = Math.round(canvasH()) + 'px'; escala();
     marca(); selecciona(b.id);
     if (tipo === 'title' || tipo === 'text') { var t = elDe(b.id).querySelector('.pr-blk__text'); t.focus(); document.execCommand('selectAll', false, null); }
-    if (tipo === 'image' && !(b.ref && b.ref.url)) abreImagen(b);   // se elige la imagen en cuanto se coloca
+    // Se elige en cuanto se coloca: la imagen, o el LOGO si el módulo es el de logos.
+    if (tipo === 'image' && !(b.ref && b.ref.url)) { if (b.pick) abrePick(b); else abreImagen(b); }
     if (tipo === 'image' && b.ref && b.ref.url) { refrescaModulo(b); midePreset(b); }
     if (tipo === 'files') abreArchivos(b);          // y los archivos se suben en cuanto se coloca
     if (tipo === 'youtube' && !(b.ref && b.ref.url)) abreYoutube(b);   // se pega la URL al colocarlo
     // ⚠️ Un módulo que se arrastra VACÍO (single, disco, videoclip, enlaces, playlist) pregunta qué
     // lleva en cuanto se coloca; se pueden poner todos los que hagan falta.
-    if (PICK[tipo] && !refPuesta(b)) abrePick(b);
+    if (tipo !== 'image' && PICK[clavePick(b)] && !refPuesta(b)) abrePick(b);
     return b;
   }
   root.addEventListener('dragstart', function (ev) {
     var p = ev.target.closest('[data-pr-pal]'); if (!p) return;
-    ev.dataTransfer.setData('text/plain', JSON.stringify({ type: p.getAttribute('data-pr-pal'), ref: JSON.parse(p.getAttribute('data-pr-ref') || '{}') }));
+    ev.dataTransfer.setData('text/plain', JSON.stringify({ type: p.getAttribute('data-pr-pal'),
+      pick: p.getAttribute('data-pr-pick') || '', ref: JSON.parse(p.getAttribute('data-pr-ref') || '{}') }));
     ev.dataTransfer.effectAllowed = 'copy';
   });
   canvas.addEventListener('dragover', function (ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; canvas.classList.add('is-over'); });
@@ -758,11 +861,12 @@
     if (!datos.type) return;
     var r = canvas.getBoundingClientRect();
     var x = (ev.clientX - r.left) / k, y = (ev.clientY - r.top) / k;
-    nuevoBloque(datos.type, Math.max(0, Math.min(W - 520, x - 20)), Math.max(0, y - 10), { ref: datos.ref });
+    nuevoBloque(datos.type, Math.max(0, Math.min(W - 520, x - 20)), Math.max(0, y - 10), { ref: datos.ref, pick: datos.pick });
   });
   root.addEventListener('click', function (ev) {
     var p = ev.target.closest('[data-pr-pal]');
-    if (p && !ev.target.closest('.pr-pal__hint')) nuevoBloque(p.getAttribute('data-pr-pal'), null, null, { ref: JSON.parse(p.getAttribute('data-pr-ref') || '{}') });
+    if (p && !ev.target.closest('.pr-pal__hint')) nuevoBloque(p.getAttribute('data-pr-pal'), null, null,
+      { ref: JSON.parse(p.getAttribute('data-pr-ref') || '{}'), pick: p.getAttribute('data-pr-pick') || '' });
   });
 
   /* ---------- los módulos disponibles ---------- */
@@ -771,7 +875,7 @@
     fetch(root.getAttribute('data-assets-url')).then(function (r) { return r.json(); }).then(function (js) {
       assets = js || {};
       var grupos = [['activities', 'Datos de la actividad', 'fa-calendar-day'],
-                    ['logos', 'Logos (se arrastran como una imagen)', 'fa-building'], ['artwork', 'Cartelería', 'fa-clapperboard'],
+                    ['logos', 'Logos del grupo', 'fa-building'], ['artwork', 'Cartelería', 'fa-clapperboard'],
                     ['audios', 'Audio (escuchar / descargar)', 'fa-music'], ['albums', 'Repertorio del disco', 'fa-compact-disc'], ['videos', 'Videoclip', 'fa-film'],
                     ['links', 'Enlaces de plataformas', 'fa-link'], ['photos', 'Fotos', 'fa-images'], ['playlists', 'Playlists', 'fa-list-ul'],
                     ['contact', 'Contactos', 'fa-address-card']];
@@ -780,10 +884,13 @@
          directamente el que se quiere. */
       // Qué grupo de la paleta lleva su módulo VACÍO arriba, y cómo se llama.
       var GENERICO = { audios: 'audio', albums: 'album', videos: 'video', links: 'links', playlists: 'playlist',
-                       activities: 'activity' };
+                       activities: 'activity', logos: 'logo' };
       var VACIO_LABEL = { audio: 'Un single', album: 'Un disco', video: 'Un videoclip',
                           links: 'Unos enlaces', playlist: 'Una playlist',
-                          activity: 'Una actividad' };
+                          activity: 'Una actividad', logo: 'Un logo' };
+      /* ⚠️ UN LOGO ES UNA IMAGEN: el bloque que nace es `image` (se mueve, se redimensiona y se
+         recorta como cualquier imagen) y `pick` dice QUÉ se elige al colocarlo. */
+      var VACIO_TIPO = { logo: 'image' };
       /* ⚠️ EL VÍDEO DE YOUTUBE ESTÁ SIEMPRE: no sale de los materiales de nadie, se pega una URL.
          Va el primero porque es el que más se usa en un correo, y se arrastran los que hagan falta. */
       var html = '<div class="pr-pal-group"><div class="pr-pal-group__t"><i class="fa-brands fa-youtube"></i>Vídeo de YouTube</div>' +
@@ -796,7 +903,8 @@
         if (!items.length && !gen) return;
         html += '<div class="pr-pal-group"><div class="pr-pal-group__t"><i class="fa ' + g[2] + '"></i>' + esc(g[1]) + '</div>';
         if (gen) {
-          html += '<div class="pr-pal pr-pal--empty" draggable="true" data-pr-pal="' + esc(gen) + '" data-pr-ref="{}">' +
+          html += '<div class="pr-pal pr-pal--empty" draggable="true" data-pr-pal="' + esc(VACIO_TIPO[gen] || gen) + '"' +
+            (VACIO_TIPO[gen] ? ' data-pr-pick="' + esc(gen) + '"' : '') + ' data-pr-ref="{}">' +
             '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>' +
             '<span><b>' + esc(VACIO_LABEL[gen] || 'Módulo') + '</b><small>Se elige al colocarlo</small></span></div>';
         }
@@ -806,7 +914,12 @@
            entradas que hay que leer una a una, cuando el pop-up de elegir ya las trae con su
            buscador. Los demás grupos sí siguen ofreciendo lo concreto: un single o un disco se
            arrastran directamente. */
-        if (g[0] !== 'activities') {
+        /* ⚠️⚠️ SOLO EL MÓDULO VACÍO en los datos de una actividad, en el SINGLE y en el LOGO (sep
+           2026, lo pidió Dani: «el módulo de singles también va a ser para arrastrar y luego
+           seleccionar el single, y el módulo de logos, arrastrarás y luego te deja seleccionar el
+           logo de grupo que quieras»). Listar todo lo concreto llenaba la barra de entradas que hay
+           que leer una a una, cuando el pop-up de elegir ya las trae con su buscador. */
+        if (['activities', 'audios', 'logos'].indexOf(g[0]) < 0) {
           html += items.map(function (it) {
             return '<div class="pr-pal" draggable="true" data-pr-pal="' + esc(it.kind) + '" data-pr-ref="' + esc(JSON.stringify(it.ref || {})) + '">' +
               (it.cover ? '<img class="pr-pal__cover" src="' + esc(it.cover) + '" alt="">' : '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>') +
@@ -928,21 +1041,27 @@
        comienzo, con su cartel si lo hay. Solo se ofrecen las que están POR VENIR. */
     activity: { grupo: 'activities', titulo: 'Elegir la actividad', icon: 'fa-calendar-day',
                 vacio: 'No hay ninguna actividad por venir.' },
+    /* ⚠️ EL LOGO no es un tipo de bloque: el bloque es una IMAGEN y esta clave vive en `b.pick`
+       (por eso todo lo de aquí abajo pregunta por `clavePick(b)` y no por `b.type`). */
+    logo:     { grupo: 'logos',      titulo: 'Elegir el logo',     icon: 'fa-building',
+                vacio: 'No hay logos de empresa del grupo para esta comunicación.' },
   };
-  function opcionesDe(tipo) {
-    var cfg = PICK[tipo]; if (!cfg) return [];
+  /* Qué se elige en este bloque: su `pick` si lo lleva (el logo) y, si no, su propio tipo. */
+  function clavePick(b) { return (b && b.pick) || (b && b.type) || ''; }
+  function opcionesDe(clave) {
+    var cfg = PICK[clave]; if (!cfg) return [];
     return (assets && assets[cfg.grupo]) || [];
   }
   function mismoRef(a, b) {
     a = a || {}; b = b || {};
-    return ['song_id', 'album_id', 'playlist_id', 'concert_id'].every(function (k) { return (a[k] || '') === (b[k] || ''); });
+    return ['song_id', 'album_id', 'playlist_id', 'concert_id', 'url'].every(function (k) { return (a[k] || '') === (b[k] || ''); });
   }
   function pintaPick(filtro) {
     if (!pickModal || !pickTarget) return;
     var b = bloque(pickTarget); if (!b) return;
-    var cfg = PICK[b.type] || {};
+    var cfg = PICK[clavePick(b)] || {};
     var q = (filtro || '').toLowerCase().trim();
-    var items = opcionesDe(b.type).filter(function (it) {
+    var items = opcionesDe(clavePick(b)).filter(function (it) {
       if (!q) return true;
       return ((it.label || '') + ' ' + (it.sub || '')).toLowerCase().indexOf(q) >= 0;
     });
@@ -958,10 +1077,10 @@
     grid.__items = items;
   }
   function abrePick(b) {
-    if (!pickModal || !window.bootstrap || !b || !PICK[b.type]) return;
+    if (!pickModal || !window.bootstrap || !b || !PICK[clavePick(b)]) return;
     pickTarget = b.id;
     var tt = pickModal.querySelector('[data-pr-pick-title]');
-    if (tt) tt.textContent = PICK[b.type].titulo;
+    if (tt) tt.textContent = PICK[clavePick(b)].titulo;
     var q = pickModal.querySelector('[data-pr-pick-search]'); if (q) q.value = '';
     pintaPick('');
     bootstrap.Modal.getOrCreateInstance(pickModal).show();
@@ -972,10 +1091,18 @@
       var grid = pickModal.querySelector('[data-pr-pick-grid]');
       var datos = (grid.__items || [])[parseInt(it.getAttribute('data-pr-pick-item'), 10)];
       var b = bloque(pickTarget); if (!b || !datos) return;
+      bootstrap.Modal.getOrCreateInstance(pickModal).hide();
+      /* ⚠️ Un LOGO es una imagen: se pone con el mismo camino que cualquier otra para que respete
+         su proporción (si no, sale estirado) y se pueda recortar después. */
+      if (b.type === 'image') {
+        var r = datos.ref || {};
+        aplicaImagenBloque(b, r.url || '', r.w || 0, r.h || 0, r.url || '');
+        pintaProps(b);
+        return;
+      }
       b.ref = Object.assign({}, datos.ref || {});
       delete b.html_cache;
       marca(); refrescaModulo(b); pintaProps(b);
-      bootstrap.Modal.getOrCreateInstance(pickModal).hide();
     });
     pickModal.addEventListener('input', function (ev) {
       if (ev.target.closest('[data-pr-pick-search]')) pintaPick(ev.target.value);
@@ -987,11 +1114,11 @@
     var el = ev.target.closest('.pr-blk'); if (!el) return;
     var b = bloque(el.getAttribute('data-id'));
     if (b && b.type === 'youtube' && !(b.ref && b.ref.url)) { abreYoutube(b); return; }
-    if (b && PICK[b.type] && !refPuesta(b)) abrePick(b);
+    if (b && PICK[clavePick(b)] && !refPuesta(b)) abrePick(b);
   });
   function refPuesta(b) {
     var r = (b && b.ref) || {};
-    return !!(r.song_id || r.album_id || r.playlist_id || r.concert_id);
+    return !!(r.song_id || r.album_id || r.playlist_id || r.concert_id || r.url);
   }
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════
@@ -1340,7 +1467,7 @@
     var box = contactsModal.querySelector('[data-pr-contacts-list]');
     // Lo pinta el SERVIDOR (el mismo renderizador): se le pide el módulo y se lee su `data`.
     box.innerHTML = '<div class="text-muted small">Cargando…</div>';
-    post(root.getAttribute('data-block-url'), { id: b.id, type: b.type, ref: b.ref || {}, opts: b.opts || {}, w: b.w }).then(function (js) {
+    post(root.getAttribute('data-block-url'), { id: b.id, type: b.type, pick: b.pick || '', ref: b.ref || {}, opts: b.opts || {}, w: b.w }).then(function (js) {
       var lista = (js && js.data && js.data.contacts) || [];
       // NINGUNO es fijo: todos se pueden quitar (y volver a añadir).
       box.innerHTML = lista.length ? lista.map(function (c) { return tarjetaContacto(c, true); }).join('') : '<div class="text-muted small">Sin contactos: añade a alguien abajo.</div>';
@@ -1548,7 +1675,7 @@
     return { width: W, bg: design.bg, swatches: misColores(), blocks: design.blocks.map(function (b) {
       var o = { id: b.id, type: b.type, x: b.x, y: b.y, w: b.w, h: b.h };
       if (b.type === 'title' || b.type === 'text') { var el = elDe(b.id); o.html = el ? el.querySelector('.pr-blk__text').innerHTML : (b.html || ''); o.style = b.style || {}; }
-      else { o.ref = b.ref || {}; o.opts = b.opts || {}; }
+      else { o.ref = b.ref || {}; o.opts = b.opts || {}; if (b.pick) o.pick = b.pick; }
       return o;
     }) };
   }

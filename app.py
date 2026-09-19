@@ -6419,16 +6419,112 @@ def _artwork_kind_of(asset) -> str:
 def _artwork_image_src(asset) -> str:
     """La URL del cartel que se puede usar COMO IMAGEN (miniatura, previsualización de un enlace).
 
-    Un vídeo no es una imagen: se usa su miniatura, y si todavía no la tiene, no hay imagen."""
+    Un vídeo no es una imagen: se usa su miniatura, y si todavía no la tiene, no hay imagen.
+    ⚠️⚠️ **UN CARTEL EN PDF TAMBIÉN TIENE MINIATURA** (sep 2026, lo pidió Dani: «el cartel se tiene
+    que ver si está subido» — y media cartelería llega en PDF, que es lo que manda la imprenta).
+    Es la misma regla que el vídeo: el PDF no es una imagen, pero **su primera página sí**, y se
+    guarda en el mismo `poster_url`. La saca `_artwork_pdf_preview` bajo demanda; hasta que exista,
+    aquí no hay imagen (y quien pinte se queda con su respaldo, como hasta ahora)."""
     if asset is None:
         return ''
     kind = _artwork_kind_of(asset)
-    if kind == 'VIDEO':
+    if kind in ('VIDEO', 'PDF'):
         return (getattr(asset, 'poster_url', None) or '').strip()
-    # De un PDF, de una cuña de radio o de un vectorial de imprenta NO sale una imagen.
-    if kind in ('PDF', 'AUDIO', 'FILE'):
+    # De una cuña de radio o de un vectorial de imprenta NO sale una imagen.
+    if kind in ('AUDIO', 'FILE'):
         return ''
     return (getattr(asset, 'file_url', None) or '').strip()
+
+
+# ══════════════ LA MINIATURA DE UN CARTEL QUE LLEGA EN PDF ══════════════
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «el módulo de actividades sigue sin cargar el cartel». La causa es
+# que un cartel en **PDF** no daba ninguna imagen en ningún sitio, y el PDF es justo lo que manda la
+# imprenta y lo que sube media gente. Se saca la **primera página** y se guarda como JPEG en el
+# MISMO `poster_url` que ya usan los vídeos, así todo lo que pinta miniaturas lo aprovecha sin
+# cambiar nada más.
+# ⚠️ Sin binarios nuevos: `pypdf` saca las imágenes EMBEBIDAS de la página (que es lo que lleva un
+# cartel exportado de Photoshop o de Illustrator) y Pillow la reescala. Un PDF **vectorial puro** no
+# trae ninguna: entonces no hay miniatura y se cae al respaldo de siempre, que es lo honesto.
+ARTWORK_PDF_PREVIEW_MAX = 1400            # lado largo de la miniatura que se guarda
+ARTWORK_PDF_PREVIEW_MAX_BYTES = 40 * 1024 * 1024   # de un PDF más gordo no se intenta (tiempo y RAM)
+_ARTWORK_PDF_LOCK = threading.Lock()
+_ARTWORK_PDF_FAILED: dict[str, float] = {}         # id -> hasta cuándo no se vuelve a intentar
+_ARTWORK_PDF_FAIL_TTL = 6 * 3600
+
+
+def _artwork_pdf_preview_bytes(url: str):
+    """La primera página de un cartel en PDF, como JPEG. `None` si no se puede."""
+    if not (url or '').strip():
+        return None
+    try:
+        from pypdf import PdfReader
+        from PIL import Image
+        req = Request(url, headers={'User-Agent': 'app33'})
+        with urlopen(req, timeout=20) as r:
+            data = r.read(ARTWORK_PDF_PREVIEW_MAX_BYTES + 1)
+        if not data or len(data) > ARTWORK_PDF_PREVIEW_MAX_BYTES:
+            return None
+        pagina = PdfReader(io.BytesIO(data)).pages[0]
+        # La MÁS GRANDE de las imágenes de la página: un cartel suele traer una sola (la suya), y si
+        # trae varias, la pequeña es el logo de una esquina.
+        mejor, area = None, 0
+        for im in pagina.images:
+            try:
+                w, h = im.image.size
+            except Exception:
+                continue
+            if w * h > area:
+                mejor, area = im.image, w * h
+        if mejor is None or area < 10000:       # ni una imagen de verdad: PDF vectorial
+            return None
+        img = mejor.convert('RGB')
+        img.thumbnail((ARTWORK_PDF_PREVIEW_MAX, ARTWORK_PDF_PREVIEW_MAX), Image.LANCZOS)
+        out = io.BytesIO()
+        img.save(out, 'JPEG', quality=85, optimize=True)
+        return out.getvalue()
+    except Exception:
+        app.logger.exception('[carteleria] no se pudo sacar la miniatura de un cartel en PDF')
+        return None
+
+
+def _artwork_pdf_preview(session_db, asset) -> str:
+    """La miniatura de un cartel en PDF, generándola la primera vez que hace falta.
+
+    Guarda la URL en `asset.poster_url` (clave DETERMINISTA por id, con upsert: si dos workers la
+    generan a la vez sobreescriben el mismo objeto en vez de dejar un JPEG huérfano) y no reintenta
+    lo que acaba de fallar."""
+    if asset is None or _artwork_kind_of(asset) != 'PDF':
+        return ''
+    ya = (getattr(asset, 'poster_url', None) or '').strip()
+    if ya:
+        return ya
+    aid = str(getattr(asset, 'id', '') or '')
+    if not aid:
+        return ''
+    ahora = time.time()
+    with _ARTWORK_PDF_LOCK:
+        exp = _ARTWORK_PDF_FAILED.get(aid)
+        if exp is not None and exp > ahora:
+            return ''
+        _ARTWORK_PDF_FAILED.pop(aid, None)
+    data = _artwork_pdf_preview_bytes((getattr(asset, 'file_url', None) or '').strip())
+    if not data:
+        with _ARTWORK_PDF_LOCK:
+            _ARTWORK_PDF_FAILED[aid] = ahora + _ARTWORK_PDF_FAIL_TTL
+        return ''
+    try:
+        url = _upload_bytes(data, 'artwork/pdf/%s.jpg' % aid, 'image/jpeg', upsert=True)
+    except Exception:
+        app.logger.exception('[carteleria] no se pudo subir la miniatura de un cartel en PDF')
+        with _ARTWORK_PDF_LOCK:
+            _ARTWORK_PDF_FAILED[aid] = ahora + _ARTWORK_PDF_FAIL_TTL
+        return ''
+    try:                                  # el guardado es best-effort: la URL ya vale para pintar
+        asset.poster_url = url
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+    return url
 
 
 def _artwork_can_be_primary(asset) -> bool:
@@ -60978,38 +61074,68 @@ def _concert_module_poster(session_db, concert) -> str:
     ⚠️⚠️ Lo pidió Dani (sep 2026): «el cartel se tiene que ver si está subido». Un cartel pasa por
     **dos** vistos buenos (PENDING → DESIGN_OK → APPROVED), así que entre medias el módulo se
     quedaba **sin cartel aunque estuviera ahí** — que es lo que se vio al actualizar una actividad.
+    ⚠️⚠️ Y seguía sin verse en casos que sí son «está subido» (Dani lo dijo tres veces): un cartel
+    **en PDF** —lo que manda la imprenta— no daba imagen ninguna (ahora `_artwork_pdf_preview` le
+    saca la primera página), y un cartel que cuelga de la **GIRA, el CICLO o el EVENTO** solo valía
+    si estaba aprobado. Se recorre, de lo más concreto a lo más amplio: lo aprobado de la actividad
+    o de su grupo → lo subido de la actividad → lo subido de su grupo.
+    ⚠️ **NO se cae a `_concert_poster_url`** (el de la cabecera de las invitaciones) aunque sea el
+    otro punto único del cartel: ese **no mira el visto bueno**, así que colaría un cartel
+    RECHAZADO. Lo que busca aquí ya cubre todo lo que cubre aquel, menos justo eso.
     ⚠️ Esto NO cambia `_concert_artwork_share_assets`: lo que se le manda al artista o al promotor
     sigue siendo **solo lo aprobado**. Aquí es la viñeta de una invitación o de una nota, que la
     compone alguien de la casa mirándola.
     ⚠️ Un cartel RECHAZADO no vale nunca (está mal por definición) ni uno archivado."""
     if concert is None:
         return ""
-    try:
-        for a in _concert_artwork_share_assets(session_db, concert):
-            if _artwork_asset_category(a) == "POSTER":
-                url = _absolute_media_url(_artwork_image_src(a) or "")
-                if url:
-                    return url
-    except Exception:
-        app.logger.exception("[notas de prensa] no se pudo leer el cartel aprobado de la actividad")
-    try:
-        req = getattr(concert, "artwork_request", None)
+
+    def _src(a) -> str:
+        """La imagen de una pieza; de un PDF, su primera página (se genera la primera vez)."""
+        url = _artwork_image_src(a) or ""
+        if not url and _artwork_kind_of(a) == "PDF":
+            url = _artwork_pdf_preview(session_db, a)
+        return _absolute_media_url(url) if url else ""
+
+    def _de(piezas) -> str:
         # El PRINCIPAL primero (si hay varios, es el que se enseña en las cabeceras).
-        piezas = sorted(((getattr(req, "assets", None) or []) if req else []),
-                        key=lambda a: (not bool(getattr(a, "is_primary", False)),
-                                       getattr(a, "created_at", None) or datetime.min))
-        for a in piezas:
+        for a in sorted(piezas, key=lambda x: (not bool(getattr(x, "is_primary", False)),
+                                               getattr(x, "created_at", None) or datetime.min)):
             if bool(getattr(a, "is_archived", False)):
                 continue
             if (getattr(a, "validation_status", None) or "").upper() == "REJECTED":
                 continue
             if _artwork_asset_category(a) != "POSTER":
                 continue
-            url = _absolute_media_url(_artwork_image_src(a) or "")
+            url = _src(a)
+            if url:
+                return url
+        return ""
+
+    try:
+        url = _de(_concert_artwork_share_assets(session_db, concert))
+        if url:
+            return url
+    except Exception:
+        app.logger.exception("[diseño de comunicaciones] no se pudo leer el cartel aprobado de la actividad")
+    try:
+        req = getattr(concert, "artwork_request", None)
+        url = _de((getattr(req, "assets", None) or []) if req else [])
+        if url:
+            return url
+    except Exception:
+        app.logger.exception("[diseño de comunicaciones] no se pudo leer el cartel subido de la actividad")
+    try:
+        # Su CICLO, su gira y por último su evento: los carteles generales son los de esta fecha.
+        grupos = sorted(_concert_group_refs(concert),
+                        key=lambda kg: ARTWORK_GROUP_SHARE_ORDER.index(kg[0])
+                        if kg[0] in ARTWORK_GROUP_SHARE_ORDER else 99)
+        for kind, gid in grupos:
+            row = _artwork_group_request(session_db, kind, gid)
+            url = _de((getattr(row, "assets", None) or []) if row is not None else [])
             if url:
                 return url
     except Exception:
-        app.logger.exception("[notas de prensa] no se pudo leer el cartel subido de la actividad")
+        app.logger.exception("[diseño de comunicaciones] no se pudo leer el cartel de la gira o el ciclo")
     return ""
 
 
@@ -63121,6 +63247,9 @@ def promo_press_block_html(release_id):
                   "ref": raw.get("ref") if isinstance(raw.get("ref"), dict) else {},
                   "opts": raw.get("opts") if isinstance(raw.get("opts"), dict) else {}}
         bloque["id"] = str(raw.get("id") or "")[:24]      # los adjuntos cuelgan del id del bloque
+        # ⚠️ QUÉ SE ELIGE en el bloque (hoy, el LOGO): sin esto el hueco de un logo sin elegir diría
+        # «Pincha para elegir la foto», que no es lo que se pincha. Lo sanea `blocks_of`.
+        bloque["pick"] = raw.get("pick")
         resuelto = _press_resolve_blocks(s, pr, {"blocks": [bloque]}, pr.public_token)
         b = press_render.blocks_of(resuelto)
         return jsonify({"ok": True, "html": press_render.module_html(b[0], editing=True) if b else "",
@@ -63443,6 +63572,11 @@ def promo_press_save(release_id):
             else:
                 limpio["ref"] = {k: (v if isinstance(v, (list, str, int, float, bool)) else str(v)) for k, v in (b.get("ref") or {}).items()}
                 limpio["opts"] = {k: (v if isinstance(v, (list, str, int, float, bool)) else str(v)) for k, v in (b.get("opts") or {}).items()}
+                # ⚠️ QUÉ SE ELIGE en un bloque que no lo dice su tipo (hoy, el LOGO: el bloque es una
+                # `image`). Sin guardarlo, al reabrir el diseño un logo todavía vacío pediría una
+                # FOTO en vez de un logo (ya saneado en `blocks_of`).
+                if b.get("pick"):
+                    limpio["pick"] = b["pick"]
             bloques_limpios.append(limpio)
         bg = design.get("bg") if isinstance(design.get("bg"), dict) else {}
         nuevo = {"width": press_render.WIDTH,

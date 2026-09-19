@@ -788,3 +788,20 @@
   ⚠️ **Se hace UNA sola vez**: la marca es `shared_with_artist_at`, la misma que enseña la etiqueta
   «Compartido con el artista» de la pestaña (no hay dos verdades). Y si no hay a quién mandárselo,
   **no se calla**: queda el aviso de que no se ha podido avisar (`SIN_NOTIFICACIONES`).
+
+- ⚠️⚠️ **UN CARTEL EN PDF TAMBIÉN TIENE MINIATURA** (sep 2026). Hasta ahora, de un PDF **no salía
+  ninguna imagen** en toda la app (`_artwork_image_src` devolvía vacío para PDF, AUDIO y FILE), y el
+  PDF es justo lo que manda la imprenta y lo que sube media gente: por eso «el cartel está subido y
+  no se ve». Es la MISMA regla que el vídeo —un PDF no es una imagen, pero **su primera página
+  sí**— y se guarda en el **mismo `poster_url`**, así lo aprovecha todo lo que pinta miniaturas.
+  · **`_artwork_pdf_preview(session_db, asset)`** la genera la primera vez que hace falta y la
+  guarda; **`_artwork_pdf_preview_bytes(url)`** es el que trabaja: **sin binarios nuevos**, `pypdf`
+  saca las imágenes **EMBEBIDAS** de la página (la más grande: si hay varias, la pequeña es el logo
+  de una esquina) y Pillow la reescala a 1400 px de lado largo. Clave DETERMINISTA
+  (`artwork/pdf/<id>.jpg`, con upsert, para que dos workers no dejen un JPEG huérfano) y **caché
+  negativa de 6 h** para no reintentar en cada pintada, igual que el póster de un vídeo.
+  ⚠️ Un **PDF vectorial puro** no trae ninguna imagen dentro: entonces **no hay miniatura** y quien
+  pinte se queda con su respaldo. No se inventa nada.
+  ⚠️ `_artwork_can_be_primary` **no cambia**: el cartel PRINCIPAL (el que representa la actividad en
+  una cabecera o en la miniatura de un enlace) sigue teniendo que ser una IMAGEN de verdad.
+  → Quién lo usa y por qué, en `docs/app/promocion-prensa.md` («Diseño de comunicaciones»).

@@ -791,6 +791,309 @@ check("la página pública abre sin sesión", r.status_code == 200, r.status_cod
 check("y se presenta como «Invitación», no como nota de prensa",
       "Invitación" in r.get_data(as_text=True) and "Nota de prensa" not in r.get_data(as_text=True))
 
+print("\n── 14. MI LISTA DE INVITADOS: el NICK, la VINCULACIÓN y las marcas ────")
+# ⚠️ Lo pidió Dani: en la fila se lee **el nick** (no el nombre completo), por ORDEN ALFABÉTICO, y
+# debajo, más pequeña y con su logo, la VINCULACIÓN. Y dos marcas: a quién no le llega y quién no
+# abre lo que se le manda.
+s = models.SessionLocal()
+try:
+    # Una lista propia con tres personas de nicks deliberadamente desordenados y con acento.
+    lst = models.CorporateGuestList(user_id=A.to_uuid(UID), name="Orden")
+    s.add(lst); s.flush()
+    LID_ORD = str(lst.id)
+    medio = models.Promoter(nick="Radio Ñ", logo_url="https://x/radio.jpg")
+    s.add(medio); s.flush()
+    nicks = [("Zoe", "zoe@x.com"), ("Álvaro", "alvaro@x.com"), ("Bruno", "bruno@x.com")]
+    creados = {}
+    for nick, correo in nicks:
+        p = models.Promoter(nick=nick, first_name=nick, last_name="Pérez", contact_email=correo,
+                            logo_url="https://x/%s.jpg" % nick.lower())
+        s.add(p); s.flush()
+        creados[nick] = p
+        s.add(models.CorporateGuest(list_id=lst.id, promoter_id=p.id, name="%s Pérez" % nick, email=correo))
+    # Álvaro está VINCULADO a la emisora, con su relación.
+    s.add(models.ThirdPartyLink(source_type="promoter", source_id=creados["Álvaro"].id,
+                                target_type="promoter", target_id=medio.id, relation_title="director"))
+    s.commit()
+finally:
+    s.close()
+
+r = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD)
+js = r.get_json() or {}
+filas = js.get("rows") or []
+check("la lista se lee (200)", r.status_code == 200 and js.get("ok"), r.status_code)
+check("lo que se muestra es EL NICK", [f.get("nick") for f in filas] == ["Álvaro", "Bruno", "Zoe"],
+      [f.get("nick") for f in filas])
+check("y NO el nombre completo", all(f["nick"] != f["name"] for f in filas), [(f["nick"], f["name"]) for f in filas])
+check("ORDEN ALFABÉTICO por nick, y el acento no lo altera",
+      [f["sort_key"] for f in filas] == sorted(f["sort_key"] for f in filas), [f["sort_key"] for f in filas])
+alv = [f for f in filas if f["nick"] == "Álvaro"][0]
+check("la VINCULACIÓN va en la fila", (alv.get("link") or {}).get("label") == "Radio Ñ", alv.get("link"))
+check("con su relación", (alv.get("link") or {}).get("relation") == "director", alv.get("link"))
+check("y con su logo o su foto", bool((alv.get("link") or {}).get("logo_url")), alv.get("link"))
+check("quien no tiene vinculación no la lleva", [f for f in filas if f["nick"] == "Zoe"][0].get("link") is None)
+check("el nick lleva a su ficha", all(f.get("promoter_url") for f in filas))
+
+# LAS MARCAS: se siembran envíos ya hechos (es lo que mira `_corp_mail_health`).
+s = models.SessionLocal()
+try:
+    ahora = A._now_madrid()
+    # ⚠️ «Los últimos correos» son los de DISTINTAS invitaciones (en una misma no se recibe dos
+    # veces: lo impide el UNIQUE), que es exactamente como pasa en la vida real.
+    invs = []
+    for i in range(2):
+        iv = models.CorporateInvite(user_id=A.to_uuid(UID), subject="Marcas %d" % i, status="SENT",
+                                    lists_json=[LID_ORD])
+        s.add(iv); s.flush()
+        invs.append(iv)
+        # Zoe: DOS correos entregados y ninguno abierto → sobre tachado
+        s.add(models.CorporateInviteRecipient(invite_id=iv.id, email="zoe@x.com", token="tk-z%d" % i,
+                                              status="ENVIADO", sent_at=ahora))
+    # Álvaro: UNO solo sin abrir → todavía no se marca (son «los últimos», en plural)
+    s.add(models.CorporateInviteRecipient(invite_id=invs[0].id, email="alvaro@x.com", token="tk-a0",
+                                          status="ENVIADO", sent_at=ahora))
+    # Bruno: el último REBOTÓ porque la dirección no existe → triángulo
+    s.add(models.CorporateInviteRecipient(invite_id=invs[0].id, email="bruno@x.com", token="tk-b1",
+                                          status="ERROR", error="550 5.1.1 No such user here", sent_at=ahora))
+    s.commit()
+finally:
+    s.close()
+filas = (cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
+por_nick = {f["nick"]: f for f in filas}
+check("a quien REBOTÓ el correo se le marca", por_nick["Bruno"]["mail_status"] == "error", por_nick["Bruno"])
+check("y se distingue «ese correo NO EXISTE» de un fallo pasajero", por_nick["Bruno"]["mail_hard"] is True)
+check("un fallo pasajero NO se marca como inexistente",
+      A._corp_error_is_bounce("451 timeout, try again later") is False)
+check("quien no abre los últimos correos se marca", por_nick["Zoe"]["mail_status"] == "unopened", por_nick["Zoe"])
+check("con UN solo correo sin abrir todavía NO se marca (son «los últimos», en plural)",
+      por_nick["Álvaro"]["mail_status"] == "", por_nick["Álvaro"])
+js = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}
+check("la cabecera de la lista dice cuántos no le llegan", js.get("bounced") == 1, js.get("bounced"))
+check("y cuántos no abren", js.get("quiet") == 1, js.get("quiet"))
+# ⚠️ El mismo dato en la pantalla entera (la galleta sale del MISMO sitio que la marca de la fila).
+html = cli.get("/invitaciones-corporativas?tab=listas").get_data(as_text=True)
+check("la pantalla pinta la galleta de «no le llega»", "no le llega" in html)
+check("y la de «sin abrir»", "sin abrir" in html)
+# Se puede AGREGAR y QUITAR gente.
+r = cli.post("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD, data={"name": "Nuevo", "email": "nuevo@x.com"})
+check("se puede AÑADIR a alguien", (r.get_json() or {}).get("ok") is True, r.get_json())
+filas = (cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
+gid = [f["id"] for f in filas if f["email"] == "nuevo@x.com"][0]
+r = cli.post("/invitaciones-corporativas/invitados/%s/quitar" % gid)
+check("y QUITARLO", (r.get_json() or {}).get("ok") is True, r.get_json())
+filas = (cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
+check("se ha quitado de verdad", "nuevo@x.com" not in [f["email"] for f in filas])
+
+print("\n── 15. LA PANTALLA PREVIA AL ENVÍO (la MISMA de toda la app) ──────────")
+# ⚠️ Lo pidió Dani: «hemos dicho que esta función siempre es igual en todos los sitios». Se comprueba
+# que es LITERALMENTE la misma plantilla y el mismo motor que la de una nota de prensa.
+# ⚠️ SIN DISEÑO no hay nada que enviar ni que previsualizar: se lleva al editor. Hace falta una
+# invitación SIN actividad, porque con actividad el módulo de sus datos nace YA PUESTO.
+cli.post("/invitaciones-corporativas/nueva", data={"lists": [LID_ORD], "subject": "Sin diseño"})
+s = models.SessionLocal()
+try:
+    inv0 = s.query(models.CorporateInvite).filter(models.CorporateInvite.subject == "Sin diseño").first()
+    INV0 = str(inv0.id)
+finally:
+    s.close()
+r = cli.get("/invitaciones-corporativas/%s/enviar" % INV0)
+check("sin diseño, «Enviar» lleva al editor", r.status_code == 302 and "/editar" in r.headers.get("Location", ""),
+      r.headers.get("Location"))
+
+r = cli.post("/invitaciones-corporativas/nueva", data={"lists": [LID_ORD], "concert_id": CID, "subject": "Con pantalla"})
+check("crear lleva al editor", r.status_code == 302 and "/editar" in r.headers.get("Location", ""), r.headers.get("Location"))
+s = models.SessionLocal()
+try:
+    inv2 = s.query(models.CorporateInvite).filter(models.CorporateInvite.subject == "Con pantalla").first()
+    INV2, PR2 = str(inv2.id), str(inv2.design_release_id)
+    check("con actividad, el diseño nace con su módulo puesto", bool((inv2.design_release.design or {}).get("blocks")))
+    pr2 = s.get(models.PressRelease, A.to_uuid(PR2))
+    pr2.design = {"width": 600, "bg": {}, "blocks": [
+        {"id": "t1", "type": "title", "x": 20, "y": 20, "w": 520, "h": 60, "html": "<p>Te invito</p>"}]}
+    s.commit()
+finally:
+    s.close()
+r = cli.get("/invitaciones-corporativas/%s/enviar" % INV2)
+html = r.get_data(as_text=True)
+check("la pantalla previa al envío abre (200)", r.status_code == 200, r.status_code)
+check("lleva LA VISTA PREVIA del correo", 'class="pr-send__frame"' in html and "/previsualizar" in html)
+check("y la opción de EMAIL DE PRUEBA", 'id="prConfirmModal"' in html and "mándame la prueba" in html)
+check("usa el MISMO motor que las notas de prensa", "js/press_send.js" in html)
+check("dice de quién sale (su propio correo)", "dani@33producciones.es" in html)
+check("enseña a quién se le va a mandar, por listas", 'data-pr-recip' in html and "Orden" in html)
+check("con el NICK de cada uno", ">Álvaro<" in html and ">Zoe<" in html, None)
+check("y con sus marcas de correo", "ci-guest__mark" in html)
+check("se puede añadir a alguien más antes de mandar", "data-pr-search" in html and "data-pr-manual" in html)
+check("un envío NO se programa (eso es de las notas de prensa)", 'name="when"' not in html)
+# El correo de PRUEBA sale, y NO cuenta como que alguien la ha abierto.
+ENVIADOS.clear()
+r = cli.post("/invitaciones-corporativas/%s/prueba" % INV2, json={"email": "dani@33producciones.es"})
+js = r.get_json() or {}
+check("el email de PRUEBA se manda", js.get("ok") is True, js)
+check("al correo de quien la está preparando", js.get("email") == "dani@33producciones.es", js)
+check("y se marca como prueba en el asunto", ENVIADOS and ENVIADOS[0]["subject"].startswith("[PRUEBA]"),
+      ENVIADOS and ENVIADOS[0]["subject"])
+s = models.SessionLocal()
+try:
+    check("la prueba NO crea ningún destinatario", s.query(models.CorporateInviteRecipient)
+          .filter(models.CorporateInviteRecipient.invite_id == A.to_uuid(INV2)).count() == 0)
+finally:
+    s.close()
+# Enviar SOLO a los marcados: se quita a uno y se añade a alguien de fuera.
+ENVIADOS.clear()
+r = cli.post("/invitaciones-corporativas/%s/enviar" % INV2, json={"recipients": [
+    {"email": "alvaro@x.com", "name": "Álvaro Pérez", "group_label": "Orden"},
+    {"email": "invitado@fuera.com", "name": "De fuera", "group_label": "Añadidos"}]})
+js = r.get_json() or {}
+check("se manda a los MARCADOS", js.get("ok") is True and js.get("total") == 2, js)
+destinos = sorted(e["to"] for e in ENVIADOS)
+check("al que se quitó NO le llega", "zoe@x.com" not in destinos, destinos)
+check("y al añadido a mano SÍ", "invitado@fuera.com" in destinos, destinos)
+check("al terminar lleva a la ficha de la invitación", "/invitaciones-corporativas/%s" % INV2 in (js.get("url") or ""),
+      js.get("url"))
+
+print("\n── 16. LA FICHA DE UNA ENVIADA: abierta · reenviada · no le llegó ─────")
+s = models.SessionLocal()
+try:
+    filas = (s.query(models.CorporateInviteRecipient)
+             .filter(models.CorporateInviteRecipient.invite_id == A.to_uuid(INV2)).all())
+    TOK_ALV = [f.token for f in filas if f.email == "alvaro@x.com"][0]
+finally:
+    s.close()
+# La abre ELLA (un navegador) …
+anon.get("/ic/%s/a.gif" % TOK_ALV, headers={"User-Agent": "Mail/1.0 iPhone"})
+s = models.SessionLocal()
+try:
+    r1 = s.query(models.CorporateInviteRecipient).filter(models.CorporateInviteRecipient.token == TOK_ALV).first()
+    check("queda apuntado que la ABRIÓ", r1.opened_at is not None)
+    check("y todavía no consta como reenviada", r1.forwarded_at is None)
+finally:
+    s.close()
+# … la vuelve a abrir en el MISMO sitio: eso no es un reenvío.
+anon.get("/ic/%s/a.gif" % TOK_ALV, headers={"User-Agent": "Mail/1.0 iPhone"})
+s = models.SessionLocal()
+try:
+    r1 = s.query(models.CorporateInviteRecipient).filter(models.CorporateInviteRecipient.token == TOK_ALV).first()
+    check("abrirla otra vez en el mismo sitio NO es reenviarla", r1.forwarded_at is None and r1.open_count == 2,
+          (r1.forward_count, r1.open_count))
+finally:
+    s.close()
+# … y ahora se abre desde OTRO sitio: el correo está en manos de alguien más.
+anon.get("/ic/%s/a.gif" % TOK_ALV, headers={"User-Agent": "Outlook/16 Windows"})
+s = models.SessionLocal()
+try:
+    r1 = s.query(models.CorporateInviteRecipient).filter(models.CorporateInviteRecipient.token == TOK_ALV).first()
+    check("abrirla desde OTRO sitio es REENVIARLA", r1.forwarded_at is not None and r1.forward_count == 1,
+          (r1.forwarded_at, r1.forward_count))
+    # Y uno al que no le llegó (dirección inexistente).
+    malo = [f for f in s.query(models.CorporateInviteRecipient)
+            .filter(models.CorporateInviteRecipient.invite_id == A.to_uuid(INV2)).all()
+            if f.email == "invitado@fuera.com"][0]
+    malo.status, malo.error = "ERROR", "550 5.1.1 Recipient address rejected: User unknown"
+    s.commit()
+finally:
+    s.close()
+r = cli.get("/invitaciones-corporativas/%s" % INV2)
+html = r.get_data(as_text=True)
+check("la ficha abre (200)", r.status_code == 200, r.status_code)
+check("enseña el LISTADO de a quién se le mandó", "A quién se le mandó" in html)
+check("con el icono de ABIERTA", "fa-envelope-open" in html)
+check("con el icono de REENVIADA", "fa-share-from-square" in html and "La ha reenviado" in html)
+check("y con el triángulo de «ese correo no existe»",
+      "fa-triangle-exclamation" in html and "Ese correo no existe" in html)
+check("cada uno con su NICK", ">Álvaro<" in html)
+check("y con su vinculación", "Radio Ñ" in html)
+check("hay leyenda de qué es cada icono", "reenviada" in html and "no le llega" in html or "no existe" in html)
+# La tarjeta del listado lleva a la ficha, y NO es un `<a>` (dentro ya hay enlaces y un formulario).
+html = cli.get("/invitaciones-corporativas").get_data(as_text=True)
+check("una invitación ENVIADA se pincha entera", 'data-ci-open="/invitaciones-corporativas/%s"' % INV2 in html)
+check("y un BORRADOR no (todavía no hay nada que ver)",
+      'data-ci-open="/invitaciones-corporativas/%s"' % INV0 not in html and ('data-ci-invite="%s"' % INV0) in html)
+check("el listado dice cuántas se han reenviado", "reenviado" in html)
+
+print("\n── 17. EL MÓDULO DE VÍDEO DE YOUTUBE ──────────────────────────────────")
+# ⚠️ Lo pidió Dani: se arrastra, se pincha para poner la URL, sale la miniatura con el play rojo y
+# se reproduce en un pop-up. Se mueve, se cambia de tamaño y se pueden poner todos los que hagan falta.
+VID = "dQw4w9WgXcQ"
+for texto in ("https://www.youtube.com/watch?v=" + VID,
+              "https://youtu.be/" + VID,
+              "https://youtu.be/%s?t=42" % VID,
+              "https://www.youtube.com/embed/" + VID,
+              "https://www.youtube.com/shorts/" + VID,
+              "https://www.youtube.com/live/" + VID,
+              "https://m.youtube.com/watch?app=desktop&v=" + VID,
+              VID):
+    check("se entiende «%s»" % texto[:44], A.youtube_video_id(texto) == VID, A.youtube_video_id(texto))
+for malo in ("", "https://vimeo.com/12345", "https://www.youtube.com/watch?v=corto", "pásame el enlace"):
+    check("y NO se traga «%s»" % (malo or "(vacío)"), A.youtube_video_id(malo) == "")
+
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        pr = models.PressRelease(purpose="INVITE", status="DRAFT", subject_kind="ARTIST", artist_ids=[],
+                                 about_kind="SUBJECT", design={"blocks": []}, public_token="tok-yt")
+        b = {"type": "youtube", "x": 0, "y": 0, "w": 520, "h": 292, "ref": {"url": "https://youtu.be/" + VID}}
+        res = A._press_resolve_blocks(s, pr, {"blocks": [b]}, "tok-yt")
+        bl = press_render.blocks_of(res)[0]
+        d = bl.get("data") or {}
+        check("el módulo resuelve el vídeo", d.get("video_id") == VID, d.get("video_id"))
+        check("la miniatura es NUESTRA, no una URL de YouTube",
+              "/video/%s/portada.png" % VID in (d.get("thumb_url") or "") and "ytimg" not in (d.get("thumb_url") or ""),
+              d.get("thumb_url"))
+        check("y el pop-up también es nuestro", "/video/%s" % VID in (d.get("popup_url") or ""), d.get("popup_url"))
+        html = press_render.module_html(bl, for_email=True)
+        check("en el correo se ve LA MINIATURA", "/portada.png" in html and "<img" in html)
+        check("y se pincha para ver el vídeo", 'href="' in html and "/video/%s" % VID in html)
+        # ⚠️ El módulo es SOLO el enlace con su imagen: ni título, ni botón, ni tarjeta alrededor
+        # (lo pidió Dani así). El `alt` sí va: es lo que lee quien no ve la imagen.
+        import re as _re
+        check("SIN título ni nada más (lo pidió Dani así)",
+              _re.fullmatch(r'<a [^>]*><img [^>]*></a>', html) is not None, html[:220])
+        check("y sin tarjeta ni texto alrededor",
+              "<div" not in html and "<table" not in html and "YouTube" not in html, html[:220])
+        # Sin URL: hueco en el editor, nada fuera de él.
+        vacio = {"type": "youtube", "x": 0, "y": 0, "w": 520, "h": 292, "ref": {}}
+        bv = press_render.blocks_of(A._press_resolve_blocks(s, pr, {"blocks": [vacio]}, "tok-yt"))[0]
+        check("sin URL queda PENDIENTE", press_render.is_pending(bv) is True)
+        check("y no se pinta en el correo", press_render.module_html(bv, for_email=True) == "")
+        check("pero en el editor invita a completarlo",
+              "Pincha para pegar la URL" in press_render.module_html(bv, editing=True))
+        # VARIOS vídeos en el mismo correo, cada uno el suyo.
+        dos = A._press_resolve_blocks(s, pr, {"blocks": [
+            {"type": "youtube", "x": 0, "y": 0, "w": 520, "h": 292, "ref": {"url": "https://youtu.be/" + VID}},
+            {"type": "youtube", "x": 0, "y": 320, "w": 260, "h": 146, "ref": {"url": "https://youtu.be/aaaaaaaaaaa"}}]}, "tok-yt")
+        bls = press_render.blocks_of(dos)
+        check("se pueden poner TODOS los que hagan falta", len(bls) == 2 and
+              bls[0]["data"]["video_id"] != bls[1]["data"]["video_id"],
+              [x["data"]["video_id"] for x in bls])
+        check("y cada uno con su tamaño", bls[0]["w"] == 520 and bls[1]["w"] == 260)
+        check("la versión en TEXTO del correo lleva el enlace del vídeo",
+              "youtube.com/watch?v=%s" % VID in press_render.plain_text(dos))
+    finally:
+        s.close()
+
+# Las dos páginas públicas: se abren SIN sesión (un correo se abre fuera de la app).
+r = anon.get("/video/%s" % VID)
+html = r.get_data(as_text=True)
+check("el POP-UP del vídeo abre sin sesión", r.status_code == 200, r.status_code)
+check("y reproduce directamente", "autoplay=1" in html)
+check("sin sugerencias al acabar", "rel=0" in html)
+check("y sin llevarle las cookies de Google a quien lo ve", "youtube-nocookie.com" in html)
+check("un identificador inventado no abre nada", anon.get("/video/no-es-un-video").status_code == 404)
+check("la miniatura tampoco", anon.get("/video/no-es-un-video/portada.png").status_code == 404)
+# ⚠️ Sin internet la miniatura NO puede dejar el correo con un hueco roto: se va al sitio de siempre.
+_orig = A._youtube_thumb_png
+A._youtube_thumb_png = lambda v: b""
+r = anon.get("/video/%s/portada.png" % VID)
+check("si YouTube no contesta, la miniatura no deja un hueco roto", r.status_code in (302, 200), r.status_code)
+A._youtube_thumb_png = _orig
+# Y la paleta del editor lo ofrece SIEMPRE (no sale de los materiales de nadie).
+html = cli.get("/notas-de-prensa/%s/editar" % PR_ID).get_data(as_text=True)
+check("el editor trae el pop-up de la URL", 'id="prYoutubeModal"' in html)
+js_edit = io.open("static/js/press_editor.js", encoding="utf-8").read()
+check("y la paleta ofrece el vídeo siempre", 'data-pr-pal="youtube"' in js_edit)
+check("se mueve y se cambia de tamaño como los demás (16:9)", "b.type === 'youtube') return 9 / 16" in js_edit)
+
 print("\n════════════════════════════════════════════════════════════")
 print("  %d comprobaciones OK · %d FALLAN" % (len(OK), len(KO)))
 if KO:

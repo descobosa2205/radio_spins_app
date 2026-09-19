@@ -46,11 +46,15 @@
         <div class="ci-card__stats">
           <span class="ci-stat"><i class="fa fa-users fa-fw"></i><b>{{ invite.sent_ok }}</b> enviada{{ '' if invite.sent_ok == 1 else 's' }}</span>
           <span class="ci-stat ci-stat--open"><i class="fa fa-envelope-open fa-fw"></i><b>{{ invite.opened }}</b> la {{ 'ha' if invite.opened == 1 else 'han' }} abierto{% if invite.total %} <span class="text-muted">({{ invite.opened_pct }}%)</span>{% endif %}</span>
+          {% if invite.forwarded %}<span class="ci-stat text-primary"><i class="fa fa-share-from-square fa-fw"></i><b>{{ invite.forwarded }}</b> la {{ 'ha' if invite.forwarded == 1 else 'han' }} reenviado</span>{% endif %}
           {% if invite.sent_fail %}<span class="ci-stat text-danger"><i class="fa fa-circle-exclamation fa-fw"></i><b>{{ invite.sent_fail }}</b> sin entregar</span>{% endif %}
         </div>
         <div class="form-text mt-2">
           «Abierta» se sabe porque el correo carga una imagen nuestra: quien tenga las imágenes
-          bloqueadas puede haberla leído sin que aparezca aquí.
+          bloqueadas puede haberla leído sin que aparezca aquí. Y <strong>«la ha reenviado»</strong>
+          quiere decir que esa misma invitación se ha abierto <strong>desde otro sitio</strong>: es
+          una buena pista de que la ha pasado a alguien, aunque también puede ser esa persona
+          abriéndola en otro dispositivo.
         </div>
       </div>
     </div>
@@ -58,30 +62,55 @@
 
   <div class="col-12 col-lg-7">
     <div class="card">
-      <div class="card-header bg-white fw-semibold"><i class="fa fa-list-check me-2"></i>A quién se le mandó</div>
+      <div class="card-header bg-white fw-semibold d-flex align-items-center flex-wrap gap-2">
+        <span><i class="fa fa-list-check me-2"></i>A quién se le mandó</span>
+        <span class="badge text-bg-light border">{{ recipients|length }}</span>
+        {# LA LEYENDA: qué quiere decir cada icono, para no tener que adivinarlo. #}
+        <span class="ms-auto small fw-normal text-muted d-flex align-items-center gap-3 flex-wrap">
+          <span><i class="fa fa-envelope-open text-success me-1"></i>abierta</span>
+          <span><i class="fa fa-share-from-square text-primary me-1"></i>reenviada</span>
+          <span><i class="fa fa-triangle-exclamation text-danger me-1"></i>no existe</span>
+          <span><i class="fa fa-circle-exclamation text-danger me-1"></i>no le llegó</span>
+        </span>
+      </div>
       <div class="table-responsive">
         <table class="table table-sm align-middle mb-0">
           <thead><tr><th>Quién</th><th>Lista</th><th>Estado</th></tr></thead>
           <tbody>
+            {# ⚠️ Cada persona como en «Mi lista de invitados»: el NICK arriba (clicable, pero no en
+               azul) y debajo, más pequeña y con su logo, su VINCULACIÓN. #}
             {% for r in recipients %}
               <tr>
                 <td>
-                  {% if r.promoter_url %}<a href="{{ r.promoter_url }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}
-                  <div class="small text-muted">{{ r.email }}</div>
+                  <div class="ci-guest ci-guest--flat">
+                    {% if r.logo_url %}<img src="{{ r.logo_url }}" alt="" loading="lazy">
+                    {% else %}<span class="ci-guest__ph"><i class="fa fa-user"></i></span>{% endif %}
+                    <span class="ci-guest__t">
+                      {% if r.promoter_url %}<a class="ci-guest__nick" href="{{ r.promoter_url }}" title="{{ r.name }}"><b>{{ r.nick }}</b></a>
+                      {% else %}<b class="ci-guest__nick">{{ r.nick }}</b>{% endif %}
+                      {% if r.link %}
+                        <small class="ci-guest__link">
+                          {% if r.link.logo_url %}<img src="{{ r.link.logo_url }}" alt="" loading="lazy">
+                          {% else %}<i class="fa {{ r.link.icon }} fa-fw"></i>{% endif %}
+                          <span>{{ r.link.label }}{% if r.link.relation %} · {{ r.link.relation }}{% endif %}</span></small>
+                      {% else %}
+                        <small><i class="fa fa-envelope fa-fw"></i>{{ r.email }}</small>
+                      {% endif %}
+                    </span>
+                  </div>
                 </td>
                 <td class="small text-muted">{{ r.list_label }}</td>
                 <td class="small">
-                  {% if r.status == 'ERROR' %}
-                    <span class="text-danger"><i class="fa fa-circle-exclamation me-1"></i>No le llegó</span>
+                  <span class="{{ r.icon_cls }}"><i class="fa {{ r.icon }} me-1"></i>{{ r.state_label }}</span>
+                  {% if r.state in ('bounced', 'error') %}
                     <div class="text-muted">{{ r.error }}</div>
-                  {% elif r.opened %}
-                    <span class="text-success"><i class="fa fa-envelope-open me-1"></i>Abierta</span>
+                  {% elif r.state == 'forwarded' %}
+                    <div class="text-muted">La abrió el {{ r.opened_label }} · se ha abierto desde
+                      {{ r.forward_count }} sitio{{ '' if r.forward_count == 1 else 's' }} más</div>
+                  {% elif r.state == 'opened' %}
                     <div class="text-muted">{{ r.opened_label }}{% if r.open_count > 1 %} · {{ r.open_count }} veces{% endif %}</div>
-                  {% elif r.status == 'ENVIADO' %}
-                    <span class="text-muted"><i class="fa fa-paper-plane me-1"></i>Enviada</span>
+                  {% elif r.state == 'sent' %}
                     <div class="text-muted">{{ r.sent_label }}</div>
-                  {% else %}
-                    <span class="text-muted"><i class="fa fa-clock me-1"></i>Pendiente</span>
                   {% endif %}
                 </td>
               </tr>

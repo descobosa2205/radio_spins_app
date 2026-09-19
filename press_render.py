@@ -67,7 +67,7 @@ def text_defaults(kind: str) -> dict:
     """Los valores por defecto de un bloque de texto («title» o «text»)."""
     return dict(TEXT_DEFAULTS["title" if kind == "title" else "text"])
 MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist",
-                "artwork", "activity")
+                "artwork", "activity", "youtube")
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # 1) SANEAR el HTML que llega del editor
@@ -499,6 +499,7 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
             "links": ("Enlaces de plataformas", "Pincha para elegir de qué single o disco"),
             "artwork": ("Cartelería", "Esta actividad todavía no tiene carteles aprobados"),
             "activity": ("Datos de la actividad", "Pincha para elegir de qué actividad"),
+            "youtube": ("Vídeo de YouTube", "Pincha para pegar la URL del vídeo de YouTube"),
         }.get(tipo, ("Módulo", "Falta configurarlo")))
     if tipo == "image":
         # Una IMAGEN integrada en el cuerpo (no un adjunto): ocupa el ancho del bloque y, si lleva
@@ -597,6 +598,33 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
                 + '<div style="font-family:%s;font-size:15px;font-weight:800;color:%s;margin-top:%s;">%s</div>'
                 % (DEFAULT_FONT, TEXT_COLOR, "10px" if poster else "0", _e(d.get("title") or "Videoclip"))
                 + '<div style="margin-top:6px;">%s</div>' % botones + _CARD_CLOSE)
+    if tipo == "youtube":
+        # ⚠️⚠️ UN VÍDEO DE YOUTUBE: **solo la miniatura con el botón rojo de reproducir**, sin título
+        # ni nada alrededor (lo pidió Dani así). Al pincharla se abre en un pop-up y se reproduce
+        # directamente.
+        # ⚠️ El play va QUEMADO EN LA IMAGEN (`thumb_url`, que lo compone el servidor): en un correo
+        # no se puede poner un icono ENCIMA de una foto —ni `position:absolute` ni un fondo de celda
+        # funcionan en Outlook—, así que la única forma de que se vea igual en todas partes es que
+        # la imagen YA lo traiga.
+        thumb = d.get("thumb_url") or ""
+        destino = d.get("popup_url") or ""
+        if not thumb or not destino:
+            return ""
+        radio = int(_num(opts.get("radius"), 12))
+        redondeo = ("border-radius:%dpx;" % radio) if radio > 0 else ""
+        img = ('<img src="%s" width="%d" alt="Ver el vídeo" style="width:100%%;max-width:100%%;height:auto;'
+               'display:block;border:0;%s">'
+               % (_e(thumb), round(_num(b.get("w"), 520)), redondeo))
+        # ⚠️ El `aspect-ratio` y el fondo negro del enlace son para EL NAVEGADOR (en un correo se
+        # ignoran, y allí manda el `width` del `<img>`): así el vídeo ocupa su hueco de 16:9 **aunque
+        # la miniatura tarde o no llegue**, en vez de encogerse a 0 px de alto y desaparecer del
+        # editor — la trampa de siempre con lo que tiene tamaño propio.
+        # `data-yt` es lo que usa la PÁGINA para abrirlo sin salir (el pop-up de verdad); en el
+        # correo se ignora y el enlace hace su trabajo de siempre.
+        return ('<a class="pr-yt" href="%s" target="_blank" rel="noopener" data-yt="%s" '
+                'style="display:block;text-decoration:none;border:0;aspect-ratio:16/9;'
+                'background:#000;overflow:hidden;cursor:pointer;%s">%s</a>'
+                % (_e(destino), _e(d.get("video_id") or ""), redondeo, img))
     if tipo == "links":
         align = opts.get("align") if opts.get("align") in ("left", "center", "right") else "center"
         iconos = []
@@ -911,6 +939,9 @@ def plain_text(design: dict) -> str:
                 trozos.append("  %s. %s" % (t.get("n") or "", t.get("title") or ""))
         elif b["type"] == "video":
             trozos.append("%s%s" % (d.get("title") or "Videoclip", (" · " + d["play_url"]) if d.get("play_url") else ""))
+        elif b["type"] == "youtube":
+            if not d.get("pending") and d.get("watch_url"):
+                trozos.append("Vídeo: %s" % d["watch_url"])
         elif b["type"] == "links":
             trozos.append("\n".join("%s: %s" % (it.get("label") or "", it.get("url") or "") for it in d.get("items") or [] if it.get("url")))
         elif b["type"] == "contact":

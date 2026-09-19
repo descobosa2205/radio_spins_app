@@ -31,6 +31,54 @@
   }
 
   /* ---------- los invitados de una lista ---------- */
+
+  /* ⚠️⚠️ LO QUE SE LEE ES EL **NICK** (así llamamos nosotros a esa persona) y, debajo y más
+     pequeño, **SU VINCULACIÓN con su logo o su foto** — lo pidió Dani, y es lo mismo que se enseña
+     en el resto de la app. El nick es clicable (lleva a su ficha) pero **NO se pinta en azul**: va
+     en el color del texto, como el resto de la lista, y solo se subraya al pasar por encima.
+     ⚠️ Y dos marcas, a la derecha: el TRIÁNGULO cuando el último correo rebotó (o la dirección no
+     existe) y el SOBRE TACHADO cuando le han llegado los últimos y no ha abierto ninguno. */
+  function marcaCorreo(g) {
+    if (g.mail_status === 'error') {
+      var qué = g.mail_hard ? 'Ese correo no existe (lo rechazó el servidor)' : 'El último correo no le llegó';
+      return '<span class="ci-guest__mark ci-guest__mark--bad" title="' + esc(qué + (g.mail_error ? ' · ' + g.mail_error : '')) + '">' +
+        '<i class="fa fa-triangle-exclamation"></i></span>';
+    }
+    if (g.mail_status === 'unopened') {
+      return '<span class="ci-guest__mark ci-guest__mark--quiet" title="' + esc('No ha abierto los últimos ' + g.mail_sent + ' correos') + '">' +
+        '<span class="ci-slash"><i class="fa fa-envelope"></i><i class="fa fa-slash"></i></span></span>';
+    }
+    return '';
+  }
+  function filaInvitado(g) {
+    /* ⚠️ Sin correo, la fila lleva su botón de arreglarlo (uno a uno). Todo lo clicable de dentro
+       va en `<button>` o en un `<a>` suelto: un `<a>` dentro de otro parte el HTML (la regla de la
+       casa), así que la fila NO es un enlace. */
+    var vinc = g.link
+      ? '<small class="ci-guest__link">' +
+          (g.link.logo_url ? '<img src="' + esc(g.link.logo_url) + '" alt="" loading="lazy">'
+                           : '<i class="fa ' + esc(g.link.icon || 'fa-link') + ' fa-fw"></i>') +
+          '<span>' + esc(g.link.label) + (g.link.relation ? ' · ' + esc(g.link.relation) : '') + '</span></small>'
+      : (g.email ? '<small><i class="fa fa-envelope fa-fw"></i>' + esc(g.email) + '</small>'
+                 /* Sin correo y sin vinculación, el teléfono es lo único que dice quién es. */
+                 : (g.phone ? '<small><i class="fa fa-phone fa-fw"></i>' + esc(g.phone) + '</small>' : ''));
+    return '<div class="ci-guest' + (g.email ? '' : ' is-missing') + '"' +
+      ' data-ci-name="' + esc(g.name || g.nick) + '" data-ci-phone="' + esc(g.phone || '') + '">' +
+      (g.logo_url ? '<img src="' + esc(g.logo_url) + '" alt="" loading="lazy">'
+                  : '<span class="ci-guest__ph"><i class="fa fa-user"></i></span>') +
+      '<span class="ci-guest__t">' +
+        (g.promoter_url ? '<a class="ci-guest__nick" href="' + esc(g.promoter_url) + '" title="' + esc(g.name || g.nick) + '"><b>' + esc(g.nick) + '</b></a>'
+                        : '<b class="ci-guest__nick">' + esc(g.nick) + '</b>') +
+        vinc +
+      '</span>' +
+      marcaCorreo(g) +
+      (g.email ? '' :
+        '<button type="button" class="btn btn-sm btn-warning ci-guest__fix" data-ci-fix-one="' + esc(g.id) + '">' +
+          '<i class="fa fa-envelope-circle-check me-1"></i>Falta el correo</button>') +
+      '<button type="button" class="btn btn-sm btn-link text-danger ci-guest__x" data-ci-remove="' + esc(g.id) + '" title="Quitar de la lista"><i class="fa fa-xmark"></i></button>' +
+      '</div>';
+  }
+
   function pintaInvitados(listId, datos) {
     var caja = document.querySelector('[data-ci-list="' + listId + '"] [data-ci-guests]');
     if (!caja) return;
@@ -38,25 +86,7 @@
     if (!filas.length) {
       caja.innerHTML = '<div class="text-muted small">Todavía no hay nadie en esta lista.</div>';
     } else {
-      caja.innerHTML = '<div class="ci-guests">' + filas.map(function (g) {
-        /* ⚠️ Sin correo, la fila ENTERA se pincha y abre el arreglo uno a uno: es lo que hay que
-           hacer con ella. Va en `<button>`, no en `<a>`: dentro ya hay un enlace a su ficha y un
-           `<a>` dentro de otro parte el HTML (la regla de la casa). */
-        return '<div class="ci-guest' + (g.email ? '' : ' is-missing') + '">' +
-          (g.logo_url ? '<img src="' + esc(g.logo_url) + '" alt="" loading="lazy">'
-                      : '<span class="ci-guest__ph"><i class="fa fa-user"></i></span>') +
-          '<span class="ci-guest__t">' +
-            (g.promoter_url ? '<a href="' + esc(g.promoter_url) + '"><b>' + esc(g.name) + '</b></a>'
-                            : '<b>' + esc(g.name) + '</b>') +
-            (g.email ? '<small><i class="fa fa-envelope fa-fw"></i>' + esc(g.email) + '</small>' : '') +
-            (g.phone ? '<small><i class="fa fa-phone fa-fw"></i>' + esc(g.phone) + '</small>' : '') +
-          '</span>' +
-          (g.email ? '' :
-            '<button type="button" class="btn btn-sm btn-warning ci-guest__fix" data-ci-fix-one="' + esc(g.id) + '">' +
-              '<i class="fa fa-envelope-circle-check me-1"></i>Falta el correo</button>') +
-          '<button type="button" class="btn btn-sm btn-link text-danger ci-guest__x" data-ci-remove="' + esc(g.id) + '" title="Quitar de la lista"><i class="fa fa-xmark"></i></button>' +
-          '</div>';
-      }).join('') + '</div>';
+      caja.innerHTML = '<div class="ci-guests">' + filas.map(filaInvitado).join('') + '</div>';
     }
     // El contador de la cabecera, al día sin recargar la página.
     var cab = document.querySelector('[data-ci-list="' + listId + '"] .accordion-button .badge');
@@ -76,6 +106,14 @@
         var n = botonFix.querySelector('[data-ci-fix-count]');
         if (n) n.textContent = faltan;
       }
+      // Y las galletas de «no le llega» / «sin abrir», al día sin recargar.
+      [['[data-ci-bounced]', '[data-ci-bounced-n]', datos.bounced],
+       ['[data-ci-quiet]', '[data-ci-quiet-n]', datos.quiet]].forEach(function (par) {
+        var gal = item && item.querySelector(par[0]); if (!gal) return;
+        var cuantos = par[2] || 0;
+        gal.classList.toggle('d-none', !cuantos);
+        var e = gal.querySelector(par[1]); if (e) e.textContent = cuantos;
+      });
     }
   }
 
@@ -174,8 +212,6 @@
     }
 
     /* ENVIAR */
-    var env = ev.target.closest('[data-ci-send]');
-    if (env) { envia(env.getAttribute('data-ci-send'), env); return; }
   });
 
   function añade(modal, fd) {
@@ -633,12 +669,13 @@
     if (!caja) return [];
     return Array.prototype.slice.call(caja.querySelectorAll('[data-ci-fix-one]'))
       .map(function (b) {
+        /* ⚠️ El nombre y el teléfono salen de los `data-*` de la fila, no de lo PINTADO: la fila
+           enseña el nick y su vinculación, y leer el texto se rompería en cuanto cambie el diseño
+           (ya pasó: el teléfono dejó de pintarse y aquí llegaba vacío). */
         var fila = b.closest('.ci-guest');
-        var nom = fila && fila.querySelector('.ci-guest__t b');
-        var tel = fila && fila.querySelector('.ci-guest__t small .fa-phone');
         return { id: b.getAttribute('data-ci-fix-one'),
-                 name: nom ? nom.textContent : '',
-                 phone: tel ? (tel.parentNode.textContent || '').trim() : '',
+                 name: (fila && fila.getAttribute('data-ci-name')) || '',
+                 phone: (fila && fila.getAttribute('data-ci-phone')) || '',
                  foto: (fila && fila.querySelector('img')) ? fila.querySelector('img').src : '' };
       });
   }
@@ -782,31 +819,19 @@
     caja.innerHTML = texto;
   }
 
-  function envia(invId, boton) {
-    if (!confirm('¿Mandar la invitación? Saldrá desde tu correo.')) return;
-    if (boton) { boton.disabled = true; boton.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Enviando…'; }
-    progreso(invId, '<i class="fa fa-spinner fa-spin me-1"></i>Enviando…');
-    post(url('data-send-url-tpl', '__INV__', invId)).then(function (js) {
-      if (!js || !js.ok) {
-        if (boton) { boton.disabled = false; boton.innerHTML = '<i class="fa fa-paper-plane me-1"></i>Enviar'; }
-        progreso(invId, '<i class="fa fa-circle-exclamation me-1"></i>' + esc((js && js.error) || 'No se pudo enviar.'), 'text-danger');
-        // Si falta configurar el correo, se lleva ahí (es lo único que hay que hacer).
-        if (js && js.needs_mail && js.settings_url && confirm(js.error + '\n\n¿Vas a configurarlo ahora?')) {
-          window.location.href = js.settings_url;
-        } else if (js && js.design_url && confirm((js.error || '') + '\n\n¿Vas a diseñarlo ahora?')) {
-          window.location.href = js.design_url;
-        }
-        return;
-      }
-      if (js.terminado) { window.location.reload(); return; }
-      progreso(invId, '<i class="fa fa-spinner fa-spin me-1"></i>Enviadas ' + js.enviados + ' · quedan ' + js.quedan + '…');
-      vigila(invId);
-    }).catch(function () {
-      if (boton) { boton.disabled = false; boton.innerHTML = '<i class="fa fa-paper-plane me-1"></i>Enviar'; }
-      progreso(invId, '<i class="fa fa-circle-exclamation me-1"></i>No se pudo enviar.', 'text-danger');
-    });
-  }
+  /* ⚠️⚠️ PINCHAR UNA INVITACIÓN YA ENVIADA ABRE SU FICHA. La tarjeta no puede ser un `<a>` (dentro
+     hay enlaces, botones y un formulario, y un `<a>` dentro de otro parte el HTML), así que navega
+     este listener — y deja pasar todo lo que ya es clicable por su cuenta. */
+  document.addEventListener('click', function (ev) {
+    var card = ev.target.closest('[data-ci-open]');
+    if (!card) return;
+    if (ev.target.closest('a, button, form, input, label, [data-ci-preview]')) return;
+    window.location.href = card.getAttribute('data-ci-open');
+  });
 
+  /* ⚠️ LA INVITACIÓN SE MANDA DESDE LA PANTALLA PREVIA AL ENVÍO (la común de toda la app), no
+     desde la tarjeta: ahí se ve cómo llega el correo, a quién se le manda y se puede mandar una
+     prueba antes. Aquí solo queda VIGILAR lo que se está mandando, para que la tarjeta lo diga. */
   function vigila(invId) {
     setTimeout(function () {
       fetch(url('data-status-url-tpl', '__INV__', invId)).then(function (r) { return r.json(); })
@@ -820,6 +845,12 @@
         }).catch(function () {});
     }, 4000);
   }
+
+  // Lo que se esté MANDANDO ahora mismo se vigila solo: la tarjeta dice por dónde va y, al
+  // terminar, la pantalla se refresca con los números buenos.
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ci-status="SENDING"]'), function (c) {
+    vigila(c.getAttribute('data-ci-invite'));
+  });
 
   // Si se vuelve del editor con `?invitacion=`, se abre esa tarjeta a la vista.
   var abierta = root.getAttribute('data-open-invite');

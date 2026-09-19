@@ -60190,6 +60190,17 @@ def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
                         "gallery_url": _external_url_for("public_press_photos", token=token, album_id=clave),
                         "download_url": _external_url_for("public_press_photos_zip", token=token, album_id=clave),
                     })
+            elif tipo == "youtube":
+                # UN VÍDEO DE YOUTUBE: solo hace falta su identificador; la miniatura con el play y
+                # la página del pop-up son NUESTRAS (dos endpoints públicos).
+                vid = youtube_video_id(str(ref.get("url") or ref.get("video_id") or ""))
+                data.update({
+                    "video_id": vid,
+                    "thumb_url": _external_url_for("public_youtube_thumb", video_id=vid) if vid else "",
+                    "popup_url": _external_url_for("public_youtube_play", video_id=vid) if vid else "",
+                    "watch_url": ("https://www.youtube.com/watch?v=%s" % vid) if vid else "",
+                    "pending": not vid,
+                })
             elif tipo == "image":
                 # Una IMAGEN integrada en el cuerpo: la URL, el texto alternativo y, si lleva, el enlace.
                 url = str(ref.get("url") or "").strip()
@@ -60335,6 +60346,42 @@ PRESS_FILE_KIND_FA = {"IMAGE": "fa-image", "VIDEO": "fa-film", "AUDIO": "fa-musi
 def _press_color_or(v, default: str) -> str:
     c = str(v or "").strip().lower()
     return c if re.fullmatch(r"#[0-9a-f]{6}", c) else default
+
+
+# ══ UN VÍDEO DE YOUTUBE DENTRO DE UN CORREO ═══════════════════════════════════════════════════
+# ⚠️⚠️ En un correo NO se puede incrustar un reproductor (ni Gmail ni Outlook ejecutan un `<iframe>`
+# ni un `<video>`): lo único que llega siempre es UNA IMAGEN con un ENLACE. Por eso el módulo es la
+# MINIATURA del vídeo con el botón rojo de YouTube **quemado en la propia imagen** (el servidor la
+# compone: ni `position:absolute` ni un fondo de celda funcionan en Outlook) y, al pincharla, se
+# abre nuestra PÁGINA de reproducción — el pop-up — que ya sí lleva el reproductor y arranca sola.
+# ⚠️ Lo que sale de casa es NUESTRA página y NUESTRA imagen, no una URL de YouTube: así el correo
+# no filtra nada a Google al abrirse y la miniatura se ve aunque YouTube cambie sus rutas.
+
+# De dónde se saca el identificador: se admite lo que cualquiera copia y pega (la barra del
+# navegador, «compartir», un Short, una retransmisión o el propio código de 11 caracteres).
+YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_YT_URL_PATTERNS = (
+    re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:[^&]*&)*v=([A-Za-z0-9_-]{11})", re.I),
+    re.compile(r"youtu\.be/([A-Za-z0-9_-]{11})", re.I),
+    re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/(?:embed|v|shorts|live)/([A-Za-z0-9_-]{11})", re.I),
+)
+
+
+def youtube_video_id(valor: str) -> str:
+    """EL IDENTIFICADOR del vídeo a partir de lo que se haya pegado, o "" si eso no es un YouTube.
+
+    ⚠️ Punto ÚNICO: lo usan el editor (al guardar el módulo), el motor que pinta el correo y las dos
+    páginas públicas. Si se acepta aquí, se acepta en todas partes."""
+    v = (valor or "").strip()
+    if not v:
+        return ""
+    if YOUTUBE_ID_RE.match(v):
+        return v
+    for patron in _YT_URL_PATTERNS:
+        m = patron.search(v)
+        if m:
+            return m.group(1)
+    return ""
 
 
 def _press_clean_href(v) -> str:
@@ -61053,6 +61100,18 @@ def _press_pdf_bytes(session_db, pr) -> bytes:
         d = b.get("data") or {}
         tipo = b["type"]
         if press_render.is_pending(b):
+            continue
+        if tipo == "youtube":
+            # ⚠️ EN EL PDF un vídeo no se puede reproducir: va la MISMA miniatura con el botón de
+            # YouTube, y pinchándola se abre el vídeo en el navegador (igual que en el correo).
+            if d.get("thumb_url"):
+                try:
+                    pd, _m = _download_remote_content(d["thumb_url"], timeout=15)
+                    c.drawImage(ImageReader(BytesIO(pd)), x, top - h, width=w, height=h, mask="auto")
+                    if d.get("popup_url"):
+                        c.linkURL(d["popup_url"], (x, top - h, x + w, top), relative=0)
+                except Exception:
+                    app.logger.exception("[notas de prensa] no se pudo pintar un vídeo en el PDF")
             continue
         if tipo == "image":
             # La imagen integrada va tal cual, donde está (y con su enlace si lo lleva).
@@ -61941,7 +62000,7 @@ def _press_editor_context(s, pr) -> dict:
     if ctx["campaign"]:
         ctx["next_url"] = ctx["campaign"]["return_url"]
     if ctx["invite"]:
-        ctx["next_url"] = ctx["invite"]["return_url"]
+        ctx["next_url"] = ctx["invite"].get("next_url") or ctx["invite"]["return_url"]
     if ctx["is_template"]:
         ctx["next_url"] = url_for("promo_press_templates_view")
     return ctx
@@ -97186,7 +97245,9 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open",
+                          # El vídeo de YouTube de un correo: la miniatura y el pop-up que lo reproduce.
+                          "public_youtube_thumb", "public_youtube_play"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -102373,6 +102434,10 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "corporate_import_add", "corporate_import_new",
                       "corporate_invite_create", "corporate_invite_save", "corporate_invite_delete",
                       "corporate_invite_preview", "corporate_invite_send",
+                      # La pantalla previa al envío (la común de toda la app), su buscador de
+                      # contactos y el correo de PRUEBA: siguen siendo cosa de cada uno.
+                      "corporate_invite_send_view", "corporate_invite_test_send",
+                      "corporate_contact_search",
                       "corporate_invite_continue", "corporate_invite_status"}
 
 
@@ -182668,13 +182733,23 @@ def _corp_return_url(inv) -> str:
 
 
 def _press_invite_context(s, pr) -> dict | None:
-    """La invitación corporativa cuyo correo es este diseño (o None si no lo es)."""
+    """La invitación corporativa cuyo correo es este diseño (o None si no lo es).
+
+    ⚠️ `next_url` es **la pantalla previa al envío** (la común de toda la app): al terminar el
+    diseño se pasa a ver cómo llega el correo, a quién se le manda y a mandarse la prueba — lo
+    mismo que hace una nota de prensa. `return_url` (la flecha de atrás) sigue siendo el listado."""
     if not _press_is_invite(pr):
         return None
     inv = _corp_invite_of_design(s, pr)
     if inv is None:
-        return {"id": "", "label": "Invitación corporativa", "return_url": url_for("corporate_invites_view")}
-    return {"id": str(inv.id), "label": "Invitación corporativa", "return_url": _corp_return_url(inv)}
+        return {"id": "", "label": "Invitación corporativa",
+                "return_url": url_for("corporate_invites_view"),
+                "next_url": url_for("corporate_invites_view")}
+    ya_salio = (inv.status or "DRAFT").upper() != "DRAFT"
+    return {"id": str(inv.id), "label": "Invitación corporativa",
+            "return_url": _corp_return_url(inv),
+            "next_url": (url_for("corporate_invite_detail_view", invite_id=inv.id) if ya_salio
+                         else url_for("corporate_invite_send_view", invite_id=inv.id))}
 
 
 # ── LAS LISTAS DE INVITADOS ──────────────────────────────────────────────────────────────────
@@ -182709,18 +182784,131 @@ def _corp_guest_email(g) -> str:
             or (getattr(g, "email", "") or "").strip().lower())
 
 
-def _corp_guest_row(g) -> dict:
+# ── LA SALUD DEL CORREO DE CADA INVITADO ─────────────────────────────────────────────────────
+# ⚠️ Lo pidió Dani: en la lista se tiene que ver **de un vistazo** a quién no le está llegando o a
+# quién no le interesa lo que le mandamos. Dos marcas y nada más:
+#   · TRIÁNGULO  — el último envío REBOTÓ (el correo no existe o lo rechazó el servidor): eso hay
+#     que arreglarlo, porque a esa persona no le llega nada.
+#   · SOBRE TACHADO — le han llegado los últimos correos y NO ha abierto ninguno.
+# ⚠️ Se mira lo MANDADO DE VERDAD (`CorporateInviteRecipient`), que es el único sitio donde consta
+# si salió y si se abrió; y solo lo de ESTA persona (sus invitaciones), que es lo suyo.
+CORP_HEALTH_LAST_N = 3          # cuántos de los últimos correos se miran ("los últimos correos")
+
+# Lo que dice un servidor de correo cuando la dirección NO EXISTE. Un rebote así no se arregla
+# reintentando: hay que cambiar el correo, y por eso lleva el triángulo y no el reloj.
+CORP_BOUNCE_HINTS = ("no such user", "user unknown", "unknown user", "mailbox unavailable",
+                     "mailbox not found", "no mailbox", "does not exist", "recipient rejected",
+                     "recipient address rejected", "address rejected", "invalid recipient",
+                     "no existe", "5.1.1", "5.1.2", "5.1.3", "550")
+
+
+def _corp_error_is_bounce(error: str) -> bool:
+    """¿Ese fallo es «esa dirección no existe» (y no un problema pasajero del servidor)?"""
+    txt = (error or "").strip().lower()
+    return bool(txt) and any(h in txt for h in CORP_BOUNCE_HINTS)
+
+
+def _corp_mail_health(session_db, user_id, correos: list) -> dict:
+    """Por cada correo, cómo le ha ido en los ÚLTIMOS envíos de esta persona. UNA consulta.
+
+    Devuelve `{correo: {"status": ""|"unopened"|"error", "hard": bool, "error": str, "sent": int,
+    "opened": int}}`. ⚠️ Punto único: lo usan la fila de la lista y la galleta de la cabecera, así
+    que el número que se ve es exactamente el que se cuenta."""
+    correos = sorted({(c or "").strip().lower() for c in (correos or []) if (c or "").strip()})
+    if not correos or not user_id:
+        return {}
+    filas = (session_db.query(CorporateInviteRecipient.email, CorporateInviteRecipient.status,
+                              CorporateInviteRecipient.error, CorporateInviteRecipient.opened_at,
+                              CorporateInviteRecipient.sent_at, CorporateInviteRecipient.created_at)
+             .join(CorporateInvite, CorporateInvite.id == CorporateInviteRecipient.invite_id)
+             .filter(CorporateInvite.user_id == user_id,
+                     func.lower(CorporateInviteRecipient.email).in_(correos),
+                     CorporateInviteRecipient.status != "PENDIENTE")
+             .all())
+    por_correo: dict = {}
+    for correo, estado, error, abierto, mandado, creado in filas:
+        por_correo.setdefault((correo or "").strip().lower(), []).append(
+            {"status": (estado or ""), "error": (error or ""), "opened": bool(abierto),
+             "ts": (mandado or creado)})
+    salida = {}
+    for correo, envios in por_correo.items():
+        # Los ÚLTIMOS primero (una fila sin fecha se va al final: no puede colarse como la más nueva).
+        envios.sort(key=lambda e: (e["ts"] is not None, e["ts"]), reverse=True)
+        ultimos = envios[:CORP_HEALTH_LAST_N]
+        mandados = [e for e in ultimos if e["status"] == "ENVIADO"]
+        abiertos = sum(1 for e in mandados if e["opened"])
+        d = {"status": "", "hard": False, "error": "", "sent": len(mandados), "opened": abiertos}
+        # El último intento manda: si REBOTÓ, eso es lo que hay que arreglar.
+        if ultimos and ultimos[0]["status"] == "ERROR":
+            d.update({"status": "error", "error": ultimos[0]["error"],
+                      "hard": _corp_error_is_bounce(ultimos[0]["error"])})
+        elif len(mandados) >= 2 and not abiertos:
+            d["status"] = "unopened"
+        salida[correo] = d
+    return salida
+
+
+def _corp_guest_row(g, *, health: dict | None = None) -> dict:
+    """UNA FILA DE «MI LISTA DE INVITADOS». Lo que se lee es **el NICK** (así llamamos nosotros a esa
+    persona) y, debajo y más pequeño, **su VINCULACIÓN con su logo o su foto** — el mismo criterio
+    que en el resto de la app (`_promoter_link_summary`), para que se sepa quién es sin abrir nada.
+
+    ⚠️ `publisher_fallback=False`: la editorial NO es una vinculación (la regla que ya vale para las
+    invitaciones de un evento)."""
     prom = getattr(g, "promoter", None)
     correo = _corp_guest_email(g)
+    nombre = (_promoter_display_name(prom) if prom is not None else "") or (g.name or "").strip()
+    # El NICK es lo que se enseña; si esa persona no tiene ficha, lo que trajera la fila.
+    nick = ((getattr(prom, "nick", "") or "").strip() if prom is not None else "") or (g.name or "").strip() or correo
+    vinculo = {}
+    if prom is not None:
+        try:
+            vinculo = _promoter_link_summary(object_session(g), prom, publisher_fallback=False) or {}
+        except Exception:
+            vinculo = {}
+    salud = (health or {}).get(correo) or {}
     return {
         "id": str(g.id),
-        "name": (g.name or "").strip() or (_promoter_display_name(prom) if prom is not None else "") or correo,
+        "nick": nick,
+        # `name` es el NOMBRE COMPLETO: se sigue mandando porque es lo que va en el correo.
+        "name": nombre or nick,
         "email": correo,
         "phone": (g.phone or "").strip() or ((getattr(prom, "contact_phone", "") or "").strip() if prom is not None else ""),
         "promoter_id": str(g.promoter_id) if g.promoter_id else "",
         "promoter_url": url_for("promoter_detail_view", pid=g.promoter_id) if g.promoter_id else "",
         "logo_url": ((getattr(prom, "logo_url", "") or "").strip() if prom is not None else ""),
+        # LA VINCULACIÓN: con quién está (su logo o su foto, el nombre y la relación).
+        "link": ({"label": (vinculo.get("label") or "").strip(),
+                  "relation": (vinculo.get("relation_title") or "").strip(),
+                  "logo_url": (vinculo.get("logo_url") or "").strip(),
+                  "icon": (vinculo.get("icon") or "fa-link")} if vinculo.get("label") else None),
+        "mail_status": salud.get("status") or "",
+        "mail_hard": bool(salud.get("hard")),
+        "mail_error": (salud.get("error") or "")[:200],
+        "mail_sent": int(salud.get("sent") or 0),
+        # Con qué se ORDENA la lista: por el NICK, sin acentos ni mayúsculas (lo pidió Dani).
+        "sort_key": _norm_text_key(nick),
     }
+
+
+
+def _corp_list_rows_sorted(session_db, lst, invitados=None, *, salud: dict | None = None) -> list[dict]:
+    """Los invitados de una lista **POR ORDEN ALFABÉTICO DE NICK** (lo pidió Dani), ya con su
+    vinculación y sus marcas de correo. ⚠️ Punto único: lo usan la pantalla de las listas, el
+    refresco sin recargar y la pantalla de enviar, así que las tres enseñan lo mismo, en el mismo
+    orden y con las mismas marcas."""
+    if invitados is None:
+        invitados = (session_db.query(CorporateGuest)
+                     .options(joinedload(CorporateGuest.promoter))
+                     .filter(CorporateGuest.list_id == lst.id)
+                     .order_by(CorporateGuest.created_at.asc()).all())
+    if salud is None:
+        salud = _corp_mail_health(session_db, lst.user_id, [_corp_guest_email(g) for g in invitados])
+    filas = [_corp_guest_row(g, health=salud) for g in invitados]
+    # ⚠️ Se ordena por el nick SIN acentos ni mayúsculas; el segundo criterio solo desempata, para
+    # que dos tocayos salgan siempre en el mismo orden y la lista no «baile» entre refrescos.
+    filas.sort(key=lambda f: (f["sort_key"], f["nick"].lower(), f["id"]))
+    return filas
 
 
 def _corp_list_row(session_db, lst, *, con_invitados: bool = False) -> dict:
@@ -182730,11 +182918,19 @@ def _corp_list_row(session_db, lst, *, con_invitados: bool = False) -> dict:
                  .order_by(CorporateGuest.created_at.asc()).all())
     # ⚠️ El MISMO criterio que el envío (`_corp_guest_email`): el número que se ve es exactamente a
     # cuántos se les puede mandar.
-    con_correo = sum(1 for g in invitados if _corp_guest_email(g))
+    correos = [_corp_guest_email(g) for g in invitados]
+    con_correo = sum(1 for c in correos if c)
+    # ⚠️ La salud del correo se calcula SIEMPRE (una consulta), aunque no se pinten las filas: así la
+    # galleta de la cabecera dice lo mismo que las marcas de dentro, que es la regla de la casa.
+    salud = _corp_mail_health(session_db, lst.user_id, correos)
+    estados = [(salud.get(c) or {}).get("status") or "" for c in correos if c]
     return {
         "id": str(lst.id), "name": (lst.name or "").strip() or "Sin nombre",
         "count": len(invitados), "with_email": con_correo,
-        "rows": [_corp_guest_row(g) for g in invitados] if con_invitados else [],
+        "rows": (_corp_list_rows_sorted(session_db, lst, invitados, salud=salud) if con_invitados else []),
+        # Cuántos tienen algo que mirar en su correo (rebotó, o no abre lo que se le manda).
+        "bounced": sum(1 for e in estados if e == "error"),
+        "quiet": sum(1 for e in estados if e == "unopened"),
     }
 
 
@@ -183038,6 +183234,73 @@ def _corp_email_html(session_db, inv, *, token: str = CORP_TOKEN_PLACEHOLDER) ->
            _html_escape_attr(enlace), pixel))
 
 
+def _corp_recipient_nick(r) -> str:
+    """Cómo se llama a quien recibió la invitación: **su nick** si tiene ficha y, si no, lo que se
+    apuntó al mandársela. El mismo criterio que la lista de invitados."""
+    prom = getattr(r, "promoter", None)
+    return (((getattr(prom, "nick", "") or "").strip() if prom is not None else "")
+            or (r.name or "").strip() or (r.email or ""))
+
+
+# LOS ESTADOS DE UN DESTINATARIO, con su icono y lo que significa. ⚠️ Punto único: lo usan la ficha
+# de la invitación y la galleta del listado, así que el icono y la palabra son siempre los mismos.
+CORP_RECIPIENT_STATES = {
+    "bounced":   {"icon": "fa-triangle-exclamation", "cls": "text-danger",  "label": "Ese correo no existe"},
+    "error":     {"icon": "fa-circle-exclamation",   "cls": "text-danger",  "label": "No le llegó"},
+    "forwarded": {"icon": "fa-share-from-square",    "cls": "text-primary", "label": "La ha reenviado"},
+    "opened":    {"icon": "fa-envelope-open",        "cls": "text-success", "label": "La ha abierto"},
+    "sent":      {"icon": "fa-paper-plane",          "cls": "text-muted",   "label": "Enviada"},
+    "pending":   {"icon": "fa-clock",                "cls": "text-muted",   "label": "Pendiente"},
+}
+
+
+def _corp_recipient_state(r) -> str:
+    """En qué ha quedado ESE envío. ⚠️ El orden importa: lo que hay que mirar primero es lo que no
+    llegó; y quien la reenvió también la abrió, así que «reenviada» manda sobre «abierta»."""
+    if (r.status or "") == "ERROR":
+        return "bounced" if _corp_error_is_bounce(r.error or "") else "error"
+    if r.forwarded_at:
+        return "forwarded"
+    if r.opened_at:
+        return "opened"
+    if (r.status or "") == "ENVIADO":
+        return "sent"
+    return "pending"
+
+
+def _corp_recipient_row(session_db, r) -> dict:
+    """UNA FILA de «a quién se le mandó»: el nick, su vinculación y **en qué ha quedado** (con su
+    icono). Es la misma forma de enseñar a una persona que en «Mi lista de invitados»."""
+    prom = getattr(r, "promoter", None)
+    vinculo = {}
+    if prom is not None:
+        try:
+            vinculo = _promoter_link_summary(session_db, prom, publisher_fallback=False) or {}
+        except Exception:
+            vinculo = {}
+    estado = _corp_recipient_state(r)
+    meta = CORP_RECIPIENT_STATES[estado]
+    return {
+        "nick": _corp_recipient_nick(r),
+        "name": (r.name or "").strip() or (r.email or ""),
+        "email": (r.email or ""),
+        "list_label": (r.list_label or ""),
+        "logo_url": ((getattr(prom, "logo_url", "") or "").strip() if prom is not None else ""),
+        "link": ({"label": (vinculo.get("label") or "").strip(),
+                  "relation": (vinculo.get("relation_title") or "").strip(),
+                  "logo_url": (vinculo.get("logo_url") or "").strip(),
+                  "icon": (vinculo.get("icon") or "fa-link")} if vinculo.get("label") else None),
+        "state": estado, "icon": meta["icon"], "icon_cls": meta["cls"], "state_label": meta["label"],
+        "error": (r.error or ""),
+        "sent_label": (r.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.sent_at else ""),
+        "opened_label": (r.opened_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.opened_at else ""),
+        "open_count": int(r.open_count or 0),
+        "forwarded_label": (r.forwarded_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.forwarded_at else ""),
+        "forward_count": int(r.forward_count or 0),
+        "promoter_url": (url_for("promoter_detail_view", pid=r.promoter_id) if r.promoter_id else ""),
+    }
+
+
 def _corp_invite_lists(session_db, inv) -> list:
     ids = [x for x in (inv.lists_json or []) if x] if isinstance(inv.lists_json, list) else []
     if not ids:
@@ -183051,13 +183314,27 @@ def _corp_invite_lists(session_db, inv) -> list:
     return [por_id[str(i)] for i in ids if str(i) in por_id]
 
 
-def _corp_build_recipients(session_db, inv) -> int:
-    """Crea los destinatarios de la invitación a partir de sus listas. Devuelve cuántos son.
+def _corp_build_recipients(session_db, inv, *, chosen: list | None = None) -> int:
+    """Crea los destinatarios de la invitación. Devuelve cuántos son.
 
     ⚠️ **Quien esté en varias listas recibe UNA sola** (se deduplica por correo) y el correo se
     refresca de la ficha del tercero: si lo cambió, se manda al que vale hoy.
-    ⚠️ Quien no tiene correo no entra (no hay a dónde mandárselo); la pantalla dice cuántos son."""
+    ⚠️ Quien no tiene correo no entra (no hay a dónde mandárselo); la pantalla dice cuántos son.
+    ⚠️ Con `chosen` (lo que viene marcado en la pantalla previa) se manda **exactamente a esos**:
+    los que se hayan quitado no entran y los añadidos a mano sí. Sin `chosen`, las listas enteras.
+    ⚠️ Un correo que llega de la pantalla y NO está en ninguna lista entra igual (se añadió a mano):
+    lo que manda es a quién se ha dicho que se le mande."""
     vistos, filas = set(), []
+    marcados = None
+    if isinstance(chosen, list):
+        marcados = {}
+        for r in chosen:
+            if not isinstance(r, dict):
+                continue
+            correo = (r.get("email") or "").strip().lower()
+            if correo and correo not in marcados:
+                marcados[correo] = {"name": (r.get("name") or "").strip()[:200],
+                                    "group": (r.get("group_label") or "").strip()[:120]}
     for lst in _corp_invite_lists(session_db, inv):
         invitados = (session_db.query(CorporateGuest)
                      .options(joinedload(CorporateGuest.promoter))
@@ -183068,12 +183345,21 @@ def _corp_build_recipients(session_db, inv) -> int:
             correo = _corp_guest_email(g)
             if not correo or correo in vistos:
                 continue
+            if marcados is not None and correo not in marcados:
+                continue        # se le ha quitado en la pantalla previa
             vistos.add(correo)
             filas.append(CorporateInviteRecipient(
                 invite_id=inv.id, guest_id=g.id, promoter_id=g.promoter_id,
                 list_label=(lst.name or "").strip()[:120],
                 name=((g.name or "").strip() or (_promoter_display_name(prom) if prom is not None else ""))[:200],
                 email=correo, token=_uuid_token()))
+    for correo, extra in (marcados or {}).items():
+        if correo in vistos:
+            continue
+        vistos.add(correo)
+        filas.append(CorporateInviteRecipient(
+            invite_id=inv.id, list_label=(extra["group"] or "Añadido a mano"),
+            name=(extra["name"] or correo), email=correo, token=_uuid_token()))
     for fila in filas:
         session_db.add(fila)
     inv.total = len(filas)
@@ -183208,6 +183494,7 @@ def _corp_invite_row(session_db, inv, *, stats: dict | None = None) -> dict:
     d = stats or {}
     total = int(inv.total or 0)
     abiertos = int(d.get("abiertos") or 0)
+    reenviadas = int(d.get("reenviadas") or 0)
     concert = getattr(inv, "concert", None)
     datos_act = _press_activity_data(session_db, {"concert_id": str(inv.concert_id)}) if inv.concert_id else {"pending": True}
     pr = session_db.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
@@ -183228,6 +183515,8 @@ def _corp_invite_row(session_db, inv, *, stats: dict | None = None) -> dict:
         "sent_fail": int(inv.sent_fail or 0),
         "opened": abiertos,
         "opened_pct": (round(abiertos * 100.0 / total) if total else 0),
+        # CUÁNTOS LA HAN REENVIADO: el correo se abrió desde otro sitio distinto del primero.
+        "forwarded": reenviadas,
         "sent_label": (inv.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if inv.sent_at else ""),
         # El instante en crudo, SOLO para ordenar (la etiqueta es para leer, no para comparar).
         "order_ts": ((inv.sent_at or inv.created_at).timestamp() if (inv.sent_at or inv.created_at) else 0.0),
@@ -183237,6 +183526,8 @@ def _corp_invite_row(session_db, inv, *, stats: dict | None = None) -> dict:
         "has_design": bool(pr is not None and press_render.blocks_of(pr.design or {})),
         "design_url": (url_for("promo_press_edit", release_id=inv.design_release_id)
                        if inv.design_release_id else ""),
+        # LA PANTALLA PREVIA AL ENVÍO (la común de toda la app) y la ficha de lo que ya salió.
+        "send_url": url_for("corporate_invite_send_view", invite_id=inv.id),
         "detail_url": url_for("corporate_invite_detail_view", invite_id=inv.id),
         "concert_label": (getattr(getattr(concert, "artist", None), "name", "") or "") if concert is not None else "",
     }
@@ -183278,7 +183569,14 @@ def _corp_invites_rows(session_db, user_id) -> list[dict]:
                     .filter(CorporateInviteRecipient.invite_id.in_(ids),
                             CorporateInviteRecipient.opened_at.isnot(None))
                     .group_by(CorporateInviteRecipient.invite_id).all())
-    filas = [_corp_invite_row(session_db, i, stats={"abiertos": abiertos.get(i.id, 0)}) for i in invites]
+    reenviadas = dict(session_db.query(CorporateInviteRecipient.invite_id,
+                                       func.count(CorporateInviteRecipient.id))
+                      .filter(CorporateInviteRecipient.invite_id.in_(ids),
+                              CorporateInviteRecipient.forwarded_at.isnot(None))
+                      .group_by(CorporateInviteRecipient.invite_id).all())
+    filas = [_corp_invite_row(session_db, i, stats={"abiertos": abiertos.get(i.id, 0),
+                                                   "reenviadas": reenviadas.get(i.id, 0)})
+             for i in invites]
     filas.sort(key=_corp_invite_sort_key)
     return filas
 
@@ -183361,29 +183659,27 @@ def corporate_invite_detail_view(invite_id):
         if inv is None:
             flash("Esa invitación no existe (o no es tuya).", "warning")
             return redirect(url_for("corporate_invites_view"))
-        abiertos = (s.query(func.count(CorporateInviteRecipient.id))
-                    .filter(CorporateInviteRecipient.invite_id == inv.id,
-                            CorporateInviteRecipient.opened_at.isnot(None)).scalar() or 0)
         filas = (s.query(CorporateInviteRecipient)
-                 .filter(CorporateInviteRecipient.invite_id == inv.id)
-                 .order_by(CorporateInviteRecipient.opened_at.desc().nullslast(),
-                           CorporateInviteRecipient.name.asc()).all())
+                 .options(joinedload(CorporateInviteRecipient.promoter))
+                 .filter(CorporateInviteRecipient.invite_id == inv.id).all())
+        abiertos = sum(1 for r in filas if r.opened_at)
+        reenviadas = sum(1 for r in filas if r.forwarded_at)
         pr = s.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
+        # ⚠️ EL ORDEN: primero lo que hay que MIRAR (a quién no le llegó), después quien la reenvió,
+        # los que la abrieron y, al final, el resto. Dentro de cada grupo, por nick.
+        def _orden(r):
+            if (r.status or "") == "ERROR":
+                return (0, _norm_text_key(_corp_recipient_nick(r)))
+            if r.forwarded_at:
+                return (1, _norm_text_key(_corp_recipient_nick(r)))
+            if r.opened_at:
+                return (2, _norm_text_key(_corp_recipient_nick(r)))
+            return (3, _norm_text_key(_corp_recipient_nick(r)))
+        filas.sort(key=_orden)
         return render_template(
             "corporate_invite_detail.html",
-            invite=_corp_invite_row(s, inv, stats={"abiertos": abiertos}),
-            recipients=[{
-                "name": (r.name or "").strip() or (r.email or ""),
-                "email": (r.email or ""),
-                "list_label": (r.list_label or ""),
-                "status": (r.status or ""),
-                "error": (r.error or ""),
-                "sent_label": (r.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.sent_at else ""),
-                "opened": bool(r.opened_at),
-                "opened_label": (r.opened_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.opened_at else ""),
-                "open_count": int(r.open_count or 0),
-                "promoter_url": (url_for("promoter_detail_view", pid=r.promoter_id) if r.promoter_id else ""),
-            } for r in filas],
+            invite=_corp_invite_row(s, inv, stats={"abiertos": abiertos, "reenviadas": reenviadas}),
+            recipients=[_corp_recipient_row(s, r) for r in filas],
             web_html=(_press_web_html(s, pr, pr.public_token) if pr is not None else ""),
         )
     finally:
@@ -183879,11 +184175,111 @@ def corporate_invite_preview(invite_id):
         s.close()
 
 
+@app.get("/invitaciones-corporativas/<invite_id>/enviar", endpoint="corporate_invite_send_view")
+@admin_required
+def corporate_invite_send_view(invite_id):
+    """⚠️⚠️ **LA PANTALLA PREVIA AL ENVÍO, LA MISMA DE TODA LA APP** (lo pidió Dani: «esta función
+    siempre es igual en todos los sitios»). Es literalmente la plantilla de enviar una nota de
+    prensa (`press_release_send.html`) y su motor (`press_send.js`), con `scope='invite'`: a la
+    izquierda de quién sale y a quién, a la derecha **la vista previa del correo**, y antes de
+    mandar la pregunta del **email de prueba**. Lo único propio es el paso de «a quién»: MIS listas
+    de invitados, donde se puede quitar y añadir gente."""
+    s = db()
+    try:
+        uid = _corp_user_id()
+        inv = _corp_invite_mine(s, invite_id, uid)
+        if inv is None:
+            flash("Esa invitación no existe (o no es tuya).", "warning")
+            return redirect(url_for("corporate_invites_view"))
+        if (inv.status or "DRAFT").upper() == "SENT":
+            return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
+        pr = s.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
+        if pr is None or not press_render.blocks_of(pr.design or {}):
+            # ⚠️ Sin diseño no hay nada que enviar ni que previsualizar: se lleva al editor y se dice.
+            flash("Antes hay que diseñar el contenido de la invitación.", "warning")
+            return redirect(url_for("promo_press_edit", release_id=pr.id) if pr is not None
+                            else url_for("corporate_invites_view"))
+        _press_ensure_token(s, pr)
+        datos_act = (_press_activity_data(s, {"concert_id": str(inv.concert_id)}) if inv.concert_id else {})
+        return render_template(
+            "press_release_send.html",
+            scope="invite", mode="send", pr=pr,
+            email_subject=((inv.subject or "").strip()
+                           or press_render.headline_of(pr.design or {}) or "Te invito"),
+            sender=_corp_sender(s, inv.user_id),
+            invite_activity=(None if datos_act.get("pending") else (datos_act or None)),
+            invite_lists=[_corp_list_row(s, l, con_invitados=True) for l in _corp_invite_lists(s, inv)],
+            send_url=url_for("corporate_invite_send", invite_id=inv.id),
+            test_url=url_for("corporate_invite_test_send", invite_id=inv.id),
+            search_url=url_for("corporate_contact_search"),
+            preview_url=url_for("corporate_invite_preview", invite_id=inv.id),
+            my_email=_current_user_email(),
+            mail_settings_url="",
+        )
+    finally:
+        s.close()
+
+
+@app.get("/invitaciones-corporativas/buscar-contactos", endpoint="corporate_contact_search")
+@admin_required
+def corporate_contact_search():
+    """Buscar a alguien para añadirlo al envío. ⚠️ El MISMO buscador que la pantalla de enviar una
+    nota de prensa (`_press_contact_search`): un solo sitio que mantener."""
+    s = db()
+    try:
+        return jsonify({"ok": True, "rows": _press_contact_search(s, request.args.get("q") or "")})
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/<invite_id>/prueba", endpoint="corporate_invite_test_send")
+@admin_required
+def corporate_invite_test_send(invite_id):
+    """EL CORREO DE PRUEBA, a quien está preparando la invitación. ⚠️ Es **el mismo HTML** que va a
+    salir (`_corp_email_html`): no hay una segunda versión de la que fiarse."""
+    s = db()
+    try:
+        inv = _corp_invite_mine(s, invite_id, _corp_user_id())
+        if inv is None:
+            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+        destino = ((request.get_json(silent=True) or {}).get("email") or _current_user_email() or "").strip()
+        if not destino:
+            return jsonify({"ok": False, "error": "No sabemos tu correo: escríbelo."}), 400
+        if not _corp_has_design(s, inv):
+            return jsonify({"ok": False, "error": "Antes hay que diseñar el contenido de la invitación."}), 400
+        remitente = _corp_sender(s, inv.user_id)
+        if not remitente.get("ok"):
+            return jsonify({"ok": False, "error": remitente.get("problem"),
+                            "settings_url": remitente.get("url"), "needs_mail": True}), 400
+        # ⚠️ Con el token «prueba»: una apertura de la prueba NO puede contar como que alguien la ha
+        # abierto (no hay destinatario al que apuntársela).
+        cuerpo = _corp_email_html(s, inv, token="prueba")
+        asunto = "[PRUEBA] " + ((inv.subject or "").strip() or "Te invito")
+        ok, error = _send_optional_email([destino], asunto, cuerpo, text_body=_html_to_text(cuerpo),
+                                         from_name=remitente["from_name"], from_email=remitente["from_email"],
+                                         reply_to=remitente["reply_to"], account=remitente["account"],
+                                         auto_submitted=False)
+        if not ok:
+            return jsonify({"ok": False, "error": "No se pudo mandar la prueba: %s" % (error or "")}), 400
+        return jsonify({"ok": True, "email": destino, "warning": (error or "")})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo mandar la prueba")
+        return jsonify({"ok": False, "error": "No se pudo mandar la prueba."}), 400
+    finally:
+        s.close()
+
+
 @app.post("/invitaciones-corporativas/<invite_id>/enviar", endpoint="corporate_invite_send")
 @admin_required
 def corporate_invite_send(invite_id):
     """ENVIAR: comprueba que hay diseño y que esa persona tiene su correo configurado, monta los
-    destinatarios y manda la primera tanda aquí (el resto en segundo plano)."""
+    destinatarios **que se han marcado en la pantalla previa** y manda la primera tanda aquí (el
+    resto en segundo plano).
+
+    ⚠️ Los destinatarios vienen de la pantalla (el motor común manda `recipients`), así que se puede
+    quitar a quien no toque y añadir a quien haga falta. Sin `recipients` —una llamada vieja— se
+    montan con las listas enteras, como antes."""
     s = db()
     try:
         uid = _corp_user_id()
@@ -183905,16 +184301,23 @@ def corporate_invite_send(invite_id):
         if not (inv.subject or "").strip():
             pr = s.get(PressRelease, inv.design_release_id)
             inv.subject = (press_render.headline_of(pr.design or {}) if pr is not None else "") or "Te invito"
+        elegidos = (request.get_json(silent=True) or {}).get("recipients")
         ya = (s.query(func.count(CorporateInviteRecipient.id))
               .filter(CorporateInviteRecipient.invite_id == inv.id).scalar() or 0)
-        total = int(ya) if ya else _corp_build_recipients(s, inv)
+        if ya:
+            total = int(ya)
+        elif isinstance(elegidos, list):
+            total = _corp_build_recipients(s, inv, chosen=elegidos)
+        else:
+            total = _corp_build_recipients(s, inv)
         if not total:
-            return jsonify({"ok": False, "error": "No hay nadie con correo en las listas marcadas."}), 400
+            return jsonify({"ok": False, "error": "No hay nadie con correo entre los marcados."}), 400
         s.commit()
         resultado = _corp_send_pending(s, inv)
         if resultado.get("quedan") and not resultado.get("error"):
             _corp_send_bg_start(str(inv.id))
-        return jsonify({"ok": True, "total": total, **resultado})
+        return jsonify({"ok": True, "total": total,
+                        "url": url_for("corporate_invite_detail_view", invite_id=inv.id), **resultado})
     except Exception:
         s.rollback()
         app.logger.exception("[invitaciones corp] no se pudo enviar")
@@ -183961,17 +184364,138 @@ def corporate_invite_status(invite_id):
         s.close()
 
 
+def _corp_open_fingerprint() -> str:
+    """UNA HUELLA CORTA de quien está abriendo el correo. ⚠️ No se guarda ni el navegador ni la IP en
+    claro: solo un hash de 16 caracteres, que es lo ÚNICO que hace falta para saber si la siguiente
+    apertura es «otro» — y así no queda un dato personal de más en la base."""
+    partes = ((request.headers.get("User-Agent") or "")[:300],
+              (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip())
+    return hashlib.sha256(("|".join(partes)).encode("utf-8", "replace")).hexdigest()[:16]
+
+
+# ══ LAS DOS PÁGINAS PÚBLICAS DEL VÍDEO ════════════════════════════════════════════════════════
+# Son públicas a propósito: un correo se abre sin estar en la app, y lo que enseñan es un vídeo que
+# YA ES PÚBLICO en YouTube. ⚠️ No hay nada que filtrar: la única entrada es un identificador de
+# YouTube de 11 caracteres (`youtube_video_id`), así que aquí no se puede colar ninguna otra URL.
+
+_YT_THUMB_SIZES = ("maxresdefault", "sddefault", "hqdefault", "mqdefault")
+
+
+def _youtube_thumb_png(video_id: str) -> bytes:
+    """LA MINIATURA DEL VÍDEO con el botón rojo de YouTube QUEMADO EN MEDIO.
+
+    ⚠️⚠️ Va quemado porque en un correo no se puede poner nada ENCIMA de una imagen: Outlook no
+    entiende `position:absolute` y el fondo de una celda no llega a todas partes. Componiéndola
+    aquí, el correo solo tiene que pintar un `<img>` — y eso se ve igual en todos los sitios.
+    ⚠️ Se prueban los tamaños de YouTube de mayor a menor: un vídeo antiguo no tiene `maxres`."""
+    from PIL import Image, ImageDraw
+    datos = None
+    import requests as _rq
+    for tam in _YT_THUMB_SIZES:
+        try:
+            r = _rq.get("https://i.ytimg.com/vi/%s/%s.jpg" % (video_id, tam), timeout=8)
+            # ⚠️ YouTube devuelve 200 con una imagen GRIS de 120x90 cuando ese tamaño no existe:
+            # por eso no vale mirar solo el código, hay que mirar lo que ha llegado.
+            if r.status_code == 200 and len(r.content or b"") > 3000:
+                datos = r.content
+                break
+        except Exception:
+            continue
+    if not datos:
+        return b""
+    try:
+        im = Image.open(BytesIO(datos)).convert("RGB")
+    except Exception:
+        return b""
+    # ⚠️⚠️ SIEMPRE 16:9. Las miniaturas de YouTube vienen en dos proporciones: `maxresdefault` y
+    # `mqdefault` son 16:9, pero `sddefault` y `hqdefault` son 4:3 **con bandas negras arriba y
+    # abajo**. Si se dejaran tal cual, el mismo módulo saldría con bandas o sin ellas según el
+    # vídeo, y el bloque del editor (que reserva 16:9) no cuadraría con lo que llega al correo.
+    # Se recortan al centro, que es exactamente lo que enseña el propio YouTube.
+    w, h = im.size
+    if w and h and abs((w / float(h)) - 16 / 9.0) > 0.02:
+        alto = int(round(w * 9 / 16.0))
+        if alto < h:
+            arriba = (h - alto) // 2
+            im = im.crop((0, arriba, w, arriba + alto))
+        else:
+            ancho = int(round(h * 16 / 9.0))
+            izq = (w - ancho) // 2
+            im = im.crop((izq, 0, izq + ancho, h))
+    # El botón de YouTube: el rectángulo rojo redondeado con el triángulo blanco, centrado y a la
+    # escala de siempre (su ancho es ~1/6 del vídeo).
+    w, h = im.size
+    bw = max(48, int(w * 0.16))
+    bh = int(bw * 0.70)
+    x0, y0 = (w - bw) // 2, (h - bh) // 2
+    capa = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dib = ImageDraw.Draw(capa)
+    dib.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=int(bh * 0.28), fill=(255, 0, 0, 235))
+    tw, th = int(bw * 0.26), int(bh * 0.42)
+    cx, cy = x0 + bw // 2, y0 + bh // 2
+    dib.polygon([(cx - tw // 2, cy - th // 2), (cx - tw // 2, cy + th // 2), (cx + tw // 2 + 1, cy)],
+                fill=(255, 255, 255, 255))
+    im = Image.alpha_composite(im.convert("RGBA"), capa).convert("RGB")
+    salida = BytesIO()
+    im.save(salida, format="PNG", optimize=True)
+    return salida.getvalue()
+
+
+@app.get("/video/<video_id>/portada.png", endpoint="public_youtube_thumb")
+def public_youtube_thumb(video_id):
+    """La miniatura del vídeo con el play, tal como llega al correo."""
+    vid = youtube_video_id(video_id)
+    if not vid:
+        abort(404)
+    datos = b""
+    try:
+        datos = _youtube_thumb_png(vid)
+    except Exception:
+        app.logger.exception("[youtube] no se pudo componer la miniatura de %s", vid)
+    if not datos:
+        # ⚠️ Si YouTube no contesta, el correo NO puede quedarse con un hueco roto: se lleva al
+        # sitio de siempre de «sin portada» y el enlace sigue funcionando.
+        return redirect(url_for("static", filename="img/cover_placeholder.png"))
+    resp = make_response(datos)
+    resp.headers["Content-Type"] = "image/png"
+    # Una semana: la miniatura de un vídeo no cambia, y así el correo no vuelve a pedirla.
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+
+@app.get("/video/<video_id>", endpoint="public_youtube_play")
+def public_youtube_play(video_id):
+    """EL POP-UP: el vídeo y nada más. Fondo oscuro, el reproductor centrado y **arranca solo**, sin
+    título, sin sugerencias y sin más botones (lo pidió Dani: «que se reproduzca directamente, sin
+    título del vídeo ni nada de eso»)."""
+    vid = youtube_video_id(video_id)
+    if not vid:
+        abort(404)
+    return render_template("public_youtube.html", video_id=vid)
+
+
 @app.get("/ic/<token>/a.gif", endpoint="public_corporate_invite_open")
 def public_corporate_invite_open(token):
-    """El píxel del correo: al cargarse, esa persona ha ABIERTO la invitación."""
+    """El píxel del correo: al cargarse, esa persona ha ABIERTO la invitación.
+
+    ⚠️⚠️ **Y SI LA ABRE OTRO, ES QUE LA HA REENVIADO**: el token es de UNA persona, así que una
+    apertura con una huella distinta de la primera significa que el correo está en manos de alguien
+    más. Es una PISTA muy buena (es como lo sabe cualquier herramienta de correo), no una certeza:
+    la misma persona en otro dispositivo también cuenta. La ficha lo dice con esas palabras."""
     s = db()
     try:
         r = (s.query(CorporateInviteRecipient)
              .filter(CorporateInviteRecipient.token == (token or "")).first())
         if r is not None:
+            huella = _corp_open_fingerprint()
             r.open_count = int(r.open_count or 0) + 1
             if not r.opened_at:
                 r.opened_at = _now_madrid()
+                r.open_fingerprint = huella
+            elif huella and (r.open_fingerprint or "") and huella != r.open_fingerprint:
+                r.forward_count = int(r.forward_count or 0) + 1
+                if not r.forwarded_at:
+                    r.forwarded_at = _now_madrid()
             s.commit()
     except Exception:
         try:

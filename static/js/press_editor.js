@@ -46,8 +46,16 @@
   }
   function marca(t) { dirty = true; var s = root.querySelector('[data-pr-saved]'); if (s) s.textContent = t || 'Sin guardar'; }
   function esTexto(b) { return !!b && (b.type === 'title' || b.type === 'text'); }
-  // Una imagen integrada con sus medidas: al redimensionarla se conserva la proporción.
-  function conMedidas(b) { return !!b && b.type === 'image' && b.ref && b.ref.w > 0 && b.ref.h > 0; }
+  /* Lo que tiene PROPORCIÓN FIJA: al redimensionarlo, el alto sale del ancho y no se deforma.
+     ⚠️ Un VÍDEO DE YOUTUBE es siempre 16:9 (la miniatura la recorta a 16:9 el servidor), así que
+     entra aquí igual que una imagen integrada: se mueve y se cambia de tamaño como los demás. */
+  function proporcion(b) {
+    if (!b) return null;
+    if (b.type === 'youtube') return 9 / 16;
+    if (b.type === 'image' && b.ref && b.ref.w > 0 && b.ref.h > 0) return b.ref.h / b.ref.w;
+    return null;
+  }
+  function conMedidas(b) { return proporcion(b) != null; }
 
   /* ---------- geometría ---------- */
   function bgH() { var b = design.bg || {}; return (b.w > 0 && b.h > 0) ? W * b.h / b.w : 0; }
@@ -103,7 +111,7 @@
      ⚠️ El alto de un MÓDULO lo manda su contenido (`ajustaAltoModulo`), así que ahí las asas de
      arriba y de abajo no se ofrecen: volverían solas a su sitio y parecería que no funcionan. */
   var RS_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-  function altoAuto(b) { return !esTexto(b) && !(b && b.type === 'image'); }
+  function altoAuto(b) { return !esTexto(b) && !conMedidas(b); }
   function asasHtml() {
     return RS_DIRS.map(function (d) {
       return '<div class="pr-blk__rs pr-blk__rs--' + d + '" data-pr-rs="' + d + '" title="Arrastra para cambiar el tamaño"></div>';
@@ -172,7 +180,7 @@
   function ajustaAltoModulo(b) {
     var el = elDe(b.id); if (!el) return;
     if (conMedidas(b)) {
-      var hh = Math.round(b.w * b.ref.h / b.ref.w);
+      var hh = Math.round(b.w * proporcion(b));
       if (Math.abs(hh - b.h) > 1) { b.h = hh; canvas.style.height = Math.round(canvasH()) + 'px'; escala(); }
       return;
     }
@@ -263,6 +271,15 @@
         '<input class="form-control form-control-sm mb-2" data-pr-opt-text="href" value="' + esc(o.href || '') + '" placeholder="https://…">' +
         '<label class="form-label small text-muted mb-1">Texto alternativo</label>' +
         '<input class="form-control form-control-sm mb-2" data-pr-ref-text="alt" value="' + esc(ref.alt || '') + '" placeholder="Qué se ve en la imagen">';
+    }
+    if (b.type === 'youtube') {
+      var yurl = (b.ref && b.ref.url) || '';
+      html += '<div class="small text-muted mb-2">En el correo se ve <strong>la miniatura del vídeo con el botón de YouTube</strong>, sin título ni nada más. Al pincharla, el vídeo se abre y se reproduce.</div>' +
+        (yurl ? '<div class="small text-truncate mb-2" title="' + esc(yurl) + '"><i class="fa-brands fa-youtube text-danger me-1"></i>' + esc(yurl) + '</div>' : '') +
+        '<button type="button" class="btn btn-sm btn-outline-' + (yurl ? 'secondary' : 'primary') + ' mb-3" data-pr-yt-open>' +
+        '<i class="fa-brands fa-youtube me-1"></i>' + (yurl ? 'Cambiar la URL' : 'Poner la URL') + '</button>' +
+        '<label class="form-label small text-muted mb-1 d-flex justify-content-between">Esquinas redondeadas <span data-pr-range-val>' + (parseInt(o.radius == null ? 12 : o.radius, 10) || 0) + ' px</span></label>' +
+        '<input type="range" class="form-range mb-2" min="0" max="40" step="1" data-pr-opt-range="radius" value="' + (parseInt(o.radius == null ? 12 : o.radius, 10) || 0) + '">';
     }
     if (b.type === 'files') {
       html += '<label class="form-label small text-muted mb-1">Cómo se llama este bloque</label>' +
@@ -378,8 +395,8 @@
       if (d.indexOf('w') >= 0) izq = Math.min(der - 60, Math.max(0, izq + dx));
       if (altoLibre && d.indexOf('s') >= 0) aba = Math.max(arr + 24, aba + dy);
       if (altoLibre && d.indexOf('n') >= 0) arr = Math.min(aba - 24, Math.max(0, arr + dy));
-      if (conMedidas(b)) {                                   // la imagen no se deforma
-        var prop = b.ref.h / b.ref.w;
+      if (conMedidas(b)) {                                   // no se deforma
+        var prop = proporcion(b);
         if (d === 'n' || d === 's') der = izq + Math.max(60, (aba - arr) / prop);
         var alto = (der - izq) * prop;
         if (d.indexOf('n') >= 0) arr = aba - alto; else aba = arr + alto;
@@ -391,7 +408,7 @@
     if (ev.altKey) limpiaGuias(); else alinea(b, drag.modo, drag.dir);
     b.x = Math.max(0, Math.min(W - 40, b.x)); b.y = Math.max(0, b.y);
     b.w = Math.max(60, Math.min(W - b.x, b.w)); if (esTexto(b)) b.h = Math.max(24, b.h);
-    if (conMedidas(b)) b.h = b.w * b.ref.h / b.ref.w;      // la imagen no se deforma
+    if (conMedidas(b)) b.h = b.w * proporcion(b);          // no se deforma
     pintaBloque(b);
     canvas.style.height = Math.round(canvasH()) + 'px';
     escala();
@@ -407,6 +424,7 @@
     if (clic) {
       // Un CLIC (sin mover) sobre una imagen o unos adjuntos abre su configuración.
       if (b && b.type === 'image') abreImagen(b);
+      else if (b && b.type === 'youtube') abreYoutube(b);
       else if (b && b.type === 'files') abreArchivos(b);
       else if (b && b.type === 'contact') abreContactos(b);
       return;
@@ -707,6 +725,10 @@
     /* Los DATOS DE LA ACTIVIDAD: el cartel a la izquierda y los datos a la derecha, así que nace
        ancho (el alto lo calcula su contenido, como todos los módulos). */
     else if (tipo === 'activity') { b.ref = (extra && extra.ref) || {}; b.opts = {}; b.h = 170; }
+    /* UN VÍDEO DE YOUTUBE: nace con la proporción del vídeo (16:9) y se le pide la URL al colocarlo.
+       Se mueve, se cambia de tamaño y se pueden poner todos los que hagan falta, como cualquier
+       otro módulo: cada arrastre es un vídeo nuevo. */
+    else if (tipo === 'youtube') { b.ref = { url: ((extra && extra.ref && extra.ref.url) || '') }; b.opts = { radius: 12 }; b.h = Math.round(b.w * 9 / 16); }
     else { b.ref = (extra && extra.ref) || {}; b.opts = { download: false, align: 'center' }; b.h = 90; }
     if (y == null) { var abajo = Math.max(bgH() * 0.55, 0); design.blocks.forEach(function (o) { abajo = Math.max(abajo, o.y + o.h + 16); }); b.y = abajo; }
     design.blocks.push(b);
@@ -717,6 +739,7 @@
     if (tipo === 'image' && !(b.ref && b.ref.url)) abreImagen(b);   // se elige la imagen en cuanto se coloca
     if (tipo === 'image' && b.ref && b.ref.url) { refrescaModulo(b); midePreset(b); }
     if (tipo === 'files') abreArchivos(b);          // y los archivos se suben en cuanto se coloca
+    if (tipo === 'youtube' && !(b.ref && b.ref.url)) abreYoutube(b);   // se pega la URL al colocarlo
     // ⚠️ Un módulo que se arrastra VACÍO (single, disco, videoclip, enlaces, playlist) pregunta qué
     // lleva en cuanto se coloca; se pueden poner todos los que hagan falta.
     if (PICK[tipo] && !refPuesta(b)) abrePick(b);
@@ -761,7 +784,12 @@
       var VACIO_LABEL = { audio: 'Un single', album: 'Un disco', video: 'Un videoclip',
                           links: 'Unos enlaces', playlist: 'Una playlist',
                           activity: 'Una actividad' };
-      var html = '';
+      /* ⚠️ EL VÍDEO DE YOUTUBE ESTÁ SIEMPRE: no sale de los materiales de nadie, se pega una URL.
+         Va el primero porque es el que más se usa en un correo, y se arrastran los que hagan falta. */
+      var html = '<div class="pr-pal-group"><div class="pr-pal-group__t"><i class="fa-brands fa-youtube"></i>Vídeo de YouTube</div>' +
+        '<div class="pr-pal pr-pal--empty" draggable="true" data-pr-pal="youtube" data-pr-ref="{}">' +
+        '<span class="pr-pal__ico"><i class="fa-brands fa-youtube" style="color:#FF0000"></i></span>' +
+        '<span><b>Un vídeo</b><small>Se pega la URL al colocarlo</small></span></div></div>';
       grupos.forEach(function (g) {
         var items = assets[g[0]] || [];
         var gen = GENERICO[g[0]];
@@ -778,7 +806,7 @@
             '<span><b>' + esc(it.label) + '</b><small>' + esc(it.sub || '') + '</small></span></div>';
         }).join('') + '</div>';
       });
-      box.innerHTML = html || '<div class="text-muted small">No hay módulos para este sujeto (sin audios, discos ni fotos).</div>';
+      box.innerHTML = html;
     }).catch(function () { box.innerHTML = '<div class="text-danger small">No se pudieron cargar los módulos.</div>'; });
   }
 
@@ -949,12 +977,64 @@
   canvas.addEventListener('click', function (ev) {
     var el = ev.target.closest('.pr-blk'); if (!el) return;
     var b = bloque(el.getAttribute('data-id'));
+    if (b && b.type === 'youtube' && !(b.ref && b.ref.url)) { abreYoutube(b); return; }
     if (b && PICK[b.type] && !refPuesta(b)) abrePick(b);
   });
   function refPuesta(b) {
     var r = (b && b.ref) || {};
     return !!(r.song_id || r.album_id || r.playlist_id || r.concert_id);
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════
+     LA URL DEL VÍDEO DE YOUTUBE
+     ⚠️ Se acepta lo que cualquiera copia y pega (la barra del navegador, «Compartir», un Short o
+     el propio código): quién decide si vale es el SERVIDOR (`youtube_video_id`), que es el mismo
+     que compone la miniatura y la página del pop-up — aquí solo se avisa pronto de lo que se ve a
+     simple vista que no es un YouTube, para no hacer ir y volver.
+     ══════════════════════════════════════════════════════════════════════════════════════════ */
+  var ytModal = document.getElementById('prYoutubeModal'), ytTarget = null;
+  function abreYoutube(b) {
+    if (!ytModal || !window.bootstrap || !b) return;
+    ytTarget = b.id;
+    var inp = ytModal.querySelector('[data-pr-yt-url]');
+    if (inp) inp.value = (b.ref && b.ref.url) || '';
+    ytError('');
+    bootstrap.Modal.getOrCreateInstance(ytModal).show();
+    // ⚠️ `shown.bs.modal` no siempre llega (con modal_stack.js por medio): se enfoca con un respiro.
+    setTimeout(function () { if (inp) { inp.focus(); inp.select(); } }, 250);
+  }
+  function ytError(msg) {
+    var e = ytModal && ytModal.querySelector('[data-pr-yt-error]'); if (!e) return;
+    e.textContent = msg || ''; e.classList.toggle('d-none', !msg);
+  }
+  function ytGuarda() {
+    var b = bloque(ytTarget); if (!b || !ytModal) return;
+    var inp = ytModal.querySelector('[data-pr-yt-url]');
+    var v = ((inp && inp.value) || '').trim();
+    if (!v) { ytError('Pega la URL del vídeo de YouTube.'); return; }
+    if (v.indexOf('youtu') < 0 && !/^[A-Za-z0-9_-]{11}$/.test(v)) {
+      ytError('Eso no parece un vídeo de YouTube. Pega el enlace tal cual lo copias del navegador.');
+      return;
+    }
+    b.ref = { url: v };
+    delete b.html_cache;
+    marca(); refrescaModulo(b); pintaProps(b);
+    bootstrap.Modal.getOrCreateInstance(ytModal).hide();
+  }
+  if (ytModal) {
+    ytModal.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-pr-yt-save]')) ytGuarda();
+    });
+    ytModal.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && ev.target.closest('[data-pr-yt-url]')) { ev.preventDefault(); ytGuarda(); }
+    });
+  }
+  // Desde el panel de la derecha: «Cambiar la URL».
+  root.addEventListener('click', function (ev) {
+    if (!ev.target.closest('[data-pr-yt-open]')) return;
+    var b = sel ? bloque(sel) : null;
+    if (b && b.type === 'youtube') abreYoutube(b);
+  });
 
   function abreImagen(b) {
     if (!imgModal || !window.bootstrap || !b) return;

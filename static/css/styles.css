@@ -8350,6 +8350,33 @@ a.ac-row__t:hover{ color:var(--brand-accent,#007CA2); text-decoration:underline;
 .ci-guest.is-missing{ border-color:#f0c36d; background:#fffaf0; }
 .ci-guest__fix{ flex:0 0 auto; white-space:nowrap; }
 
+/* ⚠️ EL NICK SE LEE, NO SE VE COMO UN ENLACE: lleva a su ficha, pero va en el color del texto
+   (lo pidió Dani: «es clicable, pero que no se vea en azul»). Solo se subraya al pasar por encima. */
+.ci-guest__nick{ color:inherit; text-decoration:none; }
+a.ci-guest__nick:hover b{ text-decoration:underline; text-decoration-color:var(--brand-primary, #E33D48); }
+/* LA VINCULACIÓN, debajo y más pequeña, con el logo o la foto de con quién está. */
+.ci-guest__link{ display:flex !important; align-items:center; gap:.3rem; }
+.ci-guest__link img{ flex:0 0 auto; width:16px !important; height:16px !important; border-radius:50%;
+  object-fit:cover; max-width:none; }
+.ci-guest__link > span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* LAS MARCAS del correo: el triángulo (rebotó) y el sobre tachado (no abre lo que se le manda). */
+.ci-guest__mark{ flex:0 0 auto; display:inline-flex; align-items:center; font-size:.95rem; line-height:1; }
+.ci-guest__mark--bad{ color:#dc3545; }
+.ci-guest__mark--quiet{ color:#adb5bd; }
+/* El SOBRE TACHADO: `fa-envelope-slash` NO existe en esta versión de Font Awesome (sale vacío), así
+   que se compone el sobre con la barra encima — el mismo truco que usa la propia Font Awesome. */
+.ci-slash{ position:relative; display:inline-flex; align-items:center; justify-content:center;
+  width:1em; height:1em; }
+.ci-slash .fa-envelope{ font-size:.9em; }
+.ci-slash .fa-slash{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+
+/* La misma fila, DENTRO DE UNA TABLA (la ficha de una invitación enviada): sin caja ni fondo, que
+   la caja ya la pone la tabla. */
+.ci-guest--flat{ border:0; background:transparent; padding:0; }
+/* Una invitación YA ENVIADA se pincha entera y lleva a su ficha. */
+.ci-card--open{ cursor:pointer; }
+.ci-card--open:hover{ border-color:var(--brand-primary, #E33D48); box-shadow:0 .25rem .75rem rgba(0,0,0,.06); }
+
 /* Buscar un tercero para añadirlo */
 .ci-results{ display:grid; gap:.35rem; max-height:15rem; overflow:auto; }
 .ci-result{ display:flex; align-items:center; gap:.6rem; border:1px solid #e9ecef; border-radius:12px;

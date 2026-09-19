@@ -86,7 +86,13 @@
       {% else %}
         <div class="ci-grid">
           {% for inv in invites %}
-            <div class="ci-card" data-ci-invite="{{ inv.id }}">
+            {# ⚠️⚠️ UNA INVITACIÓN YA ENVIADA SE PINCHA Y LLEVA A SU FICHA (a quién se le mandó,
+               quién la ha abierto, quién la ha reenviado y a quién no le llegó). La tarjeta **NO es
+               un `<a>`**: dentro ya hay enlaces, botones y un formulario, y un `<a>` dentro de otro
+               PARTE EL HTML (la regla de la casa). Navega un listener delegado por `data-ci-open`,
+               que deja pasar todo lo que ya es clicable. #}
+            <div class="ci-card{{ ' ci-card--open' if inv.status != 'DRAFT' }}" data-ci-invite="{{ inv.id }}" data-ci-status="{{ inv.status }}"
+                 {% if inv.status != 'DRAFT' %}data-ci-open="{{ inv.detail_url }}"{% endif %}>
               {# A la IZQUIERDA el cartel de la actividad (o la foto del artista); a la derecha, los
                  datos con su icono uno debajo de otro — igual que el módulo del correo. #}
               {% if inv.activity and inv.activity.poster_url %}
@@ -118,7 +124,11 @@
                   <div class="ci-card__actions">
                     {% if inv.design_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ inv.design_url }}"><i class="fa fa-pen-ruler me-1"></i>{{ 'Seguir diseñando' if inv.has_design else 'Diseñar el contenido' }}</a>{% endif %}
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-ci-preview="{{ inv.id }}"><i class="fa fa-envelope-open-text me-1"></i>Vista previa</button>
-                    <button type="button" class="btn btn-sm btn-primary" data-ci-send="{{ inv.id }}"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+                    {# ⚠️ «Enviar» lleva a LA PANTALLA PREVIA AL ENVÍO (la misma de toda la app): la
+                       vista previa, a quién se le manda y el email de prueba. Nada sale de aquí. #}
+                    <a class="btn btn-sm btn-primary {{ '' if inv.has_design else 'disabled' }}"
+                       href="{{ inv.send_url }}"{% if not inv.has_design %} tabindex="-1" aria-disabled="true" title="Antes hay que diseñar el contenido"{% endif %}>
+                      <i class="fa fa-paper-plane me-1"></i>Enviar<i class="fa fa-arrow-right ms-2"></i></a>
                     <form method="post" action="{{ url_for('corporate_invite_delete', invite_id=inv.id) }}"
                           onsubmit="return confirm('¿Eliminar este borrador?');" class="d-inline">
                                       <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
@@ -129,10 +139,11 @@
                   <div class="ci-card__stats">
                     <span class="ci-stat"><i class="fa fa-users fa-fw"></i><b>{{ inv.sent_ok }}</b> enviada{{ '' if inv.sent_ok == 1 else 's' }}</span>
                     <span class="ci-stat ci-stat--open"><i class="fa fa-envelope-open fa-fw"></i><b>{{ inv.opened }}</b> la {{ 'ha' if inv.opened == 1 else 'han' }} abierto{% if inv.total %} <span class="text-muted">({{ inv.opened_pct }}%)</span>{% endif %}</span>
+                    {% if inv.forwarded %}<span class="ci-stat text-primary"><i class="fa fa-share-from-square fa-fw"></i><b>{{ inv.forwarded }}</b> la {{ 'ha' if inv.forwarded == 1 else 'han' }} reenviado</span>{% endif %}
                     {% if inv.sent_fail %}<span class="ci-stat text-danger"><i class="fa fa-circle-exclamation fa-fw"></i><b>{{ inv.sent_fail }}</b> sin entregar</span>{% endif %}
                   </div>
                   <div class="ci-card__actions">
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ inv.detail_url }}"><i class="fa fa-list-check me-1"></i>Ver quién la ha abierto</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ inv.detail_url }}"><i class="fa fa-list-check me-1"></i>Ver a quién se le mandó</a>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-ci-preview="{{ inv.id }}"><i class="fa fa-envelope-open-text me-1"></i>Ver el correo</button>
                   </div>
                 {% endif %}
@@ -170,6 +181,14 @@
                   {% if l.count != l.with_email %}
                     <span class="badge text-bg-warning ms-1" title="Sin correo no se les puede invitar">{{ l.count - l.with_email }} sin correo</span>
                   {% endif %}
+                  {# Lo que hay que MIRAR de esta lista, sin abrirla: a quién no le llega y quién no
+                     abre lo que se le manda (las mismas marcas que llevan las filas de dentro). #}
+                  <span class="badge text-bg-danger ms-1 {{ '' if l.bounced else 'd-none' }}" data-ci-bounced
+                        title="El último correo les rebotó (o esa dirección no existe)">
+                    <i class="fa fa-triangle-exclamation me-1"></i><span data-ci-bounced-n>{{ l.bounced }}</span> no le llega</span>
+                  <span class="badge text-bg-light border text-muted ms-1 {{ '' if l.quiet else 'd-none' }}" data-ci-quiet
+                        title="No han abierto los últimos correos que se les ha mandado">
+                    <i class="fa fa-envelope me-1"></i><span data-ci-quiet-n>{{ l.quiet }}</span> sin abrir</span>
                 </button>
               </h2>
               <div id="ciList{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#ciListsAcc">

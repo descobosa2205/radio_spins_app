@@ -15656,7 +15656,18 @@ class CorporateInviteRecipient(Base):
     sent_at = Column(DateTime(timezone=True))
     opened_at = Column(DateTime(timezone=True))
     open_count = Column(Integer, nullable=False, server_default=text("0"))
+    # ⚠️⚠️ **LA HA REENVIADO**: el píxel lleva UN token por persona, así que si ESE token se carga
+    # desde otro navegador distinto del que la abrió la primera vez, ese correo está en manos de
+    # alguien más — o sea, lo ha reenviado. `open_fingerprint` guarda una HUELLA de quien la abrió
+    # primero (no el navegador ni la IP en claro: un hash corto, que es lo único que hace falta para
+    # saber si es «otro»), y `forwarded_at`/`forward_count` apuntan a cuántos más la han abierto.
+    open_fingerprint = Column(Text)
+    forwarded_at = Column(DateTime(timezone=True))
+    forward_count = Column(Integer, nullable=False, server_default=text("0"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Su FICHA de tercero: de ahí salen el nick y la vinculación que se enseñan en la ficha del envío.
+    promoter = relationship("Promoter")
 
     __table_args__ = (
         UniqueConstraint("invite_id", "email", name="uq_corp_invite_email"),
@@ -15738,4 +15749,10 @@ def ensure_corporate_invites_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_corp_invite_rec ON corporate_invite_recipients(invite_id, status);",
+        # ⚠️ CADA COLUMNA EN SU PROPIA SENTENCIA (la regla de la casa: dentro de un `DO $$ … IF NOT
+        # EXISTS(…) THEN ALTER` podría no ejecutarse nunca y la app reventaría al leerla).
+        # Quién la ha REENVIADO: la huella de quien la abrió primero y cuántos más la han abierto.
+        "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS open_fingerprint text;",
+        "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS forwarded_at timestamptz;",
+        "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS forward_count integer NOT NULL DEFAULT 0;",
     ], "corporate_invites_schema")

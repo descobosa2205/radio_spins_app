@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Vídeo</title>
+  {# ═══════════════ EL POP-UP DEL VÍDEO ═══════════════
+     Se llega aquí pinchando la miniatura de un módulo de YouTube en un correo. Solo hay una cosa:
+     EL VÍDEO, que arranca solo. Sin título, sin sugerencias y sin nada alrededor (lo pidió Dani).
+     ⚠️ Es una página SUELTA (no hereda de layout.html): se abre desde un correo, sin sesión. #}
+  <style>
+    html, body { margin:0; padding:0; height:100%; background:#000; }
+    body { display:flex; align-items:center; justify-content:center; }
+    /* El vídeo, lo más grande que quepa manteniendo el 16:9 y sin salirse de la pantalla. */
+    .yt { width:100%; max-width:calc(177.7778vh - 3rem); aspect-ratio:16/9; }
+    .yt iframe { width:100%; height:100%; border:0; display:block; background:#000; }
+    /* Navegadores sin `aspect-ratio` (los antiguos): el truco del relleno de siempre. */
+    @supports not (aspect-ratio: 16/9) {
+      .yt { position:relative; height:0; padding-bottom:56.25%; }
+      .yt iframe { position:absolute; inset:0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="yt">
+    {# ⚠️ `youtube-nocookie.com`: quien abre el correo no tiene por qué llevarse las cookies de
+       Google encima. `autoplay=1` para que se reproduzca directamente, `rel=0` para que al acabar
+       no salgan vídeos de otros y `modestbranding=1` para quitar lo que se puede quitar. #}
+    <iframe src="https://www.youtube-nocookie.com/embed/{{ video_id }}?autoplay=1&amp;rel=0&amp;modestbranding=1&amp;playsinline=1"
+            title="Vídeo" allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  </div>
+</body>
+</html>

@@ -19,6 +19,9 @@
 - INVITACIONES CORPORATIVAS · «Mi lista de invitados» y el envío desde el correo de cada uno
 - INVITACIONES CORPORATIVAS · SUBIR UN FICHERO SE REVISA ANTES (y los rótulos que se leían mal)
 - INVITACIONES CORPORATIVAS · «SIN CORREO» es el dato del envío, y se arregla uno a uno
+- INVITACIONES CORPORATIVAS · la FILA de un invitado: el nick, su vinculación y las marcas del correo
+- INVITACIONES CORPORATIVAS · LA PANTALLA PREVIA AL ENVÍO es la MISMA de toda la app
+- INVITACIONES CORPORATIVAS · la ficha de una enviada: abierta · reenviada · no le llegó
 - EL DÍA DEL EVENTO · INVITACIONES SIN REPARTIR (sep 2026, _home_invitation_leftovers →
 
 ---
@@ -453,4 +456,71 @@
   a uno con sus datos extra, corregir una columna sin volver a subirlo y que reimportarlo no duplica
   a nadie), crear · diseñar · enviar, que sin correo configurado no se manda, que sale desde el suyo,
   las aperturas, que nadie ve lo de nadie, el botón de Inicio para todos y el orden del listado. Y `check_divs`
-  (212 pantallas), `check_botones`, `check_permisos`, `check_access_coverage` y `check_press_render`.
+  (335 pantallas), `check_botones`, `check_permisos`, `check_access_coverage` y `check_press_render`.
+  ⚠️ La prueba cubre ya **223 comprobaciones**: las tres correcciones de abajo (la fila con el nick y
+  sus marcas, la pantalla previa al envío y la ficha de una enviada) y el **módulo de vídeo de
+  YouTube**.
+
+
+- ⚠️⚠️ **INVITACIONES CORPORATIVAS · LA FILA DE UN INVITADO: EL NICK, SU VINCULACIÓN Y LAS MARCAS
+  DEL CORREO** (sep 2026, lo pidió Dani). En «Mi lista de invitados», cada persona se lee como en el
+  resto de la app: **el NICK** arriba (así la llamamos nosotros, no su nombre completo) y debajo,
+  más pequeña y **con el logo o la foto de con quién está**, su **VINCULACIÓN**
+  (`_promoter_link_summary`, con `publisher_fallback=False`: la editorial no es una vinculación).
+  · **POR ORDEN ALFABÉTICO DE NICK** (`_corp_list_rows_sorted`, punto único de la pantalla, del
+  refresco sin recargar y de la pantalla de enviar): se ordena por el nick **sin acentos ni
+  mayúsculas** (`_norm_text_key`), y dos tocayos desempatan por su id para que la lista no baile
+  entre refrescos.
+  · ⚠️ **El nick es clicable pero NO se ve en azul** (`.ci-guest__nick`): va en el color del texto y
+  solo se subraya al pasar por encima. Lo que se tiene que leer es el nombre, no un enlace.
+  · **DOS MARCAS, y ninguna más** (`_corp_mail_health`, UNA consulta): el **TRIÁNGULO** cuando el
+  último envío **rebotó** —y se distingue «esa dirección NO EXISTE» (`_corp_error_is_bounce`, que
+  mira lo que dice el servidor de correo) de un fallo pasajero, porque lo primero hay que
+  arreglarlo— y el **SOBRE TACHADO** cuando le han llegado **los últimos** correos (≥2, de
+  invitaciones distintas) y **no ha abierto ninguno**. Se mira lo mandado de verdad
+  (`CorporateInviteRecipient`) y solo lo de esa persona.
+  ⚠️ **`fa-envelope-slash` NO existe** en esta versión de Font Awesome (saldría vacío): el sobre
+  tachado se compone con `fa-envelope` + `fa-slash` encima (`.ci-slash`).
+  ⚠️ La galleta de la cabecera de la lista («N no le llega» · «N sin abrir») sale del **mismo**
+  `_corp_mail_health` que las marcas de dentro, así que el número que se ve es el que hay.
+  ⚠️ El arreglo uno a uno lee el nombre y el teléfono de los **`data-*` de la fila**, no de lo
+  pintado: la fila enseña el nick y su vinculación, y leer el texto se rompía en cuanto cambiaba el
+  diseño (pasó: el teléfono dejó de pintarse y llegaba vacío).
+
+- ⚠️⚠️ **INVITACIONES CORPORATIVAS · LA PANTALLA PREVIA AL ENVÍO ES LA MISMA DE TODA LA APP**
+  (sep 2026, lo pidió Dani: «esta función siempre es igual en todos los sitios, y cualquier
+  modificación afecta a todos»). Antes la invitación se mandaba **a ciegas** desde un botón de la
+  tarjeta, con un `confirm()`. Ahora «Enviar» —y el «Siguiente: enviar» del editor— llevan a
+  **`press_release_send.html` con `scope='invite'`**: literalmente **la misma plantilla y el mismo
+  motor (`press_send.js`)** que enviar una nota de prensa. Lo único propio es el paso de «a quién».
+  · A la izquierda: **de quién sale** (su propio buzón; si no lo tiene, no se puede mandar y se dice
+  qué hacer) y **a quién** — sus listas, cada una con su gente por orden de nick, con sus marcas de
+  correo, donde se puede **quitar** a quien no toque y **añadir** a alguien más (el buscador es el
+  mismo `_press_contact_search` de las notas, y también se pueden escribir correos a mano).
+  · A la derecha, **la VISTA PREVIA del correo**; y al pulsar Enviar, la pregunta de siempre:
+  **¿quieres un email de PRUEBA antes?** (`corporate_invite_test_send`, el MISMO HTML que va a
+  salir, con el token «prueba» para que abrirla no cuente como que alguien la ha abierto).
+  · `_corp_build_recipients(..., chosen=...)` monta **exactamente a los marcados**; sin `chosen`
+  —una llamada vieja— siguen siendo las listas enteras.
+  ⚠️ El paso de **«¿cuándo?»** no sale en una invitación: una nota de prensa se programa para su
+  fecha de embargo, y una invitación se manda cuando se manda.
+
+- ⚠️⚠️ **INVITACIONES CORPORATIVAS · LA FICHA DE UNA ENVIADA: ABIERTA · REENVIADA · NO LE LLEGÓ**
+  (sep 2026, lo pidió Dani). Una invitación ya enviada **se pincha entera** y lleva a su ficha, con
+  **el listado de a quién se le mandó** y, con su icono, en qué ha quedado cada uno
+  (`_corp_recipient_state` + `CORP_RECIPIENT_STATES`, el punto único del icono y de la palabra):
+  **abierta** · **la ha reenviado** · **ese correo no existe** · **no le llegó** · enviada ·
+  pendiente. Cada persona con su **nick y su vinculación**, igual que en la lista de invitados, y
+  ordenados por lo que hay que mirar primero (lo que no llegó, después los reenvíos).
+  · ⚠️⚠️ **CÓMO SE SABE QUE LA HA REENVIADO**: el píxel lleva **un token por persona**, así que si
+  ESE token se carga desde **otro sitio** distinto del que la abrió la primera vez, ese correo está
+  en manos de alguien más. `open_fingerprint` guarda una **huella** de quien la abrió primero (un
+  hash corto de navegador + IP: **no** se guarda ni el navegador ni la IP en claro) y
+  `forwarded_at`/`forward_count` cuentan las demás. Es una **pista muy buena** —es como lo sabe
+  cualquier herramienta de correo—, no una certeza: la misma persona en otro dispositivo también
+  cuenta, **y la ficha lo dice con esas palabras**.
+  ⚠️ **La tarjeta NO es un `<a>`**: dentro ya hay enlaces, botones y un formulario, y un `<a>`
+  dentro de otro **parte el HTML** (la regla de la casa). Navega un listener delegado por
+  `data-ci-open`, que deja pasar todo lo que ya es clicable por su cuenta.
+  ⚠️ El **vídeo de YouTube** que se puede meter en el correo está en `docs/app/promocion-prensa.md`
+  (es del motor del editor, y vale para los tres).

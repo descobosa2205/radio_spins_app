@@ -24,6 +24,7 @@
 - NOTAS DE PRENSA · CUENTAGOTAS DE COLOR: al lado del selector de color del texto hay
 - EL TAMAÑO DE UN BLOQUE SE AJUSTA POR CUALQUIER LADO (sep 2026, notas de prensa y comunicaciones
 - UNA PERSONA DE UN MEDIO ES UN TERCERO. «Añadir contacto» en la ficha de un
+- EL MÓDULO DE VÍDEO DE YOUTUBE: la miniatura con el play y el pop-up que lo reproduce
 - UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA (sep 2026, notas de prensa y
 
 ---
@@ -700,6 +701,47 @@
       engancha su ficha de tercero si ya existe (comprobado: no se duplica) o se le crea.
     ⚠️ El parcial lee `media_programs|default([])`: en el alta no hay programas que sugerir y sin
     eso la pantalla de Medios se caía con un 500.
+
+- ⚠️⚠️ **EL MÓDULO DE VÍDEO DE YOUTUBE** (sep 2026, lo pidió Dani). Se arrastra desde la paleta
+  (`data-pr-pal="youtube"`, **el primer grupo**, y está SIEMPRE: no sale de los materiales de nadie),
+  se pincha para **pegar la URL** (`#prYoutubeModal`) y en el correo se ve **la miniatura del vídeo
+  con el botón rojo de reproducir y NADA MÁS** —ni título, ni botón, ni tarjeta alrededor—. Al
+  pincharla se abre en un **pop-up** y se reproduce directamente. Vale en **los tres editores**
+  (notas de prensa, envíos a compradores e invitaciones): está en el motor.
+  · **La URL**: punto único **`youtube_video_id`**, que entiende lo que cualquiera copia y pega
+  —`watch?v=`, `youtu.be/`, `/embed/`, `/shorts/`, `/live/`, con parámetros detrás— y también el
+  código de 11 caracteres a secas. Lo que no sea un YouTube **no entra**, ni por el editor ni por
+  las páginas públicas (y por eso esas páginas pueden ser públicas sin riesgo: la única entrada es
+  un identificador de YouTube).
+  · ⚠️⚠️ **EL PLAY VA QUEMADO EN LA IMAGEN** (`public_youtube_thumb`, `/video/<id>/portada.png`): en
+  un correo **no se puede poner nada ENCIMA de una foto** —Outlook no entiende `position:absolute`
+  y el fondo de una celda no llega a todas partes—, así que el servidor baja la miniatura de
+  YouTube y le compone el rectángulo rojo con el triángulo blanco. El correo solo pinta un `<img>`,
+  que es lo único que se ve igual en todos los clientes.
+  ⚠️ **Y SIEMPRE 16:9**: `maxresdefault` y `mqdefault` son 16:9, pero `sddefault` y `hqdefault` son
+  **4:3 con bandas negras**; se recortan al centro, que es lo que enseña el propio YouTube. Si no,
+  el mismo módulo saldría con bandas o sin ellas según el vídeo y el bloque del editor no cuadraría
+  con el correo. Si YouTube no contesta, se va a la imagen de «sin portada»: **un correo no puede
+  quedarse con un hueco roto**.
+  · **EL POP-UP** (`public_youtube_play`, `/video/<id>`, `public_youtube.html`): fondo negro, el
+  reproductor centrado y **arranca solo** (`autoplay=1`), sin sugerencias (`rel=0`) y por
+  `youtube-nocookie.com` —a quien abre un correo nuestro no se le llevan las cookies de Google—.
+  Dentro de la app y en la página pública no se sale de la página: **`press_view.js`** abre el vídeo
+  **encima**, y lo destruye al cerrar (si no, seguiría sonando por debajo).
+  ⚠️⚠️ **LOS ESTILOS DEL POP-UP VAN EN LÍNEA, EN EL JS, NO EN `styles.css`** (bug real visto en el
+  navegador, sep 2026): la página pública de una nota es **standalone y no carga `styles.css`**, así
+  que la capa salía **sin posicionar, como un trozo suelto al final de la página**. Por la misma
+  razón la «×» de cerrar es **texto**, no un `<i class="fa">`: ahí tampoco carga Font Awesome y
+  habría salido vacía.
+  ⚠️ **El bloque declara `aspect-ratio:16/9` y fondo negro**: así ocupa su hueco **aunque la
+  miniatura tarde o no llegue**, en vez de encogerse a 0 px de alto y desaparecer del editor (pasó
+  en local, donde la miniatura apunta al host de producción). En el correo eso se ignora y manda el
+  `width` del `<img>`.
+  ⚠️ Se mueve y se cambia de tamaño **como cualquier otro módulo**, y se pueden poner **todos los
+  que hagan falta**. La proporción fija la lleva **`proporcion(b)`** en `press_editor.js` (antes
+  `conMedidas`, que solo sabía de imágenes): ahí es donde se apunta un módulo nuevo que no se deba
+  deformar.
+  ⚠️ En el **PDF** un vídeo no se reproduce: va la misma miniatura, y pinchándola se abre el vídeo.
 
 - ⚠️⚠️ **UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA** (sep 2026, notas de prensa **y
   comunicaciones a compradores**: es el MISMO editor, así que todo lo que se toque aquí vale para

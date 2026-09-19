@@ -24,6 +24,8 @@
 - NOTAS DE PRENSA · CUENTAGOTAS DE COLOR: al lado del selector de color del texto hay
 - EL TAMAÑO DE UN BLOQUE SE AJUSTA POR CUALQUIER LADO (sep 2026, notas de prensa y comunicaciones
 - UNA PERSONA DE UN MEDIO ES UN TERCERO. «Añadir contacto» en la ficha de un
+- EL MÓDULO «DATOS DE LA ACTIVIDAD»: el cartel si está subido, el recinto que abre el mapa y la paleta
+- LA FILA DE UN DESTINATARIO, LA MISMA EN LOS TRES ENVÍOS (foto, correo al lado y vinculación debajo)
 - EL MÓDULO DE VÍDEO DE YOUTUBE: la miniatura con el play y el pop-up que lo reproduce
 - UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA (sep 2026, notas de prensa y
 
@@ -701,6 +703,46 @@
       engancha su ficha de tercero si ya existe (comprobado: no se duplica) o se le crea.
     ⚠️ El parcial lee `media_programs|default([])`: en el alta no hay programas que sugerir y sin
     eso la pantalla de Medios se caía con un 500.
+
+- ⚠️⚠️ **EL MÓDULO «DATOS DE LA ACTIVIDAD» · EL CARTEL, EL RECINTO Y LA PALETA** (sep 2026, lo pidió
+  Dani). Tres cosas del mismo módulo:
+  · ⚠️⚠️ **EL CARTEL SE VE SI ESTÁ SUBIDO** («el cartel se tiene que ver si está subido; antes se
+  veía y ahora no»). Un cartel pasa por **DOS vistos buenos** (`PENDING` → `DESIGN_OK` →
+  `APPROVED`), y el módulo solo miraba los APROBADOS: entre medias se quedaba **vacío aunque el
+  cartel estuviera ahí** — que es lo que se vio al tocar una actividad ya montada. Punto único
+  **`_concert_module_poster`**: primero el aprobado (`_concert_artwork_share_assets`, el de siempre)
+  y, si no hay ninguno, el que esté subido, **con el principal por delante**.
+  ⚠️ Un cartel **RECHAZADO no vale nunca** (está mal por definición) ni uno archivado.
+  ⚠️ Esto **NO cambia** lo que se le manda al artista o al promotor: ese enlace sigue llevando
+  **solo lo aprobado**. Aquí es una viñeta que compone alguien de la casa mirándola.
+  · **EL RECINTO SE PINCHA Y ABRE EL MAPA**: arriba **«Recinto · Municipio»** y debajo, más pequeña,
+  **la DIRECCIÓN**; **todo el bloque** es el enlace, así que lleva al mapa tanto el nombre como la
+  dirección. Lo compone **`_place_map_url`**: con las **coordenadas** del recinto si está
+  geocodificado (es exacto) y, si no, con la dirección escrita. ⚠️ **Sin dirección ni municipio no
+  se pinta enlace**: uno que no lleva a ningún sitio es peor que no tenerlo. Se usa el enlace de
+  búsqueda de Google Maps porque en un iPhone lo abre la aplicación de mapas que tenga la persona.
+  · **EN LA PALETA VA SOLO EL MÓDULO VACÍO** («pon solo lo de una actividad; lo arrastras y ahí sí
+  seleccionas la actividad»): listar todas las actividades por venir llenaba la barra de entradas
+  que hay que leer una a una, cuando el pop-up de elegir ya las trae con su buscador. Los demás
+  grupos sí siguen ofreciendo lo concreto (un single o un disco se arrastran directamente).
+
+- ⚠️⚠️ **LA FILA DE UN DESTINATARIO, LA MISMA EN LOS TRES ENVÍOS** (sep 2026, lo pidió Dani): «el
+  listado de los seleccionados tiene que salir **con foto o logo**, y **las vinculaciones también
+  con foto y logo**; el **email al lado del nombre pero SIN negrita**, y **debajo la vinculación**».
+  Se lee: `[foto] Nick correo@dominio.com` y debajo `[logo] Radio Ñ · director`.
+  · La pinta **un solo macro** (`templates/_recipient_row.html`, importado **`with context`**) y su
+  espejo en el JS (`caraRecip` en `press_list.js` y `cara` en `press_send.js`), así que vale para la
+  pantalla de enviar, la ficha de una nota, la de una invitación corporativa y las comunicaciones a
+  compradores: si se toca, cambian todas.
+  · **La FOTO de un contacto de prensa** sale de **su ficha de tercero** si la tiene (es la persona)
+  y, si no, del **logo de su medio**; y su **vinculación** es su medio con el programa o el cargo,
+  salvo que su ficha tenga vinculaciones propias — entonces mandan esas
+  (**`_recipient_link_of_promoter`**, que envuelve `_promoter_link_summary`).
+  ⚠️ Las caras de la ficha de una nota se resuelven **EN BLOQUE** (`_press_recipient_faces`, dos
+  consultas): una por fila dejaría sin abrir una nota con cientos de destinatarios.
+  ⚠️ Un **comprador** casi nunca tiene ficha, así que su fila va con la foto por defecto y sin
+  vinculación — y **no se busca su ficha por el correo**: en una lista de miles sería una consulta
+  por fila.
 
 - ⚠️⚠️ **EL MÓDULO DE VÍDEO DE YOUTUBE** (sep 2026, lo pidió Dani). Se arrastra desde la paleta
   (`data-pr-pal="youtube"`, **el primer grupo**, y está SIEMPRE: no sale de los materiales de nadie),

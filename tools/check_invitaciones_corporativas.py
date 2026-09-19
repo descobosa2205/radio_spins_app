@@ -175,6 +175,77 @@ with A.app.test_request_context("/"):
     finally:
         s.close()
 
+print("\n── 1c. EL CARTEL se ve SI ESTÁ SUBIDO, y el RECINTO abre el mapa ──────")
+# ⚠️ Lo pidió Dani (sep 2026): «el cartel se tiene que ver si está subido» —un cartel pasa por DOS
+# vistos buenos y entre medias el módulo se quedaba vacío aunque el cartel estuviera ahí— y «en el
+# recinto se ve el nombre y debajo la dirección; si se pincha, te abre la ubicación en tu
+# aplicación de mapas».
+s = models.SessionLocal()
+try:
+    v = s.query(models.Venue).filter(models.Venue.name == "Sala Prueba").first()
+    v.address, v.municipality, v.province = "Calle Betis, 31", "Sevilla", "Sevilla"
+    pieza = (s.query(models.ConcertArtworkAsset)
+             .join(models.ConcertArtworkRequest,
+                   models.ConcertArtworkRequest.id == models.ConcertArtworkAsset.artwork_request_id)
+             .filter(models.ConcertArtworkRequest.concert_id == A.to_uuid(CID)).first())
+    s.commit()
+    PIEZA = str(pieza.id)
+finally:
+    s.close()
+
+def _cartel(estado, archivada=False):
+    s = models.SessionLocal()
+    try:
+        a = s.get(models.ConcertArtworkAsset, A.to_uuid(PIEZA))
+        a.validation_status, a.is_archived = estado, archivada
+        s.commit()
+        with A.app.test_request_context("/"):
+            return A._press_activity_data(s, {"concert_id": CID}).get("poster_url") or ""
+    finally:
+        s.close()
+
+check("el cartel APROBADO se ve", _cartel("APPROVED") == "https://x/cartel.jpg")
+check("⚠️ y uno SUBIDO pero todavía sin aprobar, también",
+      _cartel("PENDING") == "https://x/cartel.jpg", _cartel("PENDING"))
+check("uno aprobado solo por diseño, también", _cartel("DESIGN_OK") == "https://x/cartel.jpg")
+check("un cartel RECHAZADO no se ve nunca (está mal por definición)", _cartel("REJECTED") == "")
+check("y uno archivado tampoco", _cartel("PENDING", archivada=True) == "")
+_cartel("APPROVED")
+
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        datos = A._press_activity_data(s, {"concert_id": CID})
+        check("el recinto sale con su municipio", datos.get("venue_label") == "Sala Prueba · Sevilla",
+              datos.get("venue_label"))
+        check("y la DIRECCIÓN va aparte, para pintarla debajo",
+              datos.get("venue_address") == "Calle Betis, 31", datos.get("venue_address"))
+        check("con su enlace al mapa", "google.com/maps" in (datos.get("venue_map_url") or ""),
+              datos.get("venue_map_url"))
+        b = {"type": "activity", "x": 0, "y": 0, "w": 520, "h": 170, "ref": {"concert_id": CID}}
+        html = press_render.module_html(press_render.blocks_of(
+            A._press_resolve_blocks(s, models.PressRelease(), {"blocks": [b]}, "tok"))[0])
+        check("el módulo pinta la dirección debajo del recinto",
+              html.find("Sala Prueba") < html.find("Calle Betis, 31"), None)
+        check("y todo el bloque del recinto es el enlace al mapa",
+              'href="https://www.google.com/maps' in html, None)
+        # Con coordenadas manda la coordenada (es exacta).
+        v = s.query(models.Venue).filter(models.Venue.name == "Sala Prueba").first()
+        v.lat, v.lng = 37.38, -5.99
+        s.commit()
+        check("si el recinto está geocodificado, el mapa va por coordenadas",
+              "query=37.38,-5.99" in (A._press_activity_data(s, {"concert_id": CID}).get("venue_map_url") or ""),
+              A._press_activity_data(s, {"concert_id": CID}).get("venue_map_url"))
+        v.lat = v.lng = None
+        v.address = v.municipality = None
+        s.commit()
+        check("sin dirección ni municipio NO se pinta enlace (uno que no lleva a ningún sitio es peor)",
+              (A._press_activity_data(s, {"concert_id": CID}).get("venue_map_url") or "") == "")
+        v.address, v.municipality = "Calle Betis, 31", "Sevilla"
+        s.commit()
+    finally:
+        s.close()
+
 print("\n── 2. La PALETA del editor lo ofrece ──────────────────────────────────")
 with A.app.test_request_context("/"):
     s = models.SessionLocal()
@@ -187,6 +258,12 @@ with A.app.test_request_context("/"):
         check("la paleta trae el grupo «activities»", "activities" in assets)
         ids = [a["ref"]["concert_id"] for a in assets.get("activities") or []]
         check("y dentro está la actividad por venir", CID in ids, ids)
+        # ⚠️ En la BARRA LATERAL solo se ofrece el módulo VACÍO (lo pidió Dani: «pon solo lo de una
+        # actividad; lo arrastras y ahí sí seleccionas la actividad»). Las concretas siguen estando
+        # en el servidor porque son las que ofrece el pop-up de elegir.
+        js_ed = io.open("static/js/press_editor.js", encoding="utf-8").read()
+        check("la paleta NO lista las actividades una a una", "if (g[0] !== 'activities') {" in js_ed)
+        check("pero sí ofrece el módulo vacío", "activities: 'activity'" in js_ed)
         s.rollback()
     finally:
         s.close()

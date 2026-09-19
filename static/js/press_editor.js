@@ -800,11 +800,20 @@
             '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>' +
             '<span><b>' + esc(VACIO_LABEL[gen] || 'Módulo') + '</b><small>Se elige al colocarlo</small></span></div>';
         }
-        html += items.map(function (it) {
-          return '<div class="pr-pal" draggable="true" data-pr-pal="' + esc(it.kind) + '" data-pr-ref="' + esc(JSON.stringify(it.ref || {})) + '">' +
-            (it.cover ? '<img class="pr-pal__cover" src="' + esc(it.cover) + '" alt="">' : '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>') +
-            '<span><b>' + esc(it.label) + '</b><small>' + esc(it.sub || '') + '</small></span></div>';
-        }).join('') + '</div>';
+        /* ⚠️⚠️ LOS DATOS DE UNA ACTIVIDAD: en la paleta va **SOLO el módulo vacío** (sep 2026, lo
+           pidió Dani: «pon solo lo de una actividad; lo arrastras y ahí sí seleccionas la actividad
+           que quieres que aparezca»). Listar todas las actividades por venir llenaba la barra de
+           entradas que hay que leer una a una, cuando el pop-up de elegir ya las trae con su
+           buscador. Los demás grupos sí siguen ofreciendo lo concreto: un single o un disco se
+           arrastran directamente. */
+        if (g[0] !== 'activities') {
+          html += items.map(function (it) {
+            return '<div class="pr-pal" draggable="true" data-pr-pal="' + esc(it.kind) + '" data-pr-ref="' + esc(JSON.stringify(it.ref || {})) + '">' +
+              (it.cover ? '<img class="pr-pal__cover" src="' + esc(it.cover) + '" alt="">' : '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>') +
+              '<span><b>' + esc(it.label) + '</b><small>' + esc(it.sub || '') + '</small></span></div>';
+          }).join('');
+        }
+        html += '</div>';
       });
       box.innerHTML = html;
     }).catch(function () { box.innerHTML = '<div class="text-danger small">No se pudieron cargar los módulos.</div>'; });

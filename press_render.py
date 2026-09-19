@@ -730,7 +730,23 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
                          'line-height:1.2;">%s<span style="vertical-align:middle;">%s</span></div>'
                          % (DEFAULT_FONT, TEXT_COLOR, foto, _e(d["artist_name"])))
         filas.append(_dato(icons.get("calendar"), d.get("date_label") or ""))
-        filas.append(_dato(icons.get("venue"), d.get("venue_label") or ""))
+        # ⚠️⚠️ EL RECINTO SE PINCHA Y ABRE EL MAPA (sep 2026, lo pidió Dani): arriba «Recinto ·
+        # Municipio» y debajo, más pequeña, la DIRECCIÓN — y las dos llevan a la ubicación en la
+        # aplicación de mapas de quien lo abre. Sin ubicación que buscar, van como texto normal:
+        # un enlace que no lleva a ningún sitio es peor que no tenerlo.
+        mapa = d.get("venue_map_url") or ""
+        if d.get("venue_label"):
+            fila_recinto = _dato(icons.get("venue"), d["venue_label"])
+            if d.get("venue_address"):
+                fila_recinto += ('<div style="margin-top:2px;margin-left:22px;font-family:%s;font-size:12px;'
+                                 'color:%s;line-height:1.3;">%s</div>'
+                                 % (DEFAULT_FONT, MUTED, _e(d["venue_address"])))
+            if mapa:
+                # Todo el bloque del recinto es el enlace: el nombre y la dirección llevan al mapa.
+                fila_recinto = ('<a href="%s" target="_blank" rel="noopener" '
+                                'style="text-decoration:none;color:inherit;display:block;">%s</a>'
+                                % (_e(mapa), fila_recinto))
+            filas.append(fila_recinto)
         filas.append(_dato(icons.get("clock"), d.get("time_label") or ""))
         cuerpo = "".join(f for f in filas if f)
         celda_cartel = ""

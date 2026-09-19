@@ -60943,19 +60943,18 @@ def _press_activity_data(session_db, ref: dict) -> dict:
         nombre, foto = (c.artist.name or ""), (c.artist.photo_url or "")
     if not nombre:
         nombre = (getattr(c, "festival_name", None) or "").strip()
-    # El CARTEL: el primero de los aprobados de la actividad (y si no tiene, el de su gira, ciclo o
-    # evento). Sin cartel, la viñeta sale solo con los datos.
-    cartel = ""
-    try:
-        for a in _concert_artwork_share_assets(session_db, c):
-            if _artwork_asset_category(a) == "POSTER":
-                cartel = _absolute_media_url(_artwork_image_src(a) or "")
-                if cartel:
-                    break
-    except Exception:
-        app.logger.exception("[notas de prensa] no se pudo leer el cartel de la actividad")
+    # ⚠️⚠️ EL CARTEL SE VE SI ESTÁ SUBIDO (sep 2026, lo pidió Dani: «el cartel se tiene que ver si
+    # está subido»). Se prefiere el **aprobado** (`_concert_artwork_share_assets`, el punto único de
+    # lo que se comparte) y, si todavía no hay ninguno aprobado, vale el que esté **subido y no
+    # rechazado** — un cartel pasa por DOS vistos buenos (diseño y contratación) y hasta entonces el
+    # módulo se quedaba vacío aunque el cartel estuviera ahí.
+    # ⚠️ Un cartel RECHAZADO no vale nunca: está mal por definición. Y uno archivado tampoco.
+    cartel = _concert_module_poster(session_db, c)
     lugar = " · ".join([x for x in [_concert_venue_name(c), _place_label(_concert_city(c) or "")] if x])
     hora = "" if getattr(c, "show_time_tbc", False) else ((getattr(c, "show_time", None) or "").strip())
+    # ⚠️ EL RECINTO SE PINCHA Y ABRE EL MAPA (lo pidió Dani): arriba «Recinto · Municipio» y debajo,
+    # más pequeña, la DIRECCIÓN; las dos llevan a la ubicación en la aplicación de mapas del móvil.
+    direccion = _concert_venue_address(c)
     return {
         "concert_id": str(c.id),
         "kind_label": _activity_kind_label(getattr(c, "activity_type", None)),
@@ -60965,10 +60964,74 @@ def _press_activity_data(session_db, ref: dict) -> dict:
         # quien lo recibe (punto único `format_date_long_es`).
         "date_label": format_date_long_es(c.date) if getattr(c, "date", None) else "",
         "venue_label": lugar,
+        "venue_address": direccion,
+        "venue_map_url": _place_map_url(c),
         "time_label": ("%s h" % hora) if hora else ("Hora por confirmar" if getattr(c, "show_time_tbc", False) else ""),
         "poster_url": cartel,
         "pending": False,
     }
+
+
+def _concert_module_poster(session_db, concert) -> str:
+    """EL CARTEL de una actividad para su módulo: el APROBADO y, si no hay, el que esté SUBIDO.
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026): «el cartel se tiene que ver si está subido». Un cartel pasa por
+    **dos** vistos buenos (PENDING → DESIGN_OK → APPROVED), así que entre medias el módulo se
+    quedaba **sin cartel aunque estuviera ahí** — que es lo que se vio al actualizar una actividad.
+    ⚠️ Esto NO cambia `_concert_artwork_share_assets`: lo que se le manda al artista o al promotor
+    sigue siendo **solo lo aprobado**. Aquí es la viñeta de una invitación o de una nota, que la
+    compone alguien de la casa mirándola.
+    ⚠️ Un cartel RECHAZADO no vale nunca (está mal por definición) ni uno archivado."""
+    if concert is None:
+        return ""
+    try:
+        for a in _concert_artwork_share_assets(session_db, concert):
+            if _artwork_asset_category(a) == "POSTER":
+                url = _absolute_media_url(_artwork_image_src(a) or "")
+                if url:
+                    return url
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudo leer el cartel aprobado de la actividad")
+    try:
+        req = getattr(concert, "artwork_request", None)
+        # El PRINCIPAL primero (si hay varios, es el que se enseña en las cabeceras).
+        piezas = sorted(((getattr(req, "assets", None) or []) if req else []),
+                        key=lambda a: (not bool(getattr(a, "is_primary", False)),
+                                       getattr(a, "created_at", None) or datetime.min))
+        for a in piezas:
+            if bool(getattr(a, "is_archived", False)):
+                continue
+            if (getattr(a, "validation_status", None) or "").upper() == "REJECTED":
+                continue
+            if _artwork_asset_category(a) != "POSTER":
+                continue
+            url = _absolute_media_url(_artwork_image_src(a) or "")
+            if url:
+                return url
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudo leer el cartel subido de la actividad")
+    return ""
+
+
+def _place_map_url(concert) -> str:
+    """LA UBICACIÓN de una actividad, para abrirla en la aplicación de mapas del móvil.
+
+    ⚠️ Se usa el enlace de Google Maps por búsqueda (`?q=`): en un iPhone lo abre Apple Maps o
+    Google Maps según lo que tenga la persona, y en el ordenador el navegador. Con coordenadas si
+    las hay (un recinto geocodificado), y si no, con la dirección escrita: es lo que se puede
+    buscar. Sin ninguna de las dos, no se pinta enlace — uno que no lleva a ningún sitio es peor."""
+    if concert is None:
+        return ""
+    venue = getattr(concert, "venue", None)
+    lat, lng = getattr(venue, "lat", None), getattr(venue, "lng", None)
+    if lat is not None and lng is not None:
+        return "https://www.google.com/maps/search/?api=1&query=%s,%s" % (lat, lng)
+    partes = [x for x in [_concert_venue_name(concert), _concert_venue_address(concert),
+                          _concert_city(concert), _concert_province_value(concert)] if x]
+    # Sin dirección ni municipio, el nombre a secas no identifica un sitio: mejor sin enlace.
+    if not (_concert_venue_address(concert) or _concert_city(concert)):
+        return ""
+    return "https://www.google.com/maps/search/?api=1&query=%s" % quote_plus(", ".join(partes))
 
 
 def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:

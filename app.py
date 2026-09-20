@@ -60721,7 +60721,7 @@ def _press_about_options(session_db, subject_kind: str, subject_id, artist_ids: 
         for c in filas:
             etiqueta, fecha = _press_concert_label(c)
             salida["activities"].append({"id": str(c.id), "label": etiqueta, "sub": fecha,
-                                         "cover": _concert_poster_url(c) or (c.artist.photo_url if c.artist else "") or "",
+                                         "cover": _concert_reference_poster(c, session_db) or (c.artist.photo_url if c.artist else "") or "",
                                          "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key(c.activity_type), "fa-calendar-day")
                                          if "QUAD_ACTIVITY_ICONS" in globals() else "fa-calendar-day"})
     ids = _press_artist_ids(session_db, subject_kind, subject_id, artist_ids)
@@ -60824,7 +60824,7 @@ def _press_kind_and_name(session_db, pr, about=None, rows=None) -> tuple[str, st
         tipo = _activity_kind_label(getattr(about, "activity_type", None))
         nombre = (about.festival_name or "").strip() or _place_label(_concert_city(about) or "", _concert_province_value(about) or "",
                                                                     _concert_country_value(about) or "")
-        return tipo, nombre, (_concert_poster_url(about) or "")
+        return tipo, nombre, (_concert_reference_poster(about, session_db) or "")
     if kind == "SINGLE" and about is not None:
         return "Single", (about.title or "").strip(), (about.cover_url or "")
     if kind == "ALBUM" and about is not None:
@@ -61069,8 +61069,69 @@ def _press_activity_data(session_db, ref: dict) -> dict:
         "venue_map_url": _place_map_url(c),
         "time_label": ("%s h" % hora) if hora else ("Hora por confirmar" if getattr(c, "show_time_tbc", False) else ""),
         "poster_url": cartel,
+        # ⚠️ Solo cuando NO hay cartel: el editor pinta esta línea (el correo, nunca). Así se ve al
+        #    momento si lo que hay son carteles de Sold Out, uno rechazado o que aún no hay ninguno.
+        "poster_hint": "" if cartel else _concert_poster_hint(c, session_db),
         "pending": False,
     }
+
+
+def _concert_poster_sources(concert, session_db=None):
+    """De dónde puede salir el cartel de una actividad, **de lo más suyo a lo más general y por
+    TANDAS** (un generador): su solicitud · las demás solicitudes suyas · su ciclo, gira y evento.
+
+    ⚠️ Va por tandas a propósito: lo normal es que el cartel esté en la PRIMERA (la relación que ya
+    viene cargada), así que el caso de siempre **no cuesta ni una consulta de más**. Solo cuando no
+    hay nada se pregunta lo siguiente. Los de Sold Out y los logotipos se quedan fuera aquí mismo:
+    nunca son el cartel de la actividad.
+    """
+    if concert is None:
+        return
+
+    def _solo_carteles(piezas):
+        return [a for a in (piezas or []) if _artwork_asset_category(a) == "POSTER"]
+
+    req = None
+    try:
+        req = getattr(concert, "artwork_request", None)
+        if req is not None:
+            yield _solo_carteles(getattr(req, "assets", None))
+    except Exception:
+        app.logger.exception("[carteleria] no se pudieron leer los carteles de la actividad")
+    if session_db is None or getattr(concert, "id", None) is None:
+        return
+    # ⚠️⚠️ `Concert.artwork_request` es `uselist=False` y la tabla **no tiene un único por
+    #    `concert_id`**: si hubiera DOS solicitudes de la misma actividad, SQLAlchemy devuelve una
+    #    cualquiera y los carteles de la otra quedarían invisibles, sin dar ningún error.
+    try:
+        otras = (session_db.query(ConcertArtworkRequest)
+                 .filter(ConcertArtworkRequest.concert_id == concert.id).all())
+        for fila in otras:
+            if req is not None and fila.id == getattr(req, "id", None):
+                continue
+            yield _solo_carteles(fila.assets)
+    except Exception:
+        app.logger.exception("[carteleria] no se pudieron leer las solicitudes de la actividad")
+    try:
+        # Su CICLO, su gira y por último su evento: los carteles generales son los de esa fecha.
+        grupos = sorted(_concert_group_refs(concert),
+                        key=lambda kg: ARTWORK_GROUP_SHARE_ORDER.index(kg[0])
+                        if kg[0] in ARTWORK_GROUP_SHARE_ORDER else 99)
+        for kind, gid in grupos:
+            row = _artwork_group_request(session_db, kind, gid)
+            if row is not None:
+                yield _solo_carteles(getattr(row, "assets", None))
+    except Exception:
+        app.logger.exception("[carteleria] no se pudieron leer los carteles de la gira o el ciclo")
+
+
+def _concert_poster_assets(concert, session_db=None) -> list:
+    """Todos los carteles de una actividad (sin los de Sold Out ni los logotipos), de una vez.
+    Lo usa el aviso que dice POR QUÉ no hay cartel — que solo se calcula cuando no lo hay."""
+    piezas = []
+    for tanda in _concert_poster_sources(concert, session_db):
+        piezas.extend(tanda)
+    return piezas
 
 
 def _concert_reference_poster(concert, session_db=None) -> str:
@@ -61078,18 +61139,14 @@ def _concert_reference_poster(concert, session_db=None) -> str:
 
     Es «el cartel de esta actividad»: el que se usa en las **entradas**, en las **comunicaciones**
     (notas de prensa, envíos a compradores, invitaciones corporativas), en la cabecera de las
-    invitaciones y en la miniatura de un enlace. Antes había **dos** funciones con criterios
-    distintos, y por eso el mismo cartel se veía en un sitio y no en otro.
+    invitaciones y en la **miniatura de los enlaces** que se mandan. Antes había **dos** funciones
+    con criterios distintos, y por eso el mismo cartel se veía en un sitio y no en otro.
 
     La regla, tal cual la dijo Dani:
     · **EL CARTEL PRINCIPAL MANDA, Y LOS DE SOLD OUT NO CUENTAN NUNCA.** «Aunque se suban carteles
       de Sold Out, el cartel principal de una actividad sigue siendo el cartel de referencia; los
       Sold Out son solo para comunicar el sold out». Viven en la MISMA solicitud pero con
       `category='SOLDOUT'`, así que aquí solo entra **`POSTER`** (un logotipo tampoco).
-    · **Solo lo reemplaza una ACTUALIZACIÓN DE DATOS**: cuando cambia la fecha o el sitio, los
-      carteles se archivan solos y se vuelven a pedir (`_artwork_request_refresh` →
-      `_archive_current_artwork_assets`, que a propósito **respeta los de Sold Out**). Por eso aquí
-      un cartel archivado no vale: ya dice otra fecha.
     · **El que esté SUBIDO vale aunque le falte un visto bueno** (un cartel pasa por dos: diseño y
       contratación), porque esto lo compone alguien de la casa mirándolo. Un **RECHAZADO** no vale
       nunca: está mal por definición.
@@ -61098,8 +61155,15 @@ def _concert_reference_poster(concert, session_db=None) -> str:
     · **Un cartel en PDF también cuenta**: se usa su primera página (`_artwork_pdf_preview`), que es
       lo que manda la imprenta. ⚠️ Generarla necesita `session_db`; sin sesión solo se aprovecha la
       que ya esté hecha (así `_concert_poster_url` conserva su firma de siempre).
+    ⚠️⚠️ **Y EL ARCHIVADO VALE DE ÚLTIMA** (sep 2026, la causa de «al actualizar la hora de una
+      actividad se ha dejado de ver el cartel», que Dani avisó tres veces): al cambiar la fecha o el
+      sitio, `_artwork_request_refresh` **archiva** los carteles y pide otros —«solo lo reemplaza
+      una actualización de datos», dijo él—, pero **hasta que llega el nuevo, el que hay es ese**.
+      Dejarlo fuera era dejar la actividad sin cartel durante días, que es justo lo que se veía.
+      Va el ÚLTIMO, detrás de todo lo vigente: en cuanto llega el cartel actualizado, gana él solo.
 
-    Orden: el **principal** · lo **aprobado** · lo **más reciente**.
+    Orden: **vigente** (principal · aprobado · el más reciente) → el de su **grupo** → el
+    **archivado** más reciente.
     """
     if concert is None:
         return ""
@@ -61119,49 +61183,67 @@ def _concert_reference_poster(concert, session_db=None) -> str:
             url = ""
         return _absolute_media_url(url) if url else ""
 
+    def _reciente(a):
+        c = getattr(a, "created_at", None)
+        try:
+            return -c.timestamp() if c else 0
+        except Exception:
+            return 0
+
     def _de(piezas) -> str:
-        vivas = []
-        for a in (piezas or []):
-            if bool(getattr(a, "is_archived", False)):
-                continue
-            if (getattr(a, "validation_status", None) or "").upper() == "REJECTED":
-                continue
-            # ⚠️⚠️ NI SOLD OUT NI LOGOTIPOS: el cartel de la actividad es el CARTEL.
-            if _artwork_asset_category(a) != "POSTER":
-                continue
-            vivas.append(a)
+        vivas = [a for a in piezas
+                 if (getattr(a, "validation_status", None) or "").upper() != "REJECTED"]
         vivas.sort(key=lambda a: (not bool(getattr(a, "is_primary", False)),
                                   (getattr(a, "validation_status", None) or "").upper() != "APPROVED",
-                                  -((getattr(a, "created_at", None) or datetime.min).timestamp()
-                                    if getattr(a, "created_at", None) else 0)))
+                                  _reciente(a)))
         for a in vivas:
             url = _src(a)
             if url:
                 return url
         return ""
 
-    try:
-        req = getattr(concert, "artwork_request", None)
-        url = _de((getattr(req, "assets", None) or []) if req is not None else [])
+    # Por TANDAS: lo vigente de cada sitio, de lo más suyo a lo más general. Lo ARCHIVADO se guarda
+    # y solo se usa al final, si no ha aparecido nada vigente en ningún sitio.
+    archivados = []
+    for tanda in _concert_poster_sources(concert, session_db):
+        archivados.extend([a for a in tanda if bool(getattr(a, "is_archived", False))])
+        url = _de([a for a in tanda if not bool(getattr(a, "is_archived", False))])
         if url:
             return url
-    except Exception:
-        app.logger.exception("[carteleria] no se pudo leer el cartel de la actividad")
-    if session_db is None:
-        return ""
-    try:
-        # Su CICLO, su gira y por último su evento.
-        grupos = sorted(_concert_group_refs(concert),
-                        key=lambda kg: ARTWORK_GROUP_SHARE_ORDER.index(kg[0])
-                        if kg[0] in ARTWORK_GROUP_SHARE_ORDER else 99)
-        for kind, gid in grupos:
-            row = _artwork_group_request(session_db, kind, gid)
-            url = _de((getattr(row, "assets", None) or []) if row is not None else [])
-            if url:
-                return url
-    except Exception:
-        app.logger.exception("[carteleria] no se pudo leer el cartel de la gira o el ciclo")
-    return ""
+    # De última, el ÚLTIMO que hubo aunque se archivara al cambiar los datos: es el cartel que hay.
+    return _de(archivados)
+
+
+def _concert_poster_hint(concert, session_db=None) -> str:
+    """POR QUÉ esta actividad no tiene cartel que enseñar, en una línea y en español.
+
+    ⚠️ Se pinta **solo en el editor** de comunicaciones (nunca en el correo): un hueco vacío no dice
+    nada y se acaba preguntando; con esto se ve al momento si lo que hay son carteles de Sold Out,
+    uno rechazado o simplemente que todavía no hay ninguno."""
+    piezas = _concert_poster_assets(concert, session_db)
+    if not piezas:
+        try:
+            req = getattr(concert, "artwork_request", None)
+            soldout = len([a for a in ((getattr(req, "assets", None) or []) if req is not None else [])
+                           if _artwork_asset_category(a) == "SOLDOUT"
+                           and not bool(getattr(a, "is_archived", False))])
+        except Exception:
+            soldout = 0
+        if soldout:
+            return ("Esta actividad solo tiene carteles de Sold Out (%d), y esos son solo para "
+                    "comunicar el sold out." % soldout)
+        return "Esta actividad todavía no tiene ningún cartel subido."
+    rechazados = len([a for a in piezas
+                      if (getattr(a, "validation_status", None) or "").upper() == "REJECTED"])
+    novale = len([a for a in piezas if _artwork_kind_of(a) not in ("IMAGE", "PDF")])
+    partes = []
+    if rechazados:
+        partes.append("%d rechazado%s" % (rechazados, "" if rechazados == 1 else "s"))
+    if novale:
+        partes.append("%d que no es una imagen (un vídeo o un archivo de imprenta)" % novale)
+    if partes:
+        return "Los carteles que hay no se pueden usar: " + " y ".join(partes) + "."
+    return "No se ha podido leer el cartel de esta actividad."
 
 
 def _concert_module_poster(session_db, concert) -> str:
@@ -134638,7 +134720,7 @@ def _sales_request_card(session_db, concert) -> dict:
               or (getattr(artist, "name", None) or "").strip() or "Actividad")
     cartel = ""
     try:
-        cartel = (_concert_poster_url(concert) or "").strip()
+        cartel = (_concert_reference_poster(concert, session_db) or "").strip()
     except Exception:
         cartel = ""
     foto = ((getattr(evento, "logo_url", None) or "").strip()
@@ -135721,7 +135803,7 @@ def public_sales_update_og_image(token):
             return redirect(url_for("og_default_image"))
         fuentes = []
         try:
-            fuentes.append((_concert_poster_url(concert) or "").strip())
+            fuentes.append((_concert_reference_poster(concert, session_db) or "").strip())
         except Exception:
             pass
         artist = getattr(concert, "artist", None)
@@ -149157,7 +149239,7 @@ def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
         card["artist_photo"] = getattr(art, "photo_url", "") or ""
     # Si hay cartel de concierto subido, se muestra el cartel principal en vez del avatar.
     if owner_type == "CONCERT":
-        _poster = _concert_poster_url(owner)
+        _poster = _concert_reference_poster(owner, session_db)
         if _poster:
             card["artist_photo"] = _poster
     return card
@@ -149192,7 +149274,7 @@ def _public_share_og_source(session_db, concert, event_payload=None, card=None, 
     # 1) Cartel principal (imagen) del concierto, recalculado directamente (no solo desde el payload).
     try:
         if concert is not None:
-            candidates.append(_concert_poster_url(concert))
+            candidates.append(_concert_reference_poster(concert, session_db))
     except Exception:
         pass
     candidates.append((ev or {}).get("poster_url"))
@@ -150760,7 +150842,10 @@ def _invitation_event_payload(session_db, concert: Concert, include_counts: bool
         "artist_names": ", ".join([a["name"] for a in artists]) or (getattr(getattr(concert, "artist", None), "name", None) or ""),
         "status": getattr(concert, "status", None) or "",
         # Cartel principal del concierto (si hay cartelería subida): se usa en cabeceras en vez del avatar.
-        "poster_url": _concert_poster_url(concert),
+        # ⚠️ CON la sesión: así vale también el cartel de la GIRA o el CICLO y un cartel en PDF (se
+        #    le saca su primera página). Es la MINIATURA de los enlaces que se mandan — lo pidió
+        #    Dani: «este criterio es también para la imagen de miniatura de enlaces enviados».
+        "poster_url": _concert_reference_poster(concert, session_db),
     }
     if include_counts:
         payload["counts"] = _invitation_event_counts(session_db, concert)
@@ -154356,7 +154441,7 @@ def public_invitation_delivery(kind, token):
         qty = len(_dtickets) or (_safe_int(_q_all.get(str(_catf))) if _catf else _invitation_total_qty(_q_all))
         tickets_html = Markup(_invitation_tickets_grouped_html(session_db, concert, _dtickets, download_url)) if _dtickets else ""
         card = _public_share_card(session_db, "CONCERT", concert, getattr(concert, "artist_id", None))
-        poster_url = _concert_poster_url(concert) or ""      # cartel principal (solo si lo hay)
+        poster_url = _concert_reference_poster(concert, session_db) or ""   # el cartel, si lo hay
         artist_photo = (getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()  # foto real del artista
         show_time = "" if getattr(concert, "show_time_tbc", False) else (getattr(concert, "show_time", None) or "").strip()
         venue_name = _invitation_event_venue_name(concert) if concert else ""

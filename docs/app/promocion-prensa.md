@@ -823,13 +823,16 @@
   ronda ya aceptaba el cartel **subido sin aprobar**, pero faltaban: **un cartel en PDF** —lo que
   manda la imprenta— **no daba imagen NINGUNA** en toda la app, y **el cartel que cuelga de la
   GIRA, el CICLO o el EVENTO** solo valía si estaba aprobado.
-  ⚠️⚠️ Y la de verdad: **había DOS funciones del cartel con criterios distintos**, así que el mismo
-  cartel se veía en un sitio y no en otro. Hoy hay **un punto único**,
+  ⚠️⚠️ Y las dos de verdad: **había DOS funciones del cartel con criterios distintos** (el mismo
+  cartel se veía en un sitio y no en otro) y **un cartel ARCHIVADO al cambiar la fecha o la hora
+  dejaba a la actividad sin cartel** hasta que llegara el nuevo — que es lo que Dani veía en «Sala
+  Villanos · Álvaro García»: solo la foto del artista. Hoy hay **un punto único**,
   **`_concert_reference_poster`**, que usan la **entrada**, la **comunicación**, la cabecera de las
-  invitaciones y la miniatura de un enlace — y su regla es la que dijo Dani: **los carteles de SOLD
-  OUT nunca son el cartel de la actividad** (son solo para comunicar el sold out), el **principal**
-  manda, y lo único que lo reemplaza es una **actualización de datos**. Un cartel en **vídeo**
-  tampoco vale de cartel, ni con su miniatura. El detalle, en `docs/app/carteleria.md`.
+  invitaciones y la **miniatura de los enlaces** que se mandan: **los carteles de SOLD OUT nunca
+  son el cartel de la actividad** (son solo para comunicar el sold out), el **principal** manda, un
+  cartel en **vídeo** no vale ni con su miniatura, y el **archivado vale de última** hasta que
+  llegue el actualizado. Y cuando de verdad no hay cartel, **el editor dice por qué** en una línea
+  (solo en el editor, nunca en el correo). El detalle, en `docs/app/carteleria.md`.
   · **LA MINIATURA DE UN CARTEL EN PDF** (`_artwork_pdf_preview`): se saca la **primera página** y
   se guarda como JPEG en el **mismo `poster_url`** que ya usan los vídeos, así lo aprovecha todo lo
   que pinta miniaturas sin cambiar nada más (`_artwork_image_src` devuelve para un PDF lo mismo que

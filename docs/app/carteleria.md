@@ -817,14 +817,22 @@
   miniaturas de los enlaces, las entradas) y la del módulo de una comunicación—, y por eso **el
   mismo cartel se veía en un sitio y no en otro**. Hoy `_concert_poster_url` es una línea que llama
   al punto único, y las entradas (`_invgen_image_options`) y el módulo también.
-  · **La regla**: solo **`category='POSTER'`** (ni SOLD OUT ni logotipos) · ni archivado ni
-  rechazado · vale lo **subido aunque le falte un visto bueno** · orden **principal → aprobado →
-  el más reciente** · si la actividad no tiene, el de su **ciclo, gira o evento** · un cartel en
-  **PDF** cuenta (su primera página) y uno en **VÍDEO no**, ni con su miniatura (es un anuncio para
-  redes, no el cartel).
-  ⚠️ Lo ÚNICO que reemplaza al cartel es una **actualización de datos**: al cambiar la fecha o el
-  sitio, `_artwork_request_refresh` → `_archive_current_artwork_assets` los archiva y los vuelve a
-  pedir — y esa función **respeta a propósito los de Sold Out**, que siguen valiendo.
+  · **La regla**: solo **`category='POSTER'`** (ni SOLD OUT ni logotipos) · nunca un **rechazado** ·
+  vale lo **subido aunque le falte un visto bueno** · orden **principal → aprobado → el más
+  reciente** · si la actividad no tiene, el de su **ciclo, gira o evento** · un cartel en **PDF**
+  cuenta (su primera página) y uno en **VÍDEO no**, ni con su miniatura (es un anuncio para redes,
+  no el cartel).
+  ⚠️⚠️ **Y EL ARCHIVADO VALE DE ÚLTIMA** — esta era la causa de «al actualizar la hora de una
+  actividad se ha dejado de ver el cartel», que Dani avisó **tres veces**. Lo único que reemplaza al
+  cartel es una **actualización de datos**: al cambiar la fecha o el sitio,
+  `_artwork_request_refresh` → `_archive_current_artwork_assets` los **archiva** y los vuelve a
+  pedir (respetando a propósito los de Sold Out). Pero **archivado no es borrado**: hasta que llega
+  el cartel nuevo, **el que hay es ese**, y dejarlo fuera era dejar la actividad sin cartel durante
+  días. Va el ÚLTIMO, detrás de todo lo vigente —incluido lo del grupo—, así que **en cuanto llega
+  el actualizado gana él solo**, sin tener que acordarse de nada.
+  ⚠️ Cuando aun así no hay cartel, el editor de comunicaciones **dice por qué** en una línea
+  (`_concert_poster_hint`: «solo hay carteles de Sold Out», «el que hay está rechazado», «todavía no
+  hay ninguno»). Solo en el editor: en el correo no sale nunca.
   ⚠️ `_concert_poster_url(concert)` no recibe sesión (se llama desde ocho sitios), así que **no
   genera** la miniatura de un PDF que todavía no la tenga: aprovecha la que haya. Quien tenga
   sesión llama al punto único con ella.

@@ -209,7 +209,12 @@ check("⚠️ y uno SUBIDO pero todavía sin aprobar, también",
       _cartel("PENDING") == "https://x/cartel.jpg", _cartel("PENDING"))
 check("uno aprobado solo por diseño, también", _cartel("DESIGN_OK") == "https://x/cartel.jpg")
 check("un cartel RECHAZADO no se ve nunca (está mal por definición)", _cartel("REJECTED") == "")
-check("y uno archivado tampoco", _cartel("PENDING", archivada=True) == "")
+# ⚠️ ARCHIVADO NO ES BORRADO: al cambiar la fecha o el sitio la app archiva los carteles y pide
+#    otros, y hasta que llega el nuevo **el que hay es ese** (si no, la actividad se quedaba sin
+#    cartel durante días — era la causa de «al actualizar la hora se ha dejado de ver el cartel»).
+check("y uno ARCHIVADO sigue valiendo mientras no haya otro",
+      _cartel("PENDING", archivada=True) == "https://x/cartel.jpg",
+      _cartel("PENDING", archivada=True))
 _cartel("APPROVED")
 
 with A.app.test_request_context("/"):
@@ -262,7 +267,8 @@ with A.app.test_request_context("/"):
         # actividad; lo arrastras y ahí sí seleccionas la actividad»). Las concretas siguen estando
         # en el servidor porque son las que ofrece el pop-up de elegir.
         js_ed = io.open("static/js/press_editor.js", encoding="utf-8").read()
-        check("la paleta NO lista las actividades una a una", "if (g[0] !== 'activities') {" in js_ed)
+        check("la paleta NO lista las actividades una a una (ni los singles ni los logos)",
+              "['activities', 'audios', 'logos'].indexOf(g[0]) < 0" in js_ed)
         check("pero sí ofrece el módulo vacío", "activities: 'activity'" in js_ed)
         s.rollback()
     finally:

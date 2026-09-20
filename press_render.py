@@ -758,6 +758,12 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
                                 % (_e(mapa), fila_recinto))
             filas.append(fila_recinto)
         filas.append(_dato(icons.get("clock"), d.get("time_label") or ""))
+        # ⚠️ SOLO EN EL EDITOR: por qué esta actividad no tiene cartel que enseñar. Un hueco vacío
+        #    no dice nada y se acaba preguntando; en el correo no sale nunca.
+        if editing and not cartel and d.get("poster_hint"):
+            filas.append('<div style="margin-top:8px;font-family:%s;font-size:12px;color:%s;'
+                         'line-height:1.3;font-style:italic;">%s</div>'
+                         % (DEFAULT_FONT, MUTED, _e(d["poster_hint"])))
         cuerpo = "".join(f for f in filas if f)
         celda_cartel = ""
         if cartel:

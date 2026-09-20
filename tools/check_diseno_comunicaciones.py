@@ -207,8 +207,11 @@ def main():
         a1.validation_status = "APPROVED"; s.commit(); s.expire_all()
         check("aprobado, vuelve a verse",
               (A._press_activity_data(s, {"concert_id": cid}).get("poster_url") or "").endswith("cartel.jpg"))
+        # ⚠️ ARCHIVADO NO ES BORRADO: al cambiar la fecha o el sitio la app los archiva y pide
+        #    otros, y hasta que llega el nuevo el que hay es ese (apartado «3 bis 2»).
         a1.is_archived = True; s.commit(); s.expire_all()
-        check("archivado, tampoco", not A._press_activity_data(s, {"concert_id": cid}).get("poster_url"))
+        check("archivado, sigue valiendo mientras no haya otro",
+              (A._press_activity_data(s, {"concert_id": cid}).get("poster_url") or "").endswith("cartel.jpg"))
 
         print("2 · un cartel que llega en PDF (lo que manda la imprenta)")
         a2 = ConcertArtworkAsset(artwork_request_id=req_id, format_label="Cartel A3",
@@ -275,13 +278,56 @@ def main():
         check("… y en la entrada",
               (A._invgen_image_options(s, cc)[0]["url"] or "").endswith("cartel.jpg"),
               A._invgen_image_options(s, cc)[:1])
-        a1.is_archived = True; s.commit(); s.expire_all()      # se archiva por actualización de datos
+        # Aunque el cartel normal se archive por una actualización de datos, los de Sold Out NO
+        # ocupan su sitio: sigue mandando el cartel (archivado) hasta que llegue el nuevo.
+        a1.is_archived = True; s.commit(); s.expire_all()
         cc = s.get(Concert, A.to_uuid(cid))
-        check("sin cartel normal, los de Sold Out NO ocupan su sitio", A._concert_poster_url(cc) == "",
-              A._concert_poster_url(cc))
-        check("ni la entrada los ofrece",
-              not [o for o in A._invgen_image_options(s, cc) if o["key"] == "poster"],
+        check("con el cartel archivado, los de Sold Out siguen sin ocupar su sitio",
+              A._concert_poster_url(cc).endswith("cartel.jpg"), A._concert_poster_url(cc))
+        check("ni la entrada ofrece uno de Sold Out",
+              [o["url"] for o in A._invgen_image_options(s, cc) if o["key"] == "poster"] ==
+              [A._concert_poster_url(cc)],
               A._invgen_image_options(s, cc))
+        a1.is_archived = False; s.commit(); s.expire_all()
+
+        print("3 bis 2 · el cartel ARCHIVADO al cambiar los datos vale hasta que llega el nuevo")
+        # ⚠️ Es la causa de «al actualizar la hora de una actividad se ha dejado de ver el cartel»:
+        #    `_artwork_request_refresh` los archiva y pide otros, y hasta que llega el nuevo el que
+        #    hay es ese.
+        a1.is_archived = False; a1.validation_status = "APPROVED"; a1.is_primary = True
+        s.commit(); s.expire_all()
+        A._archive_current_artwork_assets(s.get(ConcertArtworkRequest, req_id))
+        s.commit(); s.expire_all()
+        cc = s.get(Concert, A.to_uuid(cid))
+        check("el archivado sigue valiendo", A._concert_poster_url(cc).endswith("cartel.jpg"),
+              A._concert_poster_url(cc))
+        check("y el editor no avisa de que falte",
+              not A._press_activity_data(s, {"concert_id": cid}).get("poster_hint"))
+        nuevo_cartel = ConcertArtworkAsset(artwork_request_id=req_id, format_label="Cartel v2",
+                                           file_url="https://storage.prueba/nuevo.jpg", kind="IMAGE",
+                                           category="POSTER", validation_status="PENDING")
+        s.add(nuevo_cartel); s.commit(); s.expire_all()
+        cc = s.get(Concert, A.to_uuid(cid))
+        check("en cuanto llega el NUEVO, gana él (aunque el viejo fuera el principal y aprobado)",
+              A._concert_poster_url(cc).endswith("nuevo.jpg"), A._concert_poster_url(cc))
+        s.delete(nuevo_cartel); s.commit(); s.expire_all()
+
+        print("3 quater · cuando NO hay cartel, el editor dice por qué")
+        for a in list(s.get(ConcertArtworkRequest, req_id).assets):
+            if A._artwork_asset_category(a) == "POSTER":
+                s.delete(a)
+        s.commit(); s.expire_all()
+        cc = s.get(Concert, A.to_uuid(cid))
+        d_sin = A._press_activity_data(s, {"concert_id": cid})
+        check("no hay cartel", not d_sin.get("poster_url"))
+        check("y se dice que lo que hay son de Sold Out", "Sold Out" in (d_sin.get("poster_hint") or ""),
+              d_sin.get("poster_hint"))
+        check("el aviso se pinta EN EL EDITOR",
+              "Sold Out" in press_render.module_html({"type": "activity", "w": 520, "h": 170,
+                                                      "data": dict(d_sin, icons={})}, editing=True))
+        check("y NUNCA en el correo",
+              "Sold Out" not in press_render.module_html({"type": "activity", "w": 520, "h": 170,
+                                                          "data": dict(d_sin, icons={})}, for_email=True))
 
         print("3 ter · un cartel en VÍDEO tampoco es el cartel")
         s.add(ConcertArtworkAsset(artwork_request_id=req_id, format_label="Anuncio",
@@ -292,6 +338,9 @@ def main():
         cc = s.get(Concert, A.to_uuid(cid))
         check("un vídeo no ocupa el sitio del cartel, ni con su miniatura",
               A._concert_poster_url(cc) == "", A._concert_poster_url(cc))
+        check("y se dice que lo que hay no se puede usar",
+              "no es una imagen" in (A._press_activity_data(s, {"concert_id": cid}).get("poster_hint") or ""),
+              A._press_activity_data(s, {"concert_id": cid}).get("poster_hint"))
     finally:
         s.close()
 

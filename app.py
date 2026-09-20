@@ -103728,7 +103728,10 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       # contactos y el correo de PRUEBA: siguen siendo cosa de cada uno.
                       "corporate_invite_send_view", "corporate_invite_test_send",
                       "corporate_contact_search",
-                      "corporate_invite_continue", "corporate_invite_status"}
+                      "corporate_invite_continue", "corporate_invite_status",
+                      # Volver a mandarla: a UNA persona (los tres puntitos de su fila) o a los que
+                      # se han añadido a las listas después. Sigue siendo SU invitación y SU correo.
+                      "corporate_invite_resend_one", "corporate_invite_send_new"}
 
 
 # PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
@@ -185043,17 +185046,21 @@ def _corp_has_design(session_db, inv) -> bool:
 
 
 def _corp_email_html(session_db, inv, *, token: str = CORP_TOKEN_PLACEHOLDER) -> str:
-    """El correo de la invitación: el DISEÑO (las bandas del motor de las notas de prensa), el
-    enlace a verla en el navegador y el PÍXEL que dice quién la ha abierto."""
+    """El correo de la invitación: el DISEÑO (las bandas del motor de las notas de prensa) y el
+    PÍXEL que dice quién la ha abierto. **Sin «ver en el navegador»**: ver abajo."""
     pr = session_db.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
     if pr is None:
         return ""
     tok = _press_ensure_token(session_db, pr)
     cuerpo = press_render.render_email(_press_prepared_design(session_db, pr, tok))
     titular = (press_render.headline_of(pr.design or {}) or (inv.subject or "").strip() or "Invitación")
-    enlace = _press_public_url(pr, tok)
     pixel = ('<img src="%s" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;">'
              % _html_escape_attr(_external_url_for("public_corporate_invite_open", token=token)))
+    # ⚠️⚠️ AQUÍ NO VA «VER EN EL NAVEGADOR» (sep 2026, lo pidió Dani: «quítalo, hace que aparezca
+    #    comercial»). Una invitación la manda UNA PERSONA desde SU correo a alguien a quien conoce:
+    #    ese enlace es la marca de un mailing y hace que Gmail la mande a Promociones. En una nota
+    #    de prensa o en un envío a compradores sí se queda: ahí son mailings de verdad y quien los
+    #    recibe agradece la versión web.
     return (
         '<!doctype html><html lang="es"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -185063,16 +185070,13 @@ def _corp_email_html(session_db, inv, *, token: str = CORP_TOKEN_PLACEHOLDER) ->
         # El PREHEADER: lo que enseña el resumen del correo es el TITULAR, no el primer texto.
         '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">%s</div>'
         '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;">'
-        '<tr><td align="center" style="padding:14px 8px 4px 8px;font-family:%s;font-size:12px;color:#6b7280;">'
-        '<a href="%s" style="color:#6b7280;text-decoration:underline;">Ver la invitación en el navegador</a></td></tr>'
-        '<tr><td align="center" style="padding:0 0 18px 0;">%s</td></tr>'
+        '<tr><td align="center" style="padding:14px 0 18px 0;">%s</td></tr>'
         '<tr><td align="center" style="padding:0 8px 22px 8px;font-family:%s;font-size:11px;color:#9ca3af;">'
-        '%s · <a href="%s" style="color:#9ca3af;">ver en el navegador</a></td></tr>'
+        '%s</td></tr>'
         '</table>%s</body></html>'
-        % (_html_escape_attr(titular), _html_escape_attr(titular), press_render.DEFAULT_FONT,
-           _html_escape_attr(enlace), cuerpo, press_render.DEFAULT_FONT,
-           _html_escape_attr((inv.created_by_nick or "").strip() or "33 Producciones"),
-           _html_escape_attr(enlace), pixel))
+        % (_html_escape_attr(titular), _html_escape_attr(titular),
+           cuerpo, press_render.DEFAULT_FONT,
+           _html_escape_attr((inv.created_by_nick or "").strip() or "33 Producciones"), pixel))
 
 
 def _corp_recipient_nick(r) -> str:
@@ -185139,6 +185143,13 @@ def _corp_recipient_row(session_db, r) -> dict:
         "forwarded_label": (r.forwarded_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.forwarded_at else ""),
         "forward_count": int(r.forward_count or 0),
         "promoter_url": (url_for("promoter_detail_view", pid=r.promoter_id) if r.promoter_id else ""),
+        # Para los TRES PUNTITOS de la fila: reenviar a esta persona.
+        "id": str(r.id),
+        "resend_url": url_for("corporate_invite_resend_one", invite_id=r.invite_id, recipient_id=r.id),
+        "resent_label": (r.resent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.resent_at else ""),
+        "resend_count": int(r.resend_count or 0),
+        # ⚠️ EL CORREO DE HOY: si cambió en su ficha, el reenvío va al nuevo y aquí se avisa.
+        "email_hoy": _corp_recipient_email_hoy(session_db, r),
     }
 
 
@@ -185228,6 +185239,123 @@ def _corp_recipients_preview(session_db, lists_ids: list) -> dict:
     return {"total": len(vistos), "sin_correo": sin_correo}
 
 
+# ══════════════ VOLVER A MANDARLA: a uno, o a los que se han añadido después ══════════════
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «tiene que haber la opción de tres puntitos al final de cada nombre
+# para REENVIAR —porque diga que no le ha llegado, o porque se hayan actualizado los datos—, y
+# **siempre se reenvía a la dirección ACTUAL de correo, no a la que hubiera en el envío anterior**.
+# Y un botón para mandársela a todos los NUEVOS miembros de la lista».
+
+def _corp_recipient_email_hoy(session_db, r) -> str:
+    """EL CORREO DE HOY de un destinatario: el de su ficha de tercero y, si no la tiene, el del
+    invitado de la lista; de última, el que se usó en su día.
+
+    ⚠️ Punto único con el envío (`_corp_guest_email`): si alguien arregló su correo en la ficha, el
+    reenvío va al que vale HOY — que es justo el caso de «se han actualizado los datos»."""
+    prom = getattr(r, "promoter", None)
+    if prom is None and getattr(r, "promoter_id", None):
+        prom = session_db.get(Promoter, r.promoter_id)
+    correo = _corp_promoter_email(prom) if prom is not None else ""
+    if not correo and getattr(r, "guest_id", None):
+        g = session_db.get(CorporateGuest, r.guest_id)
+        if g is not None:
+            correo = _corp_guest_email(g)
+    return (correo or (r.email or "")).strip().lower()
+
+
+def _corp_recipient_requeue(session_db, inv, r) -> tuple[bool, str]:
+    """Deja a esa persona lista para que le vuelva a salir la invitación. (ok, motivo si no).
+
+    ⚠️ Se REFRESCA el correo a la dirección de hoy. Lo abierto y lo reenviado **no se tocan**: es la
+    misma persona y su historial sigue valiendo; lo que se apunta aparte es `resend_count`.
+    ⚠️ Si su correo de hoy ya lo tiene OTRO destinatario de esta misma invitación (el único
+    `invite_id + email`), no se duplica: se dice y no se manda dos veces al mismo buzón."""
+    correo = _corp_recipient_email_hoy(session_db, r)
+    if not correo:
+        return False, "Esa persona no tiene correo: arréglalo en su ficha."
+    if correo != (r.email or "").strip().lower():
+        choque = (session_db.query(CorporateInviteRecipient)
+                  .filter(CorporateInviteRecipient.invite_id == inv.id,
+                          func.lower(CorporateInviteRecipient.email) == correo,
+                          CorporateInviteRecipient.id != r.id).first())
+        if choque is not None:
+            return False, ("Su correo de hoy (%s) ya está en este envío con otro nombre." % correo)
+        r.email = correo
+    r.status, r.error = "PENDIENTE", None
+    if not r.token:
+        r.token = _uuid_token()
+    # Vuelve a haber algo que mandar: la invitación deja de estar «terminada».
+    if (inv.status or "").upper() == "SENT":
+        inv.status = "SENDING"
+    return True, ""
+
+
+def _corp_new_guests(session_db, inv) -> list:
+    """LOS QUE SE HAN AÑADIDO DESPUÉS de mandarla: quien entró en una de sus listas **más tarde**,
+    tiene correo y todavía no la ha recibido. Devuelve `[(lista, invitado, correo)]`, sin repetir
+    buzón.
+
+    ⚠️⚠️ **NO es «todo el que no la tiene»**, y la diferencia importa: en la pantalla previa se
+    puede DESMARCAR a quien no toque, y esa gente sigue en la lista sin haberla recibido **a
+    propósito**. Mandársela «como nuevos» sería colársela a quien se decidió dejar fuera. Por eso el
+    corte es la FECHA: se cuenta a quien se añadió a la lista después del envío, que es
+    literalmente lo que pidió Dani («si se añade gente a la lista que no estaba en el momento de la
+    comunicación»).
+    ⚠️ Mismo criterio que el envío (`_corp_build_recipients`): se deduplica por correo y el correo
+    sale de la ficha del tercero."""
+    desde = getattr(inv, "sent_at", None)
+    if not desde:
+        return []        # todavía no se ha mandado: no hay «después» que valga
+    ya = {(c or "").strip().lower() for (c,) in
+          session_db.query(CorporateInviteRecipient.email)
+          .filter(CorporateInviteRecipient.invite_id == inv.id).all()}
+    vistos, nuevos = set(), []
+    for lst in _corp_invite_lists(session_db, inv):
+        invitados = (session_db.query(CorporateGuest)
+                     .options(joinedload(CorporateGuest.promoter))
+                     .filter(CorporateGuest.list_id == lst.id,
+                             CorporateGuest.created_at > desde)
+                     .order_by(CorporateGuest.created_at.asc()).all())
+        for g in invitados:
+            correo = _corp_guest_email(g)
+            if not correo or correo in ya or correo in vistos:
+                continue
+            vistos.add(correo)
+            nuevos.append((lst, g, correo))
+    return nuevos
+
+
+def _corp_queue_new_guests(session_db, inv) -> int:
+    """Mete a los nuevos de la lista como destinatarios PENDIENTES. Devuelve cuántos."""
+    nuevos = _corp_new_guests(session_db, inv)
+    for lst, g, correo in nuevos:
+        prom = getattr(g, "promoter", None)
+        session_db.add(CorporateInviteRecipient(
+            invite_id=inv.id, guest_id=g.id, promoter_id=g.promoter_id,
+            list_label=(lst.name or "").strip()[:120],
+            name=((g.name or "").strip() or (_promoter_display_name(prom) if prom is not None else ""))[:200],
+            email=correo, token=_uuid_token()))
+    if nuevos:
+        inv.total = int(inv.total or 0) + len(nuevos)
+        if (inv.status or "").upper() == "SENT":
+            inv.status = "SENDING"
+        session_db.flush()
+    return len(nuevos)
+
+
+def _corp_recount(session_db, inv) -> None:
+    """Recuenta lo enviado y lo fallido **desde las filas**, no sumando.
+
+    ⚠️ Con los reenvíos, ir sumando contaba dos veces a la misma persona (y la ficha decía más
+    enviadas que gente hay). Se calcula, no se acumula."""
+    filas = (session_db.query(CorporateInviteRecipient.status, func.count(CorporateInviteRecipient.id))
+             .filter(CorporateInviteRecipient.invite_id == inv.id)
+             .group_by(CorporateInviteRecipient.status).all())
+    por_estado = {(e or "").upper(): int(n or 0) for e, n in filas}
+    inv.sent_ok = por_estado.get("ENVIADO", 0)
+    inv.sent_fail = por_estado.get("ERROR", 0)
+    inv.total = sum(por_estado.values())
+
+
 def _corp_send_pending(session_db, inv) -> dict:
     """Manda la invitación a los que quedan, durante ~45 s. Devuelve lo hecho y lo que queda.
 
@@ -185275,14 +185403,18 @@ def _corp_send_pending(session_db, inv) -> dict:
             ok, error = False, str(exc)
             app.logger.exception("[invitaciones corp] fallo inesperado mandando a %s", (r.email or "")[:80])
         if ok:
+            # ⚠️ Si ya se le había mandado antes, esto es un REENVÍO: `sent_at` pasa a ser la del
+            #    último, así que se apunta aparte cuándo y cuántas veces se le ha vuelto a mandar.
+            if r.sent_at:
+                r.resend_count = int(r.resend_count or 0) + 1
+                r.resent_at = _now_madrid()
             r.status, r.error, r.sent_at = "ENVIADO", None, _now_madrid()
             enviados += 1
         else:
             r.status, r.error = "ERROR", (error or "no se pudo enviar")[:400]
             fallos += 1
         session_db.commit()
-    inv.sent_ok = int(inv.sent_ok or 0) + enviados
-    inv.sent_fail = int(inv.sent_fail or 0) + fallos
+    _corp_recount(session_db, inv)
     quedan = (session_db.query(func.count(CorporateInviteRecipient.id))
               .filter(CorporateInviteRecipient.invite_id == inv.id,
                       CorporateInviteRecipient.status == "PENDIENTE").scalar() or 0)
@@ -185517,10 +185649,18 @@ def corporate_invite_detail_view(invite_id):
                 return (2, _norm_text_key(_corp_recipient_nick(r)))
             return (3, _norm_text_key(_corp_recipient_nick(r)))
         filas.sort(key=_orden)
+        # ⚠️ LOS QUE SE HAN AÑADIDO DESPUÉS a las listas: el botón solo sale si hay alguien.
+        try:
+            nuevos = len(_corp_new_guests(s, inv))
+        except Exception:
+            app.logger.exception("[invitaciones corp] no se pudo mirar quién es nuevo en las listas")
+            nuevos = 0
         return render_template(
             "corporate_invite_detail.html",
             invite=_corp_invite_row(s, inv, stats={"abiertos": abiertos, "reenviadas": reenviadas}),
             recipients=[_corp_recipient_row(s, r) for r in filas],
+            nuevos=nuevos,
+            send_new_url=url_for("corporate_invite_send_new", invite_id=inv.id),
             web_html=(_press_web_html(s, pr, pr.public_token) if pr is not None else ""),
         )
     finally:
@@ -186163,6 +186303,94 @@ def corporate_invite_send(invite_id):
         s.rollback()
         app.logger.exception("[invitaciones corp] no se pudo enviar")
         return jsonify({"ok": False, "error": "No se pudo enviar."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/<invite_id>/reenviar/<recipient_id>", endpoint="corporate_invite_resend_one")
+@admin_required
+def corporate_invite_resend_one(invite_id, recipient_id):
+    """REENVIAR a UNA persona (los tres puntitos de su fila).
+
+    ⚠️ Lo pidió Dani: «porque diga que no le ha llegado, o porque se hayan actualizado los datos; y
+    **siempre a la dirección actual de correo**, no a la que hubiera en el envío anterior»."""
+    s = db()
+    try:
+        inv = _corp_invite_mine(s, invite_id, _corp_user_id())
+        if inv is None:
+            flash("Esa invitación no existe (o no es tuya).", "warning")
+            return redirect(url_for("corporate_invites_view"))
+        r = s.get(CorporateInviteRecipient, _safe_uuid(recipient_id))
+        if r is None or str(r.invite_id) != str(inv.id):
+            flash("Ese destinatario ya no está en este envío.", "warning")
+            return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
+        ok, motivo = _corp_recipient_requeue(s, inv, r)
+        if not ok:
+            s.rollback()
+            flash(motivo, "warning")
+            return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
+        quien, destino = _corp_recipient_nick(r), r.email
+        s.commit()
+        resultado = _corp_send_pending(s, inv)
+        if resultado.get("error"):
+            flash(resultado["error"], "warning")
+        elif resultado.get("enviados"):
+            # ⚠️ El motor manda TODO lo que estuviera pendiente, no solo a esta persona: se dice lo
+            #    que ha pasado de verdad (si había más en cola, salieron también).
+            otros = int(resultado["enviados"]) - 1
+            flash("Invitación reenviada a %s (%s)%s." % (quien, destino,
+                  (" · y a %d que estaba%s en cola" % (otros, "" if otros == 1 else "n")) if otros > 0 else ""),
+                  "success")
+        elif resultado.get("fallos"):
+            flash("No se pudo reenviar a %s: %s" % (quien, (r.error or "").strip() or "sin detalle"), "warning")
+        else:
+            flash("Se ha puesto en cola el reenvío a %s." % quien, "success")
+        if resultado.get("quedan") and not resultado.get("error"):
+            _corp_send_bg_start(str(inv.id))
+        return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo reenviar a una persona")
+        flash("No se pudo reenviar.", "warning")
+        return redirect(url_for("corporate_invite_detail_view", invite_id=invite_id))
+    finally:
+        s.close()
+
+
+@app.post("/invitaciones-corporativas/<invite_id>/enviar-nuevos", endpoint="corporate_invite_send_new")
+@admin_required
+def corporate_invite_send_new(invite_id):
+    """MANDÁRSELA A LOS QUE SE HAN AÑADIDO DESPUÉS a las listas de esta invitación.
+
+    ⚠️ Lo pidió Dani: «si se añade gente a la lista que no estaba en el momento de la comunicación,
+    se tiene que poder enviar a todos esos terceros». A quien ya la recibió **no se le manda otra
+    vez**: para eso están los tres puntitos de su fila."""
+    s = db()
+    try:
+        inv = _corp_invite_mine(s, invite_id, _corp_user_id())
+        if inv is None:
+            flash("Esa invitación no existe (o no es tuya).", "warning")
+            return redirect(url_for("corporate_invites_view"))
+        cuantos = _corp_queue_new_guests(s, inv)
+        if not cuantos:
+            s.rollback()
+            flash("No hay nadie nuevo en las listas: ya la tienen todos.", "warning")
+            return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
+        s.commit()
+        resultado = _corp_send_pending(s, inv)
+        if resultado.get("error"):
+            flash(resultado["error"], "warning")
+        else:
+            flash("Se manda a %d persona%s que no la tenía%s."
+                  % (cuantos, "" if cuantos == 1 else "s", "" if cuantos == 1 else "n"), "success")
+        if resultado.get("quedan") and not resultado.get("error"):
+            _corp_send_bg_start(str(inv.id))
+        return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
+    except Exception:
+        s.rollback()
+        app.logger.exception("[invitaciones corp] no se pudo mandar a los nuevos de la lista")
+        flash("No se pudo mandar a los nuevos.", "warning")
+        return redirect(url_for("corporate_invite_detail_view", invite_id=invite_id))
     finally:
         s.close()
 

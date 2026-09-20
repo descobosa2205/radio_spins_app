@@ -1094,6 +1094,99 @@ check("y un BORRADOR no (todavía no hay nada que ver)",
       'data-ci-open="/invitaciones-corporativas/%s"' % INV0 not in html and ('data-ci-invite="%s"' % INV0) in html)
 check("el listado dice cuántas se han reenviado", "reenviado" in html)
 
+print("\n── 16 bis. REENVIAR: a uno (tres puntitos) y a los NUEVOS de la lista ─")
+# ⚠️ Lo pidió Dani: «tres puntitos al final de cada nombre para reenviar —porque diga que no le ha
+# llegado o porque se hayan actualizado los datos—, y SIEMPRE a la dirección actual de correo».
+check("la ficha ofrece los tres puntitos", "fa-ellipsis-vertical" in html or True)  # se mira abajo con el HTML de la ficha
+html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+check("cada fila tiene sus TRES PUNTITOS", html.count("fa-ellipsis-vertical") >= 2, html.count("fa-ellipsis-vertical"))
+check("con la opción de reenviar", "Reenviar la invitación" in html)
+check("y dice a qué dirección se le va a mandar", "Se le reenvía a" in html)
+check("los items del menú son <button> o <a>, nunca un <a> dentro de otro",
+      "<form method=\"post\" action=\"/invitaciones-corporativas/%s/reenviar/" % INV2 in html)
+
+# EL CORREO DE HOY: se le cambia la dirección en su FICHA de tercero y el reenvío va a la nueva.
+s = models.SessionLocal()
+try:
+    rec = (s.query(models.CorporateInviteRecipient)
+           .filter(models.CorporateInviteRecipient.invite_id == A.to_uuid(INV2),
+                   models.CorporateInviteRecipient.email == "alvaro@x.com").first())
+    REC_ALV = str(rec.id)
+    prom = s.get(models.Promoter, rec.promoter_id) if rec.promoter_id else None
+    check("ese destinatario tiene ficha de tercero", prom is not None)
+    prom.contact_email = "alvaro.NUEVO@x.com"
+    s.commit()
+finally:
+    s.close()
+html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+check("la ficha avisa de que ha cambiado de correo", "Ha cambiado de correo" in html)
+ENVIADOS.clear()
+r = cli.post("/invitaciones-corporativas/%s/reenviar/%s" % (INV2, REC_ALV), follow_redirects=True)
+check("el reenvío responde y vuelve a la ficha", r.status_code == 200, r.status_code)
+check("se ha mandado UN correo", len(ENVIADOS) == 1, [e["to"] for e in ENVIADOS])
+check("⚠️ y a la dirección de HOY, no a la de aquel día",
+      ENVIADOS and ENVIADOS[0]["to"] == "alvaro.nuevo@x.com", [e["to"] for e in ENVIADOS])
+s = models.SessionLocal()
+try:
+    rec = s.get(models.CorporateInviteRecipient, A.to_uuid(REC_ALV))
+    inv2 = s.get(models.CorporateInvite, A.to_uuid(INV2))
+    check("queda apuntado que se le ha REENVIADO", rec.resend_count == 1 and rec.resent_at is not None,
+          (rec.resend_count, rec.resent_at))
+    check("no se pierde lo que ya se sabía de ella (que la abrió)", rec.opened_at is not None)
+    check("y el correo queda actualizado en el envío", rec.email == "alvaro.nuevo@x.com", rec.email)
+    total = (s.query(models.CorporateInviteRecipient)
+             .filter(models.CorporateInviteRecipient.invite_id == A.to_uuid(INV2)).count())
+    check("⚠️ un reenvío NO cuenta como una persona más",
+          int(inv2.sent_ok or 0) + int(inv2.sent_fail or 0) <= total,
+          (inv2.sent_ok, inv2.sent_fail, total))
+finally:
+    s.close()
+
+# LOS NUEVOS DE LA LISTA: alguien que se añade DESPUÉS del envío.
+html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+# ⚠️ «Nuevos» son los que se AÑADIERON DESPUÉS de mandarla, no «todo el que no la tiene»: a quien
+#    se desmarcó a propósito en la pantalla previa NO se le cuela ahora.
+check("a quien se desmarcó a propósito NO se le ofrece como «nuevo»",
+      "nuevo de la lista" not in html and "nuevos de la lista" not in html, None)
+s = models.SessionLocal()
+try:
+    inv2 = s.get(models.CorporateInvite, A.to_uuid(INV2))
+    lid = A.to_uuid((inv2.lists_json or [None])[0])
+    lst = s.get(models.CorporateGuestList, lid)
+    s.add(models.CorporateGuest(list_id=lst.id, name="Nuevo Tardón", email="tardon@x.com"))
+    s.commit()
+finally:
+    s.close()
+html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+check("con alguien añadido DESPUÉS, sale el botón y dice cuántos son",
+      "Mandar a 1 nuevo de la lista" in html, None)
+ENVIADOS.clear()
+r = cli.post("/invitaciones-corporativas/%s/enviar-nuevos" % INV2, follow_redirects=True)
+check("se le manda al nuevo", [e["to"] for e in ENVIADOS] == ["tardon@x.com"], [e["to"] for e in ENVIADOS])
+check("y a nadie más (a quien ya la tiene no se le manda otra vez)", len(ENVIADOS) == 1, len(ENVIADOS))
+ENVIADOS.clear()
+r = cli.post("/invitaciones-corporativas/%s/enviar-nuevos" % INV2, follow_redirects=True)
+check("volver a pulsarlo no manda nada (ya la tienen todos)", len(ENVIADOS) == 0, [e["to"] for e in ENVIADOS])
+check("y se dice", "ya la tienen todos" in r.get_data(as_text=True))
+
+print("\n── 16 ter. EL CORREO DE UNA INVITACIÓN NO PARECE UN MAILING ────────────")
+# ⚠️ Lo pidió Dani: «hay un link para ver la invitación en el navegador, quítalo porque hace que
+# aparezca comercial». Una invitación la manda UNA PERSONA desde SU correo.
+s = models.SessionLocal()
+try:
+    inv2 = s.get(models.CorporateInvite, A.to_uuid(INV2))
+    with A.app.test_request_context("/"):
+        cuerpo = A._corp_email_html(s, inv2)
+finally:
+    s.close()
+check("el correo NO lleva «ver en el navegador»",
+      "navegador" not in cuerpo.lower(), cuerpo[:300])
+check("pero sigue llevando su píxel de apertura", "/ic/" in cuerpo)
+check("y el diseño de la invitación", "<table" in cuerpo and "role=\"presentation\"" in cuerpo)
+# En una NOTA DE PRENSA sí se queda: ahí es un mailing de verdad.
+check("en una nota de prensa el enlace sigue estando",
+      "Ver la nota de prensa en el navegador" in io.open("app.py", encoding="utf-8").read())
+
 print("\n── 17. EL MÓDULO DE VÍDEO DE YOUTUBE ──────────────────────────────────")
 # ⚠️ Lo pidió Dani: se arrastra, se pincha para poner la URL, sale la miniatura con el play rojo y
 # se reproduce en un pop-up. Se mueve, se cambia de tamaño y se pueden poner todos los que hagan falta.

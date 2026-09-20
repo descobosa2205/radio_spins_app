@@ -15702,6 +15702,12 @@ class CorporateInviteRecipient(Base):
     open_fingerprint = Column(Text)
     forwarded_at = Column(DateTime(timezone=True))
     forward_count = Column(Integer, nullable=False, server_default=text("0"))
+    # ⚠️ REENVIADA A MANO desde la ficha (porque dice que no le ha llegado, o porque han cambiado
+    # los datos): `sent_at` pasa a ser la del ÚLTIMO envío, así que se apunta aparte cuántas veces
+    # se le ha vuelto a mandar y cuándo fue la última. Lo abierto y lo reenviado NO se tocan: es la
+    # misma persona y su historial sigue valiendo.
+    resent_at = Column(DateTime(timezone=True))
+    resend_count = Column(Integer, nullable=False, server_default=text("0"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Su FICHA de tercero: de ahí salen el nick y la vinculación que se enseñan en la ficha del envío.
@@ -15793,4 +15799,8 @@ def ensure_corporate_invites_schema():
         "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS open_fingerprint text;",
         "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS forwarded_at timestamptz;",
         "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS forward_count integer NOT NULL DEFAULT 0;",
+        # ⚠️ UNA COLUMNA NUEVA, UNA SENTENCIA (la regla de la casa: dentro de un DO $$ con guarda
+        #    puede no ejecutarse nunca y la app revienta al leerla).
+        "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS resent_at timestamptz;",
+        "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS resend_count integer NOT NULL DEFAULT 0;",
     ], "corporate_invites_schema")

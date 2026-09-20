@@ -23,6 +23,7 @@
 - INVITACIONES CORPORATIVAS · la FILA de un invitado: el nick, su vinculación y las marcas del correo
 - INVITACIONES CORPORATIVAS · LA PANTALLA PREVIA AL ENVÍO es la MISMA de toda la app
 - INVITACIONES CORPORATIVAS · la ficha de una enviada: abierta · reenviada · no le llegó
+- INVITACIONES CORPORATIVAS · volver a mandarla: a uno, o a los que se añadieron después
 - EL DÍA DEL EVENTO · INVITACIONES SIN REPARTIR (sep 2026, _home_invitation_leftovers →
 
 ---
@@ -540,6 +541,35 @@
   —una llamada vieja— siguen siendo las listas enteras.
   ⚠️ El paso de **«¿cuándo?»** no sale en una invitación: una nota de prensa se programa para su
   fecha de embargo, y una invitación se manda cuando se manda.
+
+- ⚠️⚠️ **INVITACIONES CORPORATIVAS · VOLVER A MANDARLA: A UNO, O A LOS QUE SE AÑADIERON DESPUÉS**
+  (sep 2026, lo pidió Dani).
+  · **LOS TRES PUNTITOS de cada fila** de «A quién se le mandó»: **Reenviar la invitación** —porque
+  esa persona dice que no le ha llegado, o porque han cambiado los datos de la actividad— y abrir su
+  ficha. ⚠️⚠️ **SIEMPRE A SU DIRECCIÓN DE HOY, no a la de aquel día**: el correo se vuelve a leer de
+  su ficha de tercero (`_corp_recipient_email_hoy`, punto único con el envío), y el menú lo dice
+  antes de pulsar —y avisa en rojo si ha cambiado—. Lo que ya se sabía de ella (que la abrió, que la
+  reenvió) **no se toca**: es la misma persona; lo que se apunta aparte es `resend_count` /
+  `resent_at`, y la fila dice «Reenviada el …».
+  ⚠️ Si su correo de hoy ya lo tiene OTRO destinatario de esa misma invitación (hay un único
+  `invite_id + email`), no se manda dos veces al mismo buzón: se dice y no se hace.
+  · **«MANDAR A LOS NUEVOS DE LA LISTA»**, un botón en la cabecera del listado que solo sale **si
+  hay alguien** y dice cuántos son. ⚠️⚠️ **«Nuevos» es quien se AÑADIÓ A LA LISTA DESPUÉS del
+  envío** (`CorporateGuest.created_at > inv.sent_at`), **no «todo el que no la tiene»**: en la
+  pantalla previa se puede DESMARCAR a quien no toque, y esa gente sigue en la lista sin haberla
+  recibido **a propósito** — mandársela como «nuevos» sería colársela a quien se decidió dejar
+  fuera. Lo cazó la prueba.
+  · ⚠️ **Los envíos se CUENTAN desde las filas, no sumando** (`_corp_recount`): con los reenvíos,
+  ir acumulando contaba dos veces a la misma persona y la ficha decía más enviadas que gente hay.
+  · ⚠️⚠️ **EL CORREO DE UNA INVITACIÓN NO LLEVA «VER EN EL NAVEGADOR»** («quítalo, hace que aparezca
+  comercial»): la manda **una persona desde su correo** a alguien a quien conoce, y ese enlace es la
+  marca de un mailing —es lo que hace que Gmail lo mande a Promociones—. En una **nota de prensa** y
+  en un **envío a compradores** sí se queda: ahí son mailings de verdad y quien los recibe agradece
+  la versión web. El **píxel** de apertura sigue, que es otra cosa.
+  · Los dos endpoints nuevos (`corporate_invite_resend_one`, `corporate_invite_send_new`) van en
+  `_access_exempt_endpoints`, como todo lo corporativo: no es una sección que se conceda, cada uno
+  manda lo suyo y `_corp_invite_mine` comprueba dentro que la invitación es de quien la abre.
+  · Cubierto por `tools/check_invitaciones_corporativas.py` (apartados 16 bis y 16 ter).
 
 - ⚠️⚠️ **INVITACIONES CORPORATIVAS · LA FICHA DE UNA ENVIADA: ABIERTA · REENVIADA · NO LE LLEGÓ**
   (sep 2026, lo pidió Dani). Una invitación ya enviada **se pincha entera** y lleva a su ficha, con

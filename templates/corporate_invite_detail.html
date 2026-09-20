@@ -66,6 +66,15 @@
       <div class="card-header bg-white fw-semibold d-flex align-items-center flex-wrap gap-2">
         <span><i class="fa fa-list-check me-2"></i>A quién se le mandó</span>
         <span class="badge text-bg-light border">{{ recipients|length }}</span>
+        {# ⚠️ LOS QUE SE HAN AÑADIDO DESPUÉS a las listas (lo pidió Dani): se les manda a ellos, y a
+           quien ya la tiene NO se le manda otra vez. Sin nadie nuevo, el botón no se pinta. #}
+        {% if nuevos %}
+          <form method="post" action="{{ send_new_url }}" class="d-inline"
+                data-confirm="¿Mandar la invitación a {{ nuevos }} persona{{ '' if nuevos == 1 else 's' }} que se {{ 'ha' if nuevos == 1 else 'han' }} añadido a las listas después? A quien ya la tiene no se le vuelve a mandar.">
+            <button class="btn btn-sm btn-danger fw-normal" type="submit">
+              <i class="fa fa-user-plus me-1"></i>Mandar a {{ nuevos }} nuevo{{ '' if nuevos == 1 else 's' }} de la lista</button>
+          </form>
+        {% endif %}
         {# LA LEYENDA: qué quiere decir cada icono, para no tener que adivinarlo. #}
         <span class="ms-auto small fw-normal text-muted d-flex align-items-center gap-3 flex-wrap">
           <span><i class="fa fa-envelope-open text-success me-1"></i>abierta</span>
@@ -76,7 +85,7 @@
       </div>
       <div class="table-responsive">
         <table class="table table-sm align-middle mb-0">
-          <thead><tr><th>Quién</th><th>Lista</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Quién</th><th>Lista</th><th>Estado</th><th class="text-end" style="width:2.5rem;"></th></tr></thead>
           <tbody>
             {# ⚠️ Cada persona como en «Mi lista de invitados»: el NICK arriba (clicable, pero no en
                azul) y debajo, más pequeña y con su logo, su VINCULACIÓN. #}
@@ -102,10 +111,42 @@
                   {% elif r.state == 'sent' %}
                     <div class="text-muted">{{ r.sent_label }}</div>
                   {% endif %}
+                  {% if r.resend_count %}
+                    <div class="text-muted"><i class="fa fa-rotate-right me-1"></i>Reenviada el {{ r.resent_label }}{% if r.resend_count > 1 %} · {{ r.resend_count }} veces{% endif %}</div>
+                  {% endif %}
+                </td>
+                {# ⚠️⚠️ LOS TRES PUNTITOS (lo pidió Dani): volver a mandársela a esta persona, porque
+                   dice que no le ha llegado o porque han cambiado los datos. **Siempre a su
+                   dirección de HOY**, no a la de aquel día: si la cambió en su ficha, se avisa.
+                   ⚠️ Los items van en <button> (un <a> dentro de un <a> parte el HTML, y además
+                   esto es un POST). #}
+                <td class="text-end">
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-link text-muted px-1" type="button" data-bs-toggle="dropdown"
+                            aria-label="Más" title="Más"><i class="fa fa-ellipsis-vertical"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><span class="dropdown-item-text small text-muted" style="max-width:20rem">
+                        Se le reenvía a <strong>{{ r.email_hoy or r.email }}</strong>{% if r.email_hoy and r.email_hoy != r.email %}
+                          <span class="text-danger d-block">Ha cambiado de correo: antes era {{ r.email }}.</span>{% endif %}</span></li>
+                      <li><hr class="dropdown-divider"></li>
+                      <li>
+                        <form method="post" action="{{ r.resend_url }}"
+                              data-confirm="¿Volver a mandarle la invitación a {{ r.nick }}? Se le manda a {{ r.email_hoy or r.email }}.">
+                          <button class="dropdown-item" type="submit">
+                            <i class="fa fa-paper-plane fa-fw me-1"></i>Reenviar la invitación</button>
+                        </form>
+                      </li>
+                      {% if r.promoter_url %}
+                        {# La fila NO es un enlace (aquí el <tr> es un <tr>), así que un <a> es correcto. #}
+                        <li><a class="dropdown-item" href="{{ r.promoter_url }}">
+                          <i class="fa fa-id-card fa-fw me-1"></i>Abrir su ficha</a></li>
+                      {% endif %}
+                    </ul>
+                  </div>
                 </td>
               </tr>
             {% else %}
-              <tr><td colspan="3" class="text-muted small">Todavía no hay destinatarios.</td></tr>
+              <tr><td colspan="4" class="text-muted small">Todavía no hay destinatarios.</td></tr>
             {% endfor %}
           </tbody>
         </table>

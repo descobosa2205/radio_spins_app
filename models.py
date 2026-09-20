@@ -6677,6 +6677,62 @@ class TourOneSheet(Base):
         Index("idx_tour_onesheets_token", "public_token"),
     )
 
+
+class OneSheet(Base):
+    """EL ONE SHEET de un sujeto (sep 2026, rehecho de cero): el porfolio público de un ARTISTA, de un
+    EVENTO (`AppEvent`), de un CICLO/FESTIVAL propio (`CycleFestival`) o de una GIRA comprada
+    (`TourOneSheet`, que sigue siendo el registro de la gira).
+
+    · `design` (JSONB) es la ÚNICA verdad: el tema (color de fondo, letra, iconos, tipografía), la
+      cabecera (la foto que se funde con el fondo, el nombre, las etiquetas) y los MÓDULOS con su
+      sitio en la rejilla de 12 columnas y sus opciones. Lo normaliza `onesheet_render`.
+    · `slug` es la dirección pública: `/onesheet/<slug>` (el nombre del artista en minúsculas y con
+      guiones). Único en toda la tabla. `public_token` conserva los enlaces antiguos por token.
+    · El ROSTER (`/onesheet`): `roster_visible` dice si sale, `roster_order` en qué orden y
+      `services` LO QUE LLEVAMOS de él (MANAGEMENT · CONTRATACION · DISCOGRAFICA · EDITORIAL),
+      que son las etiquetas de la cabecera y del Roster.
+    ⚠️ Un sujeto tiene UN one sheet (uq_onesheet_subject)."""
+
+    __tablename__ = "onesheets"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    subject_kind = Column(Text, nullable=False)            # ARTIST | EVENT | CYCLE | TOUR
+    subject_id = Column(PGUUID(as_uuid=True), nullable=False)
+    slug = Column(Text, nullable=False, unique=True)
+    public_token = Column(Text, unique=True)
+    design = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    services = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    roster_visible = Column(Boolean, nullable=False, server_default=text("true"))
+    roster_order = Column(Integer, nullable=False, server_default=text("0"))
+    published = Column(Boolean, nullable=False, server_default=text("true"))
+    created_by_nick = Column(Text)
+    updated_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("subject_kind", "subject_id", name="uq_onesheet_subject"),
+        Index("idx_onesheets_slug", "slug"),
+        Index("idx_onesheets_roster", "roster_visible", "roster_order"),
+    )
+
+
+class OneSheetTemplate(Base):
+    """UN FORMATO de One Sheet guardado con su nombre: el tema, la cabecera y la composición de los
+    módulos (sin el contenido de nadie), para cargarlo en otro artista. `thumb_url` es la foto de
+    cabecera del one sheet del que se sacó, solo para reconocerla en la lista."""
+
+    __tablename__ = "onesheet_templates"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    design = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    thumb_url = Column(Text)
+    subject_kind = Column(Text, nullable=False, server_default=text("'ARTIST'"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class PartyDebt(Base):
     """ADELANTO o DEUDA de una persona/tercero con una EMPRESA DEL GRUPO.
 
@@ -12950,6 +13006,49 @@ def ensure_roadmap_onesheet_schema():
     _exec_ddl_statements(stmts, "roadmap_onesheets")
 
 
+def ensure_onesheet_schema():
+    """Los ONE SHEET rehechos (sep 2026): la tabla del one sheet de cada sujeto y la de plantillas.
+    ⚠️ Cada columna nueva va en SU propia sentencia (regla de la casa)."""
+    _create_all_once()
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS onesheets (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            subject_kind text NOT NULL,
+            subject_id uuid NOT NULL,
+            slug text NOT NULL UNIQUE,
+            public_token text UNIQUE,
+            design jsonb NOT NULL DEFAULT '{}'::jsonb,
+            services jsonb NOT NULL DEFAULT '[]'::jsonb,
+            roster_visible boolean NOT NULL DEFAULT true,
+            roster_order integer NOT NULL DEFAULT 0,
+            published boolean NOT NULL DEFAULT true,
+            created_by_nick text,
+            updated_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_onesheet_subject UNIQUE (subject_kind, subject_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_onesheets_slug ON onesheets(slug);",
+        "CREATE INDEX IF NOT EXISTS idx_onesheets_roster ON onesheets(roster_visible, roster_order);",
+        """
+        CREATE TABLE IF NOT EXISTS onesheet_templates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            design jsonb NOT NULL DEFAULT '{}'::jsonb,
+            thumb_url text,
+            subject_kind text NOT NULL DEFAULT 'ARTIST',
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+    ]
+    _exec_ddl_statements(stmts, "onesheets")
+
+
 def ensure_performance_indexes():
     """Crea índices en columnas de clave foránea que no los tengan (acelera JOINs/filtros).
 
@@ -12995,6 +13094,11 @@ class ChartmetricArtist(Base):
     # URLs de redes/plataformas del artista tal como las da Chartmetric: {platform_key: url}
     # (instagram, tiktok, youtube, bandsintown, facebook, x, spotify, apple_music, amazon_music).
     social_urls = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # DÓNDE SE ESCUCHA (Spotify «where people listen», Chartmetric): los países y las ciudades con
+    # más oyentes mensuales, ya ordenados: [{"name", "code2", "listeners"}, …]. Es lo que pinta el
+    # módulo «Países donde más se escucha» del One Sheet; se refresca con el resto de métricas.
+    top_countries = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    top_cities = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     last_refreshed_at = Column(DateTime(timezone=True))
     last_error = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -13086,6 +13190,9 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_image_url text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS match_source text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS social_urls jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        # Dónde se escucha (One Sheet): cada columna en SU sentencia (la regla de la casa).
+        "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS top_countries jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS top_cities jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS song_id uuid;",
         "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS track_image_url text;",
         "INSERT INTO chartmetric_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING;",

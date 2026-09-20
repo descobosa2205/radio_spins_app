@@ -1,0 +1,47 @@
+{# EL ROSTER · página PÚBLICA (/onesheet): los artistas de la casa con su foto, su nombre y lo que
+   llevamos de cada uno; cada tarjeta abre su One Sheet. Arriba, los logos del grupo. Standalone. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Roster · 33 Producciones · PIES Records</title>
+  <meta name="description" content="El roster de artistas de 33 Producciones y PIES Records.">
+  <meta property="og:title" content="Roster · 33 Producciones · PIES Records">
+  <meta property="og:url" content="{{ public_url }}">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="{{ url_for('static', filename='img/Icono.jpg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/onesheet.css', v=ASSET_V) }}">
+</head>
+<body class="osr-body">
+  <div class="osr">
+    <header class="osr__head">
+      <div class="osr__logos">{% for l in logos %}<img src="{{ l.url }}" alt="{{ l.name }}" title="{{ l.name }}">{% endfor %}</div>
+      <h1 class="osr__title">Roster</h1>
+      <p class="osr__sub">{{ rows|length }} artista{{ 's' if rows|length != 1 else '' }} · pincha en uno para ver su One Sheet</p>
+    </header>
+    <main class="osr__grid">
+      {% for r in rows %}
+        <a class="osr__card" href="{{ r.url }}" style="{% if r.bg %}--osr-bg:{{ r.bg }};{% endif %}">
+          <span class="osr__img">
+            {% if r.hero_url %}<img src="{{ r.hero_url }}" alt="{{ r.name }}" loading="lazy">{% else %}<span class="osr__ph"><i class="fa-solid fa-guitar"></i></span>{% endif %}
+          </span>
+          <span class="osr__body">
+            <span class="osr__name">{{ r.name }}</span>
+            {% if r.kind != 'ARTIST' %}<span class="osr__kind">{{ r.kind_label }}</span>{% endif %}
+            {% if r.services %}<span class="osr__svcs">{% for sv in r.services %}<span><i class="fa-solid {{ sv.icon }}"></i>{{ sv.label }}</span>{% endfor %}</span>{% endif %}
+          </span>
+        </a>
+      {% else %}
+        <div class="osr__empty">Todavía no hay nadie en el Roster.</div>
+      {% endfor %}
+    </main>
+    <footer class="osr__foot">33 Producciones · PIES Records</footer>
+  </div>
+</body>
+</html>

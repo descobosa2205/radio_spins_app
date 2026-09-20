@@ -14,7 +14,7 @@
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item"><a class="nav-link {% if tab == 'info' %}active{% endif %}" href="{{ url_for('tour_detail_view', slug=slug, tab='info') }}">Información general</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'conciertos' %}active{% endif %}" href="{{ url_for('tour_detail_view', slug=slug, tab='conciertos') }}">Conciertos</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'onesheet' %}active{% endif %}" href="{{ url_for('tour_detail_view', slug=slug, tab='onesheet') }}">One-sheet</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'onesheet' %}active{% endif %}" href="{{ url_for('tour_detail_view', slug=slug, tab='onesheet') }}">One Sheet</a></li>
 </ul>
 
 {% if tab == 'info' %}
@@ -38,7 +38,7 @@
   </div></div>
   <div class="modal fade" id="linkConcertModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><form class="modal-content" method="post" action="{{ url_for('tour_concert_link_existing', slug=slug) }}"><div class="modal-header"><h5 class="modal-title">Vincular conciertos existentes</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="text-muted small">Se muestran conciertos del artista de la gira que todavía no están vinculados.</p><div class="vstack gap-2">{% for concert in available_concerts %}<label class="border rounded p-2 d-flex gap-2 align-items-center"><input type="checkbox" name="concert_ids[]" value="{{ concert.id }}" class="form-check-input"><img src="{{ concert.artist.photo_url if concert.artist and concert.artist.photo_url else DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:42px;height:42px;border-radius:10px;object-fit:cover;"><span><span class="fw-semibold d-block">{{ concert.festival_name or concert.artist.name if concert.artist else 'Actividad' }}</span><span class="small text-muted">{{ concert.date.strftime('%d/%m/%Y') if concert.date else 'Sin fecha' }} · {{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Sin recinto') }}</span></span></label>{% else %}<div class="alert alert-light border mb-0">No hay conciertos disponibles para vincular.</div>{% endfor %}</div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Vincular seleccionados</button></div></form></div></div>
 {% else %}
-  {% include "_onesheet_editor.html" %}
+  {% include "_onesheet_tab.html" %}
 {% endif %}
 
 {% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}

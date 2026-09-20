@@ -82,16 +82,63 @@
     wrap.style.width = Math.round(W * k) + 'px';
     colocaToolbar();
   }
+  /* EL COLOR DE FONDO del diseño (`bg.color`, detrás y debajo de la imagen) y el FUNDIDO de la imagen
+     con él (`bg.fade`, en % de la imagen). El fundido se HORNEA en la imagen en el servidor
+     (`_press_bg_bake`), que es lo único que vale igual en el correo; mientras se mueve la barra se
+     previsualiza con un degradado CSS (`fadePreview`) y al soltar se pide la imagen fundida. */
+  var fadePreview = null;
+  function colorFondo() { var c = (design.bg || {}).color || ''; return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#ffffff'; }
   function pintaFondo() {
     var b = design.bg || {};
     canvas.style.height = Math.round(canvasH()) + 'px';
     canvas.style.width = W + 'px';
-    canvas.style.background = b.url ? ('#fff url(' + b.url + ') no-repeat 0 0 / ' + W + 'px auto') : '#fff';
+    canvas.style.background = b.url ? (colorFondo() + ' url(' + b.url + ') no-repeat 0 0 / ' + W + 'px auto') : colorFondo();
     var vacio = root.querySelector('[data-pr-empty]');
     if (vacio) vacio.classList.toggle('d-none', !!b.url);
+    pintaFundidoPreview();
+    pintaBgControles();
     escala();
     pintaSwatches();
   }
+  function pintaFundidoPreview() {
+    var ov = canvas.querySelector('[data-pr-fade-preview]');
+    if (fadePreview == null || !(design.bg || {}).url) { if (ov) ov.remove(); return; }
+    if (!ov) { ov = document.createElement('div'); ov.setAttribute('data-pr-fade-preview', ''); ov.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;'; canvas.insertBefore(ov, canvas.firstChild); }
+    var alto = bgH();
+    ov.style.width = W + 'px'; ov.style.height = Math.round(alto) + 'px';
+    var c = colorFondo(), f = Math.max(0, Math.min(100, fadePreview));
+    ov.style.background = f ? ('linear-gradient(to bottom, rgba(0,0,0,0) ' + (100 - f) + '%, ' + c + ' 100%)') : 'none';
+  }
+  function pintaBgControles() {
+    var b = design.bg || {};
+    var col = root.querySelector('[data-pr-bg-color]'); if (col) col.value = colorFondo();
+    var hex = root.querySelector('[data-pr-bg-hex]'); if (hex) hex.textContent = b.color ? colorFondo() : 'blanco';
+    var fd = root.querySelector('[data-pr-bg-fade]'); if (fd) fd.value = parseInt(b.fade || 0, 10) || 0;
+    var fv = root.querySelector('[data-pr-bg-fade-val]'); if (fv) fv.textContent = (parseInt(b.fade || 0, 10) || 0) + ' %';
+    var sw = root.querySelector('[data-pr-bg-colors]'); if (sw) sw.innerHTML = coloresHtml(b.color || '', 'data-pr-bg-color-pick');
+  }
+  function guardaEstiloFondo() {
+    var url = root.getAttribute('data-bg-style-url'); if (!url) return;
+    marca('Fundiendo el fondo…');
+    post(url, { color: (design.bg || {}).color || '', fade: parseInt((design.bg || {}).fade || 0, 10) || 0 }).then(function (js) {
+      if (!js || !js.ok) { alert((js && js.error) || 'No se pudo cambiar el fondo.'); return; }
+      design.bg = js.bg || design.bg; fadePreview = null; pintaFondo(); marca('Fondo cambiado · sin guardar el resto');
+    });
+  }
+  root.addEventListener('input', function (ev) {
+    if (ev.target.matches('[data-pr-bg-color]')) { design.bg = design.bg || {}; design.bg.color = ev.target.value; pintaFondo(); marca(); return; }
+    if (ev.target.matches('[data-pr-bg-fade]')) { fadePreview = parseInt(ev.target.value, 10) || 0; var fv = root.querySelector('[data-pr-bg-fade-val]'); if (fv) fv.textContent = fadePreview + ' %'; pintaFundidoPreview(); return; }
+    if (ev.target.matches('[data-pr-bg-color-pick-custom]')) { design.bg = design.bg || {}; design.bg.color = ev.target.value; pintaFondo(); marca(); }
+  });
+  root.addEventListener('change', function (ev) {
+    if (ev.target.matches('[data-pr-bg-color], [data-pr-bg-color-pick-custom]')) { design.bg = design.bg || {}; design.bg.color = ev.target.value; guardaEstiloFondo(); return; }
+    if (ev.target.matches('[data-pr-bg-fade]')) { design.bg = design.bg || {}; design.bg.fade = parseInt(ev.target.value, 10) || 0; guardaEstiloFondo(); }
+  });
+  root.addEventListener('click', function (ev) {
+    var pick = ev.target.closest('[data-pr-bg-color-pick]');
+    if (pick) { design.bg = design.bg || {}; design.bg.color = pick.getAttribute('data-pr-bg-color-pick'); pintaFondo(); guardaEstiloFondo(); return; }
+    if (ev.target.closest('[data-pr-bg-color-clear]')) { if (design.bg) delete design.bg.color; pintaFondo(); guardaEstiloFondo(); }
+  });
 
   /* ---------- bloques ---------- */
   /* ⚠️⚠️ LO QUE SE VE AQUÍ ES LO QUE SE MANDA: los valores por defecto de un texto los da el motor
@@ -349,6 +396,16 @@
       html += '<div class="small fw-semibold mb-1">Alineación</div><div class="btn-group btn-group-sm" role="group">' +
         ['left', 'center', 'right'].map(function (a) { return '<button type="button" class="btn ' + ((o.align || 'center') === a ? 'btn-dark' : 'btn-outline-secondary') + '" data-pr-opt-align="' + a + '"><i class="fa fa-align-' + a + '"></i></button>'; }).join('') + '</div>';
     }
+    /* LOS COLORES DE ESTE MÓDULO (sep 2026, lo pidió Dani): las letras y los iconos por separado, para
+       cada módulo. Los aplica el servidor en el HTML del módulo (`press_render.apply_module_colors`):
+       lo que se ve es lo que llega. Vacío = los colores de siempre. */
+    if (!esTexto(b) && b.type !== 'image') {
+      html += '<div class="small fw-semibold mt-3 mb-1">Colores de este módulo <span class="fw-normal text-muted">(vacío = los de siempre)</span></div>' +
+        '<div class="small text-muted mb-1">Letras' + (o.text_color ? ' · <button type="button" class="btn btn-sm btn-link p-0 text-muted" data-pr-modcolor-clear="text_color">volver al de siempre</button>' : '') + '</div>' +
+        '<div class="pr-colors mb-2">' + coloresHtml(o.text_color, 'data-pr-modtext-pick') + '</div>' +
+        '<div class="small text-muted mb-1">Iconos' + (o.icon_color ? ' · <button type="button" class="btn btn-sm btn-link p-0 text-muted" data-pr-modcolor-clear="icon_color">volver al de siempre</button>' : '') + '</div>' +
+        '<div class="pr-colors mb-2">' + coloresHtml(o.icon_color, 'data-pr-modicon-pick') + '</div>';
+    }
     html += '<div class="mt-3 d-flex gap-2 flex-wrap"><button type="button" class="btn btn-sm btn-outline-secondary" data-pr-dup><i class="fa fa-clone me-1"></i>Duplicar</button>' +
       '<button type="button" class="btn btn-sm btn-outline-danger" data-pr-del><i class="fa fa-trash me-1"></i>Eliminar</button></div>';
     body.innerHTML = html;
@@ -356,6 +413,11 @@
   root.addEventListener('change', function (ev) {
     var opt = ev.target.closest('[data-pr-opt]');
     if (opt && sel) { var b = bloque(sel); b.opts = b.opts || {}; b.opts[opt.getAttribute('data-pr-opt')] = opt.checked; marca(); refrescaModulo(b); }
+    // Los colores propios del módulo (letras / iconos) elegidos con el selector de «otro color».
+    var mt = ev.target.closest('[data-pr-modtext-pick-custom]');
+    if (mt && sel) { var bt = bloque(sel); bt.opts = bt.opts || {}; bt.opts.text_color = mt.value; marca(); refrescaModulo(bt); pintaProps(bt); }
+    var mi = ev.target.closest('[data-pr-modicon-pick-custom]');
+    if (mi && sel) { var bi2 = bloque(sel); bi2.opts = bi2.opts || {}; bi2.opts.icon_color = mi.value; marca(); refrescaModulo(bi2); pintaProps(bi2); }
     var cc = ev.target.closest('[data-pr-color-pick-custom]');
     if (cc && sel) { var bc = bloque(sel); bc.opts = bc.opts || {}; bc.opts.color = cc.value; marca(); refrescaModulo(bc); pintaProps(bc); }
   });
@@ -387,6 +449,12 @@
     if (ev.target.closest('[data-pr-contacts-open]') && sel) { abreContactos(bloque(sel)); return; }
     var cp = ev.target.closest('[data-pr-color-pick]');
     if (cp && sel) { var bc = bloque(sel); bc.opts = bc.opts || {}; bc.opts.color = cp.getAttribute('data-pr-color-pick'); marca(); refrescaModulo(bc); pintaProps(bc); return; }
+    var mtp = ev.target.closest('[data-pr-modtext-pick]');
+    if (mtp && sel) { var bmt = bloque(sel); bmt.opts = bmt.opts || {}; bmt.opts.text_color = mtp.getAttribute('data-pr-modtext-pick'); marca(); refrescaModulo(bmt); pintaProps(bmt); return; }
+    var mip = ev.target.closest('[data-pr-modicon-pick]');
+    if (mip && sel) { var bmi = bloque(sel); bmi.opts = bmi.opts || {}; bmi.opts.icon_color = mip.getAttribute('data-pr-modicon-pick'); marca(); refrescaModulo(bmi); pintaProps(bmi); return; }
+    var mcl = ev.target.closest('[data-pr-modcolor-clear]');
+    if (mcl && sel) { var bmc = bloque(sel); bmc.opts = bmc.opts || {}; delete bmc.opts[mcl.getAttribute('data-pr-modcolor-clear')]; marca(); refrescaModulo(bmc); pintaProps(bmc); return; }
     if (ev.target.closest('[data-pr-dup]') && sel) {
       var o = bloque(sel), c = JSON.parse(JSON.stringify(o)); c.id = uid(); c.y = o.y + o.h + 12; delete c.html_cache;
       if (c.type === 'title' || c.type === 'text') c.html = elDe(o.id).querySelector('.pr-blk__text').innerHTML;

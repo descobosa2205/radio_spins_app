@@ -166,6 +166,8 @@ def main() -> int:
             if cur.rowcount:
                 print("   · %s: %d filas borradas" % (tabla, cur.rowcount))
         # Y el artista: de lo demás se encargan las FK CASCADE.
+        # El ONE SHEET del artista (sep 2026): su sujeto es polimórfico (subject_kind + subject_id), sin FK.
+        cur.execute("DELETE FROM onesheets WHERE subject_kind = 'ARTIST' AND subject_id::text = ANY(%s)", (list(ids),))
         cur.execute("DELETE FROM artists WHERE id::text = ANY(%s)", (list(ids),))
         print("   · artists: %d borrados" % cur.rowcount)
         cx.commit()

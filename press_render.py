@@ -254,6 +254,47 @@ def _num(v, default=0.0) -> float:
         return float(default)
 
 
+_HEX6 = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def bg_color(design: dict) -> str:
+    """El COLOR DE FONDO del diseño (`bg.color`, #rrggbb): lo que hay detrás y debajo de la imagen de
+    fondo. Blanco si no se ha elegido ninguno (como siempre fue)."""
+    c = str(((design or {}).get("bg") or {}).get("color") or "").strip()
+    return c.lower() if _HEX6.match(c) else "#ffffff"
+
+
+def module_colors(opts: dict | None) -> tuple[str, str]:
+    """Los colores PROPIOS de un módulo (texto e iconos), si el autor los fijó: ('#rrggbb' o '', 'rrggbb' o '')."""
+    o = opts or {}
+    t = str(o.get("text_color") or "").strip()
+    i = str(o.get("icon_color") or "").strip()
+    return (t.lower() if _HEX6.match(t) else ""), (i.lstrip("#").lower() if _HEX6.match(i if i.startswith("#") else "#" + i) else "")
+
+
+_ICON_C_RE = re.compile(r"([?&]c=)([0-9a-fA-F]{6})")
+
+
+def apply_module_colors(html_mod: str, opts: dict | None) -> str:
+    """Los COLORES DEL MÓDULO elegidos por el autor (sep 2026, lo pidió Dani para el diseño de
+    comunicaciones: «los colores de la letra e iconos de los módulos se tienen que poder cambiar para
+    cada uno por separado»). El HTML de un módulo lleva sus colores EN LÍNEA (va por correo), así que
+    se sustituyen aquí, en un punto único, en vez de enhebrar dos parámetros por los quince módulos:
+    el texto (`TEXT_COLOR` y sus grises) por `text_color`, y los iconos —que son PNG de nuestro
+    dominio con el color en la URL (`brand_icon_png?c=…`)— por `icon_color`. El blanco de los
+    botones rellenos no se toca (es el contraste sobre el rojo)."""
+    texto, icono = module_colors(opts)
+    if not html_mod or (not texto and not icono):
+        return html_mod
+    out = html_mod
+    if texto:
+        for viejo in (TEXT_COLOR, MUTED, "#374151"):
+            out = out.replace("color:%s" % viejo, "color:%s" % texto)
+    if icono:
+        out = _ICON_C_RE.sub(lambda m: m.group(1) + icono, out)
+    return out
+
+
 def bg_height(design: dict) -> float:
     """El alto del fondo a `WIDTH` de ancho (la imagen se escala entera al ancho del lienzo)."""
     bg = (design or {}).get("bg") or {}
@@ -803,7 +844,7 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
 def block_html(b: dict, *, for_email: bool = False) -> str:
     if b.get("type") in TEXT_TYPES:
         return text_block_html(b, for_email=for_email)
-    return module_html(b, for_email=for_email)
+    return apply_module_colors(module_html(b, for_email=for_email), b.get("opts"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -814,7 +855,8 @@ def render_web(design: dict) -> str:
     bl = blocks_of(design)
     alto = canvas_height(design, bl)
     bg = (design or {}).get("bg") or {}
-    fondo = ('background:#fff url(%s) no-repeat 0 0;background-size:%dpx auto;' % (_e(bg.get("url")), WIDTH)) if bg.get("url") else "background:#fff;"
+    color = bg_color(design)
+    fondo = ('background:%s url(%s) no-repeat 0 0;background-size:%dpx auto;' % (color, _e(bg.get("url")), WIDTH)) if bg.get("url") else "background:%s;" % color
     partes = ['<div class="pr-canvas" data-pr-canvas style="position:relative;width:%dpx;height:%dpx;%soverflow:hidden;">'
               % (WIDTH, round(alto), fondo)]
     for b in bl:
@@ -833,10 +875,11 @@ def render_web(design: dict) -> str:
 
 def _bg_css(design: dict, y0: float) -> str:
     bg = (design or {}).get("bg") or {}
+    color = bg_color(design)
     if not bg.get("url") or y0 >= bg_height(design):
-        return "background-color:#ffffff;"
-    return ('background-color:#ffffff;background-image:url(%s);background-repeat:no-repeat;'
-            'background-position:0 -%dpx;background-size:%dpx auto;' % (_e(bg.get("url")), round(y0), WIDTH))
+        return "background-color:%s;" % color
+    return ('background-color:%s;background-image:url(%s);background-repeat:no-repeat;'
+            'background-position:0 -%dpx;background-size:%dpx auto;' % (color, _e(bg.get("url")), round(y0), WIDTH))
 
 
 def _tbl(w: float, filas: str) -> str:
@@ -948,8 +991,8 @@ def render_email(design: dict) -> str:
     if cursor < fondo_h:
         filas.append(fila_fondo(cursor, fondo_h))
     return ('<table role="presentation" width="%d" cellpadding="0" cellspacing="0" border="0" align="center" '
-            'style="width:%dpx;max-width:100%%;margin:0 auto;border-collapse:collapse;background:#ffffff;">%s</table>'
-            % (WIDTH, WIDTH, "".join(filas)))
+            'style="width:%dpx;max-width:100%%;margin:0 auto;border-collapse:collapse;background:%s;">%s</table>'
+            % (WIDTH, WIDTH, bg_color(design), "".join(filas)))
 
 
 def plain_text(design: dict) -> str:

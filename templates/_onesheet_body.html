@@ -1,0 +1,39 @@
+{# ═══════════════ EL CUERPO DE UN ONE SHEET (cabecera + rejilla) ═══════════════
+   Lo comparten la página pública (`onesheet_public.html`) y el editor (`onesheet_editor.html`), así
+   que lo que se ve al diseñar es lo que se publica. El tema viaja en variables CSS (`theme_vars`,
+   punto único `_onesheet_theme_vars`); `editing` añade las asas y deja editar los textos.
+   ⚠️ Los módulos vienen ya en HTML (`modules`, en orden de lectura): los pinta `_onesheet_module.html`. #}
+<div class="os-page{% if editing %} os-page--edit{% endif %}{% if theme_colors.dark %} os-dark{% else %} os-light{% endif %}" style="{{ theme_vars }}" data-os-page data-os-kind="{{ info.kind }}">
+  {% if theme.bg_image_url %}<div class="os-bgimg" data-os-bgimg></div>{% endif %}
+  <header class="os-hero os-hero--{{ hero.align or 'left' }}{% if not hero_url %} os-hero--noimg{% endif %}" data-os-hero>
+    <div class="os-hero__img" data-os-hero-img></div>
+    <div class="os-hero__fade"></div>
+    <div class="os-hero__inner">
+      {% if hero.show_name %}<h1 class="os-hero__name" data-os-hero-name>{{ name }}</h1>{% endif %}
+      {% if services %}
+        <div class="os-hero__services" data-os-hero-services>
+          {% for sv in services %}<span class="os-chip os-chip--svc"><i class="fa-solid {{ sv.icon }}"></i>{{ sv.label }}</span>{% endfor %}
+        </div>
+      {% endif %}
+      {% if hero_metrics %}
+        <div class="os-hero__metrics" data-os-hero-metrics>
+          {% for m in hero_metrics %}
+            <div class="os-hm" title="{{ m.label }}"><span class="os-hm__l"><i class="{{ m.icon }}"></i>{{ m.short }}</span><strong>{{ m.value_fmt }}</strong></div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </header>
+  <main class="os-grid" data-os-grid>
+    {% for m in modules %}{{ m.html|safe }}{% endfor %}
+  </main>
+  <footer class="os-foot">
+    <div class="os-foot__logos">
+      {% for l in logos %}<img src="{{ l.url }}" alt="{{ l.name }}" title="{{ l.name }}">{% endfor %}
+    </div>
+    <div class="os-foot__links">
+      {% if not editing %}<a href="{{ roster_url }}"><i class="fa-solid fa-users"></i>Roster</a>{% endif %}
+      <span class="os-foot__k">{{ kind_label }}{% if kind_label %} · {% endif %}One Sheet</span>
+    </div>
+  </footer>
+</div>

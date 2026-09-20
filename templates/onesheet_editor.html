@@ -1,0 +1,255 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════ EL EDITOR DE UN ONE SHEET ═══════════════
+   A la IZQUIERDA la página tal como se publica (`_onesheet_body.html`, el MISMO cuerpo que la página
+   pública), con los módulos que se arrastran por su asa, se ensanchan por los bordes y se configuran
+   pinchándolos. A la DERECHA: los módulos que se pueden añadir, el DISEÑO (color de fondo, letras,
+   iconos, tipografía), la CABECERA y —con uno seleccionado— sus opciones. Arriba, siempre, Guardar.
+   El motor es static/js/onesheet_editor.js; lo que se guarda es el DISEÑO (JSON). #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/onesheet.css', v=ASSET_V) }}">
+{% if font_href %}<link rel="stylesheet" href="{{ font_href }}" data-ose-font>{% endif %}
+<div class="ose" data-ose
+     data-osid="{{ row.id }}" data-kind="{{ info.kind }}" data-name="{{ info.name }}" data-subject-photo="{{ info.photo_url }}"
+     data-save-url="{{ save_url }}" data-module-url="{{ module_url }}" data-assets-url="{{ assets_url }}" data-upload-url="{{ upload_url }}"
+     data-settings-url="{{ settings_url }}" data-templates-url="{{ templates_url }}" data-template-new-url="{{ template_new_url }}"
+     data-template-apply-url="{{ template_apply_url }}" data-public-url="{{ public_url }}" data-public-base="{{ public_url.rsplit('/', 1)[0] }}/"
+     data-can-edit="{{ '1' if can_edit else '' }}" data-slug="{{ slug }}">
+
+  <div class="ose__top">
+    <a href="{{ back_url }}" class="btn btn-outline-secondary btn-volver" data-ose-back title="Volver a la ficha (se guarda)" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+    <div class="ose__who">
+      <span class="badge text-bg-danger"><i class="fa-solid fa-id-card me-1"></i>One Sheet</span>
+      <span class="ose__name">{% if info.photo_url %}<img src="{{ info.photo_url }}" alt="">{% endif %}{{ info.name }}</span>
+      <span class="badge text-bg-light border">{{ kind_label }}</span>
+      <a class="ose__slug small" href="{{ public_url }}" target="_blank" rel="noopener" data-ose-public-link><i class="fa-solid fa-link me-1"></i><span data-ose-public-text>{{ public_url|replace('https://', '') }}</span></a>
+    </div>
+    <div class="ose__actions">
+      <span class="ose__saved small text-muted" data-ose-saved>{% if updated_label %}Guardado el {{ updated_label }}{% endif %}</span>
+      <div class="btn-group btn-group-sm ose__devices" role="group" title="Ver cómo queda en cada pantalla">
+        <button type="button" class="btn btn-outline-secondary is-on" data-ose-device="desktop" title="Ordenador"><i class="fa-solid fa-desktop"></i></button>
+        <button type="button" class="btn btn-outline-secondary" data-ose-device="tablet" title="Tableta"><i class="fa-solid fa-tablet-screen-button"></i></button>
+        <button type="button" class="btn btn-outline-secondary" data-ose-device="mobile" title="Móvil"><i class="fa-solid fa-mobile-screen"></i></button>
+      </div>
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Plantillas: cargar un formato o guardar este"><i class="fa-solid fa-swatchbook me-1"></i>Plantillas</button>
+        <ul class="dropdown-menu dropdown-menu-end ose__tpl-menu" data-ose-templates-menu>
+          <li><span class="dropdown-item-text small text-muted">Cargando…</span></li>
+        </ul>
+      </div>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#oseSettings" title="La dirección pública, lo que llevamos y el Roster"><i class="fa-solid fa-sliders me-1"></i>Ajustes</button>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#oseShare" title="Compartir el enlace público"><i class="fa-solid fa-share-nodes me-1"></i>Compartir</button>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ public_url }}" target="_blank" rel="noopener" data-ose-public-link title="Abrir la página pública en otra pestaña"><i class="fa-solid fa-eye me-1"></i>Ver</a>
+      {% if can_edit %}<button class="btn btn-primary btn-sm" type="button" data-ose-save title="Guardar (⌘S)"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar</button>{% endif %}
+    </div>
+  </div>
+
+  <div class="ose__body">
+    <div class="ose__stage" data-ose-stage>
+      <div class="ose__frame" data-ose-frame>
+        {% include '_onesheet_body.html' %}
+      </div>
+      {# La barra flotante del TEXTO (biografía y textos libres): negrita · cursiva · subrayado · enlace ·
+         alineación · color · tamaño del bloque. Misma barra que el editor de comunicaciones. #}
+      <div class="pr-toolbar ose__toolbar d-none" data-ose-toolbar>
+        <button type="button" class="pr-tb" data-ose-cmd="bold" title="Negrita"><i class="fa fa-bold"></i></button>
+        <button type="button" class="pr-tb" data-ose-cmd="italic" title="Cursiva"><i class="fa fa-italic"></i></button>
+        <button type="button" class="pr-tb" data-ose-cmd="underline" title="Subrayado"><i class="fa fa-underline"></i></button>
+        <span class="pr-tb__sep"></span>
+        <button type="button" class="pr-tb" data-ose-cmd="link" title="Enlazar el texto seleccionado"><i class="fa fa-link"></i></button>
+        <button type="button" class="pr-tb" data-ose-cmd="unlink" title="Quitar el enlace"><i class="fa fa-link-slash"></i></button>
+        <span class="pr-tb__sep"></span>
+        <button type="button" class="pr-tb" data-ose-cmd="justifyLeft" title="Alinear a la izquierda"><i class="fa fa-align-left"></i></button>
+        <button type="button" class="pr-tb" data-ose-cmd="justifyCenter" title="Centrar"><i class="fa fa-align-center"></i></button>
+        <button type="button" class="pr-tb" data-ose-cmd="justifyFull" title="Justificar"><i class="fa fa-align-justify"></i></button>
+        <span class="pr-tb__sep"></span>
+        <label class="pr-tb pr-tb--color" title="Color del texto seleccionado"><i class="fa fa-palette"></i><input type="color" data-ose-color value="#ffffff"></label>
+        <span class="pr-tb__swatches" data-ose-swatches></span>
+        <span class="pr-tb__sep"></span>
+        <button type="button" class="pr-tb" data-ose-size="-1" title="Texto más pequeño (todo el bloque)"><i class="fa fa-minus"></i></button>
+        <input type="number" class="pr-tb__num" data-ose-size-input min="10" max="40" title="Tamaño del texto (px)">
+        <button type="button" class="pr-tb" data-ose-size="1" title="Texto más grande (todo el bloque)"><i class="fa fa-plus"></i></button>
+      </div>
+    </div>
+
+    <aside class="ose__side" data-ose-side>
+      <nav class="ose__tabs">
+        <button type="button" class="is-on" data-ose-tab="modules"><i class="fa-solid fa-table-cells-large"></i>Módulos</button>
+        <button type="button" data-ose-tab="theme"><i class="fa-solid fa-palette"></i>Diseño</button>
+        <button type="button" data-ose-tab="hero"><i class="fa-solid fa-image"></i>Cabecera</button>
+      </nav>
+
+      {# ── El módulo SELECCIONADO ── #}
+      <div class="ose__panel ose__panel--props" data-ose-panel="props" hidden>
+        <div class="ose__panel-h">
+          <span data-ose-props-title>Módulo</span>
+          <button type="button" class="btn btn-sm btn-link text-muted" data-ose-unsel title="Quitar la selección"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div data-ose-props-body></div>
+      </div>
+
+      {# ── Los MÓDULOS que se pueden añadir ── #}
+      <div class="ose__panel" data-ose-panel="modules">
+        <div class="ose__hint">Arrastra un módulo a la página (o pínchalo y se coloca al final). Después muévelo por su asa y ensánchalo por los bordes. Un módulo se puede poner varias veces.</div>
+        <div class="ose__palette">
+          {% for m in catalog %}
+            <div class="ose__pal" draggable="{{ 'true' if can_edit else 'false' }}" data-ose-add="{{ m.key }}" title="{{ m.hint }}">
+              <span class="ose__pal-i"><i class="fa-solid {{ m.icon }}"></i></span>
+              <span class="ose__pal-t"><b>{{ m.label }}</b><small>{{ m.hint }}</small></span>
+              {% if m.dynamic %}<span class="ose__pal-auto" title="Se actualiza solo"><i class="fa-solid fa-rotate"></i></span>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# ── El DISEÑO (el tema) ── #}
+      <div class="ose__panel" data-ose-panel="theme" hidden>
+        <div class="ose__group">
+          <div class="ose__group-t"><i class="fa-solid fa-fill-drip"></i>Color de fondo</div>
+          <div class="ose__hint">Todo se adapta a él: las letras y los iconos salen claros sobre un fondo oscuro y oscuros sobre uno claro, y la foto de cabecera se funde con él.</div>
+          <div class="ose__colorrow">
+            <label class="ose__colorbtn" title="Elegir un color"><input type="color" data-ose-theme="bg"><span data-ose-theme-swatch="bg"></span></label>
+            <input type="text" class="form-control form-control-sm ose__hex" data-ose-theme-hex="bg" placeholder="#0f2a24" maxlength="7">
+          </div>
+          <div class="ose__hint mt-2">Los colores de la foto de cabecera y los de la casa:</div>
+          <div class="pr-colors" data-ose-palette></div>
+        </div>
+        <div class="ose__group">
+          <div class="ose__group-t"><i class="fa-solid fa-image"></i>Imagen de fondo <span class="fw-normal text-muted">(opcional)</span></div>
+          <div class="d-flex gap-2 flex-wrap align-items-center">
+            <label class="btn btn-sm btn-outline-primary mb-0"><i class="fa-solid fa-upload me-1"></i>Subir<input type="file" accept="image/*" class="d-none" data-ose-upload="bg"></label>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-ose-theme-clear="bg_image_url"><i class="fa-solid fa-xmark me-1"></i>Quitar</button>
+            <span class="small text-muted" data-ose-bgimg-name></span>
+          </div>
+          <label class="ose__range"><span>Transparencia de la imagen <b data-ose-val="bg_image_opacity"></b></span><input type="range" min="0.05" max="1" step="0.05" data-ose-theme="bg_image_opacity"></label>
+          <label class="ose__range"><span>Desenfoque <b data-ose-val="bg_image_blur"></b></span><input type="range" min="0" max="30" step="1" data-ose-theme="bg_image_blur"></label>
+        </div>
+        <div class="ose__group">
+          <div class="ose__group-t"><i class="fa-solid fa-font"></i>Letras e iconos</div>
+          <div class="ose__hint">Salen solos según el fondo. Fija uno solo si lo quieres distinto (y se puede cambiar en cada módulo por separado).</div>
+          {% for k, label in [('text', 'Texto'), ('title', 'Títulos de los módulos'), ('icon', 'Iconos'), ('accent', 'Botones y detalles')] %}
+            <div class="ose__colorrow">
+              <label class="ose__colorbtn" title="{{ label }}"><input type="color" data-ose-theme="{{ k }}"><span data-ose-theme-swatch="{{ k }}"></span></label>
+              <span class="ose__colorlbl">{{ label }}</span>
+              <button type="button" class="btn btn-sm btn-link text-muted p-0" data-ose-theme-clear="{{ k }}" title="Volver al automático">auto</button>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="ose__group">
+          <div class="ose__group-t"><i class="fa-solid fa-text-height"></i>Tipografía y forma</div>
+          <select class="form-select form-select-sm mb-2" data-ose-theme="font">{% for f in fonts %}<option value="{{ f.key }}">{{ f.label }}</option>{% endfor %}</select>
+          <label class="ose__range"><span>Esquinas redondeadas <b data-ose-val="radius"></b></span><input type="range" min="0" max="40" step="2" data-ose-theme="radius"></label>
+          <label class="ose__range"><span>Separación entre módulos <b data-ose-val="gap"></b></span><input type="range" min="8" max="64" step="2" data-ose-theme="gap"></label>
+          <label class="ose__range"><span>Ancho máximo <b data-ose-val="max_width"></b></span><input type="range" min="800" max="1800" step="20" data-ose-theme="max_width"></label>
+          <div class="small fw-semibold mt-2 mb-1">Fondo de los módulos</div>
+          <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary" data-ose-theme-set="module_bg" data-value="none">Transparente</button>
+            <button type="button" class="btn btn-outline-secondary" data-ose-theme-set="module_bg" data-value="soft">Suave</button>
+            <button type="button" class="btn btn-outline-secondary" data-ose-theme-set="module_bg" data-value="strong">Marcado</button>
+          </div>
+        </div>
+      </div>
+
+      {# ── La CABECERA ── #}
+      <div class="ose__panel" data-ose-panel="hero" hidden>
+        <div class="ose__group">
+          <div class="ose__group-t"><i class="fa-solid fa-image"></i>Foto de cabecera</div>
+          <div class="ose__heroprev" data-ose-hero-prev></div>
+          <div class="d-flex gap-2 flex-wrap">
+            <label class="btn btn-sm btn-outline-primary mb-0"><i class="fa-solid fa-upload me-1"></i>Subir otra<input type="file" accept="image/*" class="d-none" data-ose-upload="hero"></label>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-ose-hero-photo title="Usar la foto de la ficha"><i class="fa-solid fa-user me-1"></i>La de la ficha</button>
+          </div>
+          <div class="small fw-semibold mt-3 mb-1">Qué parte de la foto se ve</div>
+          <div class="ose__focus" data-ose-focus>
+            {% for fy in ['0%', '30%', '50%', '70%', '100%'] %}{% for fx in ['0%', '50%', '100%'] %}<button type="button" data-focus="{{ fx }} {{ fy }}" title="{{ fx }} {{ fy }}"></button>{% endfor %}{% endfor %}
+          </div>
+          <label class="ose__range"><span>Altura <b data-ose-val="height"></b></span><input type="range" min="30" max="100" step="2" data-ose-hero="height"></label>
+          <label class="ose__range"><span>Cuánto se funde con el fondo <b data-ose-val="fade"></b></span><input type="range" min="0" max="100" step="5" data-ose-hero="fade"></label>
+          <label class="ose__range"><span>Oscurecer la foto <b data-ose-val="darken"></b></span><input type="range" min="0" max="0.8" step="0.05" data-ose-hero="darken"></label>
+        </div>
+        <div class="ose__group">
+          <div class="ose__group-t"><i class="fa-solid fa-heading"></i>Nombre</div>
+          <label class="form-check"><input type="checkbox" class="form-check-input" data-ose-hero="show_name"> Se ve el nombre</label>
+          <input type="text" class="form-control form-control-sm mt-2" data-ose-hero="name" placeholder="{{ info.name }} (así, tal cual)">
+          <label class="ose__range"><span>Tamaño de la letra <b data-ose-val="name_size"></b></span><input type="range" min="24" max="160" step="2" data-ose-hero="name_size"></label>
+          <div class="ose__colorrow">
+            <label class="ose__colorbtn" title="Color del nombre"><input type="color" data-ose-hero="name_color"><span data-ose-hero-swatch="name_color"></span></label>
+            <span class="ose__colorlbl">Color del nombre</span>
+            <button type="button" class="btn btn-sm btn-link text-muted p-0" data-ose-hero-clear="name_color">auto</button>
+          </div>
+          <div class="btn-group btn-group-sm mt-2" role="group">
+            <button type="button" class="btn btn-outline-secondary" data-ose-hero-set="align" data-value="left"><i class="fa fa-align-left"></i></button>
+            <button type="button" class="btn btn-outline-secondary" data-ose-hero-set="align" data-value="center"><i class="fa fa-align-center"></i></button>
+          </div>
+        </div>
+        <div class="ose__group">
+          <div class="ose__group-t"><i class="fa-solid fa-tags"></i>Debajo del nombre</div>
+          <label class="form-check"><input type="checkbox" class="form-check-input" data-ose-hero="show_services"> Las etiquetas de lo que llevamos <small class="text-muted">(se eligen en Ajustes)</small></label>
+          {% if info.kind == 'ARTIST' %}
+            <div class="small fw-semibold mt-2 mb-1">Cifras (Chartmetric, se actualizan solas)</div>
+            <div data-ose-hero-metrics>
+              {% for m in metrics_catalog %}<label class="form-check form-check-sm"><input type="checkbox" class="form-check-input" data-ose-hero-metric="{{ m.key }}"> <i class="{{ m.icon }} fa-fw"></i> {{ m.label }}</label>{% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  {# ── Compartir ── #}
+  <div class="modal fade" id="oseShare" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-share-nodes me-2"></i>Compartir el One Sheet</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2">El enlace público (se abre sin identificarse y solo enseña este one sheet):</div>
+      <div class="input-group mb-3"><input type="text" class="form-control" readonly value="{{ public_url }}" data-ose-share-url><button class="btn btn-outline-secondary copy-link-btn" type="button" data-copy-url="{{ public_url }}"><i class="fa-regular fa-copy me-1"></i>Copiar</button></div>
+      <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary" target="_blank" rel="noopener" data-ose-share-wa href="https://wa.me/?text={{ (info.name ~ ' · One Sheet\n' ~ public_url)|urlencode }}"><i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</a>
+        <a class="btn btn-outline-secondary" data-ose-share-mail href="mailto:?subject={{ (info.name ~ ' · One Sheet')|urlencode }}&body={{ public_url|urlencode }}"><i class="fa-solid fa-envelope me-1"></i>Correo</a>
+        <a class="btn btn-outline-secondary" data-ose-share-sms href="sms:?&body={{ (info.name ~ ' · One Sheet ' ~ public_url)|urlencode }}"><i class="fa-solid fa-comment-sms me-1"></i>SMS</a>
+        <a class="btn btn-outline-secondary" href="{{ roster_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-users me-1"></i>Ver el Roster</a>
+      </div>
+      <div class="form-text mt-2">Si el diseño tiene cambios sin guardar, guárdalo antes de mandarlo.</div>
+    </div>
+  </div></div></div>
+
+  {# ── Ajustes: dirección, etiquetas, Roster ── #}
+  <div class="modal fade" id="oseSettings" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-sliders me-2"></i>Ajustes del One Sheet</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <label class="form-label small fw-semibold">Dirección pública</label>
+      <div class="input-group mb-1"><span class="input-group-text small">{{ public_url.rsplit('/', 1)[0]|replace('https://', '') }}/</span><input type="text" class="form-control" data-ose-set="slug" value="{{ slug }}" placeholder="nombre-del-artista" {% if not can_edit %}disabled{% endif %}></div>
+      <div class="form-text mb-3">Letras, números y guiones. Si se cambia, el enlace anterior deja de funcionar (los enlaces por token antiguos siguen valiendo).</div>
+      <label class="form-label small fw-semibold">Lo que llevamos <span class="fw-normal text-muted">(las etiquetas de la cabecera y del Roster)</span></label>
+      <div class="d-flex gap-2 flex-wrap mb-3">
+        {% for sv in services_all %}<label class="ost__chip{% if sv.key in services %} is-on{% endif %}"><input type="checkbox" data-ose-set-service="{{ sv.key }}" {% if sv.key in services %}checked{% endif %} {% if not can_edit %}disabled{% endif %}><i class="fa-solid {{ sv.icon }}"></i>{{ sv.label }}</label>{% endfor %}
+      </div>
+      <label class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" data-ose-set="roster_visible" {% if roster_visible %}checked{% endif %} {% if not can_edit %}disabled{% endif %}><span class="form-check-label">Sale en el <a href="{{ roster_manage_url }}">Roster</a> público</span></label>
+      <label class="form-check form-switch"><input class="form-check-input" type="checkbox" data-ose-set="published" {% if published %}checked{% endif %} {% if not can_edit %}disabled{% endif %}><span class="form-check-label">Publicado <small class="text-muted">(sin marcar, el enlace solo lo ve quien tiene sesión)</small></span></label>
+    </div>
+    <div class="modal-footer"><span class="small text-muted me-auto" data-ose-settings-msg></span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>{% if can_edit %}<button type="button" class="btn btn-primary" data-ose-settings-save><i class="fa-solid fa-floppy-disk me-1"></i>Guardar ajustes</button>{% endif %}</div>
+  </div></div></div>
+
+  {# ── Elegir fotos ── #}
+  <div class="modal fade" id="osePhotos" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-images me-2"></i>Elegir las fotos</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2">Marca un <b>álbum entero</b> (se actualiza solo cuando el álbum cambia) o abre un álbum y marca <b>fotos sueltas</b>. Se pueden mezclar álbumes y fotos de varios.</div>
+      <div data-ose-photo-list><div class="text-muted small p-3">Cargando…</div></div>
+    </div>
+    <div class="modal-footer"><span class="small text-muted me-auto" data-ose-photo-count></span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-ose-photo-apply><i class="fa-solid fa-check me-1"></i>Usar estas fotos</button></div>
+  </div></div></div>
+
+  {# ── Guardar como plantilla ── #}
+  <div class="modal fade" id="oseTemplate" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-swatchbook me-2"></i>Guardar este diseño como plantilla</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2">Se guarda el <b>formato</b>: el color de fondo, las letras, la tipografía, la cabecera y qué módulos van dónde y con qué tamaño. El contenido de este artista (su biografía, sus fotos, sus vídeos…) no viaja: en el otro artista saldrá el suyo.</div>
+      <input type="text" class="form-control" data-ose-template-name placeholder="Nombre de la plantilla (p. ej. «Oscuro con fotos grandes»)" maxlength="120">
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-ose-template-save><i class="fa-solid fa-floppy-disk me-1"></i>Guardar plantilla</button></div>
+  </div></div></div>
+
+  <script type="application/json" id="oseDesign">{{ design_json|tojson }}</script>
+  <script type="application/json" id="oseCatalog">{{ {'modules': catalog, 'metrics': metrics_catalog, 'award_icons': award_icons, 'highlight_icons': highlight_icons, 'corporate': corporate, 'services': services_all, 'fonts': fonts}|tojson }}</script>
+</div>
+<script src="{{ url_for('static', filename='js/onesheet_editor.js', v=ASSET_V) }}"></script>
+{% endblock %}

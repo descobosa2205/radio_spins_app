@@ -40,7 +40,7 @@
                ('carteleria','Cartelería','fa-images'),
                ('personas','Vinculaciones','fa-link'), ('fotos','Fotos / Vídeos','fa-images'),
                ('resultado','Resultado','fa-chart-line'), ('simulaciones','Simulaciones','fa-calculator'),
-               ('gastos','Plantillas de gastos','fa-receipt')] %}
+               ('gastos','Plantillas de gastos','fa-receipt'), ('onesheet','One Sheet','fa-id-card')] %}
 <ul class="nav nav-tabs ficha-tabs mb-0">
   {% for key, label, icon in tabs %}
     <li class="nav-item">
@@ -163,6 +163,9 @@
   {% elif tab == 'personas' %}
     {% include '_entity_links_panel.html' %}
 
+  {% elif tab == 'onesheet' %}
+    {# El ONE SHEET del evento: su porfolio público (la misma pestaña que en la ficha de un artista). #}
+    {% include "_onesheet_tab.html" %}
   {% elif tab == 'fotos' %}
     {% include '_fotos_panel.html' %}
 

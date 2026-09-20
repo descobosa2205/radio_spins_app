@@ -141,6 +141,7 @@ from models import (
     ensure_radio_import_schema,
     ensure_simulations_schema,
     ensure_chartmetric_schema,
+    ensure_onesheet_schema,
     ensure_venue_seatmap_schema,
     ensure_fotos_schema,
     ensure_person_documents_schema,
@@ -156,6 +157,8 @@ from models import (
     ChartmetricTrackMetricPoint,
     ChartmetricPlaylistEntry,
     ChartmetricMeta,
+    OneSheet,
+    OneSheetTemplate,
     Artist,
     ArtistPerson,
     ArtistAgendaItem,
@@ -399,6 +402,7 @@ import address_utils  # cómo se escribe una dirección (motor puro, único form
 import buyer_import  # importar compradores desde un fichero (motor puro)
 import media_contact_import  # importar contactos de medios desde un fichero (motor puro)
 import press_render  # notas de prensa: el diseño → correo, página, PDF y miniatura (motor puro)
+import onesheet_render  # one sheet: catálogo de módulos, tema y colores, normalización del diseño (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
 import ics_import  # lector de calendarios iCal (volcar el histórico de iCloud a la agenda)
 import audio_tags  # los METADATOS que van dentro de lo que se descarga (ID3 / RIFF INFO)
@@ -4111,7 +4115,7 @@ def artist_detail_view(artist_id):
         # Iconos de redes del hero: se toman de las URLs que trae Chartmetric (no manuales).
         _cm_link = session_db.get(ChartmetricArtist, artist.id)
         artist_social_icons = _artist_social_icon_groups(getattr(_cm_link, "social_urls", None))
-        onesheet = _onesheet_context(session_db, artist=artist, public=False) if tab == "onesheet" else None
+        onesheet = _onesheet_tab_context(session_db, "ARTIST", artist.id) if tab == "onesheet" else None
         if tab == "onesheet":
             session_db.commit()
 
@@ -4476,6 +4480,8 @@ def artist_delete(artist_id):
     try:
         a = session_db.get(Artist, to_uuid(artist_id))
         if a:
+            # Su One Sheet no tiene FK al artista (el sujeto es polimórfico): se borra con él.
+            session_db.query(OneSheet).filter(OneSheet.subject_kind == "ARTIST", OneSheet.subject_id == a.id).delete(synchronize_session=False)
             session_db.delete(a)
             session_db.commit()
             flash("Artista eliminado.", "success")
@@ -62117,7 +62123,7 @@ def _press_thumbnail_bytes(session_db, pr, width: int = 600) -> bytes | None:
     bloques = press_render.blocks_of(design)
     alto = int(round(press_render.canvas_height(design, bloques) * width / press_render.WIDTH))
     k = width / float(press_render.WIDTH)
-    lienzo = Image.new("RGB", (int(width), max(120, alto)), (255, 255, 255))
+    lienzo = Image.new("RGB", (int(width), max(120, alto)), onesheet_render.hex_to_rgb(press_render.bg_color(design)))
     bg = (design.get("bg") or {})
     if bg.get("url"):
         try:
@@ -62245,6 +62251,9 @@ def _press_pdf_bytes(session_db, pr) -> bytes:
     buf = BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=(W, alto))
     bg = design.get("bg") or {}
+    # El color de fondo del diseño llena la página (detrás y debajo de la imagen).
+    c.setFillColor(colors.HexColor(press_render.bg_color(design)))
+    c.rect(0, 0, W, alto, fill=1, stroke=0)
     if bg.get("url"):
         try:
             datos, _m = _download_remote_content(bg["url"], timeout=20)
@@ -63372,7 +63381,7 @@ def promo_press_block_html(release_id):
         bloque["pick"] = raw.get("pick")
         resuelto = _press_resolve_blocks(s, pr, {"blocks": [bloque]}, pr.public_token)
         b = press_render.blocks_of(resuelto)
-        return jsonify({"ok": True, "html": press_render.module_html(b[0], editing=True) if b else "",
+        return jsonify({"ok": True, "html": press_render.apply_module_colors(press_render.module_html(b[0], editing=True), b[0].get("opts")) if b else "",
                         "pending": bool(b and press_render.is_pending(b[0])),
                         "data": ({k: v for k, v in (b[0].get("data") or {}).items() if k != "icons"} if b else {})})
     finally:
@@ -63708,6 +63717,9 @@ def promo_press_save(release_id):
         paleta = _press_palette_clean(bg.get("palette") if bg.get("palette") is not None else ((pr.design or {}).get("bg") or {}).get("palette"))
         if paleta:
             nuevo["bg"]["palette"] = paleta
+        # ⚠️ El COLOR DE FONDO, el FUNDIDO de la imagen y la imagen ORIGINAL (sin fundir) también son
+        # del fondo y se conservan: el guardado rehace `bg` desde cero.
+        _press_bg_keep_style(nuevo["bg"], bg, ((pr.design or {}).get("bg") or {}))
         # ⚠️ Los COLORES COGIDOS CON EL CUENTAGOTAS son del diseño: sin conservarlos aquí se perderían
         # en cada guardado (el guardado rehace el diseño desde cero).
         propios = _press_palette_clean(design.get("swatches") if design.get("swatches") is not None
@@ -63831,6 +63843,120 @@ def _press_bg_palette_ensure(session_db, pr) -> None:
         app.logger.exception("[notas de prensa] no se pudo completar la paleta del fondo")
 
 
+def _press_bg_keep_style(nuevo: dict, cliente: dict, previo: dict) -> None:
+    """Copia a `nuevo` el color de fondo, el fundido y la imagen original: lo que traiga el editor y,
+    si no, lo que ya había."""
+    for k in ("color", "fade", "url_orig"):
+        v = cliente.get(k) if cliente.get(k) is not None else previo.get(k)
+        if v in (None, "", 0) and k != "fade":
+            continue
+        if k == "color":
+            v = press_render.bg_color({"bg": {"color": v}})
+            if v == "#ffffff" and not str(cliente.get(k) or previo.get(k) or "").strip():
+                continue
+        if k == "fade":
+            try:
+                v = max(0, min(100, int(v or 0)))
+            except (TypeError, ValueError):
+                v = 0
+            if not v:
+                continue
+        nuevo[k] = v
+
+
+def _press_bg_bake(pr, design: dict) -> dict:
+    """LA IMAGEN DE FONDO FUNDIDA CON EL COLOR (sep 2026, lo pidió Dani: «que la imagen de cabecera se
+    funda igual» que en el One Sheet). En un correo no hay degradados que valgan en todos los
+    clientes, así que el fundido se HORNEA en la propia imagen con Pillow: sobre la original
+    (`bg.url_orig`) se pinta, en el `fade`% inferior, un degradado de transparente al color de
+    fondo, y ESA imagen pasa a ser `bg.url` — la que ya usan la web, el correo, el PDF y la
+    miniatura sin tocar nada más. Con fade 0 se vuelve a la original. Devuelve el `bg` resultante."""
+    bg = dict((design or {}).get("bg") or {})
+    orig = (bg.get("url_orig") or bg.get("url") or "").strip()
+    if not orig:
+        return bg
+    fade = 0
+    try:
+        fade = max(0, min(100, int(bg.get("fade") or 0)))
+    except (TypeError, ValueError):
+        fade = 0
+    color = press_render.bg_color({"bg": bg})
+    bg["url_orig"] = orig
+    if not fade:
+        bg["url"] = orig
+        bg.pop("fade", None)
+        return bg
+    from PIL import Image
+    datos, _ct = _download_remote_content(orig, timeout=25)
+    img = Image.open(BytesIO(datos)).convert("RGBA")
+    w, h = img.size
+    alto = max(1, int(round(h * fade / 100.0)))
+    r, g, b_ = onesheet_render.hex_to_rgb(color)
+    # Una franja con el color y un alfa que crece de 0 (arriba) a 255 (abajo), con la curva cuadrática
+    # del One Sheet para que no se vea la banda.
+    franja = Image.new("RGBA", (w, alto), (r, g, b_, 0))
+    alfa = Image.new("L", (1, alto))
+    alfa.putdata([int(round(255 * (i / float(max(1, alto - 1))) ** 2)) for i in range(alto)])
+    franja.putalpha(alfa.resize((w, alto)))
+    img.alpha_composite(franja, (0, h - alto))
+    salida = BytesIO()
+    fondo = Image.new("RGB", (w, h), (r, g, b_))
+    fondo.paste(img, (0, 0), img)
+    # ⚠️ Sin submuestreo de color (4:4:4) y calidad alta: con el JPEG normal la última franja del
+    # fundido salía con un halo azulado en el borde (los bloques de 8×8 mezclan la foto con el color).
+    fondo.save(salida, format="JPEG", quality=92, optimize=True, subsampling=0)
+    bg["url"] = _upload_bytes(salida.getvalue(), "press_releases/faded/%s_%s.jpg" % (str(pr.id), _uuid_token()[:8]), "image/jpeg")
+    bg["fade"] = fade
+    bg["color"] = color
+    bg["w"], bg["h"] = int(w), int(h)
+    return bg
+
+
+@app.post("/notas-de-prensa/<release_id>/fondo/estilo", endpoint="promo_press_bg_style")
+@admin_required
+def promo_press_bg_style(release_id):
+    """El COLOR DE FONDO del diseño y el FUNDIDO de la imagen con él (se hornea en la imagen)."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr or not _press_can_edit(pr):
+            return jsonify({"ok": False, "error": "Esa nota no se puede editar."}), 409
+        if not _press_edit_ok(pr):
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        datos = request.get_json(silent=True) or {}
+        design = dict(pr.design or {})
+        bg = dict(design.get("bg") or {})
+        if "color" in datos:
+            color = press_render.bg_color({"bg": {"color": datos.get("color")}})
+            if str(datos.get("color") or "").strip():
+                bg["color"] = color
+            else:
+                bg.pop("color", None)
+        if "fade" in datos:
+            try:
+                bg["fade"] = max(0, min(100, int(datos.get("fade") or 0)))
+            except (TypeError, ValueError):
+                bg["fade"] = 0
+        design["bg"] = bg
+        try:
+            design["bg"] = _press_bg_bake(pr, design)
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudo fundir el fondo")
+            return jsonify({"ok": False, "error": "No se pudo fundir la imagen con el fondo (¿se puede leer la imagen?)."}), 400
+        pr.background_url = design["bg"].get("url") or pr.background_url
+        pr.design = design
+        pr.updated_at = _now_madrid()
+        s.commit()
+        _PRESS_THUMB_CACHE.clear()
+        return jsonify({"ok": True, "bg": design["bg"]})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo cambiar el estilo del fondo")
+        return jsonify({"ok": False, "error": "No se pudo cambiar el fondo."}), 400
+    finally:
+        s.close()
+
+
 @app.post("/notas-de-prensa/<release_id>/fondo", endpoint="promo_press_background")
 @admin_required
 def promo_press_background(release_id):
@@ -63881,7 +64007,19 @@ def promo_press_background(release_id):
                 return jsonify({"ok": False, "error": "No se pudo subir la imagen."}), 400
         pr.background_url, pr.background_w, pr.background_h = url, int(w or 0), int(h or 0)
         design = dict(pr.design or {})
-        design["bg"] = {"url": url, "w": int(w or 0), "h": int(h or 0)}
+        previo = dict(design.get("bg") or {})
+        design["bg"] = {"url": url, "w": int(w or 0), "h": int(h or 0), "url_orig": url}
+        # El color de fondo y el fundido son del DISEÑO, no de la imagen: se conservan y, si había
+        # fundido, se hornea sobre la imagen nueva.
+        if previo.get("color"):
+            design["bg"]["color"] = previo["color"]
+        if previo.get("fade"):
+            design["bg"]["fade"] = previo["fade"]
+            try:
+                design["bg"] = _press_bg_bake(pr, design)
+                pr.background_url = design["bg"].get("url") or url
+            except Exception:
+                app.logger.exception("[notas de prensa] no se pudo fundir el fondo nuevo")
         # Los COLORES del fondo, para poder elegirlos directamente al colorear un texto. Se calculan
         # aquí (de los bytes subidos o, con una plantilla, de su imagen) y viajan con el `bg`.
         paleta = _press_bg_palette(datos) if datos else _press_palette_from_url(url)
@@ -66733,11 +66871,24 @@ def cycle_festival_detail(cfid):
                 venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
                 general_roadmap=_group_general_roadmap(concerts),
                 group_result=_group_result_context(s, concerts, general),
+                onesheet=_onesheet_cycle_tab(s, cf),
                 CAN_EDIT_CONCERTS=can_edit_concerts(),
             )),
         )
     finally:
         s.close()
+
+
+def _onesheet_cycle_tab(s, cf):
+    """La pestaña One Sheet de un ciclo/festival/evento propio (la fila se crea al abrir la ficha)."""
+    try:
+        ctx = _onesheet_tab_context(s, "CYCLE", cf.id)
+        s.commit()
+        return ctx
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo preparar la pestaña del ciclo")
+        return None
 
 
 @app.post("/contratacion/ciclos/<cfid>/editar", endpoint="cycle_festival_update")
@@ -67556,6 +67707,10 @@ def event_detail_view(eid):
             .order_by(Concert.date.desc().nullslast()).all()
         )
         tab = (_tab_arg("datos")).strip().lower()
+        if tab == "onesheet":
+            # La fila del one sheet se crea al abrir la pestaña por primera vez: se guarda.
+            _onesheet_get_or_create(s, "EVENT", ev.id)
+            s.commit()
         act_rows, resultado = [], {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0}
         for c in actividades:
             fila = {
@@ -67637,6 +67792,7 @@ def event_detail_view(eid):
             entity_links=_entity_link_rows(s, "event", ev.id),
             entity_link_context={"type": "event", "id": str(ev.id), "label": ev.name},
             fotos_ctx=(_build_fotos_context(s, "EVENT", ev.id) if tab == "fotos" else None),
+            onesheet=(_onesheet_tab_context(s, "EVENT", ev.id) if tab == "onesheet" else None),
             # CARTELERÍA GENERAL del evento: la común a TODAS sus actividades (la misma pieza que la
             # de una gira o un ciclo). Solo se calcula en su pestaña.
             **(_artwork_group_context(s, "EVENT", ev.id) if tab == "carteleria" else {}),
@@ -87395,6 +87551,7 @@ def _bootstrap_schema_bg():
         (ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema"),
         (ensure_activities_grouping_schema, "ensure_activities_grouping_schema"),
         (ensure_roadmap_onesheet_schema, "ensure_roadmap_onesheet_schema"),
+        (ensure_onesheet_schema, "ensure_onesheet_schema"),
         (ensure_chartmetric_schema, "ensure_chartmetric_schema"),
         (ensure_venue_seatmap_schema, "ensure_venue_seatmap_schema"),
         (ensure_enterticket_schema, "ensure_enterticket_schema"),
@@ -87542,6 +87699,8 @@ SOCIAL_PLATFORMS = [
     {"key": "apple_music", "label": "Apple Music", "icon": "fa-solid fa-music", "class": "platform-apple"},
     {"key": "amazon_music", "label": "Amazon Music", "icon": "fa-brands fa-amazon", "class": "platform-amazon"},
     {"key": "bandsintown", "label": "Bandsintown", "icon": "fa-solid fa-ticket", "class": "platform-bandsintown"},
+    {"key": "deezer", "label": "Deezer", "icon": "fa-brands fa-deezer", "class": "platform-deezer"},
+    {"key": "soundcloud", "label": "SoundCloud", "icon": "fa-brands fa-soundcloud", "class": "platform-soundcloud"},
 ]
 SOCIAL_PLATFORM_KEYS = {row["key"] for row in SOCIAL_PLATFORMS}
 SOCIAL_PLATFORM_ORDER = {row["key"]: idx for idx, row in enumerate(SOCIAL_PLATFORMS)}
@@ -87703,6 +87862,8 @@ CHARTMETRIC_URL_DOMAIN_MAP = {
     "amazon": "amazon_music",
     "amazonmusic": "amazon_music",
     "amazon_music": "amazon_music",
+    "deezer": "deezer",
+    "soundcloud": "soundcloud",
 }
 
 
@@ -87771,54 +87932,8 @@ def _clean_public_url(value: str | None) -> str:
     return "https://" + raw
 
 
-def _default_onesheet_payload(artist_or_title=None) -> dict:
-    title = getattr(artist_or_title, "name", None) or str(artist_or_title or "")
-    return {
-        "background_color": "#ffffff",
-        "text_color": "#111111",
-        "hero_image_url": getattr(artist_or_title, "photo_url", None) or "",
-        "hero_focus": "50% 50%",
-        "featured_stats": [],
-        "bio": "",
-        "awards": [],
-        "latest_release": {},
-        "videos": [],
-        "tour": {"title": "", "show_ids": []},
-        "gallery": [],
-        "press": [],
-        "contacts": [],
-        "title": title,
-    }
-
-
-def _onesheet_payload(value, fallback=None) -> dict:
-    data = _json_loads_safe(value, {})
-    if not isinstance(data, dict):
-        data = {}
-    base = _default_onesheet_payload(fallback)
-    base.update({k: v for k, v in data.items() if v is not None})
-    # Normalizamos listas para que la plantilla no falle.
-    for key in ["featured_stats", "awards", "videos", "gallery", "press", "contacts"]:
-        if not isinstance(base.get(key), list):
-            base[key] = []
-    if not isinstance(base.get("latest_release"), dict):
-        base["latest_release"] = {}
-    if not isinstance(base.get("tour"), dict):
-        base["tour"] = {"title": "", "show_ids": []}
-    return base
-
-
 def _uuid_token() -> str:
     return _uuid.uuid4().hex
-
-
-def _ensure_artist_onesheet_token(session_db, artist: Artist) -> str:
-    token = (getattr(artist, "onesheet_public_token", None) or "").strip()
-    if not token:
-        token = _uuid_token()
-        artist.onesheet_public_token = token
-        session_db.flush()
-    return token
 
 
 def _ensure_tour_onesheet_token(session_db, tour: TourOneSheet) -> str:
@@ -89844,7 +89959,7 @@ def _tour_groups_from_concerts(rows: list[Concert]) -> list[dict]:
 def _get_or_create_tour_onesheet(session_db, slug: str, title: str, artist_ids=None) -> TourOneSheet:
     row = session_db.query(TourOneSheet).filter(TourOneSheet.slug == slug).first()
     if not row:
-        row = TourOneSheet(slug=slug, title=title or slug, artist_ids=[str(x) for x in (artist_ids or [])], payload=_default_onesheet_payload(title), public_token=_uuid_token())
+        row = TourOneSheet(slug=slug, title=title or slug, artist_ids=[str(x) for x in (artist_ids or [])], payload={}, public_token=_uuid_token())
         session_db.add(row)
         session_db.flush()
     else:
@@ -89855,78 +89970,6 @@ def _get_or_create_tour_onesheet(session_db, slug: str, title: str, artist_ids=N
         _ensure_tour_onesheet_token(session_db, row)
     return row
 
-
-def _onesheet_context(session_db, *, artist: Artist | None = None, tour: TourOneSheet | None = None, concerts=None, public=False) -> dict:
-    if artist is not None:
-        payload = _onesheet_payload(getattr(artist, "onesheet_payload", None), artist)
-        token = _ensure_artist_onesheet_token(session_db, artist) if not public else (artist.onesheet_public_token or "")
-        title = artist.name
-        hero = payload.get("hero_image_url") or getattr(artist, "photo_url", None) or url_for("static", filename="img/placeholder_photo.png", _external=public)
-        socials = _ordered_social_links(getattr(artist, "social_links", None))
-        source_type = "artist"
-        source_id = str(artist.id)
-        public_url = _external_url_for("onesheet_public_view", token=token) if token else ""
-        form_action = url_for("artist_onesheet_update", artist_id=artist.id) if not public else ""
-    else:
-        payload = _onesheet_payload(getattr(tour, "payload", None), getattr(tour, "title", None))
-        token = _ensure_tour_onesheet_token(session_db, tour) if not public else (tour.public_token or "")
-        title = tour.title
-        hero = payload.get("hero_image_url") or getattr(tour, "cover_url", None) or url_for("static", filename="img/placeholder_photo.png", _external=public)
-        artist_rows = _artists_from_ids(session_db, getattr(tour, "artist_ids", None) or [])
-        socials = []
-        if artist_rows:
-            socials = _ordered_social_links(getattr(artist_rows[0], "social_links", None))
-        source_type = "tour"
-        source_id = str(tour.id)
-        public_url = _external_url_for("onesheet_public_view", token=token) if token else ""
-        form_action = url_for("tour_onesheet_update", slug=tour.slug) if not public else ""
-    # lanzamientos disponibles para el selector del editor
-    artist_ids = []
-    if artist is not None:
-        artist_ids = [artist.id]
-    elif tour is not None:
-        artist_ids = _as_uuid_list(getattr(tour, "artist_ids", None) or [])
-    releases = []
-    if artist_ids:
-        song_rows = session_db.query(Song).join(SongArtist, SongArtist.song_id == Song.id).filter(SongArtist.artist_id.in_(artist_ids)).order_by(Song.release_date.desc().nullslast(), Song.title.asc()).limit(100).all()
-        album_rows = session_db.query(Album).filter(Album.artist_id.in_(artist_ids)).order_by(Album.release_date.desc().nullslast(), Album.title.asc()).limit(100).all()
-        releases = [{"type": "SONG", "id": str(x.id), "title": x.title, "date": x.release_date, "cover_url": x.cover_url} for x in song_rows]
-        releases += [{"type": "ALBUM", "id": str(x.id), "title": x.title, "date": x.release_date, "cover_url": x.cover_url} for x in album_rows]
-        releases.sort(key=lambda x: (x.get("date") or date.min), reverse=True)
-    selected_release = None
-    lr = payload.get("latest_release") if isinstance(payload.get("latest_release"), dict) else {}
-    if lr and lr.get("type") and lr.get("id"):
-        for rel in releases:
-            if rel["type"] == lr.get("type") and rel["id"] == str(lr.get("id")):
-                selected_release = rel
-                break
-    if not selected_release and releases:
-        selected_release = releases[0]
-    tour_shows = []
-    show_ids = {str(x) for x in ((payload.get("tour") or {}).get("show_ids") or [])}
-    if concerts:
-        for c in concerts:
-            if not show_ids or str(c.id) in show_ids:
-                tour_shows.append(c)
-    elif artist_ids:
-        tour_shows = session_db.query(Concert).options(joinedload(Concert.venue), joinedload(Concert.artist)).filter(or_(Concert.artist_id.in_(artist_ids), Concert.artist_ids.contains([str(artist_ids[0])]) if artist_ids else text("1=0"))).order_by(Concert.date.asc()).limit(60).all()
-    return {
-        "source_type": source_type,
-        "source_id": source_id,
-        "title": title,
-        "payload": payload,
-        "hero_url": hero,
-        "socials": socials,
-        "public_url": public_url,
-        "pdf_url": public_url + ("?print=1" if public_url else ""),
-        "form_action": form_action,
-        "releases": releases,
-        "selected_release": selected_release,
-        "tour_shows": tour_shows,
-        "platforms": SOCIAL_PLATFORMS,
-        "logo_tt": _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public),
-        "logo_pies": url_for("static", filename="img/logo.png", _external=public),
-    }
 
 @app.post('/artistas/<artist_id>/social-links', endpoint='artist_social_links_save')
 @admin_required
@@ -89979,172 +90022,1471 @@ def artist_social_link_delete(artist_id, platform):
         session_db.close()
 
 
-def _apply_onesheet_form(session_db, target, payload_attr='onesheet_payload'):
-    payload = _onesheet_payload(getattr(target, payload_attr, None), target)
-    action = (request.form.get('form_action') or 'settings').strip().lower()
-    if action == 'settings':
-        payload['background_color'] = (request.form.get('background_color') or payload.get('background_color') or '#ffffff').strip()
-        payload['text_color'] = (request.form.get('text_color') or payload.get('text_color') or '#111111').strip()
-        payload['hero_focus'] = (request.form.get('hero_focus') or payload.get('hero_focus') or '50% 50%').strip()
-        hero = request.files.get('hero_image')
-        if hero and getattr(hero, 'filename', ''):
-            payload['hero_image_url'] = upload_image(hero, 'onesheets/heroes')
-    elif action == 'bio':
-        payload['bio'] = (request.form.get('bio') or '').strip()
-    elif action == 'add_stat':
-        stats = payload.setdefault('featured_stats', [])
-        stats.append({
-            'id': _uuid_token(),
-            'kind': (request.form.get('stat_kind') or 'text').strip(),
-            'label': (request.form.get('label') or '').strip(),
-            'value': (request.form.get('value') or '').strip(),
-            'url': _clean_public_url(request.form.get('url')),
-            'manual': bool(request.form.get('manual')),
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# ONE SHEET (rehecho de cero, sep 2026) · el PORFOLIO público de un artista, un evento, un ciclo o
+# festival propio o una gira comprada, y el ROSTER (/onesheet) con todos los artistas.
+#
+# · El diseño (JSON) vive en `OneSheet.design` y lo normaliza `onesheet_render` (motor puro). Aquí
+#   está lo que necesita BASE DE DATOS: los datos de cada módulo (`_onesheet_module_data`), la
+#   página pública, el editor y sus endpoints JSON, las plantillas y el Roster.
+# · Los módulos DINÁMICOS (cifras de Spotify, seguidores, conciertos, certificaciones, último
+#   lanzamiento, países, notas de prensa) se calculan al pintar: se actualizan solos. Los que se
+#   ELIGEN (fotos, vídeos, premios, destacados, contacto, textos) guardan lo elegido en el diseño.
+# · La dirección pública es `/onesheet/<slug>` (el nombre del artista en minúsculas con guiones);
+#   los enlaces ANTIGUOS por token siguen abriéndose (`_onesheet_resolve_public`).
+# · Un mismo módulo se pinta con la MISMA plantilla (`_onesheet_module.html`) en la página pública y
+#   en el editor: lo que se ve al diseñar es lo que se publica.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+
+# Las actividades que salen en «Próximos conciertos»: conciertos, festivales, ciclos y eventos
+# promocionales, CONFIRMADOS y ya ANUNCIADOS (`_announcement_state` == ANNOUNCED). Lo demás no es
+# público y no sale nunca.
+ONESHEET_CONCERT_TYPES = {"CONCIERTO", "FESTIVAL", "CICLO", "EVENTO_PROMOCIONAL", "CADIZ"}
+ONESHEET_ACCESS_KEYS = ["artists.onesheet", "contratacion.giras.onesheet"]
+
+
+def _onesheet_can_edit() -> bool:
+    """¿Puede esta persona DISEÑAR one sheets? Quien tenga edición en la pestaña One Sheet de
+    Artistas o en la de giras (o dirección)."""
+    try:
+        if is_master():
+            return True
+        return any(has_access_key(k, edit=True, include_descendants=True) for k in ONESHEET_ACCESS_KEYS)
+    except Exception:
+        return False
+
+
+def _onesheet_kind(value) -> str:
+    k = (value or "").strip().upper()
+    return k if k in onesheet_render.SUBJECT_KINDS else ""
+
+
+def _onesheet_subject_load(session_db, kind: str, sid):
+    """El SUJETO de un one sheet: el artista, el evento, el ciclo/festival o la gira (`TourOneSheet`,
+    que sigue siendo el registro de una gira comprada)."""
+    kind = _onesheet_kind(kind)
+    u = _safe_uuid(sid)
+    if not kind or not u:
+        return None
+    model = {"ARTIST": Artist, "EVENT": AppEvent, "CYCLE": CycleFestival, "TOUR": TourOneSheet}[kind]
+    return session_db.get(model, u)
+
+
+def _onesheet_subject_info(session_db, kind: str, obj) -> dict:
+    """Lo que hace falta saber del sujeto para pintar y para buscar sus datos: nombre, foto, sus
+    artistas (para Chartmetric, canciones, fotos…) y de dónde salen sus fechas."""
+    kind = _onesheet_kind(kind)
+    info = {"kind": kind, "id": str(getattr(obj, "id", "")), "name": "", "photo_url": "", "artist_ids": [],
+            "event_id": None, "cycle_id": None, "tour_slug": "", "detail_url": "", "kind_label": onesheet_render.SUBJECT_LABELS.get(kind, "")}
+    if obj is None:
+        return info
+    if kind == "ARTIST":
+        info.update(name=(obj.name or "").strip(), photo_url=(obj.photo_url or "").strip(), artist_ids=[obj.id],
+                    detail_url=url_for("artist_detail_view", artist_id=obj.id, tab="onesheet"))
+    elif kind == "EVENT":
+        info.update(name=(obj.name or "").strip(), photo_url=(obj.logo_url or "").strip(), event_id=obj.id,
+                    detail_url=url_for("event_detail_view", eid=obj.id, tab="onesheet"))
+    elif kind == "CYCLE":
+        nombre = (obj.name or "").strip()
+        info.update(name=nombre, photo_url=(obj.logo_url or "").strip(), cycle_id=obj.id,
+                    detail_url=url_for("cycle_festival_detail", cfid=obj.id) + "#tab-onesheet",
+                    kind_label={"FESTIVAL": "Festival", "CICLO": "Ciclo", "EVENTO": "Evento", "GIRA": "Gira"}.get((obj.kind or "").upper(), "Ciclo / festival"))
+    elif kind == "TOUR":
+        ids = _as_uuid_list(getattr(obj, "artist_ids", None) or [])
+        foto = (getattr(obj, "cover_url", None) or "").strip()
+        if not foto and ids:
+            primero = session_db.get(Artist, ids[0])
+            foto = (getattr(primero, "photo_url", None) or "").strip()
+        info.update(name=(obj.title or "").strip(), photo_url=foto, artist_ids=ids, tour_slug=(obj.slug or ""),
+                    detail_url=url_for("tour_detail_view", slug=obj.slug, tab="onesheet"))
+    return info
+
+
+def _onesheet_unique_slug(session_db, base_name: str, exclude_id=None) -> str:
+    base = _slugify_text(base_name or "") or "one-sheet"
+    if base in onesheet_render.RESERVED_SLUGS:
+        base = base + "-1"
+    slug, n = base, 1
+    while True:
+        q = session_db.query(OneSheet.id).filter(OneSheet.slug == slug)
+        if exclude_id is not None:
+            q = q.filter(OneSheet.id != exclude_id)
+        if not q.first():
+            return slug
+        n += 1
+        slug = "%s-%d" % (base, n)
+
+
+def _onesheet_infer_services(session_db, info: dict) -> list[str]:
+    """LO QUE LLEVAMOS de un artista, deducido la primera vez (después se toca a mano): contratación
+    si tiene actividades, discográfica si tiene canciones o discos, editorial si tiene obras con parte
+    editorial nuestra. Management no se deduce."""
+    if info.get("kind") != "ARTIST" or not info.get("artist_ids"):
+        return []
+    aid = info["artist_ids"][0]
+    out = []
+    try:
+        if session_db.query(Concert.id).filter(Concert.artist_id == aid).first():
+            out.append("CONTRATACION")
+        if (session_db.query(SongArtist.song_id).filter(SongArtist.artist_id == aid).first()
+                or session_db.query(Album.id).filter(Album.artist_id == aid).first()):
+            out.append("DISCOGRAFICA")
+        try:
+            hay = (session_db.query(SongEditorialShare.id)
+                   .join(SongArtist, SongArtist.song_id == SongEditorialShare.song_id)
+                   .filter(SongArtist.artist_id == aid).first())
+            if hay:
+                out.append("EDITORIAL")
+        except Exception:
+            session_db.rollback()
+    except Exception:
+        session_db.rollback()
+    return out
+
+
+def _onesheet_legacy_payload(kind: str, obj) -> dict:
+    """El one-sheet ANTIGUO de ese sujeto (bio, premios, vídeos, contactos…), si lo había."""
+    raw = getattr(obj, "onesheet_payload", None) if kind == "ARTIST" else (getattr(obj, "payload", None) if kind == "TOUR" else None)
+    data = _json_loads_safe(raw, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _onesheet_get_or_create(session_db, kind: str, sid, *, create: bool = True):
+    """EL one sheet de un sujeto (uno por sujeto). Al crearlo se importa lo que hubiera escrito en el
+    antiguo, se pone su foto de cabecera, se deducen las etiquetas y se conserva el token público
+    de antes (los enlaces ya mandados siguen valiendo)."""
+    kind = _onesheet_kind(kind)
+    obj = _onesheet_subject_load(session_db, kind, sid)
+    if obj is None:
+        return None
+    row = (session_db.query(OneSheet).filter(OneSheet.subject_kind == kind, OneSheet.subject_id == obj.id).first())
+    if row or not create:
+        return row
+    info = _onesheet_subject_info(session_db, kind, obj)
+    legacy = _onesheet_legacy_payload(kind, obj)
+    tiene_algo = any(legacy.get(k) for k in ("bio", "awards", "videos", "contacts", "hero_image_url", "featured_stats"))
+    design = onesheet_render.import_legacy(legacy, kind) if tiene_algo else onesheet_render.default_design(kind)
+    if not design["hero"].get("image_url") and info.get("photo_url"):
+        design["hero"]["image_url"] = info["photo_url"]
+    token = ""
+    if kind == "ARTIST":
+        token = (getattr(obj, "onesheet_public_token", None) or "").strip()
+    elif kind == "TOUR":
+        token = (getattr(obj, "public_token", None) or "").strip()
+    if token and session_db.query(OneSheet.id).filter(OneSheet.public_token == token).first():
+        token = ""
+    row = OneSheet(subject_kind=kind, subject_id=obj.id, slug=_onesheet_unique_slug(session_db, info["name"]),
+                   public_token=token or _uuid_token(), design=design,
+                   services=_onesheet_infer_services(session_db, info),
+                   roster_visible=(kind == "ARTIST"), roster_order=0, published=True,
+                   created_by_nick=(session.get("nick") if has_request_context() else None))
+    session_db.add(row)
+    session_db.flush()
+    return row
+
+
+def _onesheet_design(row) -> dict:
+    return onesheet_render.normalize_design(_json_loads_safe(row.design, {}), row.subject_kind)
+
+
+def _onesheet_public_url(row) -> str:
+    return _external_url_for("onesheet_public_view", slug=row.slug)
+
+
+def _onesheet_editor_url(row) -> str:
+    return url_for("onesheet_editor", osid=row.id)
+
+
+def _onesheet_resolve_public(session_db, key: str):
+    """Qué one sheet abre `/onesheet/<key>`: por SLUG, por el token (nuevo o de los one-sheets
+    antiguos de artista y de gira) o, si no hay fila todavía, por el nombre del artista hecho slug
+    (se crea entonces). Devuelve la fila o None."""
+    key = (key or "").strip()
+    if not key:
+        return None
+    row = session_db.query(OneSheet).filter(OneSheet.slug == key.lower()).first()
+    if row:
+        return row
+    row = session_db.query(OneSheet).filter(OneSheet.public_token == key).first()
+    if row:
+        return row
+    art = session_db.query(Artist).filter(Artist.onesheet_public_token == key).first()
+    if art:
+        return _onesheet_get_or_create(session_db, "ARTIST", art.id)
+    tour = session_db.query(TourOneSheet).filter(TourOneSheet.public_token == key).first()
+    if tour:
+        return _onesheet_get_or_create(session_db, "TOUR", tour.id)
+    slug = key.lower()
+    if onesheet_render.slug_ok(slug):
+        for a in session_db.query(Artist).filter(Artist.event_id.is_(None)).all():
+            if _slugify_text(a.name or "") == slug:
+                return _onesheet_get_or_create(session_db, "ARTIST", a.id)
+    return None
+
+
+# ── Colores, tipografía y CSS del tema ───────────────────────────────────────────────────────
+
+def _onesheet_font_href(theme: dict) -> str:
+    meta = onesheet_render.FONT_BY_KEY.get((theme or {}).get("font") or "")
+    if not meta or not meta[2]:
+        return ""
+    return "https://fonts.googleapis.com/css2?family=%s&display=swap" % meta[2]
+
+
+def _onesheet_theme_vars(design: dict, hero_url: str) -> str:
+    """Las variables CSS del tema (el punto único: la página pública y el editor pintan con esto)."""
+    th = design.get("theme") or {}
+    c = onesheet_render.theme_colors(th)
+    hero = design.get("hero") or {}
+    font_css = onesheet_render.FONT_BY_KEY.get(th.get("font") or "", onesheet_render.FONT_BY_KEY[onesheet_render.DEFAULT_FONT])[1]
+    partes = [
+        "--os-bg:%s" % c["bg"], "--os-text:%s" % c["text"], "--os-title:%s" % c["title"], "--os-icon:%s" % c["icon"],
+        "--os-accent:%s" % c["accent"], "--os-on-accent:%s" % c["on_accent"], "--os-muted:%s" % c["muted"],
+        "--os-faint:%s" % c["faint"], "--os-line:%s" % c["line"], "--os-chip:%s" % c["chip"],
+        "--os-chip-strong:%s" % c["chip_strong"], "--os-card:%s" % c["card"], "--os-soldout:%s" % c["soldout"],
+        "--os-radius:%dpx" % int(th.get("radius", 16)), "--os-gap:%dpx" % int(th.get("gap", 28)),
+        "--os-max:%dpx" % int(th.get("max_width", 1200)), "--os-font:%s" % font_css,
+        "--os-hero-h:%dvh" % int(hero.get("height", 68)), "--os-hero-fade:%d%%" % int(hero.get("fade", 55)),
+        "--os-hero-focus:%s" % (hero.get("focus") or "50% 30%"), "--os-name-size:%dpx" % int(hero.get("name_size", 64)),
+        "--os-name-color:%s" % (hero.get("name_color") or c["title"]),
+        "--os-hero-darken:%s" % onesheet_render.rgba("#000000", float(hero.get("darken") or 0)),
+        "--os-hero-grad:%s" % onesheet_render.bg_gradient_css(c["bg"]),
+        "--os-bg-img-op:%s" % ("%.2f" % float(th.get("bg_image_opacity") or 0)),
+        "--os-bg-blur:%dpx" % int(th.get("bg_image_blur") or 0),
+    ]
+    if hero_url:
+        partes.append("--os-hero-img:url('%s')" % hero_url.replace("'", "%27"))
+    if th.get("bg_image_url"):
+        partes.append("--os-bg-img:url('%s')" % th["bg_image_url"].replace("'", "%27"))
+    return ";".join(partes) + ";"
+
+
+def _onesheet_block_style(block: dict, theme_colors: dict) -> str:
+    """Las variables PROPIAS de un módulo: su sitio en la rejilla y sus colores, si los tiene."""
+    st = block.get("style") or {}
+    partes = ["--gc:%d / span %d" % (block["x"] + 1, block["w"]), "--gr:%d / span %d" % (block["y"] + 1, block["h"]),
+              "--gc-md:span %d" % (12 if block["w"] > 6 else 6)]
+    if st.get("text"):
+        partes.append("--os-text:%s" % st["text"])
+        partes.append("--os-muted:%s" % onesheet_render.rgba(st["text"], 0.68))
+        partes.append("--os-faint:%s" % onesheet_render.rgba(st["text"], 0.45))
+        partes.append("--os-line:%s" % onesheet_render.rgba(st["text"], 0.16))
+        partes.append("--os-chip:%s" % onesheet_render.rgba(st["text"], 0.10))
+        partes.append("--os-card:%s" % onesheet_render.rgba(st["text"], 0.07))
+    if st.get("title"):
+        partes.append("--os-title:%s" % st["title"])
+    elif st.get("text"):
+        partes.append("--os-title:%s" % st["text"])
+    if st.get("icon"):
+        partes.append("--os-icon:%s" % st["icon"])
+    if st.get("accent"):
+        partes.append("--os-accent:%s" % st["accent"])
+        partes.append("--os-on-accent:%s" % onesheet_render.contrast_text(st["accent"]))
+    if st.get("scale"):
+        partes.append("--os-scale:%s" % st["scale"])
+    return ";".join(partes) + ";"
+
+
+# ── Los DATOS de cada módulo ─────────────────────────────────────────────────────────────────
+
+def _onesheet_cal_chip(d) -> dict:
+    """La hoja de calendario de una fecha: día de la semana, número y mes (la misma idea que en la
+    hoja de ruta y el portal de externos)."""
+    if not d:
+        return {}
+    dias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    return {"wd": dias[d.weekday()], "num": d.day, "mo": meses[d.month - 1], "year": d.year}
+
+
+def _onesheet_concert_query(session_db, info: dict):
+    """Las actividades del sujeto (sin filtrar todavía por estado ni fecha)."""
+    kind = info.get("kind")
+    q = session_db.query(Concert).options(joinedload(Concert.venue), joinedload(Concert.artist))
+    if kind == "ARTIST" and info.get("artist_ids"):
+        aid = info["artist_ids"][0]
+        return q.filter(or_(Concert.artist_id == aid, Concert.artist_ids.contains([str(aid)]))).all()
+    if kind == "EVENT" and info.get("event_id"):
+        return q.filter(Concert.event_id == info["event_id"]).all()
+    if kind == "CYCLE" and info.get("cycle_id"):
+        return q.filter(Concert.cycle_festival_id == info["cycle_id"]).all()
+    if kind == "TOUR" and info.get("tour_slug"):
+        return _tour_concerts_by_slug(session_db, info["tour_slug"])
+    return []
+
+
+def _onesheet_concert_rows(session_db, info: dict, limit: int = 8) -> list[dict]:
+    """PRÓXIMOS CONCIERTOS: solo lo CONFIRMADO y ya ANUNCIADO, de hoy en adelante, y solo lo que es
+    un concierto o un evento promocional. Un Sold Out sale marcado."""
+    hoy = today_local()
+    filas = []
+    for c in _onesheet_concert_query(session_db, info):
+        if (c.status or "").upper() != "CONFIRMADO":
+            continue
+        fin = getattr(c, "end_date", None) or c.date
+        if not c.date or (fin and fin < hoy):
+            continue
+        tipo = _activity_kind_key(c.activity_type) or "CONCIERTO"
+        if tipo not in ONESHEET_CONCERT_TYPES:
+            continue
+        if _announcement_state(c, hoy) != "ANNOUNCED":
+            continue
+        artista = getattr(c, "artist", None)
+        es_espejo = bool(getattr(artista, "event_id", None))
+        nombre_evento = (c.festival_name or "").strip()
+        recinto = _concert_venue_name(c)
+        lugar = _place_label(_concert_city(c), _concert_province_value(c), _concert_country_value(c) or "")
+        titulo = nombre_evento or recinto or lugar or "Concierto"
+        hora = "" if _truthy(getattr(c, "show_time_tbc", False)) else ((c.show_time or "").strip())
+        filas.append({
+            "id": str(c.id), "date": c.date, "cal": _onesheet_cal_chip(c.date),
+            "date_long": format_date_long_es(c.date),
+            "end_date": (getattr(c, "end_date", None) if getattr(c, "end_date", None) and c.end_date != c.date else None),
+            "title": titulo, "venue": recinto if recinto and recinto != titulo else "", "place": lugar,
+            "time": hora, "sold_out": bool(getattr(c, "sold_out", False)),
+            "kind": tipo, "kind_label": _activity_kind_label(tipo),
+            "icon": QUAD_ACTIVITY_ICONS.get(tipo, "fa-guitar"),
+            "artist": ("" if (es_espejo or info.get("kind") == "ARTIST") else (getattr(artista, "name", "") or "")),
+            "artist_photo": ("" if (es_espejo or info.get("kind") == "ARTIST") else (getattr(artista, "photo_url", "") or "")),
         })
-    elif action == 'delete_stat':
-        rid = (request.form.get('row_id') or '').strip()
-        payload['featured_stats'] = [x for x in payload.get('featured_stats', []) if str(x.get('id')) != rid]
-    elif action == 'add_award':
-        icon = request.files.get('icon')
-        payload.setdefault('awards', []).append({
-            'id': _uuid_token(),
-            'icon_url': upload_image(icon, 'onesheets/awards') if icon and getattr(icon, 'filename', '') else '',
-            'name': (request.form.get('name') or '').strip(),
-            'year': (request.form.get('year') or '').strip(),
-        })
-    elif action == 'delete_award':
-        rid = (request.form.get('row_id') or '').strip()
-        payload['awards'] = [x for x in payload.get('awards', []) if str(x.get('id')) != rid]
-    elif action == 'latest_release':
-        payload['latest_release'] = {
-            'type': (request.form.get('release_type') or '').strip().upper(),
-            'id': (request.form.get('release_id') or '').strip(),
+    filas.sort(key=lambda f: (f["date"], f["title"]))
+    return filas[:max(1, int(limit or 8))]
+
+
+def _onesheet_metric_rows(session_db, info: dict) -> dict:
+    """Las MÉTRICAS de Chartmetric del artista, una por clave del catálogo: el último valor, la
+    variación a 30 días y la serie para la línea. Solo lee de la caché (no llama a la API)."""
+    if not info.get("artist_ids"):
+        return {}
+    aid = info["artist_ids"][0]
+    desde = today_local() - timedelta(days=75)
+    try:
+        pts = (session_db.query(ChartmetricMetricPoint)
+               .filter(ChartmetricMetricPoint.artist_id == aid, ChartmetricMetricPoint.date >= desde)
+               .order_by(ChartmetricMetricPoint.date.asc()).all())
+    except Exception:
+        session_db.rollback()
+        return {}
+    por_clave: dict[tuple, list] = {}
+    for p in pts:
+        if p.value is None:
+            continue
+        por_clave.setdefault((p.source, p.field), []).append((p.date, float(p.value)))
+    out = {}
+    for key, meta in onesheet_render.METRIC_BY_KEY.items():
+        serie = por_clave.get((meta["source"], meta["field"]))
+        if not serie:
+            continue
+        serie.sort(key=lambda t: t[0])
+        ultimo_d, ultimo_v = serie[-1]
+        objetivo = ultimo_d - timedelta(days=30)
+        previo = None
+        for d, v in serie:
+            if d <= objetivo:
+                previo = v
+        delta = (ultimo_v - previo) if previo is not None else None
+        pct = (delta / previo * 100.0) if (previo not in (None, 0) and delta is not None) else None
+        valores = [v for _d, v in serie[-45:]]
+        out[key] = {
+            "key": key, "label": meta["label"], "short": onesheet_render.METRIC_SHORT.get(key, meta["label"]),
+            "icon": meta["icon"], "brand": meta["brand"], "value": ultimo_v,
+            "value_fmt": onesheet_render.fmt_int(ultimo_v), "value_compact": onesheet_render.fmt_compact(ultimo_v),
+            "delta": delta, "delta_fmt": (("+" if delta > 0 else "") + onesheet_render.fmt_int(delta)) if delta is not None else "",
+            "pct": pct, "pct_fmt": (("+" if pct > 0 else "") + ("%.1f" % pct).replace(".", ",") + " %") if pct is not None else "",
+            "up": bool(delta is not None and delta > 0), "down": bool(delta is not None and delta < 0),
+            "date": ultimo_d, "spark": _onesheet_sparkline(valores),
         }
-    elif action == 'add_video':
-        payload.setdefault('videos', [])
-        if len(payload['videos']) >= 3:
-            flash('Solo se pueden añadir hasta tres vídeos seleccionados.', 'warning')
-        else:
-            payload['videos'].append({
-                'id': _uuid_token(),
-                'title': (request.form.get('title') or '').strip(),
-                'url': _clean_public_url(request.form.get('url')),
-                'thumb_url': (request.form.get('thumb_url') or '').strip(),
+    return out
+
+
+def _onesheet_sparkline(valores: list[float], w: int = 100, h: int = 28) -> str:
+    """El trazo SVG de una serie (normalizada al alto), para la línea pequeña de una cifra."""
+    if not valores or len(valores) < 2:
+        return ""
+    lo, hi = min(valores), max(valores)
+    rango = (hi - lo) or 1.0
+    paso = float(w) / (len(valores) - 1)
+    puntos = []
+    for i, v in enumerate(valores):
+        y = h - 2 - ((v - lo) / rango) * (h - 4)
+        puntos.append("%s%.1f,%.1f" % ("M" if i == 0 else "L", i * paso, y))
+    return " ".join(puntos)
+
+
+def _onesheet_social_rows(session_db, info: dict) -> list[dict]:
+    """Las REDES Y PLATAFORMAS del sujeto con enlace: lo que trae Chartmetric y lo puesto a mano en
+    la ficha (lo manual manda), en el orden del catálogo."""
+    urls: dict[str, str] = {}
+    for aid in (info.get("artist_ids") or [])[:1]:
+        try:
+            link = session_db.get(ChartmetricArtist, aid)
+            cm_urls = getattr(link, "social_urls", None) or {}
+            if isinstance(cm_urls, dict):
+                for k, v in cm_urls.items():
+                    if v and k not in urls:
+                        urls[k] = str(v)
+            art = session_db.get(Artist, aid)
+            manual = _json_loads_safe(getattr(art, "social_links", None), {})
+            if isinstance(manual, dict):
+                for k, v in manual.items():
+                    if (v or "").strip():
+                        urls[k] = str(v).strip()
+        except Exception:
+            session_db.rollback()
+    out = []
+    for p in SOCIAL_PLATFORMS:
+        u = (urls.get(p["key"]) or "").strip()
+        if u:
+            out.append({"key": p["key"], "label": p["label"], "icon": p["icon"], "url": u})
+    return out
+
+
+_ONESHEET_LINK_ICONS = [
+    ("spotify.com", "fa-brands fa-spotify"), ("instagram.com", "fa-brands fa-instagram"), ("tiktok.com", "fa-brands fa-tiktok"),
+    ("youtube.com", "fa-brands fa-youtube"), ("youtu.be", "fa-brands fa-youtube"), ("facebook.com", "fa-brands fa-facebook"),
+    ("twitter.com", "fa-brands fa-x-twitter"), ("x.com", "fa-brands fa-x-twitter"), ("music.apple.com", "fa-brands fa-apple"),
+    ("amazon.", "fa-brands fa-amazon"), ("deezer.com", "fa-brands fa-deezer"), ("soundcloud.com", "fa-brands fa-soundcloud"),
+    ("bandcamp.com", "fa-brands fa-bandcamp"), ("bandsintown.com", "fa-solid fa-ticket"), ("wa.me", "fa-brands fa-whatsapp"),
+    ("twitch.tv", "fa-brands fa-twitch"), ("threads.net", "fa-brands fa-threads"), ("linkedin.com", "fa-brands fa-linkedin"),
+]
+
+
+def _onesheet_link_icon(url: str) -> str:
+    u = (url or "").lower()
+    for needle, icon in _ONESHEET_LINK_ICONS:
+        if needle in u:
+            return icon
+    return "fa-solid fa-globe"
+
+
+def _onesheet_photo_pool(session_db, info: dict) -> list[dict]:
+    """Las FOTOS del sujeto agrupadas en ÁLBUMES (los de verdad y, para lo que no está en ninguno,
+    un bloque por actividad): es lo que ofrece el selector del módulo de fotos. Solo imágenes, nunca
+    las descartadas."""
+    kind = info.get("kind")
+    q = session_db.query(Photo).filter(Photo.discarded.is_(False), func.upper(func.coalesce(Photo.kind, "IMAGE")) == "IMAGE")
+    concert_ids = [c.id for c in _onesheet_concert_query(session_db, info)] if kind != "ARTIST" else []
+    if kind == "ARTIST" and info.get("artist_ids"):
+        q = q.filter(Photo.artist_id == info["artist_ids"][0])
+    elif kind == "EVENT" and info.get("event_id"):
+        cond = [and_(Photo.owner_type == "EVENT", Photo.owner_id == info["event_id"])]
+        if concert_ids:
+            cond.append(and_(Photo.owner_type == "CONCERT", Photo.owner_id.in_(concert_ids)))
+        q = q.filter(or_(*cond))
+    elif kind in ("CYCLE", "TOUR"):
+        cond = []
+        if kind == "CYCLE" and info.get("cycle_id"):
+            cond.append(and_(Photo.owner_type == "CYCLE", Photo.owner_id == info["cycle_id"]))
+        if concert_ids:
+            cond.append(and_(Photo.owner_type == "CONCERT", Photo.owner_id.in_(concert_ids)))
+        if not cond:
+            return []
+        q = q.filter(or_(*cond))
+    else:
+        return []
+    photos = q.order_by(Photo.taken_date.desc().nullslast(), Photo.created_at.desc()).limit(600).all()
+    if not photos:
+        return []
+    ids = [p.id for p in photos]
+    en_album: dict[str, list] = {}
+    albums: dict[str, PhotoAlbum] = {}
+    for al, it in (session_db.query(PhotoAlbum, PhotoAlbumItem).join(PhotoAlbumItem, PhotoAlbumItem.album_id == PhotoAlbum.id)
+                   .filter(PhotoAlbumItem.photo_id.in_(ids)).order_by(PhotoAlbum.sort_order.asc(), PhotoAlbumItem.sort_order.asc()).all()):
+        albums[str(al.id)] = al
+        en_album.setdefault(str(al.id), []).append(str(it.photo_id))
+    por_id = {str(p.id): p for p in photos}
+    grupos: list[dict] = []
+    usados = set()
+    for aid_, pids in en_album.items():
+        al = albums[aid_]
+        fotos = [por_id[pid] for pid in pids if pid in por_id]
+        if not fotos:
+            continue
+        usados.update(str(f.id) for f in fotos)
+        portada = next((f for f in fotos if al.cover_photo_id and f.id == al.cover_photo_id), fotos[0])
+        grupos.append({"id": aid_, "name": al.name or "Álbum", "sub": _onesheet_photo_owner_label(session_db, al.owner_type, al.owner_id),
+                       "cover": portada.file_url, "count": len(fotos),
+                       "photos": [{"id": str(f.id), "url": f.file_url, "title": (f.title or "").strip()} for f in fotos]})
+    # Lo que no está en ningún álbum: un bloque por actividad (o «Sueltas» para lo del propio artista).
+    sueltos: dict[tuple, list] = {}
+    for p in photos:
+        if str(p.id) in usados:
+            continue
+        sueltos.setdefault(((p.owner_type or "").upper(), str(p.owner_id)), []).append(p)
+    for (ot, oid), fotos in sueltos.items():
+        etiqueta = _onesheet_photo_owner_label(session_db, ot, oid)
+        grupos.append({"id": "owner:%s:%s" % (ot, oid), "name": etiqueta or "Fotos sueltas", "sub": "sin álbum",
+                       "cover": fotos[0].file_url, "count": len(fotos),
+                       "photos": [{"id": str(f.id), "url": f.file_url, "title": (f.title or "").strip()} for f in fotos]})
+    return grupos
+
+
+def _onesheet_photo_owner_label(session_db, owner_type, owner_id) -> str:
+    """De dónde son unas fotos: «Concierto · Madrid · 12/04/2026», «Álbum del artista»…"""
+    ot = (owner_type or "").upper()
+    if ot == "ARTIST":
+        return "Fotos del artista"
+    try:
+        owner, _art, title = _photo_resolve_owner(session_db, ot, owner_id)
+    except Exception:
+        session_db.rollback()
+        return ""
+    if not owner:
+        return ""
+    if ot == "CONCERT":
+        partes = [_invitation_event_type_label(owner), (owner.festival_name or "").strip() or _concert_city(owner),
+                  owner.date.strftime("%d/%m/%Y") if getattr(owner, "date", None) else ""]
+        return " · ".join(x for x in partes if x)
+    return (title or "").strip()
+
+
+def _onesheet_photos_selected(session_db, info: dict, opts: dict) -> list[dict]:
+    """Las fotos que ENSEÑA el módulo: las de los álbumes elegidos (se actualizan solas cuando el
+    álbum cambia) más las sueltas elegidas, sin repetir y con el tope."""
+    grupos = _onesheet_photo_pool(session_db, info)
+    por_grupo = {g["id"]: g for g in grupos}
+    out, vistos = [], set()
+    for gid in opts.get("album_ids") or []:
+        g = por_grupo.get(gid)
+        if not g:
+            continue
+        for f in g["photos"]:
+            if f["id"] not in vistos:
+                vistos.add(f["id"])
+                out.append(f)
+    if opts.get("photo_ids"):
+        todas = {f["id"]: f for g in grupos for f in g["photos"]}
+        for pid in opts["photo_ids"]:
+            f = todas.get(pid)
+            if f and pid not in vistos:
+                vistos.add(pid)
+                out.append(f)
+    return out[:int(opts.get("limit") or 12)]
+
+
+def _onesheet_certification_rows(session_db, info: dict) -> list[dict]:
+    """Las CERTIFICACIONES del artista (canciones y discos), agrupadas por obra y tipo: «2 Discos de
+    Platino · Canción», con el disco apilado que ya pinta `certification_icon_png`."""
+    if not info.get("artist_ids"):
+        return []
+    aids = info["artist_ids"]
+    filas = []
+    try:
+        songs = (session_db.query(Song).join(SongArtist, SongArtist.song_id == Song.id)
+                 .filter(SongArtist.artist_id.in_(aids)).all())
+        song_by_id = {s.id: s for s in songs}
+        certs = session_db.query(SongCertification).filter(SongCertification.song_id.in_(list(song_by_id))).all() if song_by_id else []
+        cuenta: dict[tuple, dict] = {}
+        for c in certs:
+            k = ("SONG", str(c.song_id), (c.certification_type or "").upper())
+            d = cuenta.setdefault(k, {"n": 0, "countries": set()})
+            d["n"] += 1
+            if c.country_name:
+                d["countries"].add(c.country_name)
+        albums = session_db.query(Album).filter(Album.artist_id.in_(aids)).all()
+        album_by_id = {a.id: a for a in albums}
+        acerts = session_db.query(AlbumCertification).filter(AlbumCertification.album_id.in_(list(album_by_id))).all() if album_by_id else []
+        for c in acerts:
+            k = ("ALBUM", str(c.album_id), (c.certification_type or "").upper())
+            d = cuenta.setdefault(k, {"n": 0, "countries": set()})
+            d["n"] += 1
+            if c.country_name:
+                d["countries"].add(c.country_name)
+        for (kind, oid, tipo), d in cuenta.items():
+            meta = _certification_catalog(kind).get(tipo)
+            if not meta:
+                continue
+            obra = song_by_id.get(to_uuid(oid)) if kind == "SONG" else album_by_id.get(to_uuid(oid))
+            if obra is None:
+                continue
+            n = int(d["n"])
+            filas.append({
+                "id": "%s:%s:%s" % (kind, oid, tipo), "kind": kind, "title": (obra.title or "").strip(),
+                "cover": (getattr(obra, "cover_url", None) or ""), "type": tipo, "n": n,
+                "label": ("%d x %s" % (n, meta.get("short") or tipo)) if n > 1 else (meta.get("title") or tipo),
+                "type_title": (meta.get("plural_title") if n > 1 else meta.get("title")) or tipo,
+                "color": meta.get("color") or "", "order": int(meta.get("order") or 0),
+                "icon_url": url_for("certification_icon_png", clave=tipo, s=96, n=min(n, CERT_STACK_MAX)),
+                "countries": sorted(d["countries"]),
+                "year": (obra.release_date.year if getattr(obra, "release_date", None) else ""),
             })
-    elif action == 'delete_video':
-        rid = (request.form.get('row_id') or '').strip()
-        payload['videos'] = [x for x in payload.get('videos', []) if str(x.get('id')) != rid]
-    elif action == 'tour':
-        payload['tour'] = {
-            'title': (request.form.get('tour_title') or '').strip(),
-            'show_ids': [str(to_uuid(x)) for x in request.form.getlist('show_ids[]') if (x or '').strip()],
-        }
-        png = request.files.get('tour_title_png')
-        if png and getattr(png, 'filename', ''):
-            payload['tour']['title_png_url'] = upload_image(png, 'onesheets/tours')
-    elif action == 'add_gallery':
-        files = request.files.getlist('gallery_photos[]') or []
-        rows = payload.setdefault('gallery', [])
-        concept = (request.form.get('concept') or '').strip()
-        for fs in files:
-            if fs and getattr(fs, 'filename', ''):
-                rows.append({'id': _uuid_token(), 'url': upload_image(fs, 'onesheets/gallery'), 'concept': concept, 'name': fs.filename})
-    elif action == 'delete_gallery':
-        rid = (request.form.get('row_id') or '').strip()
-        payload['gallery'] = [x for x in payload.get('gallery', []) if str(x.get('id')) != rid]
-    elif action == 'add_press':
-        payload.setdefault('press', []).append({
-            'id': _uuid_token(),
-            'url': _clean_public_url(request.form.get('url')),
-            'title': (request.form.get('title') or '').strip(),
-            'image_url': (request.form.get('image_url') or '').strip(),
-            'excerpt': (request.form.get('excerpt') or '').strip(),
-        })
-    elif action == 'delete_press':
-        rid = (request.form.get('row_id') or '').strip()
-        payload['press'] = [x for x in payload.get('press', []) if str(x.get('id')) != rid]
-    elif action == 'add_contact':
-        payload.setdefault('contacts', []).append({
-            'id': _uuid_token(),
-            'role': (request.form.get('role') or '').strip(),
-            'name': (request.form.get('name') or '').strip(),
-            'email': (request.form.get('email') or '').strip(),
-            'phone': (request.form.get('phone') or '').strip(),
-        })
-    elif action == 'delete_contact':
-        rid = (request.form.get('row_id') or '').strip()
-        payload['contacts'] = [x for x in payload.get('contacts', []) if str(x.get('id')) != rid]
-    elif action == 'reorder_press':
-        order = request.form.getlist('order[]')
-        index = {rid: pos for pos, rid in enumerate(order)}
-        payload['press'] = sorted(payload.get('press', []), key=lambda x: index.get(str(x.get('id')), 9999))
-    payload['updated_at'] = _now_madrid().isoformat()
-    setattr(target, payload_attr, payload)
-    if hasattr(target, 'updated_at'):
-        target.updated_at = _now_madrid()
-    return payload
-
-
-@app.post('/artistas/<artist_id>/onesheet', endpoint='artist_onesheet_update')
-@admin_required
-def artist_onesheet_update(artist_id):
-    session_db = db()
-    try:
-        artist = session_db.get(Artist, to_uuid(artist_id))
-        if not artist:
-            abort(404)
-        _ensure_artist_onesheet_token(session_db, artist)
-        _apply_onesheet_form(session_db, artist, 'onesheet_payload')
-        session_db.commit()
-        flash('One-sheet actualizado.', 'success')
-        return redirect(url_for('artist_detail_view', artist_id=artist.id, tab='onesheet'))
-    except Exception as exc:
+    except Exception:
         session_db.rollback()
-        flash(f'Error actualizando one-sheet: {exc}', 'danger')
-        return redirect(url_for('artist_detail_view', artist_id=artist_id, tab='onesheet'))
-    finally:
-        session_db.close()
+        app.logger.exception("[one sheet] no se pudieron leer las certificaciones")
+        return []
+    filas.sort(key=lambda f: (-f["order"], -f["n"], f["title"]))
+    return filas
 
 
-@app.post('/contratacion/giras-compradas/<slug>/onesheet', endpoint='tour_onesheet_update')
-@admin_required
-def tour_onesheet_update(slug):
-    session_db = db()
+def _onesheet_release_rows(session_db, info: dict) -> list[dict]:
+    """Los LANZAMIENTOS del artista (singles y discos), del más reciente al más antiguo."""
+    if not info.get("artist_ids"):
+        return []
+    aids = info["artist_ids"]
+    out = []
     try:
-        row = session_db.query(TourOneSheet).filter(TourOneSheet.slug == (slug or '').strip()).first()
-        if not row:
-            flash('Gira no encontrada.', 'warning')
-            return redirect(url_for('contracting_view', section='giras-compradas'))
-        _ensure_tour_onesheet_token(session_db, row)
-        _apply_onesheet_form(session_db, row, 'payload')
-        session_db.commit()
-        flash('One-sheet de la gira actualizado.', 'success')
-        return redirect(url_for('tour_detail_view', slug=row.slug, tab='onesheet'))
-    except Exception as exc:
+        songs = (session_db.query(Song).join(SongArtist, SongArtist.song_id == Song.id)
+                 .filter(SongArtist.artist_id.in_(aids), Song.is_provisional.is_(False))
+                 .order_by(Song.release_date.desc().nullslast()).limit(120).all())
+        for s in songs:
+            out.append({"kind": "SONG", "id": str(s.id), "title": (s.title or "").strip(), "date": s.release_date,
+                        "cover": (s.cover_url or ""), "links": _song_platform_links(s), "spotify_url": (s.spotify_url or ""),
+                        "kind_label": "Single"})
+        albums = (session_db.query(Album).filter(Album.artist_id.in_(aids), Album.is_provisional.is_(False))
+                  .order_by(Album.release_date.desc().nullslast()).limit(60).all())
+        for a in albums:
+            out.append({"kind": "ALBUM", "id": str(a.id), "title": (a.title or "").strip(), "date": a.release_date,
+                        "cover": (a.cover_url or ""), "links": _album_platform_links(a), "spotify_url": (a.spotify_url or ""),
+                        "kind_label": ("EP" if (a.album_type or "").upper() == "EP" else "Álbum")})
+    except Exception:
         session_db.rollback()
-        flash(f'Error actualizando one-sheet de gira: {exc}', 'danger')
-        return redirect(url_for('contracting_view', section='giras-compradas'))
-    finally:
-        session_db.close()
+        return []
+    out.sort(key=lambda r: (r["date"] or date.min), reverse=True)
+    return out
 
 
-@app.get('/onesheet/<token>', endpoint='onesheet_public_view')
-def onesheet_public_view(token):
-    session_db = db()
+def _onesheet_release_pick(rows: list[dict], opts: dict) -> dict | None:
+    """El lanzamiento que enseña el módulo: el FIJADO a mano o, si no, el ÚLTIMO ya publicado (y si
+    todavía no hay ninguno publicado, el más reciente)."""
+    if not rows:
+        return None
+    if opts.get("pick_id"):
+        for r in rows:
+            if r["id"] == opts["pick_id"] and (not opts.get("pick_kind") or r["kind"] == opts["pick_kind"]):
+                return r
+    hoy = today_local()
+    publicados = [r for r in rows if r["date"] and r["date"] <= hoy]
+    return publicados[0] if publicados else rows[0]
+
+
+def _onesheet_country_rows(session_db, info: dict, limit: int = 6) -> list[dict]:
+    """El ranking de PAÍSES por oyentes (Chartmetric, «where people listen»), con el porcentaje
+    respecto al primero para pintar las barras."""
+    if not info.get("artist_ids"):
+        return []
     try:
-        artist = session_db.query(Artist).filter(Artist.onesheet_public_token == token).first()
-        if artist:
-            ctx = _onesheet_context(session_db, artist=artist, public=True)
-            return render_template('public_onesheet.html', onesheet=ctx, public_mode=True, print_mode=bool(request.args.get('print')))
-        tour = session_db.query(TourOneSheet).filter(TourOneSheet.public_token == token).first()
-        if tour:
-            slug = tour.slug
-            concerts = _tour_concerts_by_slug(session_db, slug)
-            ctx = _onesheet_context(session_db, tour=tour, concerts=concerts, public=True)
-            return render_template('public_onesheet.html', onesheet=ctx, public_mode=True, print_mode=bool(request.args.get('print')))
+        link = session_db.get(ChartmetricArtist, info["artist_ids"][0])
+    except Exception:
+        session_db.rollback()
+        return []
+    filas = [r for r in (getattr(link, "top_countries", None) or []) if isinstance(r, dict) and r.get("name")]
+    filas.sort(key=lambda r: -float(r.get("listeners") or 0))
+    filas = filas[:max(3, int(limit or 6))]
+    tope = max([float(r.get("listeners") or 0) for r in filas] or [0]) or 1.0
+    out = []
+    for i, r in enumerate(filas):
+        v = float(r.get("listeners") or 0)
+        out.append({"pos": i + 1, "name": str(r.get("name")), "code2": str(r.get("code2") or "").upper()[:2],
+                    "listeners": v, "value_fmt": onesheet_render.fmt_int(v), "value_compact": onesheet_render.fmt_compact(v),
+                    "pct": max(4, int(round(v * 100.0 / tope)))})
+    return out
+
+
+def _onesheet_press_rows(session_db, info: dict, limit: int = 4) -> list[dict]:
+    """Las últimas NOTAS DE PRENSA enviadas del sujeto: miniatura, titular y su enlace público."""
+    kind = info.get("kind")
+    try:
+        q = session_db.query(PressRelease).filter(_press_is_press_clause(), PressRelease.status == "SENT",
+                                                  PressRelease.public_token.isnot(None))
+        conds = []
+        if info.get("artist_ids"):
+            conds.append(PressRelease.artist_ids.contains([str(info["artist_ids"][0])]))
+            conds.append(and_(PressRelease.subject_kind == "ARTIST", PressRelease.subject_id == info["artist_ids"][0]))
+        if kind == "EVENT" and info.get("event_id"):
+            conds.append(and_(PressRelease.subject_kind == "EVENT", PressRelease.subject_id == info["event_id"]))
+        if kind == "CYCLE" and info.get("cycle_id"):
+            conds.append(and_(PressRelease.subject_kind == "CYCLE", PressRelease.subject_id == info["cycle_id"]))
+        if kind == "TOUR" and info.get("id"):
+            conds.append(and_(PressRelease.subject_kind == "TOUR", PressRelease.subject_id == to_uuid(info["id"])))
+        if not conds:
+            return []
+        filas = q.filter(or_(*conds)).order_by(PressRelease.sent_at.desc().nullslast(), PressRelease.created_at.desc()).limit(max(1, int(limit or 4)) + 20).all()
+    except Exception:
+        session_db.rollback()
+        return []
+    out = []
+    for pr in filas:
+        fecha = pr.sent_at or pr.scheduled_at or pr.created_at
+        out.append({
+            "id": str(pr.id), "title": (pr.title or "").strip() or press_render.headline_of(pr.design or {}) or "Nota de prensa",
+            "thumb": (pr.thumb_url or "").strip() or (_external_url_for("public_press_og_image", token=pr.public_token) if pr.public_token else ""),
+            "url": _press_public_url(pr), "date": fecha,
+            "date_label": (fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else ""),
+            "date_long": format_date_long_es(fecha.astimezone(TZ_MADRID).date()) if fecha else "",
+        })
+    return out
+
+
+def _onesheet_contact_suggestions(session_db) -> list[dict]:
+    """Para el módulo de contacto: el personal de la oficina (nombre, correo, teléfono, foto) y el
+    contacto de prensa de la casa."""
+    out = [{"role": PRESS_CONTACT_ROLE, "name": PRESS_CONTACT_NAME, "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE, "photo_url": ""}]
+    try:
+        fuera = _inactive_user_ids(session_db)
+        rows = (session_db.query(User, UserProfile).join(UserProfile, UserProfile.user_id == User.id)
+                .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc()).all())
+        for u, prof in rows:
+            if u.id in fuera:
+                continue
+            tels = getattr(prof, "mobile_phones", None) or []
+            tel = ""
+            if isinstance(tels, list) and tels:
+                primero = tels[0]
+                tel = (primero.get("number") or primero.get("phone") or "") if isinstance(primero, dict) else str(primero)
+            deps = getattr(prof, "departments", None) or []
+            out.append({"role": ", ".join(str(d) for d in deps if d) if isinstance(deps, list) else "",
+                        "name": (prof.nick or u.email or "").strip(), "email": (u.email or "").strip(),
+                        "phone": (tel or "").strip(), "photo_url": (getattr(prof, "photo_url", "") or "")})
+    except Exception:
+        session_db.rollback()
+    return out
+
+
+def _onesheet_services_rows(row) -> list[dict]:
+    keys = [k for k in (row.services or []) if k in onesheet_render.SERVICE_LABELS] if isinstance(row.services, list) else []
+    return [{"key": k, "label": onesheet_render.SERVICE_LABELS[k], "icon": onesheet_render.SERVICE_ICONS[k]} for k in onesheet_render.SERVICE_KEYS if k in keys]
+
+
+def _onesheet_module_data(session_db, row, info: dict, design: dict, block: dict, *, editing: bool, cache: dict) -> dict:
+    """Los DATOS de un módulo (lo dinámico se calcula aquí, lo elegido viene en `opts`). `cache`
+    evita repetir consultas cuando dos módulos piden lo mismo en la misma página."""
+    t = block["type"]
+    o = block.get("opts") or {}
+    d: dict = {"empty": False}
+    if t in ("bio", "text"):
+        d["html"] = o.get("html") or ""
+        d["empty"] = not press_render.plain_text_of_html(d["html"]).strip()
+    elif t == "highlights":
+        d["rows"] = [it for it in (o.get("items") or []) if (it.get("text") or "").strip()]
+        d["empty"] = not d["rows"]
+    elif t in ("stats", "followers"):
+        if "metrics" not in cache:
+            cache["metrics"] = _onesheet_metric_rows(session_db, info)
+        mets = cache["metrics"]
+        keys = o.get("metrics")
+        if keys is None:
+            keys = [k for k in onesheet_render.METRIC_BY_KEY if k in mets]
+        d["rows"] = [mets[k] for k in keys if k in mets]
+        d["available"] = list(mets.keys())
+        d["empty"] = not d["rows"]
+    elif t == "socials":
+        if "socials" not in cache:
+            cache["socials"] = _onesheet_social_rows(session_db, info)
+        todas = cache["socials"]
+        keys = o.get("keys")
+        items = [s for s in todas if (keys is None or s["key"] in keys)]
+        for ex in (o.get("extra") or []):
+            if ex.get("url"):
+                items.append({"key": "extra:" + ex["id"], "label": ex.get("label") or "Enlace", "icon": _onesheet_link_icon(ex["url"]), "url": ex["url"]})
+        d["rows"] = items
+        d["available"] = todas
+        d["empty"] = not items
+    elif t == "concerts":
+        d["rows"] = _onesheet_concert_rows(session_db, info, int(o.get("limit") or 8))
+        d["empty"] = not d["rows"]
+    elif t == "photos":
+        d["rows"] = _onesheet_photos_selected(session_db, info, o)
+        d["empty"] = not d["rows"]
+    elif t == "certifications":
+        if "certs" not in cache:
+            cache["certs"] = _onesheet_certification_rows(session_db, info)
+        ocultas = set(o.get("hidden") or [])
+        d["rows"] = [c for c in cache["certs"] if c["id"] not in ocultas][:int(o.get("limit") or 12)]
+        d["empty"] = not d["rows"]
+    elif t == "release":
+        if "releases" not in cache:
+            cache["releases"] = _onesheet_release_rows(session_db, info)
+        r = _onesheet_release_pick(cache["releases"], o)
+        d["item"] = r
+        if r:
+            d["embed"] = onesheet_render.spotify_embed(r.get("spotify_url")) if o.get("embed") else ""
+            d["date_long"] = format_date_long_es(r["date"]) if r.get("date") else ""
+            d["upcoming"] = bool(r.get("date") and r["date"] > today_local())
+            d["listen_url"] = next((l["url"] for l in (r.get("links") or []) if l.get("key") == "spotify"), "") or next((l["url"] for l in (r.get("links") or [])), "")
+        d["empty"] = r is None
+    elif t == "videos":
+        d["rows"] = [{"id": it["id"], "url": it["url"], "title": it.get("title") or "", "yt": onesheet_render.youtube_id(it["url"]),
+                       "thumb": onesheet_render.youtube_thumb(it["url"]), "embed": onesheet_render.youtube_embed(it["url"])}
+                      for it in (o.get("items") or []) if onesheet_render.youtube_id(it.get("url"))]
+        d["empty"] = not d["rows"]
+    elif t == "countries":
+        d["rows"] = _onesheet_country_rows(session_db, info, int(o.get("limit") or 6))
+        d["empty"] = not d["rows"]
+    elif t == "awards":
+        d["rows"] = [it for it in (o.get("items") or []) if (it.get("name") or "").strip()]
+        d["empty"] = not d["rows"]
+    elif t == "press":
+        ocultas = set(o.get("hidden") or [])
+        d["rows"] = [p for p in _onesheet_press_rows(session_db, info, int(o.get("limit") or 4) + len(ocultas)) if p["id"] not in ocultas][:int(o.get("limit") or 4)]
+        d["empty"] = not d["rows"]
+    elif t == "contact":
+        d["rows"] = [it for it in (o.get("items") or []) if (it.get("name") or it.get("email") or it.get("role") or "").strip()]
+        d["logos"] = _onesheet_group_logos(session_db) if o.get("show_logos", True) else []
+        d["empty"] = not d["rows"] and not d["logos"]
+    return d
+
+
+def _onesheet_group_logos(session_db) -> list[dict]:
+    """Los logos de las dos marcas del grupo (33 Producciones y PIES), para el pie y el Roster."""
+    out = []
+    try:
+        tt = _treinta_y_tres_brand_assets(session_db)
+        if tt.get("logo_url"):
+            out.append({"name": tt.get("company_name") or "33 Producciones", "url": tt["logo_url"]})
+        else:
+            out.append({"name": "33 Producciones", "url": url_for("static", filename="img/logo_33_producciones.png")})
+        pies = _pies_brand_assets(session_db)
+        out.append({"name": pies.get("company_name") or "PIES", "url": pies.get("logo_url") or url_for("static", filename="img/logo.png")})
+    except Exception:
+        pass
+    return out
+
+
+def _onesheet_render_module(session_db, row, info: dict, design: dict, block: dict, *, editing: bool, cache: dict | None = None) -> str:
+    """El HTML de UN módulo (la misma plantilla en la página pública y en el editor). Un módulo
+    vacío no se pinta en la página pública; en el editor se ve como un hueco que dice qué le falta."""
+    cache = cache if cache is not None else {}
+    data = _onesheet_module_data(session_db, row, info, design, block, editing=editing, cache=cache)
+    if data.get("empty") and not editing:
+        return ""
+    colores = onesheet_render.theme_colors(design.get("theme"))
+    meta = onesheet_render.MODULES.get(block["type"]) or {}
+    return render_template("_onesheet_module.html", b=block, d=data, meta=meta, editing=editing,
+                           block_style=_onesheet_block_style(block, colores), info=info)
+
+
+def _onesheet_page_context(session_db, row, *, editing: bool) -> dict:
+    """TODO lo que pinta la página (pública o dentro del editor): el tema, la cabecera y los
+    módulos ya en HTML, en orden de lectura."""
+    kind = row.subject_kind
+    obj = _onesheet_subject_load(session_db, kind, row.subject_id)
+    info = _onesheet_subject_info(session_db, kind, obj)
+    design = _onesheet_design(row)
+    hero = design["hero"]
+    hero_url = hero.get("image_url") or info.get("photo_url") or ""
+    cache: dict = {}
+    modules = []
+    for b in onesheet_render.blocks_in_reading_order(design):
+        html_mod = _onesheet_render_module(session_db, row, info, design, b, editing=editing, cache=cache)
+        if html_mod:
+            modules.append({"id": b["id"], "type": b["type"], "html": html_mod})
+    if info.get("kind") == "ARTIST" and hero.get("metrics"):
+        if "metrics" not in cache:
+            cache["metrics"] = _onesheet_metric_rows(session_db, info)
+        hero_metrics = [cache["metrics"][k] for k in hero["metrics"] if k in cache["metrics"]]
+    else:
+        hero_metrics = []
+    nombre = (hero.get("name") or "").strip() or info.get("name") or "One Sheet"
+    return {
+        "row": row, "info": info, "design": design, "theme": design["theme"], "hero": hero,
+        "theme_colors": onesheet_render.theme_colors(design.get("theme")),
+        "theme_vars": _onesheet_theme_vars(design, hero_url), "font_href": _onesheet_font_href(design["theme"]),
+        "hero_url": hero_url, "hero_metrics": hero_metrics, "name": nombre,
+        "services": _onesheet_services_rows(row) if hero.get("show_services") else [],
+        "modules": modules, "public_url": _onesheet_public_url(row), "editing": editing,
+        "logos": _onesheet_group_logos(session_db), "roster_url": _external_url_for("onesheet_roster_public"),
+        "og_image": _absolute_media_url(hero_url) if hero_url else "",
+        "kind_label": info.get("kind_label") or "",
+    }
+
+
+def _onesheet_tab_context(session_db, kind: str, sid) -> dict | None:
+    """Lo que pinta la pestaña «One Sheet» de una ficha (artista, gira, evento, ciclo): la fila (se
+    crea si no existe), sus enlaces y su estado en el Roster."""
+    row = _onesheet_get_or_create(session_db, kind, sid)
+    if not row:
+        return None
+    design = _onesheet_design(row)
+    obj = _onesheet_subject_load(session_db, kind, sid)
+    info = _onesheet_subject_info(session_db, kind, obj)
+    hero_url = design["hero"].get("image_url") or info.get("photo_url") or ""
+    return {
+        "row": row, "kind": row.subject_kind, "slug": row.slug, "public_url": _onesheet_public_url(row),
+        "editor_url": _onesheet_editor_url(row), "hero_url": hero_url, "name": info.get("name") or "",
+        "module_count": len(design.get("blocks") or []), "services": _onesheet_services_rows(row),
+        "service_options": [{"key": k, "label": l, "icon": i} for k, l, i in onesheet_render.SERVICES],
+        "roster_visible": bool(row.roster_visible), "published": bool(row.published),
+        "updated_label": (row.updated_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if row.updated_at else ""),
+        "updated_by": row.updated_by_nick or "", "can_edit": _onesheet_can_edit(),
+        "roster_manage_url": url_for("onesheet_roster_manage"), "roster_public_url": _external_url_for("onesheet_roster_public"),
+        "settings_url": url_for("onesheet_settings_save", osid=row.id),
+        "bg": (design.get("theme") or {}).get("bg") or "#0f2a24",
+    }
+
+
+def _onesheet_row_or_404(session_db, osid):
+    row = session_db.get(OneSheet, _safe_uuid(osid)) if _safe_uuid(osid) else None
+    if not row:
         abort(404)
+    return row
+
+
+# ── Chartmetric · qué se pide de cada artista (más redes) y DÓNDE SE ESCUCHA ─────────────────
+
+# Lo que se pide SIEMPRE (fuente Chartmetric → campos) y lo que se pide SOLO si el artista tiene esa
+# red (según los enlaces que devuelve Chartmetric): cada fuente es una llamada al día por artista.
+CHARTMETRIC_STAT_BASE = (("spotify", ["listeners", "followers"]), ("instagram", ["followers"]), ("tiktok", ["followers", "likes"]))
+CHARTMETRIC_STAT_BY_URL = {
+    "youtube": ("youtube_channel", ["subscribers", "views"]),
+    "facebook": ("facebook", ["likes"]),
+    "x": ("twitter", ["followers"]),
+    "deezer": ("deezer", ["fans"]),
+    "soundcloud": ("soundcloud", ["followers"]),
+    "bandsintown": ("bandsintown", ["followers"]),
+}
+
+
+def _chartmetric_stat_plan(link) -> list[tuple]:
+    urls = getattr(link, "social_urls", None) or {}
+    plan = list(CHARTMETRIC_STAT_BASE)
+    vistos = {s for s, _f in plan}
+    for key, (source, fields) in CHARTMETRIC_STAT_BY_URL.items():
+        if isinstance(urls, dict) and (urls.get(key) or "").strip() and source not in vistos:
+            plan.append((source, fields))
+            vistos.add(source)
+    return plan
+
+
+def _chartmetric_parse_where_people_listen(raw) -> tuple[list[dict], list[dict]]:
+    """Lo que devuelve «where people listen», en dos listas ordenadas (países y ciudades) de
+    {name, code2, listeners}. ⚠️ Defensivo a propósito: la forma exacta de la respuesta no está
+    confirmada, así que se aceptan un dict por nombre con la serie de puntos, un dict con el valor
+    directo o una lista de dicts."""
+    def _valor(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _de_puntos(pts):
+        mejor = None
+        for p in pts:
+            if isinstance(p, dict):
+                if mejor is None or str(p.get("timestp") or p.get("date") or "") >= str(mejor.get("timestp") or mejor.get("date") or ""):
+                    mejor = p
+        if mejor is not None:
+            return _valor(mejor.get("listeners") if mejor.get("listeners") is not None else mejor.get("value")), str(mejor.get("code2") or mejor.get("country_code") or "")
+        nums = [_valor(p) for p in pts if _valor(p) is not None]
+        return (nums[-1] if nums else None), ""
+
+    def _filas(section):
+        out = []
+        if isinstance(section, dict):
+            for nombre, val in section.items():
+                oyentes, code = None, ""
+                if isinstance(val, list):
+                    oyentes, code = _de_puntos(val)
+                elif isinstance(val, dict):
+                    code = str(val.get("code2") or val.get("country_code") or "")
+                    serie = val.get("data") or val.get("values") or val.get("history")
+                    if isinstance(serie, list):
+                        oyentes, code2 = _de_puntos(serie)
+                        code = code or code2
+                    else:
+                        oyentes = _valor(val.get("listeners") if val.get("listeners") is not None else val.get("value"))
+                else:
+                    oyentes = _valor(val)
+                if oyentes is not None:
+                    out.append({"name": str(nombre), "code2": code.upper()[:2], "listeners": int(round(oyentes))})
+        elif isinstance(section, list):
+            for it in section:
+                if not isinstance(it, dict):
+                    continue
+                nombre = it.get("name") or it.get("country") or it.get("city") or it.get("region")
+                oyentes = _valor(it.get("listeners") if it.get("listeners") is not None else (it.get("value") if it.get("value") is not None else it.get("monthly_listeners")))
+                if nombre and oyentes is not None:
+                    out.append({"name": str(nombre), "code2": str(it.get("code2") or it.get("country_code") or "").upper()[:2], "listeners": int(round(oyentes))})
+        vistos, limpio = set(), []
+        for r in sorted(out, key=lambda r: -r["listeners"]):
+            k = r["name"].lower()
+            if k in vistos:
+                continue
+            vistos.add(k)
+            limpio.append(r)
+        return limpio[:30]
+
+    obj = raw.get("obj", raw) if isinstance(raw, dict) else raw
+    paises = ciudades = []
+    if isinstance(obj, dict):
+        paises = _filas(obj.get("countries") or obj.get("country") or [])
+        ciudades = _filas(obj.get("cities") or obj.get("city") or [])
+    elif isinstance(obj, list):
+        con_ciudad = [x for x in obj if isinstance(x, dict) and (x.get("city") or x.get("region"))]
+        ciudades = _filas(con_ciudad)
+        paises = _filas([x for x in obj if isinstance(x, dict) and not (x.get("city") or x.get("region"))])
+    return paises, ciudades
+
+
+# ── RUTAS PÚBLICAS: el one sheet y el Roster ─────────────────────────────────────────────────
+
+@app.get("/onesheet", endpoint="onesheet_roster_public")
+def onesheet_roster_public():
+    """EL ROSTER: todos los artistas de la casa (los visibles), con su foto, su nombre y lo que
+    llevamos de cada uno; se pincha y se abre su one sheet. Público."""
+    s = db()
+    try:
+        filas = _onesheet_roster_rows(s, public=True)
+        logos = _onesheet_group_logos(s)
+        return render_template("onesheet_roster_public.html", rows=filas, logos=logos,
+                               public_url=_external_url_for("onesheet_roster_public"))
     finally:
-        session_db.close()
+        s.close()
+
+
+def _onesheet_roster_rows(session_db, *, public: bool) -> list[dict]:
+    """Las filas del Roster: cada artista (sin los espejos de eventos) con su one sheet si lo tiene,
+    más los eventos, ciclos y giras que se hayan marcado para salir. Ordenadas como se haya dicho
+    (`roster_order`, 0 = sin ordenar → detrás, por nombre). En público solo las visibles."""
+    rows = {(r.subject_kind, str(r.subject_id)): r for r in session_db.query(OneSheet).all()}
+    out = []
+    for a in session_db.query(Artist).filter(Artist.event_id.is_(None)).order_by(func.lower(Artist.name).asc()).all():
+        r = rows.get(("ARTIST", str(a.id)))
+        visible = bool(r.roster_visible) if r else True
+        if public and (not visible or (r and not r.published)):
+            continue
+        design = _onesheet_design(r) if r else None
+        hero = (design["hero"].get("image_url") if design else "") or (a.photo_url or "")
+        out.append({
+            "kind": "ARTIST", "id": str(a.id), "name": (a.name or "").strip(), "photo_url": (a.photo_url or ""),
+            "hero_url": hero, "slug": (r.slug if r else _slugify_text(a.name or "")),
+            "url": _external_url_for("onesheet_public_view", slug=(r.slug if r else _slugify_text(a.name or ""))),
+            "services": (_onesheet_services_rows(r) if r else []), "visible": visible,
+            "order": int(r.roster_order or 0) if r else 0, "has_row": bool(r),
+            "editor_url": (url_for("onesheet_editor", osid=r.id) if r else url_for("onesheet_open", kind="ARTIST", sid=a.id)),
+            "kind_label": "Artista", "bg": ((design or {}).get("theme") or {}).get("bg") or "",
+        })
+    for (kind, sid), r in rows.items():
+        if kind == "ARTIST":
+            continue
+        if public and not (r.roster_visible and r.published):
+            continue
+        obj = _onesheet_subject_load(session_db, kind, sid)
+        if obj is None:
+            continue
+        info = _onesheet_subject_info(session_db, kind, obj)
+        design = _onesheet_design(r)
+        out.append({
+            "kind": kind, "id": sid, "name": info.get("name") or "", "photo_url": info.get("photo_url") or "",
+            "hero_url": design["hero"].get("image_url") or info.get("photo_url") or "", "slug": r.slug,
+            "url": _onesheet_public_url(r), "services": _onesheet_services_rows(r), "visible": bool(r.roster_visible),
+            "order": int(r.roster_order or 0), "has_row": True, "editor_url": url_for("onesheet_editor", osid=r.id),
+            "kind_label": info.get("kind_label") or onesheet_render.SUBJECT_LABELS.get(kind, kind), "bg": (design.get("theme") or {}).get("bg") or "",
+        })
+    out.sort(key=lambda f: (0 if f["order"] > 0 else 1, f["order"], _norm_text_key(f["name"])))
+    return out
+
+
+@app.get("/onesheet/<slug>", endpoint="onesheet_public_view")
+def onesheet_public_view(slug):
+    """LA PÁGINA PÚBLICA de un one sheet (por su slug; los enlaces antiguos por token siguen
+    valiendo). Se comparte tal cual."""
+    s = db()
+    try:
+        row = _onesheet_resolve_public(s, slug)
+        if not row:
+            abort(404)
+        if not row.published and not session.get("user_id"):
+            abort(404)
+        # Un one sheet cuyo sujeto ya no existe (un artista borrado) no es una página vacía: es un 404.
+        if _onesheet_subject_load(s, row.subject_kind, row.subject_id) is None:
+            abort(404)
+        # Si la fila se acaba de crear (un enlace antiguo o un nombre hecho slug), se guarda.
+        s.commit()
+        ctx = _onesheet_page_context(s, row, editing=False)
+        ctx["can_edit"] = bool(session.get("user_id")) and _onesheet_can_edit()
+        ctx["editor_url"] = url_for("onesheet_editor", osid=row.id) if ctx["can_edit"] else ""
+        return render_template("onesheet_public.html", **ctx)
+    finally:
+        s.close()
+
+
+@app.get("/onesheet/<slug>/og.jpg", endpoint="onesheet_public_og_image")
+def onesheet_public_og_image(slug):
+    """La imagen de la tarjeta del enlace (WhatsApp, SMS…): la foto de cabecera."""
+    s = db()
+    try:
+        row = _onesheet_resolve_public(s, slug)
+        if not row:
+            abort(404)
+        design = _onesheet_design(row)
+        obj = _onesheet_subject_load(s, row.subject_kind, row.subject_id)
+        info = _onesheet_subject_info(s, row.subject_kind, obj)
+        url = design["hero"].get("image_url") or info.get("photo_url") or ""
+    finally:
+        s.close()
+    if not url:
+        return redirect(url_for("og_default_image"))
+    return redirect(_absolute_media_url(url))
+
+
+# ── EL EDITOR y sus endpoints ────────────────────────────────────────────────────────────────
+
+@app.get("/onesheet/abrir/<kind>/<sid>", endpoint="onesheet_open")
+@admin_required
+def onesheet_open(kind, sid):
+    """Abre (creándolo si hace falta) el one sheet de un sujeto y pasa al editor."""
+    s = db()
+    try:
+        row = _onesheet_get_or_create(s, kind, sid)
+        if not row:
+            abort(404)
+        s.commit()
+        return redirect(url_for("onesheet_editor", osid=row.id))
+    finally:
+        s.close()
+
+
+@app.get("/onesheet/editor/<osid>", endpoint="onesheet_editor")
+@admin_required
+def onesheet_editor(osid):
+    """EL EDITOR: la página tal como se publica, con los módulos que se arrastran, se redimensionan y
+    se configuran; a la derecha lo que se puede añadir y las opciones del seleccionado."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        ctx = _onesheet_page_context(s, row, editing=True)
+        design = ctx["design"]
+        kind = row.subject_kind
+        catalogo = [dict(key=k, label=m["label"], icon=m["icon"], w=m["w"], hint=m["hint"], dynamic=m["dynamic"])
+                    for k, m in onesheet_render.MODULES.items() if kind in m["kinds"]]
+        ctx.update({
+            "can_edit": _onesheet_can_edit(),
+            "design_json": design, "catalog": catalogo,
+            "fonts": [{"key": k, "label": label, "css": css, "gf": gf} for k, label, css, gf in onesheet_render.FONTS],
+            "services_all": [{"key": k, "label": l, "icon": i} for k, l, i in onesheet_render.SERVICES],
+            "services": [k for k in (row.services or []) if k in onesheet_render.SERVICE_LABELS],
+            "metrics_catalog": [dict(v) for v in onesheet_render.METRIC_BY_KEY.values()],
+            "award_icons": onesheet_render.AWARD_ICONS, "highlight_icons": onesheet_render.HIGHLIGHT_ICONS,
+            "corporate": PRESS_CORPORATE_COLORS,
+            "save_url": url_for("onesheet_save", osid=row.id), "module_url": url_for("onesheet_module_html", osid=row.id),
+            "assets_url": url_for("onesheet_assets", osid=row.id), "upload_url": url_for("onesheet_upload_image", osid=row.id),
+            "settings_url": url_for("onesheet_settings_save", osid=row.id),
+            "templates_url": url_for("onesheet_templates"), "template_new_url": url_for("onesheet_template_new"),
+            "template_apply_url": url_for("onesheet_template_apply", osid=row.id),
+            "roster_manage_url": url_for("onesheet_roster_manage"),
+            "back_url": ctx["info"].get("detail_url") or url_for("artists_view"),
+            "slug": row.slug, "roster_visible": bool(row.roster_visible), "published": bool(row.published),
+            "updated_label": (row.updated_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if row.updated_at else ""),
+        })
+        return render_template("onesheet_editor.html", **ctx)
+    finally:
+        s.close()
+
+
+@app.get("/onesheet/editor/<osid>/datos", endpoint="onesheet_assets")
+@admin_required
+def onesheet_assets(osid):
+    """Lo que ofrece el editor para ELEGIR: los álbumes de fotos, los lanzamientos, las redes con
+    enlace, las métricas con dato, las certificaciones, las notas de prensa, los vídeos que ya se
+    conocen y la gente de la casa para el contacto. Y la paleta de la foto de cabecera."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        obj = _onesheet_subject_load(s, row.subject_kind, row.subject_id)
+        info = _onesheet_subject_info(s, row.subject_kind, obj)
+        design = _onesheet_design(row)
+        mets = _onesheet_metric_rows(s, info)
+        releases = _onesheet_release_rows(s, info)
+        videos_sugeridos = []
+        for r in releases:
+            for l in (r.get("links") or []):
+                if l.get("key") == "youtube" and onesheet_render.youtube_id(l.get("url")):
+                    videos_sugeridos.append({"title": r["title"], "url": l["url"], "thumb": onesheet_render.youtube_thumb(l["url"]), "cover": r.get("cover") or ""})
+        hero_url = design["hero"].get("image_url") or info.get("photo_url") or ""
+        paleta = []
+        if hero_url:
+            try:
+                datos, _ct = _download_remote_content(hero_url, timeout=8)
+                paleta = _press_bg_palette(datos or b"")
+            except Exception:
+                paleta = []
+        return jsonify({
+            "ok": True,
+            "photos": _onesheet_photo_pool(s, info),
+            "releases": [{"kind": r["kind"], "id": r["id"], "title": r["title"], "kind_label": r["kind_label"],
+                          "date": (r["date"].strftime("%d/%m/%Y") if r["date"] else ""), "cover": r["cover"]} for r in releases],
+            "socials": _onesheet_social_rows(s, info),
+            "metrics": [{"key": k, "label": m["label"], "short": m["short"], "icon": m["icon"], "value_fmt": m["value_fmt"], "value_compact": m["value_compact"]} for k, m in mets.items()],
+            "certifications": [{"id": c["id"], "title": c["title"], "label": c["label"], "icon_url": c["icon_url"], "cover": c["cover"]} for c in _onesheet_certification_rows(s, info)],
+            "press": [{"id": p["id"], "title": p["title"], "thumb": p["thumb"], "date_label": p["date_label"]} for p in _onesheet_press_rows(s, info, 20)],
+            "videos": videos_sugeridos,
+            "contacts": _onesheet_contact_suggestions(s),
+            "concerts": len(_onesheet_concert_rows(s, info, 40)),
+            "countries": len(_onesheet_country_rows(s, info, 15)),
+            "palette": paleta,
+            "hero_url": hero_url,
+        })
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/editor/<osid>/guardar", endpoint="onesheet_save")
+@admin_required
+def onesheet_save(osid):
+    """Guarda el DISEÑO (se normaliza: rangos, solapes, HTML saneado) y lo devuelve como ha quedado."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso para diseñar one sheets."}), 403
+        datos = request.get_json(silent=True) or {}
+        design = onesheet_render.normalize_design(datos.get("design"), row.subject_kind)
+        row.design = design
+        row.updated_at = _now_madrid()
+        row.updated_by_nick = session.get("nick")
+        s.commit()
+        return jsonify({"ok": True, "design": design, "updated_label": row.updated_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo guardar")
+        return jsonify({"ok": False, "error": "No se pudo guardar el diseño."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/editor/<osid>/modulo", endpoint="onesheet_module_html")
+@admin_required
+def onesheet_module_html(osid):
+    """El HTML de un módulo tal como quedaría (lo pide el editor al cambiar una opción). El diseño
+    entero viaja para que el tema sea el de pantalla, aunque no esté guardado."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        datos = request.get_json(silent=True) or {}
+        design = onesheet_render.normalize_design(datos.get("design") or _json_loads_safe(row.design, {}), row.subject_kind)
+        bloque = datos.get("block") if isinstance(datos.get("block"), dict) else {}
+        limpio = onesheet_render.normalize_blocks([bloque], row.subject_kind)
+        if not limpio:
+            return jsonify({"ok": False, "error": "Módulo no válido."}), 400
+        b = limpio[0]
+        b["id"] = str(bloque.get("id") or b["id"])[:24]
+        obj = _onesheet_subject_load(s, row.subject_kind, row.subject_id)
+        info = _onesheet_subject_info(s, row.subject_kind, obj)
+        html_mod = _onesheet_render_module(s, row, info, design, b, editing=True)
+        return jsonify({"ok": True, "html": html_mod, "block": b})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo pintar el módulo")
+        return jsonify({"ok": False, "error": "No se pudo pintar el módulo."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/editor/<osid>/imagen", endpoint="onesheet_upload_image")
+@admin_required
+def onesheet_upload_image(osid):
+    """Sube una imagen (la de cabecera, la de fondo o la foto de un contacto) y devuelve su URL y,
+    para la cabecera, su paleta de colores."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        fs = request.files.get("file")
+        if not fs or not (fs.filename or "").strip():
+            return jsonify({"ok": False, "error": "Elige una imagen."}), 400
+        proposito = re.sub(r"[^a-z]", "", (request.form.get("purpose") or "hero").lower()) or "hero"
+        datos = fs.read()
+        fs.stream.seek(0)
+        url = upload_image(fs, "onesheets/%s" % proposito)
+        if not url:
+            return jsonify({"ok": False, "error": "No se pudo subir la imagen (¿es PNG, JPG, WEBP o HEIC?)."}), 400
+        paleta = _press_bg_palette(datos) if proposito in ("hero", "bg") else []
+        return jsonify({"ok": True, "url": url, "palette": paleta})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo subir la imagen")
+        return jsonify({"ok": False, "error": "No se pudo subir la imagen."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/editor/<osid>/ajustes", endpoint="onesheet_settings_save")
+@admin_required
+def onesheet_settings_save(osid):
+    """Los AJUSTES que no son diseño: la dirección pública (slug), lo que llevamos, si sale en el
+    Roster y si está publicado."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        datos = request.get_json(silent=True) or request.form.to_dict() or {}
+        if "slug" in datos:
+            slug = _slugify_text(str(datos.get("slug") or ""))
+            if not onesheet_render.slug_ok(slug):
+                return jsonify({"ok": False, "error": "La dirección solo puede llevar letras, números y guiones (y no puede ser una palabra reservada)."}), 400
+            otro = s.query(OneSheet.id).filter(OneSheet.slug == slug, OneSheet.id != row.id).first()
+            if otro:
+                return jsonify({"ok": False, "error": "Esa dirección ya la usa otro one sheet."}), 409
+            row.slug = slug
+        if "services" in datos:
+            serv = datos.get("services")
+            if isinstance(serv, str):
+                serv = [x for x in serv.split(",") if x]
+            row.services = [k for k in onesheet_render.SERVICE_KEYS if k in (serv or [])]
+        if "roster_visible" in datos:
+            row.roster_visible = _truthy(datos.get("roster_visible"))
+        if "published" in datos:
+            row.published = _truthy(datos.get("published"))
+        row.updated_at = _now_madrid()
+        row.updated_by_nick = session.get("nick")
+        s.commit()
+        return jsonify({"ok": True, "slug": row.slug, "public_url": _onesheet_public_url(row), "services": row.services,
+                        "roster_visible": bool(row.roster_visible), "published": bool(row.published)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudieron guardar los ajustes")
+        return jsonify({"ok": False, "error": "No se pudieron guardar los ajustes."}), 400
+    finally:
+        s.close()
+
+
+# ── PLANTILLAS: el formato viaja de un artista a otro ────────────────────────────────────────
+
+def _onesheet_template_rows(session_db) -> list[dict]:
+    out = []
+    for t in session_db.query(OneSheetTemplate).order_by(OneSheetTemplate.created_at.desc()).all():
+        d = _json_loads_safe(t.design, {})
+        out.append({"id": str(t.id), "name": t.name or "Plantilla", "thumb_url": t.thumb_url or "",
+                    "kind": t.subject_kind or "ARTIST", "blocks": len((d or {}).get("blocks") or []),
+                    "bg": ((d or {}).get("theme") or {}).get("bg") or "#0f2a24", "by": t.created_by_nick or "",
+                    "date_label": (t.created_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if t.created_at else "")})
+    return out
+
+
+@app.get("/onesheet/plantillas/lista", endpoint="onesheet_templates")
+@admin_required
+def onesheet_templates():
+    s = db()
+    try:
+        return jsonify({"ok": True, "templates": _onesheet_template_rows(s)})
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/plantillas/nueva", endpoint="onesheet_template_new")
+@admin_required
+def onesheet_template_new():
+    """Guarda el diseño de un one sheet como PLANTILLA (sin el contenido del artista)."""
+    s = db()
+    try:
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        datos = request.get_json(silent=True) or request.form.to_dict() or {}
+        row = _onesheet_row_or_404(s, datos.get("osid") or "")
+        nombre = (str(datos.get("name") or "")).strip()[:120]
+        if not nombre:
+            return jsonify({"ok": False, "error": "Ponle un nombre a la plantilla."}), 400
+        design = onesheet_render.normalize_design(datos.get("design") or _json_loads_safe(row.design, {}), row.subject_kind)
+        tpl = OneSheetTemplate(name=nombre, design=onesheet_render.template_from_design(design),
+                               thumb_url=(design["hero"].get("image_url") or ""), subject_kind=row.subject_kind,
+                               created_by_nick=session.get("nick"))
+        s.add(tpl)
+        s.commit()
+        return jsonify({"ok": True, "template": {"id": str(tpl.id), "name": tpl.name}, "templates": _onesheet_template_rows(s)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo guardar la plantilla")
+        return jsonify({"ok": False, "error": "No se pudo guardar la plantilla."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/plantillas/<tid>/borrar", endpoint="onesheet_template_delete")
+@admin_required
+def onesheet_template_delete(tid):
+    s = db()
+    try:
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        tpl = s.get(OneSheetTemplate, _safe_uuid(tid)) if _safe_uuid(tid) else None
+        if tpl:
+            s.delete(tpl)
+            s.commit()
+        return jsonify({"ok": True, "templates": _onesheet_template_rows(s)})
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/editor/<osid>/plantilla", endpoint="onesheet_template_apply")
+@admin_required
+def onesheet_template_apply(osid):
+    """Carga una plantilla ENCIMA: el formato (tema, cabecera, composición) cambia; lo escrito en los
+    módulos del mismo tipo se conserva."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        datos = request.get_json(silent=True) or {}
+        tpl = s.get(OneSheetTemplate, _safe_uuid(datos.get("template_id") or "")) if _safe_uuid(datos.get("template_id") or "") else None
+        if not tpl:
+            return jsonify({"ok": False, "error": "Esa plantilla ya no existe."}), 404
+        actual = datos.get("design") if isinstance(datos.get("design"), dict) else _json_loads_safe(row.design, {})
+        design = onesheet_render.apply_template(_json_loads_safe(tpl.design, {}), actual, row.subject_kind)
+        row.design = design
+        row.updated_at = _now_madrid()
+        row.updated_by_nick = session.get("nick")
+        s.commit()
+        return jsonify({"ok": True, "design": design})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo cargar la plantilla")
+        return jsonify({"ok": False, "error": "No se pudo cargar la plantilla."}), 400
+    finally:
+        s.close()
+
+
+# ── EL ROSTER (gestión) ──────────────────────────────────────────────────────────────────────
+
+@app.get("/onesheet/roster/gestion", endpoint="onesheet_roster_manage")
+@admin_required
+def onesheet_roster_manage():
+    """Quién sale en el Roster público, en qué orden y con qué etiquetas."""
+    s = db()
+    try:
+        filas = _onesheet_roster_rows(s, public=False)
+        return render_template("onesheet_roster_manage.html", rows=filas,
+                               services_all=[{"key": k, "label": l, "icon": i} for k, l, i in onesheet_render.SERVICES],
+                               public_url=_external_url_for("onesheet_roster_public"),
+                               save_url=url_for("onesheet_roster_save"), can_edit=_onesheet_can_edit(),
+                               logos=_onesheet_group_logos(s))
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/roster/guardar", endpoint="onesheet_roster_save")
+@admin_required
+def onesheet_roster_save():
+    """Guarda el orden, la visibilidad y las etiquetas de cada uno (crea la fila de quien no la tenga)."""
+    s = db()
+    try:
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        datos = request.get_json(silent=True) or {}
+        items = datos.get("items") if isinstance(datos.get("items"), list) else []
+        n = 0
+        for pos, it in enumerate(items[:500], start=1):
+            if not isinstance(it, dict):
+                continue
+            row = _onesheet_get_or_create(s, it.get("kind") or "ARTIST", it.get("id"))
+            if not row:
+                continue
+            row.roster_order = pos
+            if "visible" in it:
+                row.roster_visible = _truthy(it.get("visible"))
+            if "services" in it and isinstance(it.get("services"), list):
+                row.services = [k for k in onesheet_render.SERVICE_KEYS if k in it["services"]]
+            n += 1
+        s.commit()
+        return jsonify({"ok": True, "saved": n})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo guardar el roster")
+        return jsonify({"ok": False, "error": "No se pudo guardar el roster."}), 400
+    finally:
+        s.close()
 
 
 ROADMAP_ATTACHMENT_EXTS = {
@@ -96944,7 +98286,9 @@ def tour_detail_view(slug):
         tour = _get_or_create_tour_onesheet(session_db, slug_key, title, artist_ids)
         session_db.commit()
         available = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.artist_id.in_(_as_uuid_list(artist_ids))).filter(~Concert.id.in_([c.id for c in concerts])).order_by(Concert.date.asc().nullslast()).limit(200).all() if artist_ids else []
-        onesheet = _onesheet_context(session_db, tour=tour, concerts=concerts, public=False)
+        onesheet = _onesheet_tab_context(session_db, "TOUR", tour.id) if tab == "onesheet" else None
+        if tab == "onesheet":
+            session_db.commit()
         # ⚠️ Lo del ASISTENTE lo da el punto único: aquí se montaba a mano y se quedaba sin los
         # eventos, sin las giras y ciclos, sin las discográficas y sin la gente de producción.
         return render_template('tour_detail.html', **_with_concert_wizard(session_db, dict(
@@ -98385,7 +99729,7 @@ CURATED_ACCESS_RESOURCES = [
     # «Liquidaciones» que había aquí estaba vacía y su clave se retira sin trasladar sus permisos
     # (`LEGACY_REMOVED_ACCESS_KEYS`), que es lo que pidió Dani: que empiece limpia.
     {"key": "artists.caja", "label": "Caja", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 127, "description": "Pestaña «Caja» del artista: lo que factura, lo que se ha invertido en él y el balance (importes)."},
-    {"key": "artists.onesheet", "label": "One-sheet", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 128, "description": "Pestaña «One-sheet» del artista: dossier público."},
+    {"key": "artists.onesheet", "label": "One Sheet", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 128, "description": "Pestaña «One Sheet» del artista: el porfolio público (/onesheet/nombre), su editor de módulos, las plantillas y el Roster (/onesheet)."},
 
     {"key": "discografica", "label": "Discográfica", "section_key": "discografica", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 130, "description": "Sello: catálogo, royalties, editorial, registros e ISRC."},
     {"key": "discografica.lanzamientos", "label": "Lanzamientos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 131, "description": "Pestaña «Lanzamientos»: álbumes, EP y singles."},
@@ -98424,7 +99768,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "contratacion.peticiones", "label": "Inicio", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Inicio de Contratación: sus tareas pendientes, el buzón de peticiones (se registran y se tramitan hasta convertirse en concierto) y lo que está pendiente de cobrar."},
     {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 172, "description": "Pestaña «Conciertos»: listado y ficha de concierto (importes)."},
     {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 173, "description": "Pestaña «Giras compradas» (importes)."},
-    {"key": "contratacion.giras.onesheet", "label": "One-sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 174, "description": "One-sheet de giras: dossier público de la gira."},
+    {"key": "contratacion.giras.onesheet", "label": "One Sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 174, "description": "One Sheet de una gira comprada: su porfolio público y su editor."},
     {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 175, "description": "Pestaña «Festivales / Ciclos» (importes)."},
     {"key": "contratacion.eventos", "label": "Eventos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 176, "description": "Pestaña «Eventos»: eventos propios (galas, ferias…) con sus fechas, como una gira comprada (importes)."},
     {"key": "contratacion.otras", "label": "Otras actividades", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 177, "description": "Pestaña «Otras actividades» (importes)."},
@@ -98530,7 +99874,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open",
+PUBLIC_ENDPOINTS_EXTRA = {"onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open",
                           # El vídeo de YouTube de un correo: la miniatura y el pop-up que lo reproduce.
                           "public_youtube_thumb", "public_youtube_play"}
 
@@ -99021,6 +100365,10 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     }
     if endpoint in fixed:
         return fixed[endpoint]
+    # ONE SHEET: aquí (cobertura, SIN usuario ni petición) el recurso es fijo. ⚠️ No se puede llamar
+    # a `_first_access_key`: mira al usuario y `_current_user_state` vuelve a entrar aquí → bucle.
+    if endpoint.startswith("onesheet_"):
+        return "artists.onesheet"
     if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
         return "artists"
     # Plantillas del artista (personal / rooming / hoja de ruta) y las PERSONAS del artista (que son
@@ -99901,6 +101249,12 @@ def _resolve_request_resource_key() -> str | None:
     # Se acepta la PRIMERA que tenga (la sección entera o su pestaña), como en contabilidad.
     if endpoint.startswith("sales_"):
         return _first_access_key(SALES_UPDATE_ACCESS_KEYS, "ventas",
+                                 edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
+    # ONE SHEET (el editor, sus endpoints JSON, las plantillas y el Roster): la pestaña «One Sheet» de
+    # Artistas o la de giras, la primera que tenga. ⚠️ Regla de PREFIJO: en el `mapping` sería código
+    # muerto. Los públicos (`onesheet_public_view`, el Roster y la og) ya han devuelto None arriba.
+    if endpoint.startswith("onesheet_"):
+        return _first_access_key(ONESHEET_ACCESS_KEYS, "artists.onesheet",
                                  edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
         return "artists"
@@ -103444,7 +104798,7 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -166736,7 +168090,16 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
         return {"ok": False, "message": "Sin Chartmetric ID (no se pudo vincular el artista)."}
     link = session_db.get(ChartmetricArtist, artist.id)
     errors = []
-    for source, fields in (("spotify", ["listeners", "followers"]), ("instagram", ["followers"]), ("tiktok", ["followers"])):
+    # Enlaces a las redes/plataformas del artista (Instagram, TikTok, YouTube, Bandsintown, Facebook,
+    # X, Spotify, Apple Music, Amazon Music, Deezer, SoundCloud). Se cachean para pintarlos en el hero
+    # de la ficha y en el One Sheet; se refrescan en cada actualización. ⚠️ Van PRIMERO: deciden de
+    # qué otras plataformas se piden seguidores (`_chartmetric_stat_plan`: solo las que el artista
+    # tiene, que cada fuente es una llamada al día).
+    try:
+        link.social_urls = _chartmetric_extract_social_urls(cm.get_artist_urls(cmid))
+    except Exception as e:
+        errors.append(f"urls:{str(e)[:80]}")
+    for source, fields in _chartmetric_stat_plan(link):
         try:
             data = cm.get_artist_stat(cmid, source)
             payload = data.get("obj", data) if isinstance(data, dict) else data
@@ -166744,13 +168107,16 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
                 _chartmetric_upsert_metric_points(session_db, artist.id, source, field, (payload or {}).get(field))
         except Exception as e:
             errors.append(f"stat:{source}:{str(e)[:80]}")
-    # Enlaces a las redes/plataformas del artista (Instagram, TikTok, YouTube, Bandsintown, Facebook,
-    # X, Spotify, Apple Music, Amazon Music). Se cachean para pintarlos en el hero de la ficha; se
-    # refrescan en cada actualización (la automática es diaria/semanal y la manual desde Integraciones).
+    # DÓNDE SE ESCUCHA (One Sheet → «Países donde más se escucha»): los países y ciudades con más
+    # oyentes en Spotify. Si Chartmetric no lo da (plan sin ese endpoint), se conserva lo último.
     try:
-        link.social_urls = _chartmetric_extract_social_urls(cm.get_artist_urls(cmid))
+        paises, ciudades = _chartmetric_parse_where_people_listen(cm.get_artist_where_people_listen(cmid))
+        if paises:
+            link.top_countries = paises
+        if ciudades:
+            link.top_cities = ciudades
     except Exception as e:
-        errors.append(f"urls:{str(e)[:80]}")
+        errors.append(f"where:{str(e)[:80]}")
     # Mapa de tracks (id_track -> nombre + ISRC) para nombrar canciones en TODAS las plataformas
     # (Apple/Amazon no traen el nombre) y enlazarlas con nuestra ficha por ISRC. Las playlists de
     # cada plataforma referencian el track con un id distinto (cm_track universal, pero también el

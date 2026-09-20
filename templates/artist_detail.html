@@ -127,7 +127,7 @@
   <li class="nav-item">
     <a class="nav-link {% if tab=='onesheet' %}active{% endif %}"
        href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='onesheet') }}">
-      One-sheet
+      One Sheet
     </a>
   </li>
   {# ⚠️ LA CAJA tiene su PROPIO permiso y nace apagada para todos: aquí está el dinero del artista
@@ -755,7 +755,7 @@
 {# ===================== TAB: ONE-SHEET ===================== #}
 {% elif tab == 'onesheet' %}
 
-  {% include "_onesheet_editor.html" %}
+  {% include "_onesheet_tab.html" %}
 
 {# ===================== TAB: AGENDA ===================== #}
 {% elif tab == 'agenda' %}

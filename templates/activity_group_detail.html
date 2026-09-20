@@ -59,6 +59,7 @@
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-marketing" type="button"><i class="fa fa-bullhorn me-1"></i>Marketing{% if promotion_entries_display %} <span class="badge text-bg-light">{{ promotion_entries_display|length }}</span>{% endif %}</button></li>
   {% endif %}
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-result" type="button">Resultado</button></li>
+  {% if onesheet %}<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-onesheet" type="button"><i class="fa-solid fa-id-card me-1"></i>One Sheet</button></li>{% endif %}
 </ul>
 
 <div class="tab-content">
@@ -273,6 +274,12 @@
     <div class="tab-pane fade" id="tab-marketing">
       {% include '_promotion_entity_panel.html' %}
     </div>
+  {% endif %}
+  {% if onesheet %}
+  {# ---------- One Sheet: el porfolio público del ciclo / festival / evento ---------- #}
+  <div class="tab-pane fade" id="tab-onesheet">
+    {% include "_onesheet_tab.html" %}
+  </div>
   {% endif %}
   <div class="tab-pane fade" id="tab-result">
     {% if group_result %}

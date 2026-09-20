@@ -145,6 +145,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_syncro_repertorio.py` | el repertorio de Syncros: quitar una canción la quita de verdad (también si es one-stop, que entra sola), devolverla la devuelve, y lo que todavía no ha salido no se presenta | al tocar el repertorio de Syncros o el one-stop |
 | `check_soldout.py` | el Sold Out de punta a punta: a quién se avisa, la tarea de comunicárselo (bloqueada sin cartel), el correo y la tarea de redes | al tocar el Sold Out |
 | `check_gratuito.py` | que en una actividad gratuita no asome la salida a la venta (configuración, ficha, aviso al artista, ficha del promotor) | al tocar la salida a la venta o lo gratuito |
+| `check_onesheet.py` | el One Sheet de punta a punta: la pestaña crea la fila, la página pública pinta solo lo que toca (fechas confirmadas y anunciadas, Sold Out, certificaciones, países, prensa, fotos), el editor, guardar, plantillas, el Roster y los permisos | al tocar el One Sheet, el Roster o `onesheet_render.py` |
 | `diag_reparto_editorial.py` | dónde se corta el reparto editorial de un autor (solo lee) | al depurar royalties |
 
 ⚠️⚠️ **UNA COLUMNA NUEVA HAY QUE APLICARLA A LAS BASES DE PRUEBA A MANO**: el cerrojo del tempdir
@@ -596,6 +597,10 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   MEDIO de tipo Radio: no hay otra base de emisoras, y «ya suena» sale de las TOCADAS.*
 - **`externos-publico.md`** — portal de externos y páginas públicas. ⚠️ *Un enlace compartido se abre
   sin identificarse y solo enseña ESO; el portal es otra vía y no se tocan entre sí.*
+- **`onesheet.md`** — el **One Sheet** (el porfolio público de un artista, un evento, un ciclo o una
+  gira: `/onesheet/<slug>`), su editor por módulos en rejilla, las plantillas y el **Roster**
+  (`/onesheet`). ⚠️ *Lo dinámico (conciertos, cifras, certificaciones, prensa) se calcula al pintar;
+  solo se guarda lo elegido. El mapeo grueso de permisos no puede mirar al usuario (bucle).*
 
 ### Bases de datos y transversales
 - **`terceros-medios.md`** — terceros, artistas, medios, fusión de duplicados e importaciones.

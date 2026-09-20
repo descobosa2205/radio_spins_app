@@ -3,6 +3,9 @@
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h4 class="mb-0">Artistas</h4>
   <div class="d-flex align-items-center gap-2">
+    {% if has_access_key('artists.onesheet', include_descendants=True) %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('onesheet_roster_manage') }}" title="El Roster público: quién sale, en qué orden y con qué etiquetas"><i class="fa-solid fa-id-card me-1"></i>Roster</a>
+    {% endif %}
     {% if CAN_EDIT_ARTISTS_STATIONS %}
       <span class="badge text-bg-primary">Edición</span>
       <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newArtistModal"><i class="fa fa-plus me-1"></i>Añadir artista</button>

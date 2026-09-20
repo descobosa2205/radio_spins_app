@@ -18,7 +18,7 @@
      data-tpl-new-url="{{ url_for('promo_press_template_new') }}"
      data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-image-crop-url="{{ image_crop_url }}" data-photos-url="{{ photos_url_tpl }}"
      data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if (campaign or invite) else '' }}"
-     data-thumb-url="{{ thumb_save_url }}"
+     data-thumb-url="{{ thumb_save_url }}" data-bg-style-url="{{ url_for('promo_press_bg_style', release_id=pr.id) }}"
      data-design-asset="{{ design_asset|tojson|forceescape }}" data-corporate="{{ palette_corporate|tojson|forceescape }}"
      data-text-defaults="{{ text_defaults|tojson|forceescape }}"
      data-can-edit="{{ '1' if can_edit else '' }}">
@@ -60,10 +60,24 @@
         <img src="{{ pr.thumb_url or '' }}" alt="" data-pr-thumb-img class="{{ '' if pr.thumb_url else 'd-none' }}">
         <i class="fa fa-image-portrait me-1" data-pr-thumb-ico {% if pr.thumb_url %}class="fa fa-image-portrait me-1 d-none"{% endif %}></i>Miniatura
       </button>
-      <label class="btn btn-outline-secondary btn-sm mb-0" title="Subir o cambiar la imagen de fondo (el contenido no se toca)">
-        <i class="fa fa-image me-1"></i>Fondo
-        <input type="file" accept="image/*" class="d-none" data-pr-bg-file>
-      </label>
+      {# EL FONDO: la imagen (se puede cambiar sin tocar el contenido), el COLOR de fondo (detrás y debajo
+         de la imagen) y el FUNDIDO de la imagen con ese color (se hornea en la imagen: vale en el correo). #}
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" title="La imagen de fondo, el color de fondo y el fundido de la imagen con él"><i class="fa fa-image me-1"></i>Fondo</button>
+        <div class="dropdown-menu dropdown-menu-end p-3" style="min-width:320px">
+          <label class="btn btn-outline-primary btn-sm mb-3 w-100"><i class="fa fa-upload me-1"></i>Subir o cambiar la imagen<input type="file" accept="image/*" class="d-none" data-pr-bg-file></label>
+          <div class="small fw-semibold mb-1">Color de fondo <span class="fw-normal text-muted">(detrás y debajo de la imagen)</span></div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <input type="color" class="form-control form-control-color form-control-sm" data-pr-bg-color value="#ffffff" title="Elegir un color">
+            <span class="small text-muted" data-pr-bg-hex>blanco</span>
+            <button type="button" class="btn btn-sm btn-link p-0 ms-auto text-muted" data-pr-bg-color-clear>blanco</button>
+          </div>
+          <div class="pr-colors mb-3" data-pr-bg-colors></div>
+          <div class="small fw-semibold d-flex justify-content-between mb-1"><span>Fundir la imagen con el fondo</span><b data-pr-bg-fade-val>0 %</b></div>
+          <input type="range" class="form-range" min="0" max="100" step="5" data-pr-bg-fade title="Cuánto de la parte de abajo de la imagen se funde con el color">
+          <div class="form-text">Se hornea en la propia imagen: sale igual en el correo, la página y el PDF.</div>
+        </div>
+      </div>
       <div class="dropdown">
         <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Cargar una plantilla (fondo y módulos) o gestionarlas"><i class="fa fa-swatchbook me-1"></i>Plantillas</button>
         <ul class="dropdown-menu dropdown-menu-end" data-pr-templates-menu>

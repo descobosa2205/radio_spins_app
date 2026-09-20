@@ -1,0 +1,81 @@
+{# ═══════════════ LA PESTAÑA «ONE SHEET» DE UNA FICHA (artista · gira · evento · ciclo) ═══════════════
+   La tarjeta del one sheet: la cabecera en pequeño, la dirección pública para copiarla y compartirla,
+   lo que llevamos (las etiquetas del Roster), si sale en el Roster, y el botón que abre el EDITOR
+   (una página propia, a todo el ancho). Espera `onesheet` (`_onesheet_tab_context`). #}
+{% set os = onesheet %}
+{% if not os %}
+  <div class="alert alert-light border">No se ha podido preparar el one sheet de esta ficha.</div>
+{% else %}
+<div class="ost" data-ost data-settings-url="{{ os.settings_url }}">
+  <div class="ost__card">
+    <a class="ost__hero" href="{{ os.public_url }}" target="_blank" rel="noopener" style="--ost-bg:{{ os.bg }};{% if os.hero_url %}--ost-img:url('{{ os.hero_url }}'){% endif %}" title="Ver el one sheet público">
+      <span class="ost__name">{{ os.name }}</span>
+      {% if os.services %}<span class="ost__svcs">{% for sv in os.services %}<span><i class="fa-solid {{ sv.icon }}"></i>{{ sv.label }}</span>{% endfor %}</span>{% endif %}
+    </a>
+    <div class="ost__body">
+      <div class="ost__row">
+        <div class="ost__label"><i class="fa-solid fa-link"></i>Dirección pública</div>
+        <div class="ost__url">
+          <input type="text" class="form-control form-control-sm" readonly value="{{ os.public_url }}" data-ost-url>
+          <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ os.public_url }}" title="Copiar el enlace"><i class="fa-regular fa-copy"></i></button>
+          <div class="dropdown dropdown-menu-portal">
+            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" title="Compartir"><i class="fa-solid fa-share-nodes"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" target="_blank" rel="noopener" href="https://wa.me/?text={{ (os.name ~ ' · One Sheet\n' ~ os.public_url)|urlencode }}"><i class="fa-brands fa-whatsapp me-2"></i>WhatsApp</a></li>
+              <li><a class="dropdown-item" href="mailto:?subject={{ (os.name ~ ' · One Sheet')|urlencode }}&body={{ os.public_url|urlencode }}"><i class="fa-solid fa-envelope me-2"></i>Correo</a></li>
+              <li><a class="dropdown-item" href="sms:?&body={{ (os.name ~ ' · One Sheet ' ~ os.public_url)|urlencode }}"><i class="fa-solid fa-comment-sms me-2"></i>SMS</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="ost__row">
+        <div class="ost__label"><i class="fa-solid fa-tags"></i>Lo que llevamos</div>
+        <div class="ost__chips">
+          {% for sv in os.service_options %}
+            <label class="ost__chip{% if os.services|selectattr('key', 'equalto', sv.key)|list %} is-on{% endif %}"><input type="checkbox" data-ost-service="{{ sv.key }}" {% if os.services|selectattr('key', 'equalto', sv.key)|list %}checked{% endif %} {% if not os.can_edit %}disabled{% endif %}><i class="fa-solid {{ sv.icon }}"></i>{{ sv.label }}</label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="ost__row">
+        <div class="ost__label"><i class="fa-solid fa-users"></i>Roster</div>
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" data-ost-roster {% if os.roster_visible %}checked{% endif %} {% if not os.can_edit %}disabled{% endif %}><span class="form-check-label small">Sale en el Roster público</span></label>
+          <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" data-ost-published {% if os.published %}checked{% endif %} {% if not os.can_edit %}disabled{% endif %}><span class="form-check-label small">Publicado (el enlace se abre)</span></label>
+          <a class="small" href="{{ os.roster_manage_url }}"><i class="fa-solid fa-arrow-up-right-from-square me-1"></i>Gestionar el Roster</a>
+        </div>
+      </div>
+      <div class="ost__foot">
+        <span class="small text-muted">{{ os.module_count }} módulos{% if os.updated_label %} · actualizado el {{ os.updated_label }}{% if os.updated_by %} por {{ os.updated_by }}{% endif %}{% endif %}</span>
+        <span class="ost__saved small text-muted" data-ost-saved></span>
+        <div class="d-flex gap-2">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ os.public_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye me-1"></i>Ver público</a>
+          <a class="btn btn-primary btn-sm" href="{{ os.editor_url }}"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>{{ 'Editar el diseño' if os.can_edit else 'Ver el diseño' }}</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  // Los ajustes de la pestaña (etiquetas, Roster, publicado) se guardan al momento, sin recargar.
+  (function(){
+    function csrf(){ var m=document.querySelector('meta[name="csrf-token"]'); return m?(m.getAttribute('content')||''):''; }
+    document.addEventListener('change', function(ev){
+      var root = ev.target.closest('[data-ost]'); if(!root) return;
+      var inp = ev.target;
+      if(!inp.matches('[data-ost-service],[data-ost-roster],[data-ost-published]')) return;
+      var chip = inp.closest('.ost__chip'); if(chip) chip.classList.toggle('is-on', inp.checked);
+      var payload = {};
+      if(inp.matches('[data-ost-service]')){
+        payload.services = Array.prototype.map.call(root.querySelectorAll('[data-ost-service]:checked'), function(x){ return x.getAttribute('data-ost-service'); });
+      }
+      if(inp.matches('[data-ost-roster]')) payload.roster_visible = inp.checked;
+      if(inp.matches('[data-ost-published]')) payload.published = inp.checked;
+      var saved = root.querySelector('[data-ost-saved]'); if(saved) saved.textContent = 'Guardando…';
+      fetch(root.getAttribute('data-settings-url'), {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf()}, body: JSON.stringify(payload)})
+        .then(function(r){ return r.json(); })
+        .then(function(js){ if(saved) saved.textContent = (js && js.ok) ? 'Guardado ✓' : ((js && js.error) || 'No se pudo guardar'); })
+        .catch(function(){ if(saved) saved.textContent = 'No se pudo guardar'; });
+    });
+  })();
+</script>
+{% endif %}

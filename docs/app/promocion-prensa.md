@@ -28,6 +28,7 @@
 - LA FILA DE UN DESTINATARIO, LA MISMA EN LOS TRES ENVÍOS (foto, correo al lado y vinculación debajo)
 - EL MÓDULO DE VÍDEO DE YOUTUBE: la miniatura con el play y el pop-up que lo reproduce
 - UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA (sep 2026, notas de prensa y
+- «DISEÑO DE COMUNICACIONES» · COLOR DE FONDO, la imagen FUNDIDA con él y los COLORES DE CADA MÓDULO
 - «DISEÑO DE COMUNICACIONES»: el cartel en PDF, el single y el logo vacíos, y elegir VARIOS con ⌘
 
 ---
@@ -814,6 +815,33 @@
   · Solo se ofrecen las actividades **por venir** (ni canceladas ni aplazadas) y el cartel es el
   **primero aprobado de categoría POSTER**: un Sold Out o un logo no valen.
   → El detalle de las invitaciones corporativas, en `docs/app/invitaciones.md`.
+
+- **«DISEÑO DE COMUNICACIONES» · COLOR DE FONDO, la imagen FUNDIDA con él y los COLORES DE CADA
+  MÓDULO** (sep 2026, lo pidió Dani al rehacer el One Sheet: «esta función del color de fondo sumará
+  a los diseños de las comunicaciones, y que la imagen de cabecera se funda igual»; «los colores de
+  la letra e iconos de los módulos se tienen que poder cambiar para cada uno por separado»).
+  · **El color de fondo** es del DISEÑO (`design.bg.color`, punto único `press_render.bg_color`):
+  lo que hay detrás y debajo de la imagen. Lo pintan `render_web`, las bandas del correo
+  (`_bg_css` y la tabla), la miniatura, la og y el PDF (que llena la página con él antes de la
+  imagen). Blanco si no se elige ninguno, como siempre fue. En el editor, botón **«Fondo»** (ahora
+  un desplegable: la imagen, el color —con la paleta de la imagen y los corporativos— y el fundido).
+  · **El fundido** (`design.bg.fade`, % de la imagen): ⚠️ **se HORNEA en la propia imagen**
+  (`_press_bg_bake`, Pillow: un degradado de transparente al color sobre el `fade`% inferior de la
+  ORIGINAL, `bg.url_orig`, y la imagen fundida pasa a ser `bg.url`). Es la única forma de que salga
+  igual en Gmail, Outlook, la página y el PDF, que ya usan `bg.url` sin tocar nada. Con fade 0 se
+  vuelve a la original. Mientras se mueve la barra el editor lo previsualiza con un degradado CSS
+  (`fadePreview`) y al soltar pide la imagen horneada (`promo_press_bg_style`). Al subir OTRA
+  imagen se conservan el color y el fundido (se hornea sobre la nueva).
+  ⚠️ El guardado rehace `bg` desde cero: `_press_bg_keep_style` conserva color, fade y `url_orig`
+  (la misma trampa que ya tenía la paleta).
+  · **Los colores de cada módulo** (`opts.text_color`, `opts.icon_color`): se eligen en el panel del
+  módulo («Colores de este módulo»: letras e iconos por separado, con la paleta del fondo y los
+  corporativos, y «volver al de siempre») y los aplica **`press_render.apply_module_colors`** en un
+  punto único —el HTML del módulo lleva sus colores EN LÍNEA porque va por correo, así que se
+  sustituyen ahí (`TEXT_COLOR` y sus grises por el de letras; el `c=` de los PNG de iconos por el de
+  iconos) en vez de enhebrar dos parámetros por los quince módulos—. Lo usan `block_html` (web,
+  correo, PDF) y `promo_press_block_html` (el editor): lo que se ve es lo que llega. El blanco de los
+  botones rellenos no se toca.
 
 - ⚠️⚠️ **«DISEÑO DE COMUNICACIONES» · el cartel en PDF, el single y el logo vacíos, y elegir VARIOS
   a la vez** (sep 2026, lo pidió Dani). **Así se llama el editor**: es el MISMO para una **nota de

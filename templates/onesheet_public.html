@@ -1,0 +1,54 @@
+{# ONE SHEET · la página PÚBLICA (lo que se comparte: /onesheet/<slug>).
+   Standalone a propósito: sin la app alrededor, con sus `og:` para que la tarjeta del enlace sea la
+   foto de cabecera, y la tipografía elegida (solo esa) desde Google Fonts. El cuerpo es EL MISMO que
+   ve el editor (`_onesheet_body.html`). #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ name }} · One Sheet</title>
+  <meta name="description" content="{{ name }} · {{ kind_label or 'Artista' }} · One Sheet de 33 Producciones y PIES Records.">
+  <meta property="og:type" content="profile">
+  <meta property="og:title" content="{{ name }} · One Sheet">
+  <meta property="og:description" content="{{ (services|map(attribute='label')|join(' · ')) or (kind_label or 'One Sheet') }}">
+  <meta property="og:url" content="{{ public_url }}">
+  {% if og_image %}
+    <meta property="og:image" content="{{ og_image }}">
+    <meta property="og:image:secure_url" content="{{ og_image }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ og_image }}">
+  {% endif %}
+  <meta name="theme-color" content="{{ theme_colors.bg }}">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="{{ url_for('static', filename='img/Icono.jpg') }}">
+  {% if font_href %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="{{ font_href }}">
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/onesheet.css', v=ASSET_V) }}">
+  <style>html,body{margin:0;background:{{ theme_colors.bg }};}</style>
+</head>
+<body class="os-body">
+  <div class="os-topbar" data-os-topbar>
+    <button type="button" class="os-topbar__btn" data-os-share title="Compartir este One Sheet"><i class="fa-solid fa-share-nodes"></i><span>Compartir</span></button>
+    {% if can_edit and editor_url %}<a class="os-topbar__btn os-topbar__btn--edit" href="{{ editor_url }}" title="Editar este One Sheet (solo lo ve quien tiene sesión)"><i class="fa-solid fa-pen"></i><span>Editar</span></a>{% endif %}
+  </div>
+  {% include '_onesheet_body.html' %}
+  <div class="os-share" data-os-share-box hidden>
+    <div class="os-share__card">
+      <button type="button" class="os-share__x" data-os-share-close aria-label="Cerrar">×</button>
+      <div class="os-share__t">Compartir</div>
+      <div class="os-share__url"><input type="text" readonly value="{{ public_url }}" data-os-share-url><button type="button" data-os-copy><i class="fa-regular fa-copy"></i> Copiar</button></div>
+      <div class="os-share__row">
+        <a href="https://wa.me/?text={{ (name ~ ' · One Sheet\n' ~ public_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a>
+        <a href="mailto:?subject={{ (name ~ ' · One Sheet')|urlencode }}&body={{ public_url|urlencode }}"><i class="fa-solid fa-envelope"></i> Correo</a>
+        <a href="sms:?&body={{ (name ~ ' · One Sheet ' ~ public_url)|urlencode }}"><i class="fa-solid fa-comment-sms"></i> SMS</a>
+      </div>
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='js/onesheet_view.js', v=ASSET_V) }}"></script>
+</body>
+</html>

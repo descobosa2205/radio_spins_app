@@ -1,0 +1,222 @@
+{# ═══════════════ UN MÓDULO DEL ONE SHEET ═══════════════
+   La MISMA plantilla pinta el módulo en la página pública y en el editor (`editing`): lo que se ve al
+   diseñar es lo que se publica. `b` es el bloque del diseño (sitio, opciones, colores propios), `d`
+   sus DATOS ya calculados (`_onesheet_module_data`) y `meta` su ficha del catálogo.
+   ⚠️ Las listas de datos se llaman `d.rows` (nunca «items»: en Jinja `d.items` es el método del dict).
+   ⚠️ Un módulo VACÍO no llega aquí en la página pública (`_onesheet_render_module` devuelve ""); en el
+   editor se pinta como un hueco que dice qué le falta. #}
+{% set o = b.opts or {} %}
+{% set st = b.style or {} %}
+{% set ico = o.icon_override or meta.icon %}
+<section class="os-mod os-mod--{{ b.type }}{% if d.empty %} is-empty{% endif %}{% if st.bg and st.bg != 'theme' %} os-mod--bg-{{ st.bg }}{% endif %}{% if st.align %} os-mod--{{ st.align }}{% endif %}"
+         data-os-id="{{ b.id }}" data-os-type="{{ b.type }}" style="{{ block_style }}">
+  {% if editing %}
+    <div class="ose-grip" data-ose-grip title="Arrastra para mover · pincha para configurar"><i class="fa-solid fa-grip"></i><span>{{ meta.label }}</span></div>
+    <div class="ose-rs ose-rs--w" data-ose-rs="w" title="Arrastra para cambiar el ancho"></div>
+    <div class="ose-rs ose-rs--e" data-ose-rs="e" title="Arrastra para cambiar el ancho"></div>
+    <div class="ose-rs ose-rs--s" data-ose-rs="s" title="Arrastra para que ocupe más filas"></div>
+  {% endif %}
+  {% if o.show_title and o.title %}
+    <h2 class="os-mod__t"><i class="fa-solid {{ ico }}"></i><span>{{ o.title }}</span></h2>
+  {% endif %}
+  <div class="os-mod__b">
+  {% if d.empty %}
+    {% if editing %}
+      <div class="ose-empty">
+        <i class="fa-solid {{ meta.icon }}"></i>
+        <b>{{ meta.label }}</b>
+        <span>
+          {% if b.type in ('bio', 'text') %}Escribe el texto aquí mismo: pincha y teclea. Con el texto seleccionado sale la barra de negrita, enlaces y tamaño.
+          {% elif b.type == 'highlights' %}Añade los puntos fuertes en el panel de la derecha (cada uno con su icono).
+          {% elif b.type in ('stats', 'followers') %}Todavía no hay cifras de Chartmetric para este artista. Se rellenan solas cuando el artista está vinculado en Integraciones → Chartmetric.
+          {% elif b.type == 'socials' %}No hay redes con enlace: se cogen de Chartmetric y de la ficha del artista (Datos → Redes). También puedes añadir enlaces a mano en el panel.
+          {% elif b.type == 'concerts' %}No hay fechas confirmadas y anunciadas de aquí en adelante. Saldrán solas en cuanto las haya.
+          {% elif b.type == 'photos' %}Elige un álbum entero o fotos sueltas en el panel de la derecha («Elegir fotos»).
+          {% elif b.type == 'certifications' %}Este artista no tiene certificaciones registradas en sus canciones o discos.
+          {% elif b.type == 'release' %}No hay lanzamientos en el repertorio de este artista.
+          {% elif b.type == 'videos' %}Pega la URL de uno o varios vídeos de YouTube en el panel de la derecha.
+          {% elif b.type == 'countries' %}Todavía no hay datos de países (llegan con el refresco diario de Chartmetric).
+          {% elif b.type == 'awards' %}Añade los premios en el panel de la derecha, con la forma del premio y el año.
+          {% elif b.type == 'press' %}No hay notas de prensa enviadas de este artista. Saldrán solas al enviarlas.
+          {% elif b.type == 'contact' %}Añade quién lleva qué en el panel de la derecha (o elige a alguien de la casa).
+          {% else %}{{ meta.hint }}{% endif %}
+        </span>
+      </div>
+    {% endif %}
+
+  {% elif b.type in ('bio', 'text') %}
+    <div class="os-rich{% if o.more and not editing %} os-rich--more{% endif %}" data-os-rich style="font-size:{{ o.size or 15 }}px;{% if (o.columns or 1) > 1 %}column-count:{{ o.columns }};column-gap:2.2em;{% endif %}">{{ d.html|safe }}</div>
+    {% if o.more and not editing %}<button type="button" class="os-more" data-os-more><span>Leer más</span><i class="fa-solid fa-chevron-down"></i></button>{% endif %}
+
+  {% elif b.type == 'highlights' %}
+    <ul class="os-hl os-hl--{{ o.layout or 'list' }}">
+      {% for it in d.rows %}<li><span class="os-ico"><i class="fa-solid fa-{{ it.icon or 'star' }}"></i></span><span class="os-hl__t">{{ it.text }}</span></li>{% endfor %}
+    </ul>
+
+  {% elif b.type == 'stats' %}
+    <div class="os-stats os-stats--{{ o.layout or 'tiles' }}">
+      {% for m in d.rows %}
+        <div class="os-stat">
+          <div class="os-stat__l"><i class="{{ m.icon }}"></i><span>{{ m.label }}</span></div>
+          <div class="os-stat__v" title="{{ m.value_fmt }}">{{ m.value_fmt }}</div>
+          {% if o.trend and m.delta_fmt %}
+            <div class="os-stat__d {{ 'is-up' if m.up else ('is-down' if m.down else '') }}"><i class="fa-solid {{ 'fa-arrow-trend-up' if m.up else ('fa-arrow-trend-down' if m.down else 'fa-minus') }}"></i>{{ m.delta_fmt }}{% if m.pct_fmt %} · {{ m.pct_fmt }}{% endif %} <small>en 30 días</small></div>
+          {% endif %}
+          {% if o.sparkline and m.spark %}<svg class="os-spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"><path d="{{ m.spark }}"></path></svg>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+  {% elif b.type == 'followers' %}
+    <div class="os-fols os-fols--{{ o.layout or 'list' }}">
+      {% for m in d.rows %}
+        <div class="os-fol" title="{{ m.label }}: {{ m.value_fmt }}">
+          <span class="os-fol__i"><i class="{{ m.icon }}"></i></span>
+          <span class="os-fol__n">{{ m.value_compact }}</span>
+          <span class="os-fol__l">{{ m.short|lower if m.key in ('spotify_followers', 'spotify_listeners') else ('suscriptores' if m.key == 'youtube_subscribers' else ('visualizaciones' if m.key == 'youtube_views' else ('me gusta' if m.key in ('facebook_likes', 'tiktok_likes') else ('fans' if m.key == 'deezer_fans' else 'seguidores')))) }}{% if m.key not in ('spotify_followers', 'spotify_listeners') %} · {{ m.brand }}{% else %} · Spotify{% endif %}</span>
+          {% if o.trend and m.delta_fmt %}<span class="os-fol__d {{ 'is-up' if m.up else ('is-down' if m.down else '') }}"><i class="fa-solid {{ 'fa-arrow-trend-up' if m.up else ('fa-arrow-trend-down' if m.down else 'fa-minus') }}"></i></span>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+  {% elif b.type == 'socials' %}
+    <div class="os-socials os-socials--{{ o.style_kind or 'pills' }}">
+      {% for sx in d.rows %}
+        <a class="{{ 'os-sico' if (o.style_kind or 'pills') == 'icons' else ('os-srow' if o.style_kind == 'list' else 'os-pill') }}" href="{{ sx.url }}" target="_blank" rel="noopener" title="{{ sx.label }}">
+          <i class="{{ sx.icon }}"></i>{% if (o.style_kind or 'pills') != 'icons' and o.labels %}<span>{{ sx.label }}</span>{% endif %}
+          {% if o.style_kind == 'list' %}<small>{{ sx.url|replace('https://', '')|replace('http://', '')|truncate(48, True) }}</small>{% endif %}
+        </a>
+      {% endfor %}
+    </div>
+
+  {% elif b.type == 'concerts' %}
+    <ul class="os-conc{% if o.compact %} os-conc--compact{% endif %}">
+      {% for c in d.rows %}
+        <li class="os-conc__row{% if c.sold_out %} is-soldout{% endif %}">
+          <div class="os-cal" title="{{ c.date_long }}"><span class="os-cal__wd">{{ c.cal.wd }}</span><span class="os-cal__d">{{ c.cal.num }}</span><span class="os-cal__m">{{ c.cal.mo }}</span></div>
+          <div class="os-conc__body">
+            <div class="os-conc__t">
+              {% if c.artist %}<span class="os-conc__artist">{% if c.artist_photo %}<img src="{{ c.artist_photo }}" alt="">{% endif %}{{ c.artist }}</span> · {% endif %}
+              <span>{{ c.title }}</span>
+              {% if c.sold_out %}<span class="os-tag os-tag--soldout">Sold Out</span>{% endif %}
+            </div>
+            <div class="os-conc__s">
+              {% if c.venue and o.show_venue %}<span><i class="fa-solid fa-building"></i>{{ c.venue }}</span>{% endif %}
+              {% if c.place %}<span><i class="fa-solid fa-location-dot"></i>{{ c.place }}</span>{% endif %}
+              {% if c.time %}<span><i class="fa-regular fa-clock"></i>{{ c.time }} h</span>{% endif %}
+              {% if c.kind != 'CONCIERTO' %}<span><i class="fa-solid {{ c.icon }}"></i>{{ c.kind_label }}</span>{% endif %}
+              {% if c.end_date %}<span><i class="fa-solid fa-arrow-right-long"></i>hasta el {{ c.end_date.strftime('%d/%m') }}</span>{% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+    {% if o.cta and o.cta_url %}<a class="os-btn os-btn--ghost os-conc__cta" href="{{ o.cta_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-ticket"></i>{{ o.cta }}</a>{% endif %}
+
+  {% elif b.type == 'photos' %}
+    <div class="os-photos os-photos--{{ o.layout or 'grid' }} os-photos--{{ o.ratio or 'square' }}" style="--cols:{{ o.cols or 4 }};">
+      {% for f in d.rows %}
+        <a class="os-ph" href="{{ f.url }}" data-os-lightbox data-os-title="{{ f.title }}"{% if editing %} tabindex="-1"{% endif %}><img src="{{ f.url }}" alt="{{ f.title }}" loading="lazy"></a>
+      {% endfor %}
+    </div>
+
+  {% elif b.type == 'certifications' %}
+    <ul class="os-certs">
+      {% for c in d.rows %}
+        <li>
+          <img class="os-cert__ico" src="{{ c.icon_url }}" alt="{{ c.type_title }}" title="{{ c.type_title }}">
+          <div class="os-cert__body">
+            <div class="os-cert__t">{{ c.title }}</div>
+            <div class="os-cert__s">{{ c.label }}{% if c.year %} · {{ c.year }}{% endif %}{% if o.show_country and c.countries %} · {{ c.countries|join(', ') }}{% endif %}</div>
+          </div>
+          {% if c.cover %}<img class="os-cert__cover" src="{{ c.cover }}" alt="">{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+
+  {% elif b.type == 'release' %}
+    {% set r = d.item %}
+    <div class="os-rel">
+      {% if d.listen_url %}<a class="os-rel__cover" href="{{ d.listen_url }}" target="_blank" rel="noopener">{% else %}<span class="os-rel__cover">{% endif %}
+        {% if r.cover %}<img src="{{ r.cover }}" alt="{{ r.title }}">{% else %}<span class="os-rel__ph"><i class="fa-solid fa-compact-disc"></i></span>{% endif %}
+        {% if d.listen_url %}<span class="os-rel__play"><i class="fa-solid fa-play"></i></span>{% endif %}
+      {% if d.listen_url %}</a>{% else %}</span>{% endif %}
+      <div class="os-rel__body">
+        <div class="os-rel__k">{{ 'Próximo lanzamiento' if d.upcoming else r.kind_label }}{% if o.show_date and d.date_long %} · {{ d.date_long }}{% endif %}</div>
+        <h3 class="os-rel__t">{{ r.title }}</h3>
+        <div class="os-rel__actions">
+          {% if d.listen_url %}<a class="os-btn" href="{{ d.listen_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-play"></i><span>Escuchar</span></a>{% endif %}
+          {% if o.show_platforms and r.links %}
+            <div class="os-rel__plat">
+              {% for l in r.links %}<a class="os-sico os-sico--sm" href="{{ l.url }}" target="_blank" rel="noopener" title="{{ l.label }}"><i class="{{ l.icon }}"></i></a>{% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        {% if d.embed %}<iframe class="os-rel__embed" src="{{ d.embed }}" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" title="Reproductor de Spotify"></iframe>{% endif %}
+      </div>
+    </div>
+
+  {% elif b.type == 'videos' %}
+    <div class="os-videos" style="--cols:{{ o.cols or 2 }};">
+      {% for v in d.rows %}
+        <button type="button" class="os-video" data-os-video="{{ v.embed }}" data-os-title="{{ v.title }}" title="Ver el vídeo">
+          <img src="{{ v.thumb }}" alt="{{ v.title }}" loading="lazy">
+          <span class="os-video__play"><i class="fa-solid fa-play"></i></span>
+          {% if v.title %}<span class="os-video__t">{{ v.title }}</span>{% endif %}
+        </button>
+      {% endfor %}
+    </div>
+
+  {% elif b.type == 'countries' %}
+    <ol class="os-countries">
+      {% for c in d.rows %}
+        <li>
+          <span class="os-cty__pos">{{ c.pos }}</span>
+          {% if c.code2 %}<span class="os-cty__flag">{{ c.code2 }}</span>{% endif %}
+          <span class="os-cty__n">{{ c.name }}</span>
+          <span class="os-cty__bar"><i style="width:{{ c.pct }}%"></i></span>
+          {% if o.show_values %}<span class="os-cty__v" title="{{ c.value_fmt }} oyentes mensuales">{{ c.value_compact }}</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+    <div class="os-note"><i class="fa-brands fa-spotify"></i> Oyentes mensuales en Spotify</div>
+
+  {% elif b.type == 'awards' %}
+    <ul class="os-awards os-awards--{{ o.layout or 'list' }}">
+      {% for a in d.rows %}
+        <li>
+          <span class="os-ico os-ico--lg"><i class="fa-solid fa-{{ a.icon or 'trophy' }}"></i></span>
+          <div class="os-award__body"><div class="os-award__n">{{ a.name }}</div>{% if a.by %}<div class="os-award__by">{{ a.by }}</div>{% endif %}</div>
+          {% if a.year %}<span class="os-award__y">{{ a.year }}</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+
+  {% elif b.type == 'press' %}
+    <div class="os-press os-press--{{ o.layout or 'cards' }}">
+      {% for p in d.rows %}
+        <a class="os-pr" href="{{ p.url }}" target="_blank" rel="noopener">
+          {% if p.thumb %}<img class="os-pr__img" src="{{ p.thumb }}" alt="" loading="lazy">{% else %}<span class="os-pr__img os-pr__img--ph"><i class="fa-solid fa-newspaper"></i></span>{% endif %}
+          <div class="os-pr__b"><div class="os-pr__d">{{ p.date_long }}</div><div class="os-pr__t">{{ p.title }}</div><div class="os-pr__more">Leer la nota <i class="fa-solid fa-arrow-right-long"></i></div></div>
+        </a>
+      {% endfor %}
+    </div>
+
+  {% elif b.type == 'contact' %}
+    <div class="os-contacts os-contacts--{{ o.layout or 'cards' }}">
+      {% for c in d.rows %}
+        <div class="os-ct">
+          {% if c.photo_url %}<img class="os-ct__ph" src="{{ c.photo_url }}" alt="">{% else %}<span class="os-ct__ph os-ct__ph--i"><i class="fa-solid fa-user"></i></span>{% endif %}
+          <div class="os-ct__b">
+            {% if c.role %}<div class="os-ct__r">{{ c.role }}</div>{% endif %}
+            {% if c.name %}<div class="os-ct__n">{{ c.name }}</div>{% endif %}
+            {% if c.email %}<a class="os-ct__l" href="mailto:{{ c.email }}"><i class="fa-solid fa-envelope"></i><span>{{ c.email }}</span></a>{% endif %}
+            {% if c.phone %}<a class="os-ct__l" href="tel:{{ c.phone|replace(' ', '') }}"><i class="fa-solid fa-phone"></i><span>{{ c.phone }}</span></a>{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+    {% if d.logos %}<div class="os-logos">{% for l in d.logos %}<img src="{{ l.url }}" alt="{{ l.name }}" title="{{ l.name }}">{% endfor %}</div>{% endif %}
+  {% endif %}
+  </div>
+</section>

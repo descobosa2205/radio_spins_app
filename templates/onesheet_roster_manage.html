@@ -1,0 +1,89 @@
+{% extends "layout.html" %}
+{% block content %}
+{# GESTIÓN DEL ROSTER: quién sale en /onesheet, en qué orden (se arrastra) y con qué etiquetas.
+   Cada cambio se guarda al soltar (todo el orden) y al marcar (visibilidad y etiquetas). #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/onesheet.css', v=ASSET_V) }}">
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div class="d-flex align-items-center gap-2">
+    <a href="{{ url_for('artists_view') }}" class="btn btn-sm btn-outline-secondary btn-volver" title="Volver a Artistas" aria-label="Volver a Artistas"><i class="fa fa-arrow-left"></i></a>
+    <div>
+      <h4 class="mb-0"><i class="fa-solid fa-users me-2 text-danger"></i>Roster</h4>
+      <div class="text-muted small">Quién sale en la página pública, en qué orden y con qué etiquetas. Arrastra para ordenar.</div>
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span class="small text-muted" data-osrm-saved></span>
+    <a class="btn btn-outline-secondary" href="{{ public_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye me-1"></i>Ver el Roster público</a>
+  </div>
+</div>
+
+<div class="osrm" data-osrm data-save-url="{{ save_url }}" data-can-edit="{{ '1' if can_edit else '' }}">
+  <div class="osrm__list" data-osrm-list>
+    {% for r in rows %}
+      <div class="osrm__row{% if not r.visible %} is-hidden{% endif %}" data-osrm-row data-kind="{{ r.kind }}" data-id="{{ r.id }}" draggable="{{ 'true' if can_edit else 'false' }}">
+        <span class="osrm__grip" title="Arrastra para ordenar"><i class="fa-solid fa-grip-vertical"></i></span>
+        <span class="osrm__pos">{{ loop.index }}</span>
+        <span class="osrm__img" style="{% if r.bg %}background:{{ r.bg }}{% endif %}">{% if r.hero_url or r.photo_url %}<img src="{{ r.hero_url or r.photo_url }}" alt="">{% else %}<i class="fa-solid fa-guitar"></i>{% endif %}</span>
+        <span class="osrm__name"><span>{{ r.name }}</span>{% if r.kind != 'ARTIST' %}<small>{{ r.kind_label }}</small>{% endif %}</span>
+        <span class="osrm__svcs">
+          {% for sv in services_all %}
+            <label class="ost__chip{% if r.services|selectattr('key', 'equalto', sv.key)|list %} is-on{% endif %}" title="{{ sv.label }}"><input type="checkbox" data-osrm-service="{{ sv.key }}" {% if r.services|selectattr('key', 'equalto', sv.key)|list %}checked{% endif %} {% if not can_edit %}disabled{% endif %}><i class="fa-solid {{ sv.icon }}"></i><span>{{ sv.label }}</span></label>
+          {% endfor %}
+        </span>
+        <label class="form-check form-switch mb-0 osrm__vis" title="Sale en el Roster público"><input class="form-check-input" type="checkbox" data-osrm-visible {% if r.visible %}checked{% endif %} {% if not can_edit %}disabled{% endif %}></label>
+        <span class="osrm__acts">
+          <a class="btn btn-sm btn-outline-secondary" href="{{ r.url }}" target="_blank" rel="noopener" title="Ver su One Sheet"><i class="fa-solid fa-eye"></i></a>
+          <a class="btn btn-sm btn-outline-primary" href="{{ r.editor_url }}" title="Editar su One Sheet"><i class="fa-solid fa-pen"></i></a>
+        </span>
+      </div>
+    {% else %}
+      <div class="text-muted p-3">No hay artistas.</div>
+    {% endfor %}
+  </div>
+</div>
+<script>
+(function(){
+  var root = document.querySelector('[data-osrm]'); if(!root) return;
+  var list = root.querySelector('[data-osrm-list]');
+  var canEdit = root.getAttribute('data-can-edit') === '1';
+  function csrf(){ var m=document.querySelector('meta[name="csrf-token"]'); return m?(m.getAttribute('content')||''):''; }
+  function items(){
+    return Array.prototype.map.call(list.querySelectorAll('[data-osrm-row]'), function(row, i){
+      row.querySelector('.osrm__pos').textContent = i + 1;
+      return { kind: row.getAttribute('data-kind'), id: row.getAttribute('data-id'), order: i + 1,
+        visible: row.querySelector('[data-osrm-visible]').checked,
+        services: Array.prototype.map.call(row.querySelectorAll('[data-osrm-service]:checked'), function(x){ return x.getAttribute('data-osrm-service'); }) };
+    });
+  }
+  var timer = null;
+  function guarda(){
+    if(!canEdit) return;
+    clearTimeout(timer);
+    timer = setTimeout(function(){
+      var s = document.querySelector('[data-osrm-saved]'); if(s) s.textContent = 'Guardando…';
+      fetch(root.getAttribute('data-save-url'), {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf()}, body: JSON.stringify({items: items()})})
+        .then(function(r){ return r.json(); })
+        .then(function(js){ if(s) s.textContent = (js && js.ok) ? 'Guardado ✓' : ((js && js.error) || 'No se pudo guardar'); })
+        .catch(function(){ if(s) s.textContent = 'No se pudo guardar'; });
+    }, 250);
+  }
+  list.addEventListener('change', function(ev){
+    var row = ev.target.closest('[data-osrm-row]'); if(!row) return;
+    var chip = ev.target.closest('.ost__chip'); if(chip) chip.classList.toggle('is-on', ev.target.checked);
+    if(ev.target.matches('[data-osrm-visible]')) row.classList.toggle('is-hidden', !ev.target.checked);
+    guarda();
+  });
+  // Ordenar arrastrando (HTML5 drag & drop entre filas).
+  var dragging = null;
+  list.addEventListener('dragstart', function(ev){ var row = ev.target.closest('[data-osrm-row]'); if(!row || !canEdit) return; dragging = row; row.classList.add('is-dragging'); ev.dataTransfer.effectAllowed = 'move'; try{ ev.dataTransfer.setData('text/plain', row.getAttribute('data-id')); }catch(e){} });
+  list.addEventListener('dragover', function(ev){
+    if(!dragging) return; ev.preventDefault();
+    var over = ev.target.closest('[data-osrm-row]'); if(!over || over === dragging) return;
+    var r = over.getBoundingClientRect();
+    if(ev.clientY < r.top + r.height / 2) list.insertBefore(dragging, over); else list.insertBefore(dragging, over.nextSibling);
+  });
+  list.addEventListener('drop', function(ev){ ev.preventDefault(); });
+  list.addEventListener('dragend', function(){ if(dragging){ dragging.classList.remove('is-dragging'); dragging = null; items(); guarda(); } });
+})();
+</script>
+{% endblock %}

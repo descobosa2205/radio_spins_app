@@ -170,6 +170,23 @@ def get_artist_stat(cmid: int | str, source: str, params: dict | None = None) ->
     return _get(f"/api/artist/{cmid}/stat/{source}", params=params)
 
 
+def get_artist_where_people_listen(cmid: int | str, since: str | None = None, limit: int = 50) -> dict:
+    """DÓNDE SE ESCUCHA al artista en Spotify: oyentes mensuales por CIUDAD y por PAÍS.
+
+    Endpoint: GET /api/artist/:id/where-people-listen  (premium: 2 créditos por llamada; se pide una
+    vez al día con el resto de métricas, no en cada carga).
+    ⚠️ La forma exacta de `obj` NO está confirmada contra la API real: la documentación pública no
+    la enseña. Por eso el consumidor (`_chartmetric_parse_where_people_listen`, en app.py) acepta
+    varias formas —un dict `{cities: {...}, countries: {...}}` con listas de puntos por nombre, o
+    listas de dicts con `name`/`code2`/`listeners`— y se queda con el último valor de cada uno.
+    `since` (YYYY-MM-DD) acota la ventana; sin él la API devuelve lo más reciente."""
+    params = {"limit": limit}
+    if since:
+        params["since"] = since
+    data = _get(f"/api/artist/{cmid}/where-people-listen", params=params)
+    return data.get("obj", data) if isinstance(data, dict) else {"raw": data}
+
+
 def get_artist_urls(cmid: int | str) -> list:
     """Enlaces a los perfiles del artista por plataforma. Devuelve lista de {domain, url[]}."""
     data = _get(f"/api/artist/{cmid}/urls")

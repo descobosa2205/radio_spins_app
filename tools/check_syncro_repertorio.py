@@ -22,7 +22,11 @@ Esto comprueba, contra la app REAL y la BD de PRUEBA:
   6. devolverla la devuelve, y a una one-stop **no la marca a mano** (entra sola: marcarla
      escondería el motivo real por el que está dentro);
   7. lo mismo con una canción que NO es one-stop y está habilitada a mano;
-  8. y el enlace PÚBLICO que ya se mandó **sigue valiendo** (un supervisor no se queda con un 404).
+  8. el enlace PÚBLICO que ya se mandó **sigue valiendo** (un supervisor no se queda con un 404);
+  9. **lo que TODAVÍA NO HA SALIDO no se presenta**: ni sale en el repertorio (dentro ni abierto) ni
+     se puede mandar a un supervisor, aunque sea one-stop o esté habilitada a mano —y su ficha lo
+     DICE («entrará el día que se publique») en vez de parecer que no se ha guardado—. El día del
+     lanzamiento YA cuenta.
 
     /tmp/python/bin/python3 tools/check_syncro_repertorio.py
 
@@ -96,10 +100,11 @@ def main() -> int:
     s.flush()
     autor.publishing_company_id = editorial.id
 
-    def cancion(titulo, *, one_stop: bool, habilitada: bool):
-        """Una canción del repertorio. `one_stop` decide si entra SOLA; `habilitada`, si va marcada."""
+    def cancion(titulo, *, one_stop: bool, habilitada: bool, sale=None):
+        """Una canción del repertorio. `one_stop` decide si entra SOLA; `habilitada`, si va marcada;
+        `sale` es su fecha de publicación (por defecto, ya salida)."""
         sg = models.Song(title=titulo, is_provisional=False,
-                         release_date=hoy - datetime.timedelta(days=5),
+                         release_date=sale or (hoy - datetime.timedelta(days=5)),
                          master_ownership_pct=Decimal("100") if one_stop else Decimal("50"),
                          sync_enabled=habilitada)
         s.add(sg)
@@ -118,8 +123,17 @@ def main() -> int:
 
     os_song = cancion("One-stop SR %s" % suf, one_stop=True, habilitada=False)
     man_song = cancion("A mano SR %s" % suf, one_stop=False, habilitada=True)
+    # ⚠️ TODAVÍA NO HAN SALIDO: una one-stop que sale mañana y una habilitada a mano que sale en un
+    # mes. Ninguna de las dos puede asomar por el repertorio ni presentarse a un supervisor.
+    fut_os = cancion("Futura one-stop SR %s" % suf, one_stop=True, habilitada=False,
+                     sale=hoy + datetime.timedelta(days=1))
+    fut_man = cancion("Futura a mano SR %s" % suf, one_stop=False, habilitada=True,
+                      sale=hoy + datetime.timedelta(days=30))
+    # ⚠️ Y una que sale HOY: el día del lanzamiento YA cuenta (lo decidió Dani).
+    hoy_os = cancion("De hoy SR %s" % suf, one_stop=True, habilitada=False, sale=hoy)
     s.commit()
     os_id, man_id = str(os_song.id), str(man_song.id)
+    fut_os_id, fut_man_id, hoy_os_id = str(fut_os.id), str(fut_man.id), str(hoy_os.id)
 
     cli = A.app.test_client()
     with cli.session_transaction() as ses:
@@ -245,8 +259,68 @@ def main() -> int:
     r = cli.get("/syncro?token=%s" % token)
     comprueba("la página pública del tema sigue abriendo", r.status_code == 200, r.status_code)
 
-    # ── 9 · PRUEBA DE HUMO ─────────────────────────────────────────────────────────────────
-    print("\n9 · Las pantallas de Syncros y la ficha, enteras")
+    # ── 9 · LO QUE TODAVÍA NO HA SALIDO NO SE PRESENTA ─────────────────────────────────────
+    print("\n9 · Una canción que todavía no ha salido no puede estar en el repertorio")
+    comprueba("la one-stop que sale mañana NO está", not en_repertorio(fut_os_id))
+    comprueba("la habilitada a mano que sale en un mes tampoco", not en_repertorio(fut_man_id))
+    html = pantalla()
+    comprueba("la pantalla de Syncros no las pinta",
+              fut_os_id not in html and fut_man_id not in html)
+    r_ab = cli.get("/repertorio-sincronizaciones")
+    comprueba("el repertorio abierto tampoco", r_ab.status_code == 200
+              and fut_os.title not in r_ab.get_data(as_text=True)
+              and fut_man.title not in r_ab.get_data(as_text=True))
+    # ⚠️ El día del lanzamiento YA cuenta: la que sale HOY sí está.
+    comprueba("la que sale HOY sí está (el día del lanzamiento ya cuenta)", en_repertorio(hoy_os_id))
+
+    print("\n9.1 · Y no se le puede presentar a un supervisor")
+    for cid, quien in ((fut_os_id, "one-stop de mañana"), (fut_man_id, "habilitada de dentro de un mes")):
+        envio = cli.post("/syncros/tema/%s/enviar" % cid,
+                         data={"extra_emails": "supervisor+sr@ejemplo.com"},
+                         follow_redirects=True).get_data(as_text=True)
+        comprueba("el envío rechaza la %s" % quien, "todav" in envio and "no se ha publicado" in envio,
+                  envio[-300:] if "todav" not in envio else "")
+    envio = cli.post("/syncros/tema/%s/enviar" % fut_os_id,
+                     data={"extra_emails": "supervisor+sr@ejemplo.com"},
+                     follow_redirects=True).get_data(as_text=True)
+    comprueba("y dice CUÁNDO sale, no «no está en el repertorio»",
+              "no está en el repertorio" not in envio)
+    ses2 = models.SessionLocal()
+    comprueba("no queda ni un envío apuntado",
+              ses2.query(models.SyncSubmission)
+              .filter(models.SyncSubmission.song_id == fut_os.id).count() == 0)
+    ses2.close()
+
+    print("\n9.2 · Su ficha lo dice, en vez de parecer que no se ha guardado")
+    ficha = cli.get("/discografica/canciones/%s" % fut_man_id).get_data(as_text=True)
+    comprueba("dice que entrará al publicarse", "Syncro · al publicarse" in ficha)
+    comprueba("y con la fecha en la que entrará", "Todav" in ficha and "no se ha publicado" in ficha)
+    comprueba("no ofrece mandarla a Supervisors", "Enviar a Supervisors" not in ficha)
+    comprueba("pero sí decidir que no entre", "Que no entre al publicarse" in ficha)
+    ficha_os = cli.get("/discografica/canciones/%s" % fut_os_id).get_data(as_text=True)
+    comprueba("y en la one-stop futura dice que entrará por serlo",
+              "Entrará por ser One-stop" in ficha_os)
+
+    print("\n9.3 · Se puede decidir por adelantado que NO entre")
+    quitar(fut_os_id)
+    s.expire_all()
+    comprueba("queda retirada", bool(s.get(models.Song, fut_os.id).sync_excluded))
+    ficha_os = cli.get("/discografica/canciones/%s" % fut_os_id).get_data(as_text=True)
+    comprueba("y su ficha lo dice", "fuera del repertorio" in ficha_os)
+    devolver(fut_os_id)
+
+    print("\n9.4 · Marcarla a mano antes de tiempo lo dice claro")
+    salida = devolver(fut_man_id)
+    comprueba("el mensaje dice que entrará al publicarse",
+              "entrar" in salida and "public" in salida, salida[-300:])
+    # ⚠️ El texto EXACTO del caso malo: un «No se ha podido» a secas lo tiene también la pantalla
+    # («No se ha podido componer la vista previa»), y la comprobación salía en rojo sin haber nada
+    # roto.
+    comprueba("y NO dice que no se ha podido meter",
+              "No se ha podido meter en el repertorio" not in salida)
+
+    # ── 10 · PRUEBA DE HUMO ────────────────────────────────────────────────────────────────
+    print("\n10 · Las pantallas de Syncros y la ficha, enteras")
     malas = [q for q in ("", "?section=onestop", "?section=supervisors", "?solo_os=1")
              if cli.get("/syncros" + q).status_code != 200]
     comprueba("las pantallas de Syncros abren", not malas, malas)
@@ -257,7 +331,7 @@ def main() -> int:
               cli.get("/repertorio-sincronizaciones").status_code == 200)
 
     # ── LIMPIEZA: la comprobación es IDEMPOTENTE (pasarla dos veces da lo mismo) ────────────
-    for sid in (os_song.id, man_song.id):
+    for sid in (os_song.id, man_song.id, fut_os.id, fut_man.id, hoy_os.id):
         s.query(models.SongEditorialShare).filter(models.SongEditorialShare.song_id == sid).delete()
         s.query(models.SongMaterial).filter(models.SongMaterial.song_id == sid).delete()
         s.query(models.SongArtist).filter(models.SongArtist.song_id == sid).delete()

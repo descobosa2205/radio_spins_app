@@ -11,6 +11,7 @@
 - SYNCROS · SUPERVISORS: sección nueva (/syncros, permiso syncros +
 - SYNCROS · pestaña REPERTORIO y el envío a SUPERVISORS. Es la PRIMERA sección de
 - «QUITAR DEL REPERTORIO» TIENE QUE QUITAR, TAMBIÉN UNA ONE-STOP (bug real, sep 2026)
+- LO QUE TODAVÍA NO HA SALIDO NO SE PRESENTA: una one-stop entra sola el día que sale
 - SYNCROS · lo que el correo no puede hacer, lo hace la PÁGINA: en un correo no corre
 - SYNCRO · ¿LO HAN ABIERTO, LO HAN ESCUCHADO Y LO HAN REENVIADO?. Presentar un
 - REPERTORIO de Syncros · la línea, en tres filas
@@ -118,12 +119,12 @@
   (el one-stop lo CALCULA `_song_one_stop_map`, así que este listado no puede desparejarse de la
   etiqueta de la ficha ni del repertorio). Cada tema tiene **«Supervisors»** y **compartir** por
   correo · WhatsApp · SMS · copiar enlace.
-  ⚠️⚠️ **QUÉ ESTÁ EN EL REPERTORIO** (punto único `_sync_repertoire_songs`): las **habilitadas a
-  mano** en su ficha (`Song.sync_enabled`, «Habilitar para Syncro») **y las ONE-STOP**, que entran
-  solas por serlo, **menos las RETIRADAS a mano** (`Song.sync_excluded`). Así, un tema que no es
-  one-stop se puede presentar igualmente si alguien lo decide, uno que lo es no hay que acordarse de
-  marcarlo, y cualquiera de los dos se puede sacar. Lo usan la sección y la landing, así que dentro
-  y fuera se ve el mismo repertorio; el ENVÍO lo vuelve a comprobar.
+  ⚠️⚠️ **QUÉ ESTÁ EN EL REPERTORIO** (punto único `_sync_repertoire_songs`): lo **YA PUBLICADO**
+  que esté **habilitado a mano** en su ficha (`Song.sync_enabled`, «Habilitar para Syncro») **o sea
+  ONE-STOP** (que entra solo por serlo), **menos lo RETIRADO a mano** (`Song.sync_excluded`). Así,
+  un tema que no es one-stop se puede presentar igualmente si alguien lo decide, uno que lo es no
+  hay que acordarse de marcarlo, y cualquiera de los dos se puede sacar. Lo usan la sección y la
+  landing, así que dentro y fuera se ve el mismo repertorio; el ENVÍO lo vuelve a comprobar.
   · **Para UNA canción, el punto único es `_song_in_sync_repertoire`** (mismo criterio que el
   listado): lo usan su ficha y el envío, que antes lo escribían a mano cada uno.
 
@@ -149,9 +150,32 @@
   el bug tardara en verse. Si no se pudiera, lo dice en ámbar.
   ⚠️ Un **enlace ya mandado a un supervisor sigue valiendo** aunque el tema se retire
   (`_sync_song_by_token` no mira el repertorio): quien lo recibió no se encuentra un 404.
-  Probado con la app real, `tools/check_syncro_repertorio.py` (36 comprobaciones, idempotente):
+  Probado con la app real, `tools/check_syncro_repertorio.py` (54 comprobaciones, idempotente):
   una one-stop y una habilitada a mano, quitar · devolver, la pantalla, el repertorio abierto, el
   envío rebotado, la ficha y **la regresión exacta** (con el código viejo, la one-stop se quedaba).
+
+- ⚠️⚠️ **LO QUE TODAVÍA NO HA SALIDO NO SE PRESENTA** (sep 2026, lo pidió Dani: «las canciones que
+  todavía no han salido no pueden aparecer en el repertorio ni se pueden enviar a un supervisor; las
+  one-stop se suben solas pero solo cuando hayan salido»). A un supervisor se le enseña lo que ya
+  está publicado: un tema sin salir no se puede licenciar ni escuchar donde dice que está.
+  · Punto único **`_song_is_released`** (`release_date <= hoy`) dentro de `_sync_repertoire_songs`,
+  así que lo heredan la sección, sus filtros, la landing pública y el envío sin que cada pantalla se
+  acuerde. **Vale para las DOS vías**: una one-stop entra sola **el día que sale**, y marcar algo a
+  mano por adelantado lo deja **esperando**, no lo mete.
+  ⚠️ **EL DÍA DEL LANZAMIENTO YA CUENTA** (lo decidió Dani): sale hoy, se presenta hoy. La **tarea de
+  Inicio** que recuerda mandar temas a Supervisors llevaba su propia cuenta (`release_date < hoy`,
+  al día siguiente) y ahora sale del mismo punto único: una tarea no puede pedir que mandes algo que
+  no está en el repertorio.
+  ⚠️⚠️ **Y HAY QUE DECIRLO EN SU FICHA**, no callarlo: con `sync_pending_release` el menú de Syncro
+  sale como **«Syncro · al publicarse»** y dice desde cuándo estará («Entrará en el repertorio el
+  Lunes 11 de abril de 2026»). Sin eso, habilitar una canción sin publicar no hacía nada visible y
+  parecía que el botón no guardaba — la misma trampa del bug de «quitar». Desde ahí se puede decidir
+  ya que **no entre** («Que no entre al publicarse»).
+  ⚠️ El ENVÍO también **dice el motivo**: «todavía no se ha publicado (sale el …)», no «no está en
+  el repertorio», que mandaría a habilitar algo que ya está habilitado.
+  Probado con la app real: una one-stop que sale mañana, una habilitada a mano que sale en un mes y
+  una que sale HOY (esa sí entra), el envío rebotado sin dejar rastro, las dos fichas, el repertorio
+  abierto y decidir por adelantado que no entre.
   ⚠️ La pestaña se llama **«Repertorio»** (antes «One-stop», que es solo uno de sus filtros) y
   enseña **el LISTADO directamente**: los **artistas son un FILTRO** (chips con su foto), no una
   pantalla previa. **La agrupación por géneros o por artistas es solo del repertorio ABIERTO** que

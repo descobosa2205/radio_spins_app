@@ -107,21 +107,29 @@
   {# ── SYNCRO: solo en un tema ONE-STOP (lo que se puede licenciar sin pedir permiso a nadie).
      ⚠️ Y también en uno RETIRADO A MANO (`sync_excluded`), aunque ya no esté en el repertorio: es el
      único sitio desde el que se puede DEVOLVER, así que esconder el menú dejaría la decisión sin
-     vuelta atrás. Lo de compartir y enviar, en cambio, solo si está DENTRO. ── #}
-  {% if sync_in_repertoire or sync_excluded %}
+     vuelta atrás. Lo de compartir y enviar, en cambio, solo si está DENTRO.
+     ⚠️ Y en uno que TODAVÍA NO HA SALIDO (`sync_pending_release`): entrará solo el día que se
+     publique, y hay que poder decirlo —si no, marcarla a mano parece que no se guarda—. ── #}
+  {% if sync_in_repertoire or sync_excluded or sync_pending_release %}
     <div class="dropdown">
       {# Todo lo de Syncro cuelga de aquí, incluido el envío a Supervisors. #}
-      <button class="btn btn-sm {{ 'btn-outline-secondary' if sync_excluded else ('btn-outline-success' if sync_sent else 'btn-outline-secondary') }} dropdown-toggle"
+      <button class="btn btn-sm {{ 'btn-outline-success' if (sync_sent and sync_in_repertoire) else 'btn-outline-secondary' }} dropdown-toggle"
               type="button" data-bs-toggle="dropdown"
-              title="{{ 'Está fuera del repertorio de Syncro' if sync_excluded else (sync_sent_tooltip or 'Compartir este tema para sincronizaciones') }}">
-        <i class="fa-solid fa-clapperboard me-1"></i>{{ 'Syncro · fuera del repertorio' if sync_excluded else 'Compartir Syncro' }}
-        {% if sync_sent and not sync_excluded %}<span class="badge text-bg-success ms-1">{{ sync_sent_count }}</span>{% endif %}
+              title="{{ 'Está fuera del repertorio de Syncro' if sync_excluded else ('Entrará en el repertorio el día que se publique' if sync_pending_release else (sync_sent_tooltip or 'Compartir este tema para sincronizaciones')) }}">
+        <i class="fa-solid fa-clapperboard me-1"></i>{{ 'Syncro · fuera del repertorio' if sync_excluded else ('Syncro · al publicarse' if sync_pending_release else 'Compartir Syncro') }}
+        {% if sync_sent and sync_in_repertoire %}<span class="badge text-bg-success ms-1">{{ sync_sent_count }}</span>{% endif %}
       </button>
       <ul class="dropdown-menu dropdown-menu-end">
         {% if sync_excluded %}
           <li><span class="dropdown-item-text small text-muted" style="max-width:19rem">
             <i class="fa-solid fa-circle-info fa-fw me-1"></i>Retirada del repertorio a mano: no se
             presenta a los supervisores ni sale en el repertorio abierto.</span></li>
+        {% elif sync_pending_release %}
+          {# ⚠️ A un supervisor solo se le presenta lo YA PUBLICADO: entra sola el día que salga. #}
+          <li><span class="dropdown-item-text small text-muted" style="max-width:19rem">
+            <i class="fa-solid fa-circle-info fa-fw me-1"></i>Todavía no se ha publicado, así que no
+            se le puede presentar a un supervisor. Entrará en el repertorio
+            {% if song.release_date %}el <strong>{{ song.release_date|fecha_larga }}</strong>{% else %}el día que se publique{% endif %}.</span></li>
         {% else %}
         {% if CAN_EDIT_SYNCROS %}
           <li><button class="dropdown-item" type="button" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}">
@@ -156,25 +164,28 @@
              seguía). Devolverla no la marca a mano: si es one-stop vuelve a entrar sola. #}
           <li>
             <form method="post" action="{{ url_for('sync_song_enable', song_id=song.id) }}" class="d-inline"
-                  {% if not sync_excluded %}data-confirm="¿Quitar «{{ song.title }}» del repertorio de Syncro? Deja de presentarse a los supervisores y sale del repertorio abierto. Se puede devolver desde aquí mismo."{% endif %}>
+                  {% if not sync_excluded %}data-confirm="¿Quitar «{{ song.title }}» del repertorio de Syncro? {% if sync_pending_release %}No entrará cuando se publique.{% else %}Deja de presentarse a los supervisores y sale del repertorio abierto.{% endif %} Se puede devolver desde aquí mismo."{% endif %}>
               {% if not sync_excluded %}<input type="hidden" name="undo" value="1">{% endif %}
               <button class="dropdown-item {{ '' if sync_excluded else 'text-danger' }}" type="submit">
                 <i class="fa-solid {{ 'fa-circle-check' if sync_excluded else 'fa-circle-minus' }} fa-fw me-1"></i>
-                {{ 'Devolver al repertorio de Syncro' if sync_excluded else 'Quitar del repertorio de Syncro' }}</button>
+                {{ 'Devolver al repertorio de Syncro' if sync_excluded
+                   else ('Que no entre al publicarse' if sync_pending_release
+                         else 'Quitar del repertorio de Syncro') }}</button>
             </form>
           </li>
           {% if one_stop and one_stop.ok and not sync_enabled and not sync_excluded %}
             <li><span class="dropdown-item-text small text-muted">
-              <i class="fa-solid fa-clapperboard fa-fw me-1"></i>Está en el repertorio por ser One-stop</span></li>
+              <i class="fa-solid fa-clapperboard fa-fw me-1"></i>{{ 'Entrará por ser One-stop' if sync_pending_release else 'Está en el repertorio por ser One-stop' }}</span></li>
           {% endif %}
         {% endif %}
       </ul>
     </div>
   {% elif CAN_EDIT_SYNCROS or CAN_EDIT_DISCOGRAFICA %}
-    {# No está en el repertorio: el único botón es habilitarla. #}
+    {# No está en el repertorio: el único botón es habilitarla. ⚠️ Si todavía no ha salido se dice
+       aquí mismo, para no prometer que va a aparecer hoy en Syncros. #}
     <form method="post" action="{{ url_for('sync_song_enable', song_id=song.id) }}" class="d-inline">
       <button class="btn btn-sm btn-outline-secondary" type="submit"
-              title="Ponerla en el repertorio para sincronizaciones">
+              title="{{ 'Quedará marcada y entrará en el repertorio el día que se publique' if not sync_released else 'Ponerla en el repertorio para sincronizaciones' }}">
         <i class="fa-solid fa-clapperboard me-1"></i>Habilitar para Syncro</button>
     </form>
   {% endif %}

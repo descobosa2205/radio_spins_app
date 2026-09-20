@@ -25391,6 +25391,13 @@ def discografica_song_detail(song_id):
     # de deshacerlo desde ningún sitio.
     sync_excluded = bool(getattr(s, "sync_excluded", False))
     sync_in_repertoire = _song_in_sync_repertoire(session_db, s, one_stop=one_stop)
+    # ⚠️ TODAVÍA NO HA SALIDO: entraría en el repertorio por lo demás, pero a un supervisor solo se
+    # le presenta lo publicado. Hay que DECIRLO («entra el día que se publique»), o marcarla a mano
+    # parecería que no se ha guardado — y una one-stop parecería que se ha perdido.
+    sync_pending_release = bool(not sync_in_repertoire and not sync_excluded
+                                and _song_would_be_in_sync_repertoire(session_db, s,
+                                                                      one_stop=one_stop))
+    sync_released = _song_is_released(s)
     sync_share_url, sync_sent, sync_sent_count, sync_sent_tooltip = "", False, 0, ""
     sync_sent_opened, sync_sent_listened = 0, 0
     if sync_in_repertoire:
@@ -25883,6 +25890,8 @@ def discografica_song_detail(song_id):
         sync_enabled=sync_enabled,
         sync_excluded=sync_excluded,
         sync_in_repertoire=sync_in_repertoire,
+        sync_pending_release=sync_pending_release,
+        sync_released=sync_released,
         # LA BOLSA de gastos del single (la del proyecto si lo tiene; si no, la suya).
         song_bag=_song_bag_ctx,
         **_song_bag_panel,
@@ -32812,8 +32821,10 @@ def _home_sync_to_send() -> dict | None:
     """TAREA PENDIENTE: los singles **ONE-STOP ya publicados** que todavía no se han mandado a
     Supervisors, para quien es **Registros y Sello a la vez**.
 
-    ⚠️ Salta **al día siguiente del lanzamiento** (`release_date < hoy`): el día del lanzamiento
-    todavía se está publicando; a partir del siguiente ya se puede presentar.
+    ⚠️ Salta **el mismo día del lanzamiento** (lo decidió Dani, sep 2026): lo «ya publicado» lo
+    decide ahora `_sync_repertoire_songs` con el punto único `_song_is_released`, así que la tarea no
+    puede pedir que se mande algo que no está en el repertorio —que es lo que pasaba cuando cada uno
+    llevaba su propia cuenta de los días (aquí, al día siguiente; el repertorio, nunca)—.
     ⚠️ La tarea **desaparece sola** en cuanto el tema se manda, **da igual desde dónde** (mira
     `SyncSubmission`, que es lo que apunta cualquier envío de la app)."""
     state = _current_user_state() or {}
@@ -32823,11 +32834,8 @@ def _home_sync_to_send() -> dict | None:
     session_db = db()
     try:
         canciones, mapa = _sync_repertoire_songs(session_db)
-        ayer = today_local() - timedelta(days=1)
-        # Solo lo ONE-STOP y ya publicado (el día siguiente en adelante).
-        pendientes = [c for c in canciones
-                      if (mapa.get(str(c.id)) or {}).get("ok")
-                      and getattr(c, "release_date", None) and c.release_date <= ayer]
+        # Del repertorio (que ya son las publicadas y no retiradas), solo lo ONE-STOP.
+        pendientes = [c for c in canciones if (mapa.get(str(c.id)) or {}).get("ok")]
         if not pendientes:
             return None
         enviados = _sync_sent_state(session_db, [c.id for c in pendientes])
@@ -177140,11 +177148,17 @@ def _sync_song_rows(session_db, canciones, *, one_stop_map=None) -> list[dict]:
 
 
 def _sync_repertoire_songs(session_db):
-    """Las canciones que están EN el repertorio de Syncro: las **habilitadas a mano** y las
-    **ONE-STOP** (que entran solas por serlo), menos las **retiradas a mano**.
+    """Las canciones que están EN el repertorio de Syncro: las **YA PUBLICADAS** que están
+    **habilitadas a mano** o son **ONE-STOP** (que entran solas por serlo), menos las **retiradas a
+    mano**.
 
     ⚠️ Punto único: lo usan la sección de Syncros y la landing pública, así que dentro y fuera se ve
     el mismo repertorio.
+
+    ⚠️⚠️ **LO QUE TODAVÍA NO HA SALIDO NO SE PRESENTA** (lo pidió Dani, sep 2026): a un supervisor
+    solo se le enseña lo que ya está publicado, así que una one-stop entra sola **el día que sale**,
+    no antes (`_song_is_released`, el día del lanzamiento ya cuenta). Vale también para las
+    habilitadas a mano: marcarla por adelantado la deja esperando, no la mete.
 
     ⚠️⚠️ **`sync_excluded` MANDA SOBRE LAS DOS VÍAS DE ENTRADA**: sin él, «Quitar del repertorio»
     solo apagaba `sync_enabled` y una canción ONE-STOP **seguía dentro** por serlo —la pantalla
@@ -177152,6 +177166,7 @@ def _sync_repertoire_songs(session_db):
     canciones = (session_db.query(Song)
                  .options(selectinload(Song.artists))
                  .filter(Song.is_provisional.is_(False),
+                         Song.release_date.isnot(None), Song.release_date <= today_local(),
                          or_(Song.sync_excluded.is_(False), Song.sync_excluded.is_(None)))
                  .order_by(Song.release_date.desc().nullslast(), Song.title.asc()).all())
     mapa = _song_one_stop_map(session_db, canciones)
@@ -177178,12 +177193,33 @@ def _sync_repertoire_songs(session_db):
     return elegidas, mapa
 
 
+def _song_is_released(song) -> bool:
+    """¿Esta canción YA HA SALIDO? (su fecha de publicación es hoy o anterior).
+
+    ⚠️ Punto único de «ya ha salido» para Syncro. **El día del lanzamiento YA cuenta** (lo decidió
+    Dani, sep 2026): el tema sale hoy y hoy se puede presentar.
+    ⚠️ `Song.release_date` es NOT NULL (la canción nace con la de hoy), pero se comprueba igual por
+    si llega un objeto a medias."""
+    fecha = getattr(song, "release_date", None)
+    return bool(fecha) and fecha <= today_local()
+
+
 def _song_in_sync_repertoire(session_db, song, one_stop=None) -> bool:
     """¿Está ESTA canción en el repertorio de Syncro? Mismo criterio que `_sync_repertoire_songs`
-    (habilitada a mano **o** one-stop, y **no retirada a mano**), para una sola.
+    (**ya publicada**, habilitada a mano **o** one-stop, y **no retirada a mano**), para una sola.
 
     ⚠️ Punto único: lo usan la ficha de la canción y el ENVÍO. Escrito dos veces se desparejaba con
     el listado, que es de donde salen los botones. `one_stop` se pasa si ya está calculado."""
+    if not _song_is_released(song):
+        return False
+    return _song_would_be_in_sync_repertoire(session_db, song, one_stop=one_stop)
+
+
+def _song_would_be_in_sync_repertoire(session_db, song, one_stop=None) -> bool:
+    """Lo mismo PERO sin mirar si ya ha salido: ¿entraría en el repertorio por lo demás?
+
+    ⚠️ Es lo que distingue «no está» de «entrará SOLA el día que se publique», que es lo que hay que
+    poder decir en su ficha: si no, un tema habilitado a mano parece que no se ha guardado."""
     if bool(getattr(song, "sync_excluded", False)):
         return False
     if bool(getattr(song, "sync_enabled", False)):
@@ -178483,10 +178519,15 @@ def sync_song_enable(song_id):
             flash("Tema retirado del repertorio de Syncro." if not dentro
                   else "No se ha podido retirar del repertorio de Syncro: sigue apareciendo.",
                   "success" if not dentro else "warning")
+        elif dentro:
+            flash("Tema en el repertorio de Syncro.", "success")
+        elif not _song_is_released(song):
+            # ⚠️ NO es un fallo: queda marcado y entra SOLO el día que salga. Decir «no se ha
+            # podido» mandaría a buscar un problema que no existe.
+            flash("Marcado para Syncro: entrará en el repertorio el día que se publique (%s)."
+                  % format_date_long_es(song.release_date), "success")
         else:
-            flash("Tema en el repertorio de Syncro." if dentro
-                  else "No se ha podido meter en el repertorio de Syncro.",
-                  "success" if dentro else "warning")
+            flash("No se ha podido meter en el repertorio de Syncro.", "warning")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo cambiar: %s" % exc, "danger")
@@ -178529,8 +178570,16 @@ def sync_song_send(song_id):
         # Esconder el botón no basta: solo se presenta lo que está EN el repertorio de Syncro
         # (mismo punto único que el listado, así que un tema RETIRADO tampoco se puede mandar).
         if not _song_in_sync_repertoire(session_db, song):
-            flash("Ese tema no está en el repertorio de Syncro: habilítalo en su ficha o compruébalo.",
-                  "warning")
+            # ⚠️ Se dice el MOTIVO: «no está en el repertorio» manda a habilitar algo que ya podría
+            # estar habilitado, cuando lo que pasa es que el tema todavía no ha salido.
+            if not _song_is_released(song):
+                flash("«%s» todavía no se ha publicado (sale el %s): no se le puede presentar a un "
+                      "supervisor hasta entonces." % (song.title,
+                                                      format_date_long_es(song.release_date)),
+                      "warning")
+            else:
+                flash("Ese tema no está en el repertorio de Syncro: habilítalo en su ficha o "
+                      "compruébalo.", "warning")
             return redirect(request.referrer or url_for("syncros_view"))
 
         ids = [i for i in request.form.getlist("supervisor_ids") if (i or "").strip()]

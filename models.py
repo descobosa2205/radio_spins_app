@@ -901,6 +901,13 @@ class Song(Base):
     sync_enabled = Column(Boolean, nullable=False, server_default=text("false"))
     sync_enabled_at = Column(DateTime(timezone=True))
     sync_enabled_by_nick = Column(Text)
+    # ⚠️ RETIRADA A MANO del repertorio de Syncro. Hace falta APARTE de `sync_enabled` porque una
+    # canción ONE-STOP entra SOLA por serlo: apagar `sync_enabled` no la saca, y «Quitar del
+    # repertorio» tiene que quitar (antes decía que la quitaba y seguía ahí). Manda sobre las dos
+    # vías de entrada; se deshace desde su ficha.
+    sync_excluded = Column(Boolean, nullable=False, server_default=text("false"))
+    sync_excluded_at = Column(DateTime(timezone=True))
+    sync_excluded_by_nick = Column(Text)
     lyrics_updated_at = Column(DateTime(timezone=True))
     # FOCUS SINGLE: el lanzamiento PRIORITARIO. Se decide en el proyecto y es de la CANCIÓN (se ve
     # en su ficha y en el repertorio). `None` = todavía no se ha decidido, que no es lo mismo que
@@ -13095,6 +13102,11 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_enabled boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_enabled_at timestamptz;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_enabled_by_nick text;",
+        # ⚠️ Cada columna en SU PROPIA sentencia (nunca dentro de un `DO $$ … IF NOT EXISTS`): así
+        # pasa por `_ddl_already_applied`, que solo se salta el ALTER si TODAS sus columnas están.
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_excluded boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_excluded_at timestamptz;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_excluded_by_nick text;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_sync_share_token ON songs(sync_share_token) WHERE sync_share_token IS NOT NULL;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_track text;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",

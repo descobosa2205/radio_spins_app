@@ -104,17 +104,25 @@
       </form>
     {% endif %}
   {% endif %}
-  {# ── SYNCRO: solo en un tema ONE-STOP (lo que se puede licenciar sin pedir permiso a nadie). ── #}
-  {% if sync_in_repertoire %}
+  {# ── SYNCRO: solo en un tema ONE-STOP (lo que se puede licenciar sin pedir permiso a nadie).
+     ⚠️ Y también en uno RETIRADO A MANO (`sync_excluded`), aunque ya no esté en el repertorio: es el
+     único sitio desde el que se puede DEVOLVER, así que esconder el menú dejaría la decisión sin
+     vuelta atrás. Lo de compartir y enviar, en cambio, solo si está DENTRO. ── #}
+  {% if sync_in_repertoire or sync_excluded %}
     <div class="dropdown">
       {# Todo lo de Syncro cuelga de aquí, incluido el envío a Supervisors. #}
-      <button class="btn btn-sm {{ 'btn-outline-success' if sync_sent else 'btn-outline-secondary' }} dropdown-toggle"
+      <button class="btn btn-sm {{ 'btn-outline-secondary' if sync_excluded else ('btn-outline-success' if sync_sent else 'btn-outline-secondary') }} dropdown-toggle"
               type="button" data-bs-toggle="dropdown"
-              title="{{ sync_sent_tooltip or 'Compartir este tema para sincronizaciones' }}">
-        <i class="fa-solid fa-clapperboard me-1"></i>Compartir Syncro
-        {% if sync_sent %}<span class="badge text-bg-success ms-1">{{ sync_sent_count }}</span>{% endif %}
+              title="{{ 'Está fuera del repertorio de Syncro' if sync_excluded else (sync_sent_tooltip or 'Compartir este tema para sincronizaciones') }}">
+        <i class="fa-solid fa-clapperboard me-1"></i>{{ 'Syncro · fuera del repertorio' if sync_excluded else 'Compartir Syncro' }}
+        {% if sync_sent and not sync_excluded %}<span class="badge text-bg-success ms-1">{{ sync_sent_count }}</span>{% endif %}
       </button>
       <ul class="dropdown-menu dropdown-menu-end">
+        {% if sync_excluded %}
+          <li><span class="dropdown-item-text small text-muted" style="max-width:19rem">
+            <i class="fa-solid fa-circle-info fa-fw me-1"></i>Retirada del repertorio a mano: no se
+            presenta a los supervisores ni sale en el repertorio abierto.</span></li>
+        {% else %}
         {% if CAN_EDIT_SYNCROS %}
           <li><button class="dropdown-item" type="button" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}">
             <i class="fa-solid {{ 'fa-paper-plane' if sync_sent else 'fa-share-from-square' }} fa-fw me-1"></i>
@@ -139,22 +147,26 @@
         <li><button class="dropdown-item" type="button" onclick="shareBySms('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>
         <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ sync_share_url }}')"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>
         <li><a class="dropdown-item" href="{{ sync_share_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye fa-fw me-1"></i>Ver la página</a></li>
+        {% endif %}{# /está en el repertorio #}
         {% if CAN_EDIT_SYNCROS or CAN_EDIT_DISCOGRAFICA %}
           <li><hr class="dropdown-divider"></li>
+          {# ⚠️⚠️ QUITAR TIENE QUE QUITAR, TAMBIÉN UNA ONE-STOP: la retirada va por `sync_excluded`,
+             que manda sobre las DOS vías de entrada. Antes, a una one-stop se le decía «entra sola»
+             y no había forma de sacarla (y desde el listado el botón decía que la quitaba y ahí
+             seguía). Devolverla no la marca a mano: si es one-stop vuelve a entrar sola. #}
           <li>
-            {# Un tema ONE-STOP entra solo en el repertorio; los demás, habilitándolos aquí. #}
-            {% if one_stop and one_stop.ok and not sync_enabled %}
-              <span class="dropdown-item-text small text-muted">
-                <i class="fa-solid fa-clapperboard fa-fw me-1"></i>En el repertorio por ser One-stop</span>
-            {% else %}
-              <form method="post" action="{{ url_for('sync_song_enable', song_id=song.id) }}" class="d-inline">
-                {% if sync_enabled %}<input type="hidden" name="undo" value="1">{% endif %}
-                <button class="dropdown-item" type="submit">
-                  <i class="fa-solid {{ 'fa-circle-minus' if sync_enabled else 'fa-circle-check' }} fa-fw me-1"></i>
-                  {{ 'Quitar del repertorio de Syncro' if sync_enabled else 'Habilitar para Syncro' }}</button>
-              </form>
-            {% endif %}
+            <form method="post" action="{{ url_for('sync_song_enable', song_id=song.id) }}" class="d-inline"
+                  {% if not sync_excluded %}data-confirm="¿Quitar «{{ song.title }}» del repertorio de Syncro? Deja de presentarse a los supervisores y sale del repertorio abierto. Se puede devolver desde aquí mismo."{% endif %}>
+              {% if not sync_excluded %}<input type="hidden" name="undo" value="1">{% endif %}
+              <button class="dropdown-item {{ '' if sync_excluded else 'text-danger' }}" type="submit">
+                <i class="fa-solid {{ 'fa-circle-check' if sync_excluded else 'fa-circle-minus' }} fa-fw me-1"></i>
+                {{ 'Devolver al repertorio de Syncro' if sync_excluded else 'Quitar del repertorio de Syncro' }}</button>
+            </form>
           </li>
+          {% if one_stop and one_stop.ok and not sync_enabled and not sync_excluded %}
+            <li><span class="dropdown-item-text small text-muted">
+              <i class="fa-solid fa-clapperboard fa-fw me-1"></i>Está en el repertorio por ser One-stop</span></li>
+          {% endif %}
         {% endif %}
       </ul>
     </div>

@@ -25386,7 +25386,11 @@ def discografica_song_detail(song_id):
     # para los demás (el enlace público se crea la primera vez que hace falta).
     # SYNCRO: el menú sale en lo que está EN el repertorio (one-stop o habilitada a mano).
     sync_enabled = bool(getattr(s, "sync_enabled", False))
-    sync_in_repertoire = bool(sync_enabled or one_stop.get("ok"))
+    # ⚠️ RETIRADA A MANO: sigue siendo one-stop (eso se calcula), pero NO se presenta. El menú de
+    # Syncro tiene que seguir saliendo para poder devolverla — si no, se quitaría y no habría forma
+    # de deshacerlo desde ningún sitio.
+    sync_excluded = bool(getattr(s, "sync_excluded", False))
+    sync_in_repertoire = _song_in_sync_repertoire(session_db, s, one_stop=one_stop)
     sync_share_url, sync_sent, sync_sent_count, sync_sent_tooltip = "", False, 0, ""
     sync_sent_opened, sync_sent_listened = 0, 0
     if sync_in_repertoire:
@@ -25877,6 +25881,7 @@ def discografica_song_detail(song_id):
         sync_sent_opened=sync_sent_opened,
         sync_sent_listened=sync_sent_listened,
         sync_enabled=sync_enabled,
+        sync_excluded=sync_excluded,
         sync_in_repertoire=sync_in_repertoire,
         # LA BOLSA de gastos del single (la del proyecto si lo tiene; si no, la suya).
         song_bag=_song_bag_ctx,
@@ -173048,6 +173053,7 @@ if not CALDAV_ONLY:  # el host «solo CalDAV» no siembra permisos/personal (no 
 SONG_MERGE_SKIP_FIELDS = {
     "sync_share_token", "cm_track", "cm_link_status", "cm_refreshed_at", "cm_isrc_checked_at",
     "focus_single_at", "focus_single_by", "sync_enabled_at", "sync_enabled_by_nick",
+    "sync_excluded_at", "sync_excluded_by_nick",
     "lyrics_updated_at", "pitch_updated_at", "work_declaration_uploaded_at",
 }
 
@@ -173088,6 +173094,7 @@ _MERGE_FIELD_LABELS = {
     "cover_url": "Portada", "lyrics_text": "Letra", "pitch_title": "Titular del pitch",
     "pitch_text": "Pitch", "focus_single": "Focus single", "is_explicit": "Contenido explícito",
     "no_videoclip": "Sin videoclip", "sync_enabled": "Habilitada para Syncro",
+    "sync_excluded": "Retirada del repertorio de Syncro",
     "videoclip_recorded_on": "Videoclip · grabación",
     "videoclip_release_date": "Videoclip · publicación",
     "videoclip_same_release": "Videoclip · misma fecha que el single",
@@ -177049,13 +177056,18 @@ def _sync_song_rows(session_db, canciones, *, one_stop_map=None) -> list[dict]:
 
 def _sync_repertoire_songs(session_db):
     """Las canciones que están EN el repertorio de Syncro: las **habilitadas a mano** y las
-    **ONE-STOP** (que entran solas por serlo).
+    **ONE-STOP** (que entran solas por serlo), menos las **retiradas a mano**.
 
     ⚠️ Punto único: lo usan la sección de Syncros y la landing pública, así que dentro y fuera se ve
-    el mismo repertorio."""
+    el mismo repertorio.
+
+    ⚠️⚠️ **`sync_excluded` MANDA SOBRE LAS DOS VÍAS DE ENTRADA**: sin él, «Quitar del repertorio»
+    solo apagaba `sync_enabled` y una canción ONE-STOP **seguía dentro** por serlo —la pantalla
+    decía que la había quitado y ahí seguía— (bug real, sep 2026)."""
     canciones = (session_db.query(Song)
                  .options(selectinload(Song.artists))
-                 .filter(Song.is_provisional.is_(False))
+                 .filter(Song.is_provisional.is_(False),
+                         or_(Song.sync_excluded.is_(False), Song.sync_excluded.is_(None)))
                  .order_by(Song.release_date.desc().nullslast(), Song.title.asc()).all())
     mapa = _song_one_stop_map(session_db, canciones)
     elegidas = [c for c in canciones
@@ -177079,6 +177091,20 @@ def _sync_repertoire_songs(session_db):
     elegidas.sort(key=lambda c: (-(c.release_date.toordinal() if getattr(c, "release_date", None) else 0),
                                  _norm_text_key(getattr(c, "title", "") or "")))
     return elegidas, mapa
+
+
+def _song_in_sync_repertoire(session_db, song, one_stop=None) -> bool:
+    """¿Está ESTA canción en el repertorio de Syncro? Mismo criterio que `_sync_repertoire_songs`
+    (habilitada a mano **o** one-stop, y **no retirada a mano**), para una sola.
+
+    ⚠️ Punto único: lo usan la ficha de la canción y el ENVÍO. Escrito dos veces se desparejaba con
+    el listado, que es de donde salen los botones. `one_stop` se pasa si ya está calculado."""
+    if bool(getattr(song, "sync_excluded", False)):
+        return False
+    if bool(getattr(song, "sync_enabled", False)):
+        return True
+    os_ = one_stop if one_stop is not None else _song_one_stop(session_db, song)
+    return bool((os_ or {}).get("ok"))
 
 
 def _sync_repertoire_filtered(session_db, *, artista_id=None, q: str = "", solo_os: bool = False):
@@ -178330,10 +178356,16 @@ def sync_song_preview_html(song_id):
 @app.post("/syncros/tema/<song_id>/habilitar", endpoint="sync_song_enable")
 @admin_required
 def sync_song_enable(song_id):
-    """Habilita (o deshabilita) un tema para SYNCRO desde su ficha.
+    """Mete un tema en el repertorio de SYNCRO o lo RETIRA de él (desde su ficha o desde el listado).
 
-    ⚠️ El repertorio de Syncros enseña las **habilitadas** y las **ONE-STOP**: un tema que no es
-    one-stop se puede presentar igualmente si alguien decide que sí, y uno que lo es entra solo."""
+    ⚠️ El repertorio enseña las **habilitadas** y las **ONE-STOP**: un tema que no es one-stop se
+    puede presentar igualmente si alguien decide que sí, y uno que lo es entra solo.
+
+    ⚠️⚠️ **QUITAR TIENE QUE QUITAR, TAMBIÉN UNA ONE-STOP** (bug real, sep 2026: «le pinchas, te dice
+    que se ha quitado y sigue ahí»). Apagar `sync_enabled` no sacaba a una one-stop, porque esa entra
+    por el cálculo, no por la marca; por eso se retira con **`sync_excluded`**, que manda sobre las
+    dos vías. Al devolverla, `sync_enabled` solo se marca si NO es one-stop: si lo es, entra sola y
+    marcarla a mano escondería el motivo real por el que está dentro."""
     if not (can_edit_syncros() or can_edit_discografica()):
         return forbid("No tienes permiso para habilitar temas para Syncro.")
     session_db = db()
@@ -178343,13 +178375,33 @@ def sync_song_enable(song_id):
             flash("Canción no encontrada.", "warning")
             return redirect(url_for("discografica_view", section="canciones"))
         quitar = _truthy(request.form.get("undo")) or _truthy(request.args.get("undo"))
-        song.sync_enabled = not quitar
-        if song.sync_enabled:
-            song.sync_enabled_at = _now_madrid()
-            song.sync_enabled_by_nick = (_current_user_state().get("nick") or "").strip() or None
+        ahora, quien = _now_madrid(), (_current_user_state().get("nick") or "").strip() or None
+        if quitar:
+            song.sync_enabled = False
+            song.sync_excluded = True
+            song.sync_excluded_at = ahora
+            song.sync_excluded_by_nick = quien
+        else:
+            song.sync_excluded = False
+            song.sync_excluded_at = None
+            song.sync_excluded_by_nick = None
+            # Una one-stop ya entra sola: solo se marca a mano lo que si no, se quedaría fuera.
+            if not _song_one_stop(session_db, song)["ok"]:
+                song.sync_enabled = True
+                song.sync_enabled_at = ahora
+                song.sync_enabled_by_nick = quien
         session_db.commit()
-        flash("Tema habilitado para Syncro." if song.sync_enabled
-              else "Tema retirado del repertorio de Syncro.", "success")
+        # ⚠️ El mensaje se compone con lo que ha quedado DE VERDAD (el mismo criterio que el
+        # listado), no con lo que se pedía: es justo lo que falló antes.
+        dentro = _song_in_sync_repertoire(session_db, song)
+        if quitar:
+            flash("Tema retirado del repertorio de Syncro." if not dentro
+                  else "No se ha podido retirar del repertorio de Syncro: sigue apareciendo.",
+                  "success" if not dentro else "warning")
+        else:
+            flash("Tema en el repertorio de Syncro." if dentro
+                  else "No se ha podido meter en el repertorio de Syncro.",
+                  "success" if dentro else "warning")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo cambiar: %s" % exc, "danger")
@@ -178389,8 +178441,9 @@ def sync_song_send(song_id):
         if song is None:
             flash("Canción no encontrada.", "warning")
             return redirect(url_for("syncros_view"))
-        # Esconder el botón no basta: solo se presenta lo que está EN el repertorio de Syncro.
-        if not (bool(getattr(song, "sync_enabled", False)) or _song_one_stop(session_db, song)["ok"]):
+        # Esconder el botón no basta: solo se presenta lo que está EN el repertorio de Syncro
+        # (mismo punto único que el listado, así que un tema RETIRADO tampoco se puede mandar).
+        if not _song_in_sync_repertoire(session_db, song):
             flash("Ese tema no está en el repertorio de Syncro: habilítalo en su ficha o compruébalo.",
                   "warning")
             return redirect(request.referrer or url_for("syncros_view"))

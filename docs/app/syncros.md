@@ -10,6 +10,7 @@
 - ETIQUETA «ONE-STOP» de una canción
 - SYNCROS · SUPERVISORS: sección nueva (/syncros, permiso syncros +
 - SYNCROS · pestaña REPERTORIO y el envío a SUPERVISORS. Es la PRIMERA sección de
+- «QUITAR DEL REPERTORIO» TIENE QUE QUITAR, TAMBIÉN UNA ONE-STOP (bug real, sep 2026)
 - SYNCROS · lo que el correo no puede hacer, lo hace la PÁGINA: en un correo no corre
 - SYNCRO · ¿LO HAN ABIERTO, LO HAN ESCUCHADO Y LO HAN REENVIADO?. Presentar un
 - REPERTORIO de Syncros · la línea, en tres filas
@@ -119,9 +120,38 @@
   correo · WhatsApp · SMS · copiar enlace.
   ⚠️⚠️ **QUÉ ESTÁ EN EL REPERTORIO** (punto único `_sync_repertoire_songs`): las **habilitadas a
   mano** en su ficha (`Song.sync_enabled`, «Habilitar para Syncro») **y las ONE-STOP**, que entran
-  solas por serlo. Así, un tema que no es one-stop se puede presentar igualmente si alguien lo
-  decide, y uno que lo es no hay que acordarse de marcarlo. Lo usan la sección y la landing, así que
-  dentro y fuera se ve el mismo repertorio; el ENVÍO lo vuelve a comprobar.
+  solas por serlo, **menos las RETIRADAS a mano** (`Song.sync_excluded`). Así, un tema que no es
+  one-stop se puede presentar igualmente si alguien lo decide, uno que lo es no hay que acordarse de
+  marcarlo, y cualquiera de los dos se puede sacar. Lo usan la sección y la landing, así que dentro
+  y fuera se ve el mismo repertorio; el ENVÍO lo vuelve a comprobar.
+  · **Para UNA canción, el punto único es `_song_in_sync_repertoire`** (mismo criterio que el
+  listado): lo usan su ficha y el envío, que antes lo escribían a mano cada uno.
+
+- ⚠️⚠️⚠️ **«QUITAR DEL REPERTORIO» TIENE QUE QUITAR, TAMBIÉN UNA ONE-STOP** (bug real, sep 2026, lo
+  vio Dani: «le pinchas, te dice que se ha quitado la canción y sigue ahí»). Hay **DOS vías de
+  entrada** al repertorio y el botón solo apagaba una: `sync_enabled`. Una canción **ONE-STOP entra
+  SOLA porque se CALCULA**, así que apagarle la marca no la sacaba —y como casi todo el repertorio
+  es one-stop, **el botón no quitaba casi nunca**—.
+  · El arreglo es una **retirada a mano explícita, `Song.sync_excluded`**, que **manda sobre las dos
+  vías**: la filtra `_sync_repertoire_songs`, así que la canción desaparece de la sección, del
+  repertorio ABIERTO y de lo que se puede enviar, de una vez.
+  · **La canción SIGUE SIENDO one-stop** (eso es un cálculo, no una marca): lo que se decide es que
+  **no se presenta**, que es otra cosa. Por eso la etiqueta de su ficha no cambia.
+  · **DEVOLVERLA no la marca a mano**: si es one-stop vuelve a entrar sola, y marcarla escondería el
+  motivo real por el que está dentro. A una que no lo es sí se le pone `sync_enabled` (si no, se
+  quedaría fuera igualmente).
+  · ⚠️ **Su ficha tiene que seguir enseñando el menú de Syncro cuando está retirada** (`sync_excluded`
+  en el contexto, además de `sync_in_repertoire`): es el ÚNICO sitio desde el que se devuelve, así
+  que esconderlo dejaba la decisión sin vuelta atrás. Ahí sale «Syncro · fuera del repertorio» con
+  un solo botón, «Devolver al repertorio», y sin nada de compartir.
+  · ⚠️⚠️ **EL MENSAJE SE COMPONE CON LO QUE HA QUEDADO DE VERDAD**, releyendo el punto único después
+  de guardar, no con lo que se pedía: decir «retirado» sin haberlo retirado es justo lo que hizo que
+  el bug tardara en verse. Si no se pudiera, lo dice en ámbar.
+  ⚠️ Un **enlace ya mandado a un supervisor sigue valiendo** aunque el tema se retire
+  (`_sync_song_by_token` no mira el repertorio): quien lo recibió no se encuentra un 404.
+  Probado con la app real, `tools/check_syncro_repertorio.py` (36 comprobaciones, idempotente):
+  una one-stop y una habilitada a mano, quitar · devolver, la pantalla, el repertorio abierto, el
+  envío rebotado, la ficha y **la regresión exacta** (con el código viejo, la one-stop se quedaba).
   ⚠️ La pestaña se llama **«Repertorio»** (antes «One-stop», que es solo uno de sus filtros) y
   enseña **el LISTADO directamente**: los **artistas son un FILTRO** (chips con su foto), no una
   pantalla previa. **La agrupación por géneros o por artistas es solo del repertorio ABIERTO** que

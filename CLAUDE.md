@@ -142,6 +142,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_invitaciones_corporativas.py` | la lista de invitados de cada uno y su envío (el módulo de la actividad, el fichero, que sale desde su correo y que nadie ve lo de nadie) | al tocar las invitaciones corporativas o el editor de diseños |
 | `check_anuncio_carteleria.py` | pedirle al promotor la fecha de anuncio y los carteles, los dos vistos buenos y el recordatorio del día | al tocar el anuncio o la cartelería |
 | `check_promotor.py` | confirmarle la actividad al promotor y la ficha donde rellena lo que falta (y que nada se carga sin revisarlo) | al tocar el aviso al promotor o la ficha de contratación |
+| `check_syncro_repertorio.py` | quitar una canción del repertorio de Syncros la quita de verdad (también si es one-stop, que entra sola) y devolverla la devuelve | al tocar el repertorio de Syncros o el one-stop |
 | `check_soldout.py` | el Sold Out de punta a punta: a quién se avisa, la tarea de comunicárselo (bloqueada sin cartel), el correo y la tarea de redes | al tocar el Sold Out |
 | `check_gratuito.py` | que en una actividad gratuita no asome la salida a la venta (configuración, ficha, aviso al artista, ficha del promotor) | al tocar la salida a la venta o lo gratuito |
 | `diag_reparto_editorial.py` | dónde se corta el reparto editorial de un autor (solo lee) | al depurar royalties |

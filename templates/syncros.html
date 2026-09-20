@@ -100,8 +100,12 @@
                     <li><a class="dropdown-item" href="{{ row.detail_url }}"><i class="fa-solid fa-music fa-fw me-1"></i>Abrir la ficha de la canción</a></li>
                     <li><hr class="dropdown-divider"></li>
                     <li>
+                      {# ⚠️ QUITAR QUITA, sea one-stop o no: el POST marca `sync_excluded`, que manda
+                         sobre las dos vías de entrada al repertorio (una one-stop entra SOLA por
+                         serlo, así que apagar la marca de «habilitada» no la sacaba: decía que la
+                         había quitado y seguía aquí). Se devuelve desde su ficha. #}
                       <form method="post" action="{{ url_for('sync_song_enable', song_id=row.id) }}"
-                            data-confirm="¿Quitar «{{ row.title }}» del repertorio de Syncro? Se puede volver a activar desde su ficha.">
+                            data-confirm="¿Quitar «{{ row.title }}» del repertorio de Syncro? Deja de presentarse a los supervisores y sale del repertorio abierto. Se puede devolver desde su ficha.">
                         <input type="hidden" name="undo" value="1">
                         <button class="dropdown-item text-danger" type="submit">
                           <i class="fa-solid fa-circle-minus fa-fw me-1"></i>Quitar del repertorio</button>

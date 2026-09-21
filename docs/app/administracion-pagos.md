@@ -11,6 +11,7 @@
 - Módulo de GASTOS por categorías compartido
 - REMESAS de pago (fichero para el banco) — ago 2026. Motor puro sepa_utils.py
 - Administración · Pendiente
+- Administración → Pendiente → DE FACTURACIÓN está agrupado por la EMPRESA DEL GRUPO QUE EMITE
 - DOBLE CIERRE DE UNA BOLSA: la cierran DOS departamentos
 - AUDITORÍA ago 2026 · lo que se encontró roto y se ha corregido
 - HOLDED · CONTABILIDAD del grupo
@@ -121,6 +122,27 @@
   estética del resto de la app (`nav-tabs contract-tabs` + icono + contador `.contract-tabs__n`).
   ⚠️ `ADMINISTRATION_PENDING_TABS` son TRIPLETAS `(clave, etiqueta, icono)`: al añadir el icono hay
   que tocar también el desempaquetado de `administracion_view` y el `{% for %}` de la plantilla.
+
+- **Administración → Pendiente → DE FACTURACIÓN está agrupado por la EMPRESA DEL GRUPO QUE EMITE**
+  (sep 2026, lo pidió Dani: «tiene que aparecer por empresas del grupo agrupadas, y cada una con su
+  logo, para saber qué empresa emite cada factura»). Igual que «De pago», una tarjeta por empresa
+  con **su logo** (`company_logo`, que pone su icono si todavía no tiene y **nunca** el de otra) y
+  su total; dentro van las dos cosas que hay que facturar, que son las que cuenta la subpestaña:
+  las liquidaciones de royalties **a favor** por emitir y las **facturas emitidas** del registro
+  (`InvoiceRecord` ISSUED pendiente). Lo que ya está facturado y solo espera el cobro se queda
+  **aparte, al final** —eso no es trabajo de facturación—, pero cada fila dice igualmente con su
+  logo qué empresa la emitió.
+  · Motor **`_billing_pending_context(session_db, invoices, afavor_rows)`**: solo AGRUPA lo que le
+  dan (las filas las carga la vista), así el número de la subpestaña y lo que se ve salen de las
+  mismas consultas y no se pueden desparejar. Las empresas van por nombre y lo que no tenga empresa,
+  **al final** (que es lo que hay que arreglar).
+  · La empresa emisora de una liquidación a favor la resuelve **`_afavor_issuer_map`** (la apuntada
+  en `billing_company_id` y, si no hay, **PIES**), y cada fila la lleva en `issuer*`
+  (`_afavor_issuer_bits`). ⚠️ Es `_afavor_billing_company` **en bloque** a propósito: esa consulta
+  la BD en cada llamada y `_pies_group_company` se lee TODAS las empresas, así que por fila serían
+  decenas de consultas en una bandeja con trabajo.
+  ⚠️ En una fila de royalties a favor hay **dos logos y no son lo mismo**: el de la cabecera es el
+  de NUESTRA empresa (la que emite) y el de dentro, el de la **compañía** a la que se le factura.
 
 - ⚠️⚠️ **DOBLE CIERRE DE UNA BOLSA: la cierran DOS departamentos** (ago 2026). Hay bolsas que trabajan
   dos áreas a la vez y **ninguna la puede dar por terminada por su cuenta**:

@@ -95887,14 +95887,44 @@ def _afavor_request_invoice_apply(session_db, rec) -> None:
         app.logger.exception("[a favor] no se pudo avisar a contabilidad")
 
 
+def _afavor_issuer_map(session_db, recs) -> dict:
+    """La EMPRESA DEL GRUPO que EMITE cada liquidación a favor (`{id de la liquidación: empresa}`).
+
+    ⚠️ Es `_afavor_billing_company` en bloque: esa pregunta a la BD en CADA llamada (y
+    `_pies_group_company`, su respaldo, se lee todas las empresas), así que llamarla por fila son
+    decenas de consultas en una bandeja con trabajo. El criterio es el mismo punto único: la
+    empresa que quedó apuntada al pedir la factura y, si no hay ninguna, PIES."""
+    try:
+        companies = {str(c.id): c for c in session_db.query(GroupCompany).all()}
+    except Exception:
+        companies = {}
+    pies = _pies_group_company(session_db)
+    return {str(rec.id): (companies.get(str(getattr(rec, "billing_company_id", "") or "")) or pies)
+            for rec in (recs or [])}
+
+
+def _afavor_issuer_bits(emisor) -> dict:
+    """Las claves de la EMPRESA DEL GRUPO que emite, para pintarla igual en todas las bandejas."""
+    return {
+        "issuer": emisor,
+        "issuer_id": (str(getattr(emisor, "id", "") or "")),
+        "issuer_name": (getattr(emisor, "name", None) or "Sin empresa"),
+        "issuer_logo": (getattr(emisor, "logo_url", None) or ""),
+    }
+
+
 def _afavor_admin_pending_rows(session_db) -> list:
-    """Las liquidaciones a favor PENDIENTES DE FACTURAR (bandeja de administración)."""
+    """Las liquidaciones a favor PENDIENTES DE FACTURAR (bandeja de administración).
+
+    Cada fila dice además **qué empresa del grupo emite** esa factura (`issuer*`): es con lo que
+    se agrupan en la bandeja (`_billing_pending_context`)."""
     out = []
     try:
         recs = (session_db.query(AfavorLiquidation)
                 .options(joinedload(AfavorLiquidation.company))
                 .filter(AfavorLiquidation.status == "PENDING_INVOICE")
                 .order_by(AfavorLiquidation.invoice_requested_at.desc().nullslast()).all())
+        emisores = _afavor_issuer_map(session_db, recs)
         for rec in recs:
             company = rec.company
             out.append({
@@ -95906,6 +95936,7 @@ def _afavor_admin_pending_rows(session_db) -> list:
                                                            1 if rec.period_start.month <= 6 else 2),
                 "total": rec.total_amount,
                 "url": url_for("administration_afavor_invoice", liq_id=rec.id),
+                **_afavor_issuer_bits(emisores.get(str(rec.id))),
             })
     except Exception:
         app.logger.exception("[a favor] no se pudo leer la bandeja de facturación")
@@ -95921,6 +95952,7 @@ def _afavor_admin_collect_rows(session_db) -> list:
                 .options(joinedload(AfavorLiquidation.company))
                 .filter(AfavorLiquidation.status.in_(["INVOICE_SENT", "INVOICED", "INVOICE_ISSUED"]))
                 .order_by(AfavorLiquidation.invoice_sent_at.desc().nullslast()).all())
+        emisores = _afavor_issuer_map(session_db, recs)
         for rec in recs:
             company = rec.company
             estado = _afavor_status_meta(rec.status)
@@ -95936,6 +95968,8 @@ def _afavor_admin_collect_rows(session_db) -> list:
                 "invoice_url": (rec.invoice_url or ""),
                 "invoice_number": (rec.invoice_number or ""),
                 "url": url_for("administration_afavor_invoice", liq_id=rec.id),
+                # Ya está emitida, pero se sigue diciendo POR QUIÉN: es la misma pregunta.
+                **_afavor_issuer_bits(emisores.get(str(rec.id))),
             })
     except Exception:
         app.logger.exception("[a favor] no se pudo leer lo pendiente de cobro")
@@ -116451,6 +116485,48 @@ def _admin_altas_pending_count(session_db) -> int:
         return 0
 
 
+def _billing_pending_context(session_db, invoices, afavor_rows) -> list:
+    """«Pendiente de facturar» agrupado por la EMPRESA DEL GRUPO QUE EMITE la factura.
+
+    En esa bandeja hay dos cosas con el mismo trabajo detrás —emitir una factura—: las
+    liquidaciones de royalties **a favor** y las facturas emitidas del registro (`InvoiceRecord`).
+    Las dos las emite una empresa del grupo, así que se agrupan por ella y cada grupo lleva **su
+    logo**: en una lista única no había forma de saber desde cuál sale cada factura. Es el mismo
+    patrón que «De pago» (`_payment_pending_context`).
+
+    ⚠️ Agrupa lo que se le da (las filas ya las carga la vista): así el número de la subpestaña y
+    lo que se ve salen de las mismas consultas y no se pueden desparejar."""
+    grupos: dict = {}
+
+    def _grupo(company):
+        clave = str(getattr(company, "id", "") or "")
+        if clave not in grupos:
+            grupos[clave] = {
+                "company_id": clave,
+                "company_name": (getattr(company, "name", None) or "Sin empresa"),
+                "company_logo": (getattr(company, "logo_url", None) or ""),
+                "afavor": [],
+                "invoices": [],
+                "total": Decimal("0"),
+                "count": 0,
+            }
+        return grupos[clave]
+
+    for fila in (afavor_rows or []):
+        grupo = _grupo(fila.get("issuer"))
+        grupo["afavor"].append(fila)
+        grupo["total"] += _money_or_zero(fila.get("total"))
+        grupo["count"] += 1
+    for inv in (invoices or []):
+        grupo = _grupo(getattr(inv, "company", None))
+        grupo["invoices"].append(inv)
+        grupo["total"] += _money_or_zero(getattr(inv, "total_amount", None))
+        grupo["count"] += 1
+    # Por nombre de empresa y lo que no tenga empresa, al final (es lo que hay que arreglar).
+    return sorted(grupos.values(),
+                  key=lambda g: (not g["company_id"], (g["company_name"] or "").casefold()))
+
+
 def _admin_pending_counts(session_db) -> dict:
     """Números de las pestañas y subpestañas de Administración: CONTAR, sin cargar las filas.
 
@@ -116749,6 +116825,9 @@ def administracion_view():
         # Con la factura ya enviada, la liquidación a favor está PENDIENTE DE COBRO.
         afavor_collect_rows = (_afavor_admin_collect_rows(session_db)
                                if (tab == "pendiente" and pending_subtab == "facturacion") else [])
+        # LO PENDIENTE DE FACTURAR, agrupado por la EMPRESA DEL GRUPO que emite cada factura.
+        billing_groups = (_billing_pending_context(session_db, billing_pending, afavor_invoice_rows)
+                          if quiere_facturacion else [])
         return render_template(
             "administracion.html",
             tab=tab,
@@ -116795,6 +116874,7 @@ def administracion_view():
             paid_no_receipt=paid_no_receipt,
             receivable_invoices=receivable_invoices,
             billing_pending=billing_pending,
+            billing_groups=billing_groups,
             embargo_rows=embargo_rows,
             embargo_orders=embargo_orders,
             embargo_active_orders=embargo_active_orders,

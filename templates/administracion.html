@@ -553,35 +553,83 @@
       </div></div>
     </div>
   {% elif pending_subtab == 'facturacion' %}
-    {# Liquidaciones de royalties A FAVOR con factura pedida: hay que emitirla y enviarla. #}
-    {% if afavor_invoice_rows %}
-      <div class="card mb-3 border-primary">
-        <div class="card-header bg-white d-flex align-items-center gap-2">
-          <strong><i class="fa fa-percent me-1 text-danger"></i>Royalties a favor · facturas por emitir</strong>
-          <span class="badge text-bg-primary">{{ afavor_invoice_rows|length }}</span>
+    {# LO PENDIENTE DE FACTURAR, AGRUPADO POR LA EMPRESA DEL GRUPO QUE EMITE la factura, con su
+       LOGO en la cabecera: la factura la emite una de nuestras empresas y en una lista única no
+       había forma de saber cuál. Dentro de cada empresa van las dos cosas que hay que facturar:
+       las liquidaciones de royalties A FAVOR y las facturas emitidas del registro. Lo que ya está
+       facturado y solo espera el cobro va aparte, al final: eso ya no es trabajo de facturación.
+       Mismo patrón que «De pago» (`_payment_pending_context` / `_billing_pending_context`). #}
+    {% if not billing_groups %}
+      <div class="card mb-3"><div class="card-body text-muted">No hay nada pendiente de facturar.</div></div>
+    {% endif %}
+    {% for grupo in billing_groups %}
+      <div class="card mb-3">
+        <div class="card-header bg-white d-flex align-items-center gap-3 flex-wrap">
+          {# EMPRESA DEL GRUPO QUE EMITE: el helper pinta su logo y, si todavía no tiene, un icono
+             — NUNCA el logo de la casa (parecería que la factura sale de otra empresa). #}
+          {{ company_logo(name=grupo.company_name, logo_url=grupo.company_logo, size=38) }}
+          <div class="flex-grow-1 min-w-0">
+            <div class="fw-semibold">{{ grupo.company_name }}</div>
+            <div class="small text-muted">
+              Emite {{ grupo.count }} factura{{ '' if grupo.count == 1 else 's' }} · <strong>{{ grupo.total|eur }}</strong>
+            </div>
+          </div>
         </div>
         <div class="card-body p-0">
-          {% for r in afavor_invoice_rows %}
-            <a class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap text-decoration-none text-reset" href="{{ r.url }}">
-              <div class="d-flex align-items-center gap-2">
-                <img src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
-                     style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
-                <div>
-                  <div class="fw-semibold">{{ r.name }}</div>
-                  <div class="small text-muted">{{ r.period_ordinal }}{% if r.rec.invoice_requested_at %} · pedida el {{ r.rec.invoice_requested_at.strftime('%d/%m/%Y') }}{% endif %}{% if r.total is not none %} · {{ r.total|eur }}{% endif %}</div>
+          {# Liquidaciones de royalties A FAVOR con factura pedida: hay que emitirla y enviarla. #}
+          {% if grupo.afavor %}
+            <div class="px-3 pt-3 pb-1 small text-muted fw-semibold">
+              <i class="fa fa-percent me-1 text-danger"></i>Royalties a favor
+              <span class="badge text-bg-primary ms-1">{{ grupo.afavor|length }}</span>
+            </div>
+            {% for r in grupo.afavor %}
+              <a class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap text-decoration-none text-reset" href="{{ r.url }}">
+                <div class="d-flex align-items-center gap-2">
+                  {# El logo de dentro es el de la COMPAÑÍA a la que se le factura (el de arriba es
+                     el de la nuestra que la emite). #}
+                  <img src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" title="{{ r.name }}"
+                       style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
+                  <div>
+                    <div class="fw-semibold">{{ r.name }}</div>
+                    <div class="small text-muted">{{ r.period_ordinal }}{% if r.rec.invoice_requested_at %} · pedida el {{ r.rec.invoice_requested_at.strftime('%d/%m/%Y') }}{% endif %}{% if r.total is not none %} · {{ r.total|eur }}{% endif %}</div>
+                  </div>
                 </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="afavor-st afavor-st--pendinv"><i class="fa fa-file-invoice me-1"></i>Pendiente de facturación</span>
+                  <span class="btn btn-sm btn-outline-primary"><i class="fa fa-file-invoice me-1"></i>Emitir factura</span>
+                </div>
+              </a>
+            {% endfor %}
+          {% endif %}
+          {# Facturas del registro que están por emitir o por subir. #}
+          {% if grupo.invoices %}
+            <div class="px-3 pt-3 pb-1 small text-muted fw-semibold">
+              <i class="fa fa-file-invoice-dollar me-1 text-danger"></i>Facturas por emitir
+              <span class="badge text-bg-warning text-dark ms-1">{{ grupo.invoices|length }}</span>
+            </div>
+            {% for invoice in grupo.invoices %}
+              <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
+                <div class="min-w-0">
+                  <div class="fw-semibold">{{ invoice.invoice_number or 'Factura pendiente' }}</div>
+                  <div class="small text-muted">
+                    {{ invoice.third_party_name or 'Tercero pendiente' }}
+                    {% if invoice.artist %} · {{ invoice.artist.name }}{% endif %}
+                    · {{ invoice.bag.title if invoice.bag else 'Sin bolsa' }}
+                    {% if invoice.due_date %} · vence el {{ invoice.due_date.strftime('%d/%m/%Y') }}{% endif %}
+                  </div>
+                  <div class="fw-semibold mt-1">{{ invoice.total_amount|eur }}</div>
+                </div>
+                <div class="text-end"><span class="badge text-bg-warning text-dark">Pendiente de emitir/subir</span></div>
               </div>
-              <div class="d-flex align-items-center gap-2">
-                <span class="afavor-st afavor-st--pendinv"><i class="fa fa-file-invoice me-1"></i>Pendiente de facturación</span>
-                <span class="btn btn-sm btn-outline-primary"><i class="fa fa-file-invoice me-1"></i>Emitir factura</span>
-              </div>
-            </a>
-          {% endfor %}
+            {% endfor %}
+          {% endif %}
         </div>
       </div>
-    {% endif %}
+    {% endfor %}
+
     {# Con la factura ya enviada, la liquidación a favor está PENDIENTE DE COBRO: lo marca
-       administración cuando entra el dinero. #}
+       administración cuando entra el dinero. Aquí ya no se agrupa —no hay nada que facturar—,
+       pero cada una sigue diciendo con su logo QUÉ EMPRESA emitió la factura. #}
     {% if afavor_collect_rows %}
       <div class="card mb-3 border-success">
         <div class="card-header bg-white d-flex align-items-center gap-2">
@@ -592,12 +640,16 @@
           {% for r in afavor_collect_rows %}
             <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
               <div class="d-flex align-items-center gap-2">
-                <img src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                <img src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" title="{{ r.name }}"
                      style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
                 <div>
                   <div class="fw-semibold">{{ r.name }}</div>
                   <div class="small text-muted">
                     {{ r.period_ordinal }}{% if r.total is not none %} · {{ r.total|eur }}{% endif %}{% if r.invoice_number %} · factura {{ r.invoice_number }}{% endif %}
+                  </div>
+                  <div class="small text-muted d-flex align-items-center gap-1 mt-1">
+                    {{ company_logo(name=r.issuer_name, logo_url=r.issuer_logo, size=18) }}
+                    <span>La emite {{ r.issuer_name }}</span>
                   </div>
                 </div>
               </div>
@@ -620,17 +672,6 @@
         </div>
       </div>
     {% endif %}
-    <div class="card">
-      <div class="card-header bg-white"><strong>Pendiente de facturación</strong></div>
-      <div class="card-body p-0">
-        {% for invoice in billing_pending %}
-          <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
-            <div><div class="fw-semibold">{{ invoice.concept or invoice.invoice_number or 'Factura pendiente' }}</div><div class="small text-muted">{{ invoice.third_party_name or 'Tercero pendiente' }} · {{ invoice.bag.title if invoice.bag else 'Sin bolsa' }}</div><div class="fw-semibold mt-1">{{ invoice.total_amount|eur }}</div></div>
-            <div class="text-end"><span class="badge text-bg-warning">Pendiente de emitir/subir</span></div>
-          </div>
-        {% else %}<div class="p-3 text-muted">No hay conceptos pendientes de facturar.</div>{% endfor %}
-      </div>
-    </div>
   {% elif pending_subtab == 'liquidacion' %}
     {# Facturas de LIQUIDACIONES DE ROYALTIES recibidas y pendientes de validar. #}
     {% if royalty_invoice_rows %}

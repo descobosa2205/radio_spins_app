@@ -23,7 +23,6 @@
     <header class="osr__head">
       <div class="osr__logos">{% for l in logos %}<img src="{{ l.url }}" alt="{{ l.name }}" title="{{ l.name }}">{% endfor %}</div>
       <h1 class="osr__title">Roster</h1>
-      <p class="osr__sub">{{ rows|length }} artista{{ 's' if rows|length != 1 else '' }} · pincha en uno para ver su One Sheet</p>
     </header>
     <main class="osr__grid">
       {% for r in rows %}

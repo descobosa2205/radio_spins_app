@@ -263,6 +263,10 @@ def main():
     check("las fotos NO salen todavía (nada elegido) y el módulo vacío no se pinta", "os-mod--photos" not in html and "https://fotos.prueba/f0.jpg" not in html)
     check("la biografía vacía no se pinta", "os-mod--bio" not in html)
     check("el pie lleva el enlace al Roster", "/onesheet\"" in html or "/onesheet'" in html or 'href="http://localhost/onesheet"' in html or "onesheet\">" in html)
+    check("arriba a la izquierda, el botón de VOLVER al Roster", "os-topbar--left" in html and ">Volver<" in html)
+    # ⚠️ Los logos del grupo salían DOS VECES (el módulo de contacto los pintaba y el pie también).
+    check("los logos del grupo salen UNA sola vez (solo en el pie)",
+          html.count("os-foot__logos") == 1 and "os-logos" not in html)
     r = pub.get("/onesheet/%s" % TOKEN_VIEJO)
     check("el enlace ANTIGUO por token sigue abriéndose", r.status_code == 200, r.status_code)
     r = pub.get("/onesheet/no-existe-nadie-asi")
@@ -276,6 +280,7 @@ def main():
     check("se abre sin identificarse", r.status_code == 200, r.status_code)
     check("lista al artista con su enlace y sus etiquetas", NOMBRE in html and "/onesheet/prueba-one-sheet" in html and "Contratación" in html)
     check("el título Roster y los logos del grupo", "Roster" in html and "osr__logos" in html)
+    check("sin el subtítulo de «pincha en uno…»", "pincha en uno" not in html and "osr__sub" not in html)
 
     print("\n4) El editor")
     r = cli.get("/onesheet/editor/%s" % osid)

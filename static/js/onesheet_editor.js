@@ -399,7 +399,7 @@
         check('opts.show_size', 'Con el tamaño del archivo', o.show_size !== false);
     } else if (t === 'contact') {
       h += listaItems(b, CAMPOS.contact) + '<div class="small fw-semibold mt-2 mb-1">Gente de la casa</div><div class="ose__sugg" data-a-contacts><span class="small text-muted">Cargando…</span></div>' +
-        '<div class="mt-2">' + botones('opts.layout', o.layout || 'cards', [['cards', 'Tarjetas'], ['list', 'Lista']]) + '</div>' + check('opts.show_logos', 'Con los logos del grupo', o.show_logos !== false);
+        '<div class="mt-2">' + botones('opts.layout', o.layout || 'cards', [['cards', 'Tarjetas'], ['list', 'Lista']]) + '</div>';
     }
     return h;
   }

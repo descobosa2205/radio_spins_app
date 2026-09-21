@@ -626,7 +626,6 @@ def normalize_opts(btype: str, raw) -> dict:
         o["items"] = _clean_items(src.get("items"), {"role": ("str", 80), "name": ("str", 120), "email": ("str", 160),
                                                      "phone": ("str", 60), "photo_url": ("img", 0)}, 12)
         o["layout"] = src.get("layout") if src.get("layout") in ("cards", "list") else "cards"
-        o["show_logos"] = _bool(src.get("show_logos"), True)
     return o
 
 

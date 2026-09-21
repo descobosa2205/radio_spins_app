@@ -11,7 +11,8 @@
 - LA REJILLA de 12 columnas, las filas de alto variable y cómo se adapta a cada pantalla
 - LO DINÁMICO SE CALCULA AL PINTAR (conciertos, cifras, certificaciones, prensa, países…)
 - EL TEMA: el color de fondo manda y las letras y los iconos salen solos (y se cambian por módulo)
-- LA DIRECCIÓN PÚBLICA (slug), los enlaces antiguos por token y el ROSTER (/onesheet)
+- LA DIRECCIÓN PÚBLICA (slug), los enlaces antiguos por token y el ROSTER (/onesheet, con el
+  «Volver» de cada perfil)
 - LAS PLANTILLAS: viaja el formato, no el contenido
 - CHARTMETRIC: más redes (solo las que tiene el artista) y «dónde se escucha»
 - EL MÓDULO «DOCUMENTOS»: archivos para descargar (el icono de su tipo y su nombre), subidos desde el
@@ -39,6 +40,11 @@
   foto, su nombre y sus etiquetas, con los logos de 33 Producciones y PIES; cada tarjeta abre su
   one sheet. Se gestiona en `/onesheet/roster/gestion` (quién sale, el orden arrastrando, las
   etiquetas), y hay un botón «Roster» en el listado de Artistas.
+  · **De un perfil se vuelve al Roster** (sep 2026, lo pidió Dani): arriba a la izquierda, un botón
+  **«← Volver»** (`.os-topbar--left`, el mismo estilo que Compartir y Editar, que van a la derecha).
+  Es un **enlace de verdad** al Roster, no `history.back()`, para que también valga a quien abre el
+  enlace compartido sin venir de ninguna parte; en el móvil se queda con su rótulo (los de la
+  derecha se quedan en icono). El pie sigue llevando su enlace al Roster.
 
 - **DÓNDE VIVE CADA COSA**. El diseño es UN JSON en **`OneSheet.design`** (tabla `onesheets`, una
   fila por sujeto: `subject_kind` ARTIST|EVENT|CYCLE|TOUR + `subject_id`, `slug` único,
@@ -180,6 +186,17 @@
   nombre y su tipo, los 404, el módulo en el editor, el rechazo de un `.exe` y la subida de un PDF.
 
 - **LAS TRAMPAS que ya costaron algo**:
+  ⚠️⚠️ **LOS LOGOS DEL GRUPO LOS PINTA SOLO EL PIE** (bug real, sep 2026: «aparecen duplicados los
+  iconos de la parte de abajo en dos filas»). El pie de `_onesheet_body.html` (`os-foot__logos`)
+  lleva SIEMPRE los dos logos; el módulo de **contacto** los pintaba también (opción `show_logos`,
+  **encendida por defecto**), así que salían **dos filas iguales, una encima de la otra**, al final
+  de la página. Y pasaba en CUALQUIER one sheet, tuviera contactos o no: los logos bastaban para que
+  el módulo no contara como vacío (`empty = not rows and not logos`), de modo que un módulo de
+  contacto SIN un solo contacto se pintaba igual solo para repetir los logos.
+  · Se quitó de raíz: fuera los logos del módulo, fuera la opción `show_logos` (de
+  `normalize_design` y del panel del editor) y fuera el `.os-logos` del CSS. **Un dato, un sitio.**
+  ⚠️ El Roster **no lleva subtítulo** («N artistas · pincha en uno…» se quitó en sep 2026, lo pidió
+  Dani): los logos, «Roster» y la rejilla.
   ⚠️⚠️ **El mapeo GRUESO de permisos (`_coarse_endpoint_resource`) NO puede mirar al usuario**. La
   regla de prefijo `onesheet_` va en los DOS mapeos, pero en el grueso devuelve la clave FIJA
   `artists.onesheet`: puesto ahí `_first_access_key` (que llama a `has_access_key` →
@@ -202,7 +219,7 @@
   está contenido en «Prueba One Sheet Dos» y las dos comprobaciones del Roster salían en rojo sin
   que hubiera nada roto.
 
-- **LA PRUEBA: `/tmp/python/bin/python3 tools/check_onesheet.py`** (85 comprobaciones con la app real:
+- **LA PRUEBA: `/tmp/python/bin/python3 tools/check_onesheet.py`** (102 comprobaciones con la app real:
   la pestaña crea la fila y deduce las etiquetas, la importación del antiguo, la página pública con
   lo que sale y lo que no, el token antiguo, el 404, la og, el Roster, el editor y sus datos,
   guardar/normalizar/sanear, pintar un módulo, los ajustes, las plantillas, la gestión del Roster,

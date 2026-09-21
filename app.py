@@ -91080,9 +91080,11 @@ def _onesheet_module_data(session_db, row, info: dict, design: dict, block: dict
         d["rows"] = filas
         d["empty"] = not filas
     elif t == "contact":
+        # ⚠️ Los logos del grupo NO se pintan aquí: los lleva SIEMPRE el pie de la página
+        # (`_onesheet_body.html`), que es su punto único. Puestos también en este módulo salían
+        # DOS VECES, uno encima del otro, justo al final (lo vio Dani, sep 2026).
         d["rows"] = [it for it in (o.get("items") or []) if (it.get("name") or it.get("email") or it.get("role") or "").strip()]
-        d["logos"] = _onesheet_group_logos(session_db) if o.get("show_logos", True) else []
-        d["empty"] = not d["rows"] and not d["logos"]
+        d["empty"] = not d["rows"]
     return d
 
 

@@ -32,6 +32,12 @@
   <style>html,body{margin:0;background:{{ theme_colors.bg }};}</style>
 </head>
 <body class="os-body">
+  {# VOLVER: a un perfil se llega casi siempre desde el Roster, así que arriba a la izquierda queda
+     el camino de vuelta. Es un enlace de verdad al Roster (no `history.back()`), para que también
+     valga a quien abre el enlace compartido sin venir de ninguna parte. #}
+  <div class="os-topbar os-topbar--left">
+    <a class="os-topbar__btn" href="{{ roster_url }}" title="Volver al Roster"><i class="fa-solid fa-arrow-left"></i><span>Volver</span></a>
+  </div>
   <div class="os-topbar" data-os-topbar>
     <button type="button" class="os-topbar__btn" data-os-share title="Compartir este One Sheet"><i class="fa-solid fa-share-nodes"></i><span>Compartir</span></button>
     {% if can_edit and editor_url %}<a class="os-topbar__btn os-topbar__btn--edit" href="{{ editor_url }}" title="Editar este One Sheet (solo lo ve quien tiene sesión)"><i class="fa-solid fa-pen"></i><span>Editar</span></a>{% endif %}

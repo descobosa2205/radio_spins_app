@@ -447,11 +447,15 @@
   </div>
 </div>
 
-{# ---------- 8 · SUBIR EL VIDEOCLIP ---------- #}
+{# ---------- 8 · SUBIR EL VIDEOCLIP ----------
+   ⚠️ SUBIDA DIRECTA A STORAGE (`direct_upload.js` + `disco_video_sign`): un videoclip pesa cientos
+   de MB y, dentro del formulario, la petición moría por tiempo antes de guardarse. El navegador lo
+   sube primero y al servidor solo le llega su dirección (`uploaded_key`). #}
 <div class="modal fade" id="dpVideoUploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" enctype="multipart/form-data"
-          action="{{ url_for('disco_video_upload', project_id=project.id) }}">
+          action="{{ url_for('disco_video_upload', project_id=project.id) }}"
+          data-direct-upload="{{ url_for('disco_video_sign', project_id=project.id) }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
       <div class="modal-header sw-head">
         <h5 class="modal-title"><i class="fa fa-film me-2"></i>Subir el videoclip</h5>
@@ -464,9 +468,15 @@
             {% if vd.file.at_label %}<span class="text-muted small"> · {{ vd.file.at_label }}</span>{% endif %}</div>
         {% endif %}
         <label class="form-label">El archivo</label>
-        <input class="form-control" type="file" name="file" accept="video/*">
+        <input class="form-control" type="file" name="file" accept=".mp4,.mov,.webm,.m4v,.avi,.mkv,.mpeg,.mpg,video/*" data-direct>
         <div class="form-text">Se guarda también en los materiales de la canción, que es donde se
-          miran. Es el que se manda a aprobar y luego se distribuye.</div>
+          miran. Es el que se manda a aprobar y luego se distribuye. Se sube directo al
+          almacenamiento, así que puede pesar lo que pese: no cierres esta ventana hasta que termine.</div>
+        <div class="mt-3 d-none" data-du-progress>
+          <div class="progress" style="height:10px;"><div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%" aria-valuemin="0" aria-valuemax="100" data-du-bar></div></div>
+          <div class="form-text" data-du-label>Subiendo…</div>
+        </div>
+        <div class="alert alert-danger py-2 small mt-3 mb-0 d-none" data-du-error></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -514,3 +524,6 @@
 {% if not has_audio %}
   <script src="{{ url_for('static', filename='js/disco_steps.js') }}"></script>
 {% endif %}
+{# La subida directa del videoclip (paso 8). Si la página ya lo trae, el módulo lo detecta y no se
+   monta dos veces. #}
+<script src="{{ url_for('static', filename='js/direct_upload.js', v=ASSET_V) }}"></script>

@@ -36,6 +36,8 @@
 - AL ENTRAR EN UNA FICHA SE ABRE SU PRIMERA PESTAÑA, y las SUBPESTAÑAS también se ordenan
 - UN BOTÓN «COPIAR ENLACE» DENTRO DE UNA ZONA INLINE SE QUEDABA MUERTO
 - TODOS LOS ASISTENTES Y LAS ALTAS SE VEN IGUAL: la cabecera de «Datos de la entrada» (sep
+- SUBIDA DIRECTA A STORAGE DESDE UN FORMULARIO NORMAL (static/js/direct_upload.js): un vídeo pesado
+  dentro del formulario muere por tiempo; el navegador lo sube antes y al servidor le llega la key
 - PARA VER LA APP EN EL NAVEGADOR EN LOCAL: .claude/launch.json → tools/dev_server.py,
 - static/maintenance.html es HTML PURO (no pasa por Jinja): un comentario {# … #} se
 - UNA FOTO O UN LOGO QUE FALTA NO SE RELLENA CON LA MARCA DE LA CASA (sep 2026, barrido
@@ -370,6 +372,47 @@
   Probado con la app real: un mp4 de 6,6 Mbps con el `moov` al final → copia h264 de 2,4 Mbps con
   `ftyp · moov · free · mdat`, fila READY y `_video_web_url` devolviendo la copia; un `.jpg` pasa
   tal cual.
+
+- ⚠️⚠️ **SUBIDA DIRECTA A STORAGE DESDE UN FORMULARIO NORMAL** (sep 2026, bug real: «al subir
+  videoclips pesados empieza a subirse pero termina dando fallo y no se termina de subir»). Un vídeo
+  que viaja DENTRO del formulario pasa por Render, y con cientos de MB la petición muere por tiempo
+  (el 524 del proxy, el 502 del worker) **antes de que el servidor termine de subirlo a Storage**: el
+  navegador ve la barra avanzar y luego un fallo, y no queda nada guardado. Storage sí lo admite (hay
+  un videoclip de **1,8 GB** en `song_materials/` y vídeos de 640 MB en `photos/`): el cuello era el
+  viaje por el servidor. Era el caso de la galería (`fotos.js`) y de los masters (la entrega pública),
+  y les faltaban los dos videoclips: el de la **ficha de la canción** (`_song_material_modal.html`) y
+  el **paso 8 de un proyecto** (`_disco_video_modals.html`).
+  · Punto único **`static/js/direct_upload.js`**, que no necesita JS en la plantilla: el formulario
+  lleva **`data-direct-upload="<url que firma>"`** y su `<input type=file>` **`data-direct`**; al
+  enviar, firma (`POST` JSON → `{ok, key, upload_url}`), hace el **PUT con barra de progreso**
+  (`[data-du-progress]` · `[data-du-bar]` · `[data-du-label]`), añade los ocultos **`uploaded_key` ·
+  `uploaded_name` · `uploaded_mime` · `uploaded_size`**, **deshabilita** el `<input type=file>` (un
+  campo oculto se envía igual, y este ya no tiene que viajar) y manda el formulario con
+  `form.submit()`, que **no dispara `submit`** (así no entra en bucle). **`data-du-only-if="campo=valor"`**
+  limita la subida directa a un caso del formulario (el pop-up de materiales sirve también para
+  portadas y masters: solo el `category=VIDEOCLIP` va directo).
+  · Escucha en **`document` en fase de CAPTURA** y corta con `stopImmediatePropagation`: corre antes
+  que el loader y que el motor inline, y ninguno se queda a medias. El `data-confirm` de
+  `ajax_inline.js` (también captura, registrado antes) sigue mandando: si se dice que no, aquí no
+  se hace nada.
+  · **Respaldo**: si la FIRMA falla (sin Storage configurado) se manda como siempre, con el archivo
+  dentro. Si falla el **PUT** (se corta la red, o Storage devuelve **413** porque el archivo pasa del
+  límite del proyecto) **no** se manda por el servidor —ahí moriría igual—: se dice qué ha pasado en
+  `[data-du-error]` y se puede volver a intentar.
+  · En el servidor, punto único **`_direct_upload_resolve(key, carpeta, extensiones)`** → `(url,
+  error)`: solo acepta una key **exactamente** como las que firma (`<carpeta>/<hex>.<ext>`), con la
+  extensión permitida y comprobando por HEAD que el objeto **existe** (la misma comprobación que
+  `fotos_video_register`). Lo usan `discografica_song_material_upload` (VIDEOCLIP con `uploaded_key`;
+  firma en `discografica_song_material_sign`) y `disco_video_upload` (firma en `disco_video_sign`),
+  que además encarga ya la miniatura y la versión web (`_song_video_poster_schedule`), que antes no
+  hacía. Las dos firmas cuelgan de `/discografica/…`, así que el gate las resuelve solo.
+  ⚠️ El pop-up de materiales se reutiliza para varias subidas seguidas: `openSongMaterialModal`
+  limpia los ocultos `uploaded_*`, la barra, el error y las marcas `data-du-done`/`data-du-busy`, o
+  la segunda subida se mandaría con la key de la primera.
+  Probado con la app real (BD de prueba, Storage simulado): firma → registro por key con el nombre
+  del archivo sin la ruta de Windows y su mime; una key de otra carpeta o un objeto que no existe se
+  rechazan con aviso y sin crear fila; sustituir el principal deja uno; el paso 8 guarda el archivo
+  en `production_payload['video']['file']` y el material de la canción.
 
 - ⚠️⚠️ **AL ENTRAR EN UNA FICHA SE ABRE **SU** PRIMERA PESTAÑA, y las SUBPESTAÑAS también se ordenan**
   (sep 2026). Quien se ha colocado las pestañas (manteniendo pulsada una, `UserProfile.ui_order`)

@@ -735,7 +735,19 @@
 
               </div>
 
-              <div class="modal-footer">
+              <div class="modal-footer justify-content-between">
+                {# REINICIAR LA VENTA: todo lo de este pop-up a cero (tipos, ticketeras, cupos, histórico,
+                   IVA/SGAE, las categorías de la ficha y el Sold Out) para configurarla de nuevo. Con
+                   Enterticket conectado no se ofrece: la siguiente sincronización lo volvería a volcar. #}
+                {% if st.connected %}
+                  <span class="small text-muted"><i class="fa fa-circle-info me-1"></i>Conectada a Enterticket: para reiniciar la venta hay que desvincularla antes desde su ficha.</span>
+                {% else %}
+                  <form method="post" action="{{ url_for('concert_sales_reset', cid=c.id) }}" class="m-0"
+                        data-confirm="¿Reiniciar la venta de esta actividad?&#10;&#10;Se borran los tipos de entrada, las ticketeras con sus cupos y precios, todo el histórico diario de ventas, el IVA/SGAE, las categorías de la ficha (con sus invitaciones pactadas) y el Sold Out. No se puede deshacer.&#10;&#10;Se conservan el aforo, quién vende, el responsable de ticketing, la salida a la venta y los compradores.">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-outline-danger btn-sm" type="submit"><i class="fa fa-rotate-left me-1"></i>Reiniciar la venta</button>
+                  </form>
+                {% endif %}
                 <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cerrar</button>
               </div>
 

@@ -47,7 +47,10 @@
   · **Maqueta**: Portada · **Videoclip** (mismo hueco que la portada, justo debajo) · Masters ·
   Instrumental · TV Track · **Stems**, que ocupa media columna para caer debajo de Instrumental y al
   lado de TV Track.
-  · **VIDEOCLIP** (`SongMaterial.category='VIDEOCLIP'`, slots DEFAULT/SUBPRODUCT): se ve con su
+  · **VIDEOCLIP** (`SongMaterial.category='VIDEOCLIP'`, slots DEFAULT/SUBPRODUCT): **se sube DIRECTO
+  a Storage** desde el pop-up de materiales (`direct_upload.js` + `discografica_song_material_sign`;
+  al endpoint de siempre le llega `uploaded_key`, ver `docs/app/ui-plantillas.md`): dentro del
+  formulario, un videoclip pesado moría por tiempo antes de guardarse (sep 2026). Se ve con su
   **miniatura**, y en los tres puntitos se descarga **en MOV o en MP4**
   (`_convert_video_content`: MOV y MP4 son el mismo códec en otro contenedor, así que se **remuxa**
   con `-c copy` —casi instantáneo y sin tocar la calidad— y solo si eso falla se recodifica).
@@ -682,7 +685,11 @@
   el punto único de «HH:MM»).
   · **8 SUBIR EL VIDEOCLIP** (`disco_video_upload`): ⚠️ se guarda **también como material de la
   canción** (`SongMaterial` VIDEOCLIP), que es donde se miran los materiales — no se inventa un
-  segundo sitio. Y por eso el estado da el vídeo por subido si ya está ahí.
+  segundo sitio. Y por eso el estado da el vídeo por subido si ya está ahí. ⚠️ El archivo **se sube
+  DIRECTO a Storage** desde el navegador (`disco_video_sign` + `direct_upload.js`, sep 2026: dentro
+  del formulario un videoclip pesado moría por tiempo) y al endpoint le llega `uploaded_key`; si
+  viene dentro (`file`), se sube desde el servidor como respaldo. Y encarga la miniatura y la
+  versión web (`_song_video_poster_schedule`), que antes solo hacía la ficha de la canción.
   · **9 LA APROBACIÓN DEL ARTISTA** (`disco_video_approval`, kind **VIDEOCLIP** del motor de
   aprobaciones en cadena). ⚠️ **BLOQUEADA hasta que el vídeo está subido**: no se manda a aprobar lo
   que no existe (lo comprueba también el endpoint).

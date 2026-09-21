@@ -27320,6 +27320,38 @@ def discografica_song_video_thumb_request(song_id):
     return redirect(safe_next_or(volver))
 
 
+@app.post("/discografica/canciones/<song_id>/materials/firmar", endpoint="discografica_song_material_sign")
+@admin_required
+def discografica_song_material_sign(song_id):
+    """Paso 1 de la SUBIDA DIRECTA del videoclip de una canción (`direct_upload.js`): valida que es
+    un vídeo y devuelve la URL firmada de Storage para que el navegador lo suba SIN pasar por aquí.
+
+    ⚠️ Por qué: un videoclip pesa cientos de MB (hay uno de 1,8 GB en Storage) y, dentro del
+    formulario, la petición moría por tiempo antes de que el servidor terminara de subirlo: «empieza
+    a subirse pero termina dando fallo». Es la misma mecánica que los vídeos de la galería
+    (`fotos_video_sign`) y los masters de la entrega pública (`public_song_delivery_sign`)."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permisos para subir materiales."}), 403
+    data = request.get_json(silent=True) or {}
+    ext = os.path.splitext((data.get("filename") or "").strip().lower())[1]
+    if ext not in SONG_VIDEO_EXTENSIONS:
+        return jsonify({"ok": False, "error": "La subida directa es solo para vídeos (%s)."
+                        % ", ".join(sorted(e.lstrip(".").upper() for e in SONG_VIDEO_EXTENSIONS))}), 400
+    session_db = db()
+    try:
+        if session_db.get(Song, _safe_uuid(song_id) or uuid.uuid4()) is None:
+            return jsonify({"ok": False, "error": "Canción no encontrada."}), 404
+    finally:
+        session_db.close()
+    try:
+        info = create_signed_upload_url_for("song_materials", ext)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida directa: " + str(exc)[:200]}), 502
+    if not info.get("signed_url"):
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida directa."}), 502
+    return jsonify({"ok": True, "key": info["key"], "upload_url": info["signed_url"]})
+
+
 @app.post("/discografica/canciones/<song_id>/materials/upload")
 @admin_required
 def discografica_song_material_upload(song_id):
@@ -27333,6 +27365,11 @@ def discografica_song_material_upload(song_id):
     display_name = (request.form.get("display_name") or "").strip() or None
     replace_material_id = (request.form.get("material_id") or "").strip() or None
     replace_bundle_key = (request.form.get("bundle_key") or "").strip() or None
+    # SUBIDA DIRECTA (solo el videoclip): el navegador ya lo subió a Storage y aquí llega su key
+    # (`discografica_song_material_sign` + `direct_upload.js`); el archivo NO viaja en el formulario.
+    uploaded_key = (request.form.get("uploaded_key") or "").strip()
+    uploaded_name = Path((request.form.get("uploaded_name") or "").replace("\\", "/")).name.strip()
+    uploaded_mime = (request.form.get("uploaded_mime") or "").strip() or None
     files = []
     for field_name in ("files", "folder_files", "file", "audio_file", "songMaterialFiles", "songMaterialFolderFiles"):
         for storage in request.files.getlist(field_name):
@@ -27374,7 +27411,10 @@ def discografica_song_material_upload(song_id):
         flash("Debes indicar un nombre para el subproducto.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
-    if not files:
+    if uploaded_key and category != "VIDEOCLIP":
+        # La subida directa solo la hace el videoclip: para el resto, el archivo tiene que venir.
+        uploaded_key = ""
+    if not files and not uploaded_key:
         flash("Selecciona al menos un archivo.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
@@ -27384,6 +27424,7 @@ def discografica_song_material_upload(song_id):
             flash("Los masters, la instrumental y el TV track deben subirse en formato .wav.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
+    uploaded_url = ""
     if category == "VIDEOCLIP":
         malos = [f for f in files
                  if Path((f.filename or "").replace("\\", "/")).suffix.lower() not in SONG_VIDEO_EXTENSIONS]
@@ -27391,6 +27432,11 @@ def discografica_song_material_upload(song_id):
             flash("El videoclip tiene que ser un vídeo (%s)."
                   % ", ".join(sorted(e.lstrip(".").upper() for e in SONG_VIDEO_EXTENSIONS)), "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
+        if uploaded_key:
+            uploaded_url, motivo = _direct_upload_resolve(uploaded_key, "song_materials", SONG_VIDEO_EXTENSIONS)
+            if not uploaded_url:
+                flash("No se pudo registrar el videoclip subido: %s" % motivo, "danger")
+                return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
     session_db = db()
     try:
@@ -27461,16 +27507,24 @@ def discografica_song_material_upload(song_id):
                     .all()
                 ):
                     session_db.delete(row)
-            fs = files[0]
-            file_url = upload_file(fs, "song_materials", allowed_extensions=SONG_VIDEO_EXTENSIONS)
+            if uploaded_url:
+                # Subida DIRECTA: el vídeo ya está en Storage, aquí solo se da de alta.
+                file_url = uploaded_url
+                nombre_archivo = uploaded_name or Path(uploaded_key).name
+                mime = uploaded_mime
+            else:
+                fs = files[0]
+                file_url = upload_file(fs, "song_materials", allowed_extensions=SONG_VIDEO_EXTENSIONS)
+                nombre_archivo = Path((fs.filename or "videoclip.mp4").replace("\\", "/")).name
+                mime = (getattr(fs, "mimetype", "") or "").strip() or None
             fila = SongMaterial(
                 song_id=song.id,
                 category="VIDEOCLIP",
                 slot_key=slot_key,
                 display_name=display_name,
-                file_name=Path((fs.filename or "videoclip.mp4").replace("\\", "/")).name,
+                file_name=nombre_archivo,
                 file_url=file_url,
-                mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                mime_type=mime,
             )
             session_db.add(fila)
             session_db.flush()
@@ -43575,13 +43629,44 @@ def disco_video_release_save(project_id):
     return redirect(safe_next_or(destino))
 
 
+@app.post("/discografica/proyectos/<project_id>/video/firmar", endpoint="disco_video_sign")
+@admin_required
+def disco_video_sign(project_id):
+    """Paso 1 de la SUBIDA DIRECTA del videoclip de un proyecto (paso 8): la URL firmada de Storage
+    para que el navegador suba el archivo sin pasar por el servidor. Mismo motivo y misma mecánica
+    que `discografica_song_material_sign`."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permisos."}), 403
+    data = request.get_json(silent=True) or {}
+    ext = os.path.splitext((data.get("filename") or "").strip().lower())[1]
+    if ext not in ARTWORK_VIDEO_EXTS:
+        return jsonify({"ok": False, "error": "La subida directa es solo para vídeos (%s)."
+                        % ", ".join(sorted(e.lstrip(".").upper() for e in ARTWORK_VIDEO_EXTS))}), 400
+    session_db = db()
+    try:
+        if _disco_video_or_404(session_db, project_id) is None:
+            return jsonify({"ok": False, "error": "Este proyecto no lleva videoclip."}), 404
+    finally:
+        session_db.close()
+    try:
+        info = create_signed_upload_url_for("videoclips", ext)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida directa: " + str(exc)[:200]}), 502
+    if not info.get("signed_url"):
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida directa."}), 502
+    return jsonify({"ok": True, "key": info["key"], "upload_url": info["signed_url"]})
+
+
 @app.post("/discografica/proyectos/<project_id>/video/subir", endpoint="disco_video_upload")
 @admin_required
 def disco_video_upload(project_id):
     """SUBIR EL VIDEOCLIP (el montaje que se manda a aprobar y luego se distribuye).
 
     ⚠️ Se guarda además como **material de la canción** (`SongMaterial` VIDEOCLIP), que es donde
-    viven los materiales: aquí no se inventa un segundo sitio para lo mismo."""
+    viven los materiales: aquí no se inventa un segundo sitio para lo mismo.
+    ⚠️ El archivo llega normalmente ya SUBIDO a Storage por el navegador (`uploaded_key`, subida
+    directa con `disco_video_sign`): dentro del formulario, un videoclip pesado moría por tiempo
+    antes de guardarse. Si viene dentro (`file`), se sube desde aquí como respaldo."""
     if not can_edit_discografica():
         return forbid("No tienes permisos.")
     session_db = db()
@@ -43594,7 +43679,15 @@ def disco_video_upload(project_id):
         archivo = request.files.get("file")
         url = (request.form.get("file_url") or "").strip()
         nombre = (request.form.get("file_name") or "").strip()
-        if archivo is not None and getattr(archivo, "filename", ""):
+        uploaded_key = (request.form.get("uploaded_key") or "").strip()
+        if uploaded_key:
+            url, motivo = _direct_upload_resolve(uploaded_key, "videoclips", ARTWORK_VIDEO_EXTS)
+            if not url:
+                flash("No se pudo registrar el videoclip subido: %s" % motivo, "danger")
+                return redirect(safe_next_or(destino))
+            nombre = (Path((request.form.get("uploaded_name") or "").replace("\\", "/")).name.strip()
+                      or Path(uploaded_key).name)
+        elif archivo is not None and getattr(archivo, "filename", ""):
             try:
                 url = upload_file(archivo, "videoclips", allowed_extensions=ARTWORK_VIDEO_EXTS)
                 nombre = (archivo.filename or "").strip()
@@ -43610,15 +43703,26 @@ def disco_video_upload(project_id):
                          "by": (yo.get("nick") or "")}
         _disco_video_set(project, video)
         # Y en la ficha de la canción, que es donde se miran los materiales.
+        material = None
         try:
             canciones = _disco_project_release_songs(session_db, project)
             if canciones:
-                session_db.add(SongMaterial(
+                material = SongMaterial(
                     song_id=canciones[0].id, category="VIDEOCLIP", slot_key="DEFAULT",
-                    file_url=url, file_name=(nombre or "videoclip")))
+                    file_url=url, file_name=(nombre or "videoclip"))
+                session_db.add(material)
+                session_db.flush()
         except Exception:
+            material = None
             app.logger.exception("[videoclip] no se pudo guardar el material de la canción")
         session_db.commit()
+        # Su miniatura y su VERSIÓN WEB, en 2º plano: por aquí también pasa un vídeo nuevo, y sin
+        # esto el de un proyecto se veía a tirones hasta que alguien lo abría en la ficha.
+        if material is not None:
+            try:
+                _song_video_poster_schedule(material.id, url)
+            except Exception:
+                app.logger.exception("[videoclip] no se pudo encargar la miniatura")
         flash("Videoclip subido.", "success")
     except Exception as exc:
         session_db.rollback()
@@ -72318,6 +72422,8 @@ def concert_detail_view(cid):
             venue_seat_maps=venue_seat_maps,
             concert_seat_map=concert_seat_map,
             show_ticketing_tab=show_ticketing_tab,
+            # REINICIAR LA VENTA (pestaña Ticketing): contratación y quien edita ventas.
+            CAN_RESET_SALES=(can_edit_concerts() or can_edit_sales()),
             show_menores_tab=show_menores_tab,
             **minor_ctx,
             show_repertorio_tab=show_repertorio_tab,
@@ -78016,6 +78122,141 @@ def sales_toggle_soldout(cid):
     # vuelve a la misma fecha
     day = request.form.get("day") or request.args.get("day")
     return redirect(url_for("sales_update_view", d=day) if day else (request.referrer or url_for("sales_update_view")))
+
+
+# ═══════════════════════════ REINICIAR LA VENTA DE UNA ACTIVIDAD ═════════════════════════════════
+# Lo pidió Dani (sep 2026): una actividad se vinculó por error a un evento de Enterticket, se
+# desvinculó… y la venta se quedó con los datos del otro evento (categorías, cupos, aforo, el
+# histórico de otra ticketera, hasta el Sold Out). Desvincular limpia lo que trajo el ESPEJO de
+# Enterticket, pero no lo que ya estaba ni lo que se volcó a la ficha a propósito. Para volver a
+# empezar de cero hace falta un botón que borre TODO lo del módulo de ventas de esa actividad.
+#
+# ⚠️ Lo que se BORRA (todo lo que es «la venta»): el histórico diario por ticketera y tipo
+# (`TicketSaleDetail`), el histórico básico antiguo (`TicketSale`), los cupos y precios por
+# ticketera (`ConcertTicketerTicketType`), las ticketeras de la actividad (`ConcertTicketer`, con
+# su rebate y su enlace), los tipos de entrada (`ConcertTicketType`), el IVA/SGAE
+# (`ConcertSalesConfig`), las categorías de la ficha (`ticketing_payload['ticket_types']`, con sus
+# invitaciones pactadas: sin esto, al guardar la ficha se volverían a crear los tipos borrados) y la
+# huella del volcado de Enterticket. Y el Sold Out se DESHACE (la casilla y su proceso).
+# ⚠️ Lo que se CONSERVA (no es la venta, es la actividad): el aforo, quién vende, el responsable
+# de ticketing y su contacto, la salida a la venta y sus comunicaciones, los canales de venta
+# pedidos, las solicitudes de actualización ya mandadas y los compradores.
+# ⚠️ Con un evento de Enterticket VINCULADO no se puede: el siguiente sync volvería a volcarlo todo.
+# Primero se desvincula y luego se reinicia.
+
+
+def _concert_sales_reset(session_db, concert) -> dict:
+    """Borra la venta entera de una actividad para configurarla de nuevo. Devuelve cuántas cosas
+    se han quitado (para decirlo en el aviso). Punto único: lo usan la ficha y «Actualizar ventas»."""
+    cid = concert.id
+    salida = {"detalles": 0, "basico": 0, "cupos": 0, "ticketeras": 0, "tipos": 0,
+              "config": 0, "categorias": 0, "soldout": False}
+
+    def _borra(modelo, clave="detalles"):
+        n = (session_db.query(modelo).filter(modelo.concert_id == cid)
+             .delete(synchronize_session=False))
+        salida[clave] = int(n or 0)
+
+    _borra(TicketSaleDetail, "detalles")
+    _borra(TicketSale, "basico")
+    _borra(ConcertTicketerTicketType, "cupos")
+    _borra(ConcertTicketer, "ticketeras")
+    _borra(ConcertTicketType, "tipos")
+    _borra(ConcertSalesConfig, "config")
+    session_db.flush()
+
+    payload = dict(getattr(concert, "ticketing_payload", None) or {})
+    categorias = payload.get("ticket_types") or []
+    salida["categorias"] = len([r for r in categorias if isinstance(r, dict)])
+    for clave in ("ticket_types", "et_dump", "et_dumped_at", "et_event_id"):
+        payload.pop(clave, None)
+    vendedor = payload.get("sale_seller")
+    if isinstance(vendedor, dict):
+        # El enlace de venta que puso Enterticket al vincular: ya no es de esta actividad.
+        vendedor.pop("url", None)
+    concert.ticketing_payload = payload
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(concert, "ticketing_payload")
+
+    if bool(getattr(concert, "sold_out", False)) or getattr(concert, "soldout_declared_at", None):
+        salida["soldout"] = True
+    concert.sold_out = False
+    concert.soldout_declared_at = None
+    concert.soldout_declared_by_nick = None
+    concert.soldout_notified_at = None
+    # Los avisos de «¡Sold Out!» que siguieran en la campanita ya no esperan nada.
+    try:
+        _notify_resolve(session_db, "SOLDOUT_DONE", str(cid))
+    except Exception:
+        app.logger.exception("[ventas] no se pudieron cerrar los avisos del sold out")
+    # Sin ventas no hay «última actualización»: si no, la tarjeta diría «actualizadas el…» con cero.
+    concert.sales_updated_at = None
+    concert.updated_at = _now_madrid()
+    # ⚠️ Las relaciones ya cargadas en esta sesión (ticket_types, ticketers…) apuntan a filas que ya
+    # no existen: se caducan para que quien siga usando el objeto no las vea.
+    try:
+        session_db.expire(concert, ["ticket_types", "ticketers", "sales", "sales_details", "sales_config"])
+    except Exception:
+        pass
+    return salida
+
+
+def _concert_sales_reset_summary(salida: dict) -> str:
+    """El aviso de lo que se ha borrado, en español y solo con lo que había."""
+    partes = []
+    if salida.get("tipos"):
+        partes.append("%d tipo(s) de entrada" % salida["tipos"])
+    if salida.get("categorias"):
+        partes.append("%d categoría(s) de la ficha" % salida["categorias"])
+    if salida.get("ticketeras"):
+        partes.append("%d ticketera(s)" % salida["ticketeras"])
+    if salida.get("cupos"):
+        partes.append("%d cupo(s) por ticketera" % salida["cupos"])
+    apuntes = int(salida.get("detalles") or 0) + int(salida.get("basico") or 0)
+    if apuntes:
+        partes.append("%d apunte(s) diarios de venta" % apuntes)
+    if salida.get("config"):
+        partes.append("el IVA/SGAE")
+    if salida.get("soldout"):
+        partes.append("el Sold Out")
+    if not partes:
+        return "La venta de esta actividad ya estaba a cero: no había nada que borrar."
+    return "Venta reiniciada: se han borrado %s. Ya se puede configurar de nuevo." % ", ".join(partes)
+
+
+@app.post("/conciertos/<cid>/ventas/reiniciar", endpoint="concert_sales_reset")
+@admin_required
+def concert_sales_reset(cid):
+    """REINICIAR LA VENTA de una actividad: todo el módulo de ventas a cero, para configurarlo de
+    nuevo. Botón en la pestaña Ticketing de la ficha y en la configuración de «Actualizar ventas».
+    ⚠️ Va en `SUPPORT_ACTION_ENDPOINTS` (cuelga de `/conciertos/…`, que el gate resuelve a
+    contratación con edición): lo hacen contratación Y quien edita ventas, que es de quien es esta
+    pantalla. La puerta fina está aquí."""
+    if not (can_edit_concerts() or can_edit_sales()):
+        return forbid("No tienes permisos para reiniciar la venta de una actividad.")
+    volver = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="ticketing"))
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, _safe_uuid(cid) or uuid.uuid4())
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(url_for("concerts_view"))
+        ev = _et_concert_event(session_db, concert.id)
+        if ev is not None:
+            flash("Esta actividad sigue vinculada al evento «%s» de Enterticket: desvincúlalo primero "
+                  "(si no, la siguiente sincronización volvería a volcar sus ventas)." % (ev.name or "Evento"),
+                  "warning")
+            return redirect(volver)
+        salida = _concert_sales_reset(session_db, concert)
+        session_db.commit()
+        flash(_concert_sales_reset_summary(salida), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[ventas] no se pudo reiniciar la venta de la actividad")
+        flash("No se pudo reiniciar la venta: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(volver)
 
 
 # -------- Ventas V2: configuración (IVA/SGAE, tipos de entrada, ticketeras, detalle día) --------
@@ -104846,6 +105087,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     # puerta fina la pone cada endpoint con `can_set_concert_onsale()`.
     "concert_et_sync", "concert_et_link", "concert_et_unlink", "concert_et_dismiss",
     "concert_et_config_apply",
+    # REINICIAR LA VENTA de una actividad (todo el módulo de ventas a cero): lo hacen contratación
+    # y quien edita ventas. La puerta fina la pone el endpoint.
+    "concert_sales_reset",
     "concert_sale_seller_save", "concert_sales_own_request",
     # CARTEL DE SOLD OUT: se pide solo al 90%, y a mano lo puede pedir (o retirar) contratación,
     # ticketing o el propio diseño. El permiso fino lo comprueba el endpoint.
@@ -150002,6 +150246,35 @@ def _remote_object_exists(url: str, attempts: int = 3) -> bool:
     return False
 
 
+# ⚠️ Solo una key EXACTAMENTE como las que firma el servidor: `<carpeta>/<hex>.<ext>` (la carpeta la
+# pone quien resuelve). Sin esto, un formulario podría «registrar» cualquier objeto del bucket.
+_DIRECT_UPLOAD_HEX_RE = re.compile(r"^[0-9a-fA-F]{16,}\.[a-z0-9]{2,5}$")
+
+
+def _direct_upload_resolve(key: str, folder: str, allowed_exts) -> tuple[str, str]:
+    """La dirección en Storage de un archivo que el navegador subió DIRECTO con una URL firmada
+    (`static/js/direct_upload.js`), para darlo de alta desde un formulario normal.
+
+    Devuelve `(url, error)`: con `url` si la key es de la carpeta que se esperaba, con una extensión
+    permitida y el objeto EXISTE de verdad (HEAD); si no, `url` vacía y el motivo en español. Es el
+    punto único del videoclip de una canción y del de un proyecto: la comprobación es la misma que
+    la de los vídeos de la galería (`fotos_video_register`)."""
+    texto = (key or "").strip()
+    prefijo = folder.rstrip("/") + "/"
+    if not texto.startswith(prefijo) or not _DIRECT_UPLOAD_HEX_RE.match(texto[len(prefijo):]):
+        return "", "Referencia del archivo subido no válida. Vuelve a subirlo."
+    ext = os.path.splitext(texto.lower())[1]
+    if ext not in {str(e).lower() for e in (allowed_exts or set())}:
+        return "", "Formato de vídeo no permitido."
+    try:
+        url = public_url_for_key(texto)
+    except Exception:
+        url = ""
+    if not url or not _remote_object_exists(url):
+        return "", "No se encontró el archivo subido en el almacenamiento. Vuelve a subirlo."
+    return url, ""
+
+
 @app.post("/fotos/<owner_type>/<owner_id>/video/sign", endpoint="fotos_video_sign")
 @admin_required
 def fotos_video_sign(owner_type, owner_id):
@@ -171621,7 +171894,12 @@ def concert_et_unlink(cid):
         if ev:
             _et_unlink_event(s, ev)
             s.commit()
-            flash("Evento de Enterticket desvinculado.", "info")
+            # Desvincular limpia lo que trajo el espejo, pero no lo que ya estaba ni lo que se volcó
+            # a la ficha: si el vínculo era un error y hay que empezar de cero, está «Reiniciar la
+            # venta» en esta misma pestaña.
+            flash("Evento de Enterticket desvinculado. Si en la venta quedan datos de ese evento "
+                  "(categorías, aforo, histórico), abajo está «Reiniciar la venta» para dejarla a cero "
+                  "y configurarla de nuevo.", "info")
     finally:
         s.close()
     return redirect(url_for("concert_detail_view", cid=cid, tab="ticketing"))

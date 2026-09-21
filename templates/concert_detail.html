@@ -4179,6 +4179,49 @@
 
     {% include "_et_ticketing_panel.html" %}
 
+    {# ---------- REINICIAR LA VENTA ----------
+       Todo el módulo de ventas de ESTA actividad a cero (tipos, ticketeras, cupos, histórico, IVA/SGAE,
+       las categorías de la ficha y el Sold Out) para configurarla de nuevo. Nació porque una
+       actividad se vinculó por error a un evento de Enterticket y, al desvincularla, la venta se
+       quedó con los datos del otro evento. Lo hacen contratación y quien edita ventas
+       (`CAN_RESET_SALES`); con Enterticket vinculado no se ofrece (el sync lo volvería a volcar). #}
+    {% if CAN_RESET_SALES %}
+      {% set _rs_tipos = concert.ticket_types|length %}
+      {% set _rs_ticketeras = concert.ticketers|length %}
+      {% set _rs_apuntes = (concert.sales_details|length) + (concert.sales|length) %}
+      {# ⚠️ `tpay` se define en la pestaña General, que aquí no se ha pintado: se lee el payload aparte. #}
+      {% set _rs_payload = concert.ticketing_payload or {} %}
+      {% set _rs_categorias = (_rs_payload.get('ticket_types') or [])|length %}
+      {% set _rs_hay = _rs_tipos or _rs_ticketeras or _rs_apuntes or _rs_categorias or concert.sold_out %}
+      <div class="card mb-3 border-danger-subtle" data-sales-reset>
+        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="min-w-0">
+            <h6 class="mb-0"><i class="fa fa-rotate-left me-1 text-danger"></i>Reiniciar la venta</h6>
+            <div class="small text-muted">
+              {% if et_event %}
+                Deja la venta a cero para configurarla de nuevo. Con Enterticket vinculado no se puede:
+                desvincúlalo primero (arriba), o la siguiente sincronización lo volvería a volcar.
+              {% elif _rs_hay %}
+                Deja la venta a cero para configurarla de nuevo. Ahora mismo hay
+                {{ _rs_tipos }} tipo(s) de entrada, {{ _rs_ticketeras }} ticketera(s),
+                {{ _rs_apuntes }} apunte(s) diarios{% if _rs_categorias %} y {{ _rs_categorias }} categoría(s) en la ficha{% endif %}{% if concert.sold_out %}, y está en Sold Out{% endif %}.
+                Se conservan el aforo, quién vende, el responsable de ticketing, la salida a la venta y los compradores.
+              {% else %}
+                La venta de esta actividad está a cero: no hay nada que reiniciar.
+              {% endif %}
+            </div>
+          </div>
+          {% if not et_event and _rs_hay %}
+            <form method="post" action="{{ url_for('concert_sales_reset', cid=concert.id) }}" class="m-0"
+                  data-confirm="¿Reiniciar la venta de esta actividad?&#10;&#10;Se borran los tipos de entrada, las ticketeras con sus cupos y precios, todo el histórico diario de ventas, el IVA/SGAE, las categorías de la ficha (con sus invitaciones pactadas) y el Sold Out. No se puede deshacer.&#10;&#10;Se conservan el aforo, quién vende, el responsable de ticketing, la salida a la venta y los compradores.">
+              <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='ticketing') }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-rotate-left me-1"></i>Reiniciar la venta</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
     {# ══════════ COMPRADORES cuando la venta NO la lleva Enterticket ══════════
        ⚠️ Cuando vende un TERCERO o el PROMOTOR, su base de compradores se sube a mano y se trabaja
        EXACTAMENTE igual: los mismos filtros, los mismos envíos y el mismo histórico. Todo eso vive

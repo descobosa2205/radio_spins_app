@@ -39,8 +39,50 @@
 - LA RECAUDACIÓN SOLO ES NUESTRA SI LA PROMUEVE (o participa) UNA EMPRESA DEL GRUPO
 - LO GRATUITO NO TIENE SALIDA A LA VENTA: si no se venden entradas, no hay fecha ni aviso que dar
 - ACTUALIZAR VENTAS · EL COLOR DE CADA TARJETA DICE SI HAY TRABAJO Y DE QUÉ TIPO
+- REINICIAR LA VENTA de una actividad (todo el módulo de ventas a cero para configurarla de nuevo):
+  nació de un vínculo erróneo con Enterticket que, al deshacerse, dejó la venta con datos del otro evento
 
 ---
+
+- ⚠️⚠️ **REINICIAR LA VENTA DE UNA ACTIVIDAD** (sep 2026, lo pidió Dani: «alguna actividad con venta
+  de entradas se ha linkado con Enterticket erróneamente, lo desvinculamos y se ha quedado la venta
+  de datos; tiene que haber una opción para resetear la venta y volver a empezar a 0»). Desvincular
+  (`_et_unlink_event`) limpia lo que trajo el ESPEJO —la rejilla diaria y los cupos de la ticketera
+  Enterticket y los tipos `et_managed` sin uso—, pero **no** lo que ya estaba ni lo que se volcó a la
+  ficha a propósito con «Volcar configuración» (`ticketing_payload['ticket_types']`, el aforo, el
+  Sold Out), ni un tipo de ET que se quedó porque tenía ventas de otra ticketera. Para eso está
+  **«Reiniciar la venta»**: botón en la **pestaña Ticketing** de la ficha (módulo propio, debajo del
+  panel de Enterticket, que dice cuántas cosas hay y qué se conserva) y en el **pie del pop-up de
+  configuración de `/ventas`**. Endpoint **`concert_sales_reset`** (`POST /conciertos/<cid>/ventas/reiniciar`),
+  punto único **`_concert_sales_reset(session_db, concert)`**, que devuelve cuántas cosas ha borrado
+  para decirlo en el aviso (`_concert_sales_reset_summary`).
+  · **Se BORRA** todo lo que es «la venta»: `TicketSaleDetail` (histórico diario), `TicketSale` (el
+  básico antiguo), `ConcertTicketerTicketType` (cupos y precios por ticketera), `ConcertTicketer`
+  (las ticketeras con su rebate y su enlace), `ConcertTicketType`, `ConcertSalesConfig` (IVA/SGAE),
+  `ticketing_payload['ticket_types']` **con sus invitaciones pactadas** (⚠️ sin esto, al guardar la
+  ficha `_replace_concert_ticket_types_manual` volvería a crear los tipos borrados), la huella del
+  volcado (`et_dump`) y el enlace de venta que puso ET en `sale_seller['url']`. El **Sold Out se
+  deshace** (`sold_out`, `soldout_declared_*`, `soldout_notified_at`, y se cierran los avisos
+  `SOLDOUT_DONE` de la campanita) y `sales_updated_at` se vacía (sin ventas no hay «actualizadas el…»).
+  · **Se CONSERVA** lo que es la actividad y no la venta: el aforo (`capacity`; lo pone contratación),
+  quién vende (`sale_seller['kind']`), el responsable de ticketing y su contacto, la salida a la
+  venta y sus comunicaciones, los canales de venta pedidos, el historial de solicitudes de
+  actualización y los compradores. El cartel de Sold Out pedido a diseño tampoco se toca.
+  · ⚠️ **Con un evento de Enterticket VINCULADO no se puede** (el endpoint lo niega y la ficha no
+  pinta el botón, explica por qué): la siguiente sincronización volvería a volcarlo todo. Primero
+  desvincular —cuyo aviso y cuyo `confirm` dicen ya que existe el reinicio— y luego reiniciar.
+  · **Quién**: contratación **o** quien edita ventas (`can_edit_concerts() or can_edit_sales()`). La
+  ruta cuelga de `/conciertos/…`, que el gate resuelve a contratación con edición, así que va en
+  **`SUPPORT_ACTION_ENDPOINTS`** con la puerta fina dentro (la misma trampa que los endpoints de
+  Enterticket). El botón de la ficha se pinta con **`CAN_RESET_SALES`**; en `/ventas` ya solo entra
+  quien edita ventas.
+  · Pide confirmación con **`data-confirm`** (el `confirm` de los formularios normales lo mira
+  `ajax_inline.js`), con la lista de lo que se borra y de lo que se conserva. Reiniciar una venta que
+  ya está a cero no falla: dice que no había nada.
+  Probado con la app real (BD de prueba): 2 tipos + 1 ticketera + 2 cupos + 3 apuntes + IVA/SGAE +
+  2 categorías en la ficha + Sold Out declarado → todo a cero, el payload se queda con `sale_seller`
+  (sin `url`) y `ticketing_contact`, el aforo igual; con un evento de ET vinculado se niega sin
+  borrar nada; sin permiso, 403; y las doce pestañas de la ficha siguen en 200.
 
 - **RECAUDACIÓN del reporte de ventas = el interruptor ECONÓMICO de «Reporte de ventas»**
   (`SALES_REVENUE_ACCESS_KEY` = **`ventas.reportes`**, ago 2026): con **«Ver»** se ve **cómo van las

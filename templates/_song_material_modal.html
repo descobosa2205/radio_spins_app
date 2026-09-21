@@ -6,7 +6,11 @@
 {% if CAN_EDIT_DISCOGRAFICA %}
   <div class="modal fade" id="songMaterialUploadModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-      <form class="modal-content" method="post" action="{{ url_for('discografica_song_material_upload', song_id=song.id) }}" enctype="multipart/form-data">
+      {# ⚠️ EL VIDEOCLIP SE SUBE DIRECTO A STORAGE (`direct_upload.js`): dentro del formulario, un
+         vídeo pesado moría por tiempo antes de guardarse («empieza a subirse pero termina dando
+         fallo»). Solo el VIDEOCLIP (`data-du-only-if`): las portadas y los masters siguen como siempre. #}
+      <form class="modal-content" method="post" action="{{ url_for('discografica_song_material_upload', song_id=song.id) }}" enctype="multipart/form-data"
+            data-direct-upload="{{ url_for('discografica_song_material_sign', song_id=song.id) }}" data-du-only-if="category=VIDEOCLIP">
         <div class="modal-header sw-head">
           <h5 class="modal-title"><i class="fa fa-upload me-2"></i><span id="songMaterialUploadModalTitle">Subir material</span></h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -24,7 +28,7 @@
 
           <div class="mb-3">
             <label class="form-label" id="songMaterialFilesLabel">Archivo</label>
-            <input class="form-control" type="file" name="files" id="songMaterialFiles" multiple>
+            <input class="form-control" type="file" name="files" id="songMaterialFiles" multiple data-direct>
             <div class="form-text" id="songMaterialHelp"></div>
           </div>
 
@@ -33,6 +37,13 @@
             <input class="form-control" type="file" name="files" id="songMaterialFolderFiles" multiple webkitdirectory directory>
             <div class="form-text">Disponible en navegadores compatibles.</div>
           </div>
+
+          {# La barra de la subida directa (solo se ve mientras sube un videoclip) y su error. #}
+          <div class="mt-3 d-none" data-du-progress>
+            <div class="progress" style="height:10px;"><div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%" aria-valuemin="0" aria-valuemax="100" data-du-bar></div></div>
+            <div class="form-text" data-du-label>Subiendo…</div>
+          </div>
+          <div class="alert alert-danger py-2 small mt-3 mb-0 d-none" data-du-error></div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -78,9 +89,19 @@
         : (cfg.category === 'COVER' ? 'Se admite cualquier formato de imagen.' : 'Solo se admite formato .wav.')));
       folderWrap.style.display = cfg.stemMode ? '' : 'none';
       folderInput.disabled = !cfg.stemMode;
+      // Lo de una subida anterior (la barra, el error, los ocultos del archivo ya subido) no vale
+      // para esta: se limpia, y el formulario vuelve a poder subir directo.
+      const form = document.getElementById('songMaterialUploadModal').querySelector('form');
+      if (form) {
+        form.dataset.duDone = ''; form.dataset.duBusy = '';
+        form.querySelectorAll('input[type="hidden"][name^="uploaded_"]').forEach(function (h) { h.remove(); });
+        form.querySelectorAll('[data-du-progress], [data-du-error]').forEach(function (el) { el.classList.add('d-none'); });
+        form.querySelectorAll('button[type="submit"], button:not([type])').forEach(function (b) { b.disabled = false; });
+      }
       _songMaterialUploadModal = new bootstrap.Modal(document.getElementById('songMaterialUploadModal'));
       _songMaterialUploadModal.show();
     }
     {# Compartir (correo/WhatsApp/SMS/copiar) es GLOBAL: static/js/scripts.js #}
   </script>
+  <script src="{{ url_for('static', filename='js/direct_upload.js', v=ASSET_V) }}"></script>
 {% endif %}

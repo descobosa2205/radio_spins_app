@@ -228,8 +228,123 @@
     });
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════
+     VINCULAR AL CREAR (el módulo «Vinculaciones» del «Rellenar más campos» de un tercero)
+
+     ⚠️⚠️ Aquí la ficha **todavía no existe**, así que no hay nada contra lo que guardar: lo que se
+     elige se queda en el formulario en filas paralelas (`link_type[]` / `link_id[]` /
+     `link_relation[]`) y las crea el servidor en cuanto el tercero tiene id
+     (`_promoter_apply_extra_form` → `_entity_link_upsert`, el mismo punto único que el modal
+     «Vincular» de una ficha).
+     · Un clic en un resultado lo AÑADE a la lista (sin pasos intermedios) y deja el cursor en su
+       relación; la X lo quita.
+     · ⚠️ El buscador y los botones de tipo NO llevan `name`: no se envían con el formulario.
+     · ⚠️ Al reabrir el modal, el `form.reset()` del alta rápida no borra filas añadidas a mano →
+       se vacía la lista escuchando su `reset`.
+     ══════════════════════════════════════════════════════════════════════════════════════════ */
+  function setupPicker(box) {
+    if (box.__linkPickerReady) return;
+    box.__linkPickerReady = true;
+
+    var typeBtns = box.querySelectorAll('[data-link-type]');
+    var search = box.querySelector('[data-link-search]');
+    var results = box.querySelector('[data-link-results]');
+    var chosen = box.querySelector('[data-link-chosen]');
+    var tipo = '', tipoLabel = '', timer = null, ultimos = [];
+
+    // ⚠️ Se recorre en vez de montar un selector con el id dentro: `esc` escapa HTML, no CSS, y un
+    // selector mal compuesto no encontraría la fila y dejaría meter la misma vinculación dos veces.
+    function yaEsta(id) {
+      var clave = tipo + ':' + id;
+      var filas = chosen.querySelectorAll('[data-link-row]');
+      for (var i = 0; i < filas.length; i++) if (filas[i].getAttribute('data-row-key') === clave) return true;
+      return false;
+    }
+    /* ⚠️ La lista SE QUEDA al añadir uno (con el añadido marcado y sin poder repetirse): casi
+       siempre se vinculan varios seguidos, y cerrarla obligaba a volver a elegir el tipo cada vez. */
+    function pinta(list) {
+      ultimos = list || ultimos;
+      if (!tipo) { results.innerHTML = ''; return; }
+      if (!ultimos.length) {
+        results.innerHTML = '<div class="text-muted small p-2">Sin coincidencias. Se puede vincular después desde su ficha.</div>';
+        return;
+      }
+      results.innerHTML = ultimos.map(function (it) {
+        var puesto = yaEsta(it.id);
+        return '<button type="button" class="el-result" ' + (puesto ? 'disabled ' : '') + 'data-el-item=\'' + esc(JSON.stringify(it)) + '\'>' +
+          '<img src="' + esc(it.logo_url || placeholder()) + '" alt="" data-default-photo="1">' +
+          '<span class="min-w-0"><strong class="text-truncate d-block">' + esc(it.label || '') + '</strong>' +
+          '<small class="text-muted text-truncate d-block">' + esc(it.subtitle || it.type_label || '') + '</small></span>' +
+          (puesto ? '<span class="badge text-bg-light border ms-auto"><i class="fa fa-check me-1"></i>Añadido</span>' : '') +
+        '</button>';
+      }).join('');
+      results.querySelectorAll('[data-el-item]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var it = {}; try { it = JSON.parse(b.getAttribute('data-el-item')); } catch (e) {}
+          anade(it);
+        });
+      });
+    }
+    function busca() {
+      if (!tipo) { results.innerHTML = '<div class="text-muted small p-2">Elige primero qué quieres vincular.</div>'; return; }
+      results.innerHTML = '<div class="text-muted small p-2">Buscando…</div>';
+      fetch(SEARCH_URL + '?type=' + encodeURIComponent(tipo) + '&q=' + encodeURIComponent(search ? search.value.trim() : ''),
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { pinta(Array.isArray(d) ? d : []); })
+        .catch(function () { results.innerHTML = '<div class="text-danger small p-2">Error al buscar.</div>'; });
+    }
+    function anade(it) {
+      if (!it || !it.id) return;
+      if (yaEsta(it.id)) { results.innerHTML = ''; if (search) search.value = ''; return; }
+      var fila = document.createElement('div');
+      fila.className = 'entity-link-row';
+      fila.setAttribute('data-link-row', '');
+      fila.setAttribute('data-row-key', tipo + ':' + it.id);
+      fila.innerHTML =
+        '<input type="hidden" name="link_type[]" value="' + esc(tipo) + '">' +
+        '<input type="hidden" name="link_id[]" value="' + esc(it.id) + '">' +
+        '<span class="entity-link-avatar entity-link-avatar--sm"><img src="' + esc(it.logo_url || placeholder()) + '" alt="" data-default-photo="1"><i class="fa ' + esc(it.icon || 'fa-link') + '"></i></span>' +
+        '<span class="min-w-0 flex-grow-1"><span class="entity-link-name text-truncate d-block">' + esc(it.label || '') + '</span>' +
+        '<span class="entity-link-meta text-truncate d-block">' + esc(it.type_label || tipoLabel || '') + '</span></span>' +
+        '<input class="form-control form-control-sm" style="max-width:220px" name="link_relation[]" placeholder="Relación (ej: mánager)">' +
+        '<button type="button" class="btn-close btn-sm" data-link-del aria-label="Quitar"></button>';
+      chosen.appendChild(fila);
+      fila.querySelector('[data-link-del]').addEventListener('click', function () { fila.remove(); pinta(null); });
+      pinta(null);                       // el añadido se marca y la lista se queda para el siguiente
+      var rel = fila.querySelector('[name="link_relation[]"]');
+      if (rel) rel.focus();
+    }
+
+    typeBtns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        tipo = b.getAttribute('data-link-type') || '';
+        var lbl = b.querySelector('span');
+        tipoLabel = lbl ? lbl.textContent.trim() : '';
+        typeBtns.forEach(function (x) { x.classList.toggle('is-active', x === b); });
+        busca();
+        if (search) search.focus();
+      });
+    });
+    if (search) search.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(busca, 220); });
+    // Al volver al buscador, la lista del tipo elegido se vuelve a ofrecer sin tener que escribir.
+    if (search) search.addEventListener('focus', function () { if (tipo && !results.innerHTML) busca(); });
+    // ⚠️ Un Intro en el buscador enviaría el formulario del alta: aquí solo vuelve a buscar.
+    if (search) search.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); busca(); } });
+
+    var form = box.closest('form');
+    if (form) form.addEventListener('reset', function () {
+      setTimeout(function () {
+        chosen.innerHTML = ''; results.innerHTML = '';
+        tipo = ''; tipoLabel = ''; ultimos = [];
+        typeBtns.forEach(function (x) { x.classList.remove('is-active'); });
+      }, 0);
+    });
+  }
+
   function init(root) {
     (root || document).querySelectorAll('form[data-entity-link-form]').forEach(setup);
+    (root || document).querySelectorAll('[data-entity-link-picker]').forEach(setupPicker);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { init(document); });
   else init(document);

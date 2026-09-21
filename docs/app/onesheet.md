@@ -46,6 +46,31 @@
   enlace compartido sin venir de ninguna parte; en el móvil se queda con su rótulo (los de la
   derecha se quedan en icono). El pie sigue llevando su enlace al Roster.
 
+- ⚠️⚠️ **LA PESTAÑA DE LA FICHA SE VEÍA SIN UNA SOLA REGLA DE CSS** (bug real con captura, sep
+  2026: «se ve apelotonado, no sigue el estilo de lo que venimos haciendo»). Los estilos `ost-*`
+  viven en **`onesheet.css`**, que solo enlazaban la página pública, el editor y la gestión del
+  Roster: en la ficha de un artista —o de un evento, una gira o un ciclo— la pestaña salía con los
+  checkbox en crudo y todo pegado. **El `<link>` va ahora en el propio `_onesheet_tab.html`**,
+  dentro del bloque de contenido (el mismo patrón del Leaflet de los cuadrantes y del Roster), así
+  que vale para las cuatro fichas sin tocar ninguna.
+  · De paso, la pestaña se lee como el resto de la app: cada cosa en su **bocadillo** (`demo-card`
+  con su cabecera e icono) y **«Copiar enlace» con su rótulo**, no un iconito (lo pidió Dani: «tiene
+  que haber una opción rápida de copiar el link»). Si el one sheet **no está publicado**, la propia
+  dirección lo avisa en rojo: quien abra el enlace no verá nada.
+
+- ⚠️ **EL ICONO DE ONE SHEET EN LA CABECERA DEL ARTISTA** (sep 2026, lo pidió Dani). Junto a las
+  redes y las plataformas de audio —y **separado con la misma rayita** con que se separan ellas—,
+  un icono que abre el menú de **ver y compartir**: ver el one sheet · enviar por email · WhatsApp ·
+  SMS · copiar el enlace.
+  · **Punto único `_onesheet_share.html`**: el MISMO parcial lo usan la cabecera y la pestaña, así
+  que no puede haber dos formas de compartir lo mismo. Los items que navegan son `<a>` y el de
+  copiar es un `<button>` con el mecanismo global de la casa (`.copy-link-btn[data-copy-url]`).
+  · **`_onesheet_header_link(session_db, kind, sid, name)`** da el enlace **SIN CREAR NADA**: una
+  cabecera se pinta en todas las pestañas y no puede tener efectos. Si el artista todavía no tiene
+  one sheet, el enlace es el del **nombre hecho slug**, que `_onesheet_resolve_public` resuelve
+  igual (y ahí sí lo crea, al abrirlo). Comprobado: abrir la ficha de un artista sin one sheet no
+  deja ninguna fila nueva, y ese enlace abre su página.
+
 - **DÓNDE VIVE CADA COSA**. El diseño es UN JSON en **`OneSheet.design`** (tabla `onesheets`, una
   fila por sujeto: `subject_kind` ARTIST|EVENT|CYCLE|TOUR + `subject_id`, `slug` único,
   `public_token`, `services`, `roster_visible`, `roster_order`, `published`). Las plantillas en

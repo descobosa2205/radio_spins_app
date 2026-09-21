@@ -62,7 +62,11 @@
       </div>
     {% endif %}
   </div>
-  {% if artist_social_icons.social or artist_social_icons.music %}
+  {# Las REDES, las PLATAFORMAS de audio y, separado igual que ellas, el ONE SHEET: su icono abre
+     el menú de ver y compartir (correo, WhatsApp, SMS, copiar el enlace).
+     ⚠️ El menú es el parcial `_onesheet_share.html`, el MISMO que la pestaña «One Sheet»: no puede
+     haber dos formas de compartir lo mismo. #}
+  {% if artist_social_icons.social or artist_social_icons.music or onesheet_link %}
   <div class="artist-social-hero">
     {% for link in artist_social_icons.social %}
       <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener"><i class="{{ link.icon }}"></i></a>
@@ -71,6 +75,10 @@
     {% for link in artist_social_icons.music %}
       <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener"><i class="{{ link.icon }}"></i></a>
     {% endfor %}
+    {% if onesheet_link %}
+      {% if artist_social_icons.social or artist_social_icons.music %}<span class="artist-social-sep" aria-hidden="true"></span>{% endif %}
+      {% with os_share=onesheet_link, os_share_size='sm', os_share_icon='fa-file-lines', os_share_class='artist-social-os' %}{% include '_onesheet_share.html' %}{% endwith %}
+    {% endif %}
   </div>
   {% endif %}
 </div>

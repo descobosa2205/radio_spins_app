@@ -329,6 +329,40 @@ transporte): ahí se quita y deja de salir.
   columnas con su orden, el Excel siguiéndolas, la plantilla y los permisos de producción; y a
   375 px, sin desbordes y sin texto partido.
 
+- ⚠️⚠️ **UN HOTEL SE DICE DE QUÉ NOCHE A QUÉ NOCHE ES, Y ESOS DÍAS ENTRAN SOLOS EN LA HOJA DE
+  RUTA** (sep 2026, lo pidió Dani: «solo me deja marcar el día del evento»). El editor del hotel
+  ofrecía **una casilla por cada día que la hoja de ruta YA tenía**, y en un concierto eso es UNO
+  —el del evento—: para poder dormir la víspera había que salir a **Horarios → el engranaje →
+  «Configurar días»** y añadirlos allí, que no se le ocurre a nadie. Ahora, en el propio hotel:
+  · **«Primera noche» y «Última noche»** (dos campos de fecha, libres) y, al lado, **cuántas noches
+  son y QUÉ DÍA SE SALE** —la mañana siguiente a la última noche, que es el dato que pide el hotel—.
+  · Debajo, **una casilla por noche** con todas las que están en juego, para el caso de **solo parte
+  de los días** (se desmarca la noche que no toque). Un hotel NUEVO nace con la(s) noche(s) del
+  evento marcadas (`BASE_DAYS`), que es lo de siempre.
+  · **Los días que la hoja de ruta no tenía se añaden solos**: `_roadmap_days` ya deriva los días de
+  `hotels[i]['days']`, así que no hay nada que guardar aparte — al guardar el hotel, Horarios pasa a
+  tener esos días. (Y por eso «Configurar días» no deja quitar un día que tenga hotel.)
+  · La tarjeta del hotel enseña la estancia en una línea: **`hotelDaysLabel`** («Mar 17 nov → Jue 19
+  nov · 3 noches · salida Vie 20 nov»); con noches sueltas las enumera.
+  · **`dayLabel` vale ya para CUALQUIER fecha** (antes solo para los días que estaban en `DAYS`, y
+  para el resto escupía el ISO): un día que todavía no está en la hoja de ruta se ve con el mismo
+  formato que le pondrá el servidor al guardar.
+  · En una **PLANTILLA** no hay fechas (sus días son «Día 1, Día 2…», los que diga `day_count`): ahí
+  se siguen viendo solo las casillas.
+  ⚠️⚠️ **Y UNA NOCHE SIN DECIR YA NO SE GUARDA COMO HOY** (el bug de verdad que había debajo):
+  `roadmap_hotel_rooms_save` limpiaba `day_from`/`day_to` con `_roadmap_clean_day`, que ante un valor
+  vacío devuelve **la fecha de hoy** — así que una habitación a la que nadie le había puesto fechas
+  salía «del 21/09 al 21/09» en cuanto se tocaba cualquier otra cosa del rooming. Punto único
+  **`_rooming_clean_day_or_blank`**: vacío se queda vacío, y vacío significa «todo el rango del
+  hotel» (que es como ya lo leían `_rooming_rows_for_pdf` y `roomRangeLabel`).
+  · El editor del rooming, además: las habitaciones **sin noches cogen las del hotel antes de
+  pintarse** (lo que se ve es lo que se guarda), el desplegable **ofrece también la noche guardada**
+  aunque el hotel se haya acortado (si no, enseñaba una fecha y guardaba otra) y la **última noche
+  no puede ir antes que la primera** (se arrastra la otra).
+  Probado en el navegador con la app real: un hotel de tres noches sobre un concierto de un día deja
+  los tres días en Horarios, la habitación puede quedarse solo con la del medio, y el rango del revés
+  se corrige solo.
+
 - ⚠️⚠️ **ROOMING · LAS HABITACIONES SE FORMAN ANTES Y LUEGO SE REPARTEN ENTRE LOS HOTELES**
   (sep 2026). Antes una habitación nacía DENTRO de un hotel, así que una gira con tres hoteles
   obligaba a montar el rooming tres veces. Ahora las habitaciones se forman **sin hotel** y se

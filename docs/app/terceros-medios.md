@@ -116,6 +116,32 @@ debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado g
   '_entity_links_panel.html' %}`. El modal (elegir tipo → buscar con foto → crear rápido → relación)
   lo maneja `entity_links.js` (genérico para `[data-entity-link-form]`; con `data-link-ajax` guarda
   sin salir, p. ej. en invitaciones).
+- ⚠️ **SE PUEDE VINCULAR AL CREAR EL TERCERO** (sep 2026, lo pidió Dani). El «Rellenar más campos»
+  del alta gana el módulo **Vinculaciones**: se elige el tipo (los mismos botones con icono del
+  modal «Vincular» de una ficha), se busca (`/api/vinculaciones/search`) y **un clic añade** a la
+  lista, donde se le escribe su relación; la X lo quita y el que ya está sale marcado «Añadido» sin
+  poder repetirse.
+  ⚠️⚠️ **El tercero todavía NO EXISTE**, así que aquí no se puede llamar a `entity_link_create`: lo
+  elegido viaja con el formulario en **filas paralelas** (`link_type[]` / `link_id[]` /
+  `link_relation[]`, en ese orden porque el DOM manda el orden de envío) y las crea
+  `_promoter_apply_extra_form` en cuanto el tercero tiene id.
+  · **Punto único `_entity_link_upsert(session_db, …)`**, extraído de `entity_link_create` (que
+  ahora lo llama): la orientación canónica y la búsqueda del par en los dos sentidos están en UN
+  sitio, así que una vinculación puesta al crear queda igual que si se pusiera después. No hace
+  commit (lo hace quien llama).
+  ⚠️ Una vinculación que falle (un id que ya no está) **no puede tumbar el alta**: se anota en el
+  log y se sigue.
+  ⚠️ El buscador y los botones de tipo van **sin `name`** (si no, se enviarían con el alta), y el
+  **Intro** del buscador vuelve a buscar en vez de enviar el formulario.
+  ⚠️ `entity_link_types` es ahora un **global** (`inject_globals`): el módulo se pinta también en el
+  alta rápida, que vive en `layout.html` y por tanto en cualquier pantalla. La vista que lo pasa
+  explícitamente (el panel de una ficha) sigue mandando, y es el mismo valor.
+  · La lógica está en `static/js/entity_links.js` (`[data-entity-link-picker]`, hermano del modal de
+  siempre) y se limpia sola al reabrir el modal (escucha el `reset` del formulario: `form.reset()`
+  no borra las filas que se añaden a mano).
+  Probado con la app real por los DOS caminos (el alta rápida de cualquier pantalla y el «Nuevo
+  tercero» de Terceros): las vinculaciones quedan en la BD con su relación y se ven en la ficha.
+
 - **TELÉFONOS · EL PREFIJO DEL PAÍS SE PONE AL GUARDAR** (ago 2026). Un teléfono escrito
   «600111222» no vale para mandar nada (a una pasarela de SMS —o a WhatsApp— hay que darle el
   número internacional), y uno que llega «34600111222» —así los manda **Enterticket**— tampoco,

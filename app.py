@@ -1828,6 +1828,10 @@ def inject_globals():
         # (el modal de alta rápida va en `layout.html`). Son constantes: no cuestan ninguna consulta.
         PRL_WORKER_TYPES=PRL_WORKER_TYPES,
         NOTIFY_CHANNELS=NOTIFY_CHANNELS,
+        # Con qué se puede VINCULAR una ficha. De global porque el módulo de vinculaciones del alta
+        # de un tercero se pinta en cualquier pantalla; la vista que lo pasa explícitamente (el
+        # panel de una ficha) manda sobre esto, y es el mismo valor.
+        entity_link_types=APP33_ENTITY_LINK_TYPES,
         media_type_icon=_media_type_icon,
         media_type_label=_media_type_label,
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
@@ -4118,6 +4122,8 @@ def artist_detail_view(artist_id):
         onesheet = _onesheet_tab_context(session_db, "ARTIST", artist.id) if tab == "onesheet" else None
         if tab == "onesheet":
             session_db.commit()
+        # El icono de ONE SHEET de la cabecera (ver y compartir), en TODAS las pestañas.
+        onesheet_link = _onesheet_header_link(session_db, "ARTIST", artist.id, artist.name or "")
 
         # Compatibilidad con una versión intermedia que pasaba variables de conciertos
         # a esta plantilla de artista. Se dejan vacías para evitar NameError.
@@ -4254,6 +4260,7 @@ def artist_detail_view(artist_id):
             social_platforms=SOCIAL_PLATFORMS,
             artist_social_icons=artist_social_icons,
             onesheet=onesheet,
+            onesheet_link=onesheet_link,
             contracting_general_rows=contracting_general_rows,
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
@@ -54310,6 +54317,28 @@ def _promoter_apply_extra_form(session_db, p, form) -> None:
         except Exception:
             app.logger.exception("[terceros] no se pudo crear la sociedad del alta")
 
+    # ---- VINCULACIONES: con quién tiene que ver este tercero (su artista, su medio, su sala…) ----
+    # ⚠️ Llegan en filas paralelas (`link_type[]` / `link_id[]` / `link_relation[]`) del módulo
+    # «Vinculaciones» del «Rellenar más campos», y se guardan por el MISMO punto único que el modal
+    # «Vincular» de una ficha (`_entity_link_upsert`): una vinculación puesta al crear el tercero
+    # queda igual que si se pusiera después.
+    # ⚠️ Una que falle (un id que ya no existe) NO puede tumbar el alta entera: se anota y se sigue.
+    try:
+        _ltipos = form.getlist("link_type[]")
+        _lids = form.getlist("link_id[]")
+        _lrels = form.getlist("link_relation[]")
+    except Exception:
+        _ltipos, _lids, _lrels = [], [], []
+    for _i, _lid in enumerate(_lids):
+        _ltipo = _ltipos[_i] if _i < len(_ltipos) else ""
+        if not (_lid or "").strip() or not (_ltipo or "").strip():
+            continue
+        try:
+            _entity_link_upsert(session_db, "promoter", p.id, _ltipo, _lid,
+                                relation_title=(_lrels[_i] if _i < len(_lrels) else ""))
+        except Exception:
+            app.logger.exception("[terceros] no se pudo crear una vinculación del alta")
+
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
 #  DUPLICADOS DE TERCEROS · LA BASE ES ÚNICA EN TODA LA APP (sep 2026, lo pidió Dani)
@@ -81778,6 +81807,58 @@ def api_media_contact_create(media_id):
         session_db.close()
 
 
+def _entity_link_upsert(session_db, source_type, source_id, target_type, target_id,
+                        *, relation_title=None, note=None):
+    """GUARDA UNA VINCULACIÓN. **Punto único** (no hace commit: lo hace quien llama).
+
+    Lo usan el modal «Vincular» de cualquier ficha (`entity_link_create`) y el módulo de
+    vinculaciones del **alta de un tercero** (`_promoter_apply_extra_form`), así que una
+    vinculación creada por un camino o por el otro queda exactamente igual.
+
+    ⚠️ La orientación es **canónica** y el par se busca **en los dos sentidos** y bajo los tipos
+    equivalentes (tercero/empresa/institución comparten tabla): si no, la misma pareja podría
+    entrar dos veces y saldría repetida en las dos fichas."""
+    source_type = _entity_link_type(source_type)
+    target_type = _entity_link_type(target_type)
+    source_id = _safe_uuid(source_id)
+    target_id = _safe_uuid(target_id)
+    if not source_type or not target_type or not source_id or not target_id:
+        raise ValueError("Selecciona una vinculación válida.")
+    if source_type == target_type and source_id == target_id:
+        raise ValueError("No puedes vincular una ficha consigo misma.")
+    # Evita duplicados inversos creando siempre una orientación canónica.
+    pair_a = (source_type, str(source_id))
+    pair_b = (target_type, str(target_id))
+    if pair_b < pair_a:
+        source_type, target_type = target_type, source_type
+        source_id, target_id = target_id, source_id
+    s_types = _entity_link_self_types(source_type)
+    t_types = _entity_link_self_types(target_type)
+    row = session_db.query(ThirdPartyLink).filter(
+        or_(
+            and_(ThirdPartyLink.source_type.in_(s_types), ThirdPartyLink.source_id == source_id,
+                 ThirdPartyLink.target_type.in_(t_types), ThirdPartyLink.target_id == target_id),
+            and_(ThirdPartyLink.source_type.in_(t_types), ThirdPartyLink.source_id == target_id,
+                 ThirdPartyLink.target_type.in_(s_types), ThirdPartyLink.target_id == source_id),
+        )
+    ).first()
+    if row:
+        # Mantén el tipo elegido más específico (empresa/institución) si procede.
+        row.source_type, row.source_id = source_type, source_id
+        row.target_type, row.target_id = target_type, target_id
+    else:
+        row = ThirdPartyLink(source_type=source_type, source_id=source_id,
+                             target_type=target_type, target_id=target_id,
+                             created_by_user_id=_safe_uuid(session.get('user_id')),
+                             created_by_nick=_current_user_email())
+        session_db.add(row)
+    row.relation_title = (relation_title or "").strip() or None
+    row.note = (note or "").strip() or None
+    row.is_active = True
+    row.updated_at = _now_madrid()
+    return row
+
+
 @app.post("/vinculaciones/crear", endpoint="entity_link_create")
 @admin_required
 def entity_link_create():
@@ -81786,43 +81867,11 @@ def entity_link_create():
     if not next_url.startswith('/'):
         next_url = ''
     try:
-        source_type = _entity_link_type(request.form.get("source_type"))
-        target_type = _entity_link_type(request.form.get("target_type"))
-        source_id = _safe_uuid(request.form.get("source_id"))
-        target_id = _safe_uuid(request.form.get("target_id"))
-        if not source_type or not target_type or not source_id or not target_id:
-            raise ValueError("Selecciona una vinculación válida.")
-        if source_type == target_type and source_id == target_id:
-            raise ValueError("No puedes vincular una ficha consigo misma.")
-        # Evita duplicados inversos creando siempre una orientación canónica.
-        pair_a = (source_type, str(source_id))
-        pair_b = (target_type, str(target_id))
-        if pair_b < pair_a:
-            source_type, target_type = target_type, source_type
-            source_id, target_id = target_id, source_id
-        # Busca un enlace ya existente para el mismo par físico en cualquier orientación y bajo
-        # tipos equivalentes (tercero/empresa/institución comparten tabla), para no duplicar.
-        s_types = _entity_link_self_types(source_type)
-        t_types = _entity_link_self_types(target_type)
-        row = session_db.query(ThirdPartyLink).filter(
-            or_(
-                and_(ThirdPartyLink.source_type.in_(s_types), ThirdPartyLink.source_id == source_id,
-                     ThirdPartyLink.target_type.in_(t_types), ThirdPartyLink.target_id == target_id),
-                and_(ThirdPartyLink.source_type.in_(t_types), ThirdPartyLink.source_id == target_id,
-                     ThirdPartyLink.target_type.in_(s_types), ThirdPartyLink.target_id == source_id),
-            )
-        ).first()
-        if row:
-            # Mantén el tipo elegido más específico (empresa/institución) si procede.
-            row.source_type, row.source_id = source_type, source_id
-            row.target_type, row.target_id = target_type, target_id
-        if not row:
-            row = ThirdPartyLink(source_type=source_type, source_id=source_id, target_type=target_type, target_id=target_id, created_by_user_id=_safe_uuid(session.get('user_id')), created_by_nick=_current_user_email())
-            session_db.add(row)
-        row.relation_title = (request.form.get("relation_title") or "").strip() or None
-        row.note = (request.form.get("note") or "").strip() or None
-        row.is_active = True
-        row.updated_at = _now_madrid()
+        _entity_link_upsert(session_db,
+                            request.form.get("source_type"), request.form.get("source_id"),
+                            request.form.get("target_type"), request.form.get("target_id"),
+                            relation_title=request.form.get("relation_title"),
+                            note=request.form.get("note"))
         session_db.commit()
         flash("Vinculación guardada.", "success")
     except Exception as exc:
@@ -90438,6 +90487,27 @@ def _onesheet_editor_url(row) -> str:
     return url_for("onesheet_editor", osid=row.id)
 
 
+def _onesheet_header_link(session_db, kind: str, sid, name: str = "") -> dict:
+    """El one sheet para la CABECERA de una ficha (el icono de ver y compartir, junto a las redes).
+
+    ⚠️⚠️ **NO CREA NADA**: la cabecera se pinta en todas las pestañas, y una cabecera no puede
+    tener efectos (crear la fila del one sheet al mirar la de contratos sería un disparate). Si
+    todavía no hay one sheet, el enlace se compone con el **nombre hecho slug**, que es el alias
+    que `_onesheet_resolve_public` resuelve igual —y ahí sí se crea, al abrirlo—.
+    Devuelve `{}` si no se puede componer (y entonces el icono no se pinta)."""
+    try:
+        row = _onesheet_get_or_create(session_db, kind, sid, create=False)
+        if row is not None:
+            return {"public_url": _onesheet_public_url(row), "name": name or ""}
+        slug = _slugify_text(name or "")
+        if not slug or not onesheet_render.slug_ok(slug):
+            return {}
+        return {"public_url": _external_url_for("onesheet_public_view", slug=slug), "name": name or ""}
+    except Exception:
+        app.logger.exception("[onesheet] no se pudo componer el enlace de la cabecera")
+        return {}
+
+
 def _onesheet_resolve_public(session_db, key: str):
     """Qué one sheet abre `/onesheet/<key>`: por SLUG, por el token (nuevo o de los one-sheets
     antiguos de artista y de gira) o, si no hay fila todavía, por el nombre del artista hecho slug
@@ -92508,8 +92578,13 @@ def roadmap_hotel_rooms_save(entity_type, entity_id):
                 # se lo da, así que hay que CONSERVARLO aquí — este endpoint reconstruye la lista
                 # entera y sin esta línea se perdía al tocar cualquier otra cosa del rooming.
                 "room_number": _rooming_clean_number(raw.get("room_number")),
-                "day_from": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_from") or "")),
-                "day_to": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_to") or "")),
+                # ⚠️⚠️ UNA NOCHE SIN DECIR SE QUEDA VACÍA (y entonces vale todo el rango del
+                # hotel, que es lo que leen `_rooming_rows_for_pdf` y `roomRangeLabel`). Con
+                # `_roadmap_clean_day("")` se guardaba **HOY**: una habitación a la que nadie le
+                # había puesto fechas salía «del 21/09 al 21/09» en cuanto se tocaba cualquier
+                # otra cosa del rooming.
+                "day_from": ("" if es_plantilla else _rooming_clean_day_or_blank(raw.get("day_from"))),
+                "day_to": ("" if es_plantilla else _rooming_clean_day_or_blank(raw.get("day_to"))),
                 "occupant_ids": occupants,
             })
         hotel["rooms"] = rooms
@@ -92823,6 +92898,17 @@ def _rooming_person_info(session_db, person: dict) -> dict:
     except Exception:
         pass
     return info
+
+
+def _rooming_clean_day_or_blank(value) -> str:
+    """Una noche del rooming: su fecha, o **vacío** si no se ha dicho ninguna.
+
+    ⚠️ No vale `_roadmap_clean_day`, que ante un valor vacío devuelve **HOY**: una habitación sin
+    fechas (las de siempre, o las que nacen en el montón sin hotel) se guardaba con la fecha del
+    día en que alguien tocó el rooming. Vacío significa «todo el rango del hotel», que es como lo
+    leen `_rooming_rows_for_pdf` y su espejo `roomRangeLabel` en `static/js/roadmap.js`."""
+    txt = str(value or "").strip()
+    return _roadmap_clean_day(txt) if txt else ""
 
 
 def _rooming_range_label(day_from: str, day_to: str) -> str:

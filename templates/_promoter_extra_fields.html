@@ -76,6 +76,31 @@
     </div>
   </div>
 
+  {# ---------- VINCULACIONES ---------- #}
+  {# ⚠️⚠️ El tercero TODAVÍA NO EXISTE, así que aquí no se puede llamar a `entity_link_create`: lo
+     elegido viaja con el formulario en filas paralelas (`link_type[]` / `link_id[]` /
+     `link_relation[]`) y las crea `_promoter_apply_extra_form` en cuanto el tercero tiene id, por
+     el MISMO punto único que el modal «Vincular» de una ficha (`_entity_link_upsert`).
+     ⚠️ Los botones de tipo y el buscador son `type="button"` y SIN `name`: no se envían.
+     La lógica está en `static/js/entity_links.js` (`[data-entity-link-picker]`). #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-link"></i>Vinculaciones</div>
+    <div class="demo-card__body" data-entity-link-picker>
+      <div class="form-text mb-2">
+        Con quién tiene que ver: su artista, el medio en el que trabaja, la sala que lleva, la
+        empresa con la que va… <strong>Se ve en las dos fichas.</strong>
+      </div>
+      <div class="entity-link-type-row mb-2">
+        {% for key, meta in (entity_link_types or {}).items() %}
+          <button type="button" class="entity-link-type-btn" data-link-type="{{ key }}"><i class="fa {{ meta.icon }}"></i><span>{{ meta.label }}</span></button>
+        {% endfor %}
+      </div>
+      <input type="search" class="form-control" data-link-search placeholder="Escribe cualquier dato para buscar…" autocomplete="off">
+      <div class="entity-link-results mt-2" data-link-results></div>
+      <div class="entity-link-list mt-2" data-link-chosen></div>
+    </div>
+  </div>
+
   {# ---------- ALTA Y PRL ---------- #}
   <div class="demo-card">
     <div class="demo-card__head"><i class="fa fa-helmet-safety"></i>Alta y PRL</div>

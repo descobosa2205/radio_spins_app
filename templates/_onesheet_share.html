@@ -1,0 +1,36 @@
+{# ═══════════ COMPARTIR UN ONE SHEET · el MISMO menú en todos los sitios ═══════════
+   Punto ÚNICO de «¿qué se puede hacer con el enlace de un one sheet?»: ver, mandarlo por correo,
+   por WhatsApp o por SMS, y copiarlo. Lo usan la pestaña «One Sheet» de una ficha y el icono de
+   la CABECERA (junto a las redes y las plataformas), así que no pueden decir cosas distintas.
+
+   Parámetros (con un `with` al incluirlo):
+     os_share        : el one sheet (necesita `public_url` y `name`) — `_onesheet_tab_context`
+                       o `_onesheet_header_link`
+     os_share_size   : 'sm' para el botón pequeño (el de dentro de una tarjeta); vacío = normal
+     os_share_icon   : el icono del botón (por defecto el de compartir)
+     os_share_label  : texto al lado del icono (por defecto, solo el icono)
+     os_share_class  : clases extra del botón (p. ej. para la cabecera)
+
+   ⚠️ COPIAR va por el mecanismo global de la casa (`.copy-link-btn[data-copy-url]`, delegado en
+   `document`): así sigue funcionando aunque la zona se repinte por AJAX.
+   ⚠️ Los items que NAVEGAN son `<a>` y el de copiar es un `<button>`: dentro de una fila que ya
+   sea un enlace, un `<a>` dentro de otro `<a>` parte el HTML y el menú no se abre. #}
+{% if os_share and os_share.public_url %}
+{% set _os_name = os_share.name or 'One Sheet' %}
+{% set _os_url = os_share.public_url %}
+<div class="dropdown dropdown-menu-portal d-inline-block">
+  <button type="button" class="btn {{ 'btn-sm ' if os_share_size == 'sm' else '' }}btn-outline-secondary {{ os_share_class or '' }}" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="One Sheet · ver y compartir">
+    <i class="fa-solid {{ os_share_icon or 'fa-share-nodes' }}"></i>{% if os_share_label %} {{ os_share_label }}{% endif %}
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><h6 class="dropdown-header"><i class="fa-solid fa-file-lines me-1"></i>One Sheet</h6></li>
+    <li><a class="dropdown-item" href="{{ _os_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye fa-fw me-2"></i>Ver el one sheet</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><a class="dropdown-item" href="mailto:?subject={{ (_os_name ~ ' · One Sheet')|urlencode }}&body={{ (_os_name ~ ' · One Sheet\n' ~ _os_url)|urlencode }}"><i class="fa-solid fa-envelope fa-fw me-2"></i>Enviar por email</a></li>
+    <li><a class="dropdown-item" target="_blank" rel="noopener" href="https://wa.me/?text={{ (_os_name ~ ' · One Sheet\n' ~ _os_url)|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-2"></i>Por WhatsApp</a></li>
+    <li><a class="dropdown-item" href="sms:?&body={{ (_os_name ~ ' · One Sheet ' ~ _os_url)|urlencode }}"><i class="fa-solid fa-comment-sms fa-fw me-2"></i>Por SMS</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ _os_url }}"><i class="fa-solid fa-link fa-fw me-2"></i>Copiar el enlace</button></li>
+  </ul>
+</div>
+{% endif %}

@@ -89,7 +89,19 @@
     function hotelById(id) { for (var i = 0; i < P.hotels.length; i++) if (String(P.hotels[i].id) === String(id)) return P.hotels[i]; return null; }
     function kindInfo(k) { return KINDS[k] || { label: k, icon: 'fa-circle', color: '#6c757d', transport: false }; }
     function timeLabel(it) { if (it.tbc) return '<span class="tbc">TBC</span>'; var s = it.start_time || '', e = it.end_time || ''; if (!s && !e) return '<span class="tbc">TBC</span>'; return esc(s) + (e ? ('–' + esc(e)) : ''); }
-    function dayLabel(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i].label; return date; }
+    /* El rótulo de un día. ⚠️ Manda el que compone el SERVIDOR (`_roadmap_days`); el formato de
+       aquí es solo para un día que TODAVÍA no está en la hoja de ruta —los que se añaden al decir
+       de qué noche a qué noche es un hotel—, para que no cambie de aspecto al guardar. */
+    var WD_ES = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    var MO_ES = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    function dayLabel(date) {
+      for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i].label;
+      var p = String(date || '').slice(0, 10).split('-');
+      if (p.length !== 3) return String(date || '');
+      var d = new Date(+p[0], (+p[1]) - 1, +p[2]);
+      if (isNaN(d.getTime())) return String(date || '');
+      return WD_ES[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + MO_ES[+p[1]];
+    }
     function avatar(url, icon) { return url ? '<img src="' + esc(url) + '" alt="">' : '<span class="noimg"><i class="fa ' + (icon || 'fa-user') + '"></i></span>'; }
     // ⚠️ Para buscar hay que normalizar LOS DOS lados (sin acentos ni mayúsculas): si no, «nus» no
     // encuentra a «Ñus» (el bug que ya salió en el reporte de ventas).
@@ -3962,14 +3974,29 @@
       var draftRooms = JSON.parse(JSON.stringify(ho.rooms || []));
       var assignedElsewhere = assignedRoomIds(ho.id);
       var hotelDays = ho.days || [];
+      /* ⚠️ Una habitación SIN noches se queda con las del hotel antes de pintar nada: lo que se ve
+         en los desplegables es entonces lo que se guarda (si no, se enviaba un día vacío y el
+         servidor lo tomaba por HOY). */
+      if (!IS_TPL && hotelDays.length) {
+        draftRooms.forEach(function (r) {
+          if (!r.day_from) r.day_from = hotelDays[0];
+          if (!r.day_to) r.day_to = hotelDays[hotelDays.length - 1];
+        });
+      }
       function unassigned() {
         var inDraft = {};
         draftRooms.forEach(function (r) { (r.occupant_ids || []).forEach(function (id) { inDraft[String(id)] = 1; }); });
         return P.personnel.filter(function (p) { return !inDraft[String(p.id)] && !assignedElsewhere[String(p.id)]; });
       }
       function newRoomId() { return 'tmp-' + Math.random().toString(36).slice(2, 10); }
+      /* Las noches que puede coger una habitación: las del HOTEL (las que se dijeron al decir de
+         qué noche a qué noche es) y, si no se dijo ninguna, todas las de la hoja de ruta.
+         ⚠️ La noche GUARDADA se ofrece aunque ya no esté entre las del hotel (porque después se
+         acortó la estancia): sin ella el desplegable enseñaba una fecha distinta de la que se iba
+         a guardar. */
       function dayOptions(sel) {
-        var days = hotelDays.length ? hotelDays : DAYS.map(function (d) { return d.date; });
+        var days = (hotelDays.length ? hotelDays : DAYS.map(function (d) { return d.date; })).slice();
+        if (sel && days.indexOf(sel) < 0) { days.push(sel); days.sort(); }
         return days.map(function (d) { return '<option value="' + esc(d) + '"' + (d === sel ? ' selected' : '') + '>' + esc(dayLabel(d)) + '</option>'; }).join('');
       }
       function html() {
@@ -4027,8 +4054,24 @@
             rerender();
           });
         });
-        body.querySelectorAll('[data-efrom]').forEach(function (s) { s.addEventListener('change', function () { draftRooms[parseInt(s.getAttribute('data-efrom'), 10)].day_from = s.value; }); });
-        body.querySelectorAll('[data-eto]').forEach(function (s) { s.addEventListener('change', function () { draftRooms[parseInt(s.getAttribute('data-eto'), 10)].day_to = s.value; }); });
+        // ⚠️ La última noche no puede ir ANTES que la primera: se arrastra la otra en vez de
+        // guardar un rango del revés (que se contaba como una noche y no decía nada).
+        body.querySelectorAll('[data-efrom]').forEach(function (s) {
+          s.addEventListener('change', function () {
+            var r = draftRooms[parseInt(s.getAttribute('data-efrom'), 10)];
+            r.day_from = s.value;
+            if (r.day_to && r.day_to < r.day_from) r.day_to = r.day_from;
+            rerender();
+          });
+        });
+        body.querySelectorAll('[data-eto]').forEach(function (s) {
+          s.addEventListener('change', function () {
+            var r = draftRooms[parseInt(s.getAttribute('data-eto'), 10)];
+            r.day_to = s.value;
+            if (r.day_from && r.day_from > r.day_to) r.day_from = r.day_to;
+            rerender();
+          });
+        });
         body.querySelectorAll('[data-eocc]').forEach(function (chip) {
           chip.addEventListener('dragstart', function (e) { chip.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', chip.getAttribute('data-eocc')); } catch (err) {} });
           chip.addEventListener('dragend', function () { chip.classList.remove('dragging'); });
@@ -4048,10 +4091,24 @@
       wire();
     }
 
+    /* La ESTANCIA de un hotel en una línea. Con las noches seguidas (lo normal) se dice de cuándo
+       a cuándo, cuántas noches son y **qué día se sale** —la mañana siguiente a la última noche,
+       que es lo que se habla con el hotel—; si están sueltas, se enumeran. */
+    function hotelDaysLabel(ho) {
+      var dias = (ho.days || []).slice().sort();
+      if (!dias.length) return '';
+      var n = dias.length, noches = n + ' noche' + (n === 1 ? '' : 's');
+      if (IS_TPL) return dias.map(function (d) { return dayLabel(d); }).join(' · ');
+      var seguidas = true;
+      for (var i = 1; i < n; i++) if (nextYmd(dias[i - 1], 1) !== dias[i]) { seguidas = false; break; }
+      if (!seguidas) return dias.map(function (d) { return dayLabel(d); }).join(' · ') + ' · ' + noches;
+      return dayLabel(dias[0]) + (n > 1 ? ' → ' + dayLabel(dias[n - 1]) : '')
+        + ' · ' + noches + ' · salida ' + dayLabel(nextYmd(dias[n - 1], 1));
+    }
     function hotelCard(ho) {
       var stars = ho.stars ? '<span class="rm-stars">' + Array(ho.stars + 1).join('★') + '</span>' : '';
       var whoNames = ho.for_all ? 'Todo el equipo' : (ho.assignee_ids || []).map(function (id) { var p = personById(id); return p ? p.name : ''; }).filter(Boolean).join(', ');
-      var daysTxt = (ho.days || []).map(function (d) { return dayLabel(d); }).join(' · ');
+      var daysTxt = hotelDaysLabel(ho);
       var atts = (ho.attachments || []).map(function (a) { return '<a class="rm-att" href="' + esc(a.url) + '" target="_blank"><i class="fa fa-download"></i> ' + esc(a.name) + '</a>'; }).join('');
       return '<div class="rm-hotel">'
         + '<img class="ph" src="' + esc(ho.photo_url || '') + '" onerror="this.style.visibility=\'hidden\'">'
@@ -4105,10 +4162,105 @@
         + '<li><button class="dropdown-item text-danger" data-hdel="' + esc(ho.id) + '"><i class="fa fa-trash fa-fw me-1"></i>Eliminar el hotel</button></li>'
         + '</ul></div></div>';
     }
+    /* ══════════════════════════════════════════════════════════════════════════════════════
+       DE QUÉ NOCHE A QUÉ NOCHE ES UN HOTEL (sep 2026, lo pidió Dani: «solo me deja el día del
+       evento»).
+
+       ⚠️⚠️ Antes esto era una lista de casillas con **los días que ya tenía la hoja de ruta**, que
+       en un concierto es UNO (el del evento): para poder decir que se duerme la víspera había que
+       salir a Horarios → el engranaje → «Configurar días» y añadirlos ahí. Ahora la estancia se
+       dice **aquí mismo**, con su primera y su última noche, y **los días que falten se añaden
+       solos a la hoja de ruta** (`_roadmap_days` ya deriva los días de los hoteles, así que no hay
+       nada que guardar aparte).
+       · Las casillas siguen estando debajo, con TODAS las noches en juego, para el caso de «solo
+         parte de los días» (se desmarca la noche que no toque).
+       · ⚠️ **Cada día marcado es UNA NOCHE** (así lo cuentan `roomRangeLabel` y su espejo
+         `_rooming_range_label`), por eso se dice cuántas son y **qué día se sale**: es lo que hay
+         que darle al hotel al reservar.
+       · En una PLANTILLA no hay fechas (sus días son «Día 1, Día 2…», los que diga `day_count`):
+         ahí solo se pintan las casillas.
+       ══════════════════════════════════════════════════════════════════════════════════════ */
+    var hotelDaysSel = {};        // las noches marcadas mientras el editor está abierto
+    function ymdOf(dt) { return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2); }
+    function parseYmdDay(iso) { var p = String(iso || '').slice(0, 10).split('-'); return (p.length === 3) ? new Date(+p[0], (+p[1]) - 1, +p[2]) : null; }
+    function nextYmd(iso, n) { var d = parseYmdDay(iso); if (!d) return ''; d.setDate(d.getDate() + (n || 1)); return ymdOf(d); }
+    function hotelDaysList() { return Object.keys(hotelDaysSel).filter(function (d) { return hotelDaysSel[d]; }).sort(); }
+    function hotelDaysBlock() {
+      var rango = IS_TPL ? '' :
+        '<div class="row g-2 align-items-end" data-hrange>'
+        + '<div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">Primera noche</label><input type="date" class="form-control" data-hfrom></div>'
+        + '<div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">Última noche</label><input type="date" class="form-control" data-hto></div>'
+        + '<div class="col-12 col-md-4"><div class="rm-sub" data-hnights></div></div>'
+        + '</div>';
+      return '<label class="form-label">' + (IS_TPL ? 'Días' : 'Noches') + '</label>'
+        + rango
+        + '<div class="filter-chips mt-2" data-hdays></div>'
+        + '<div class="form-text">' + (IS_TPL
+            ? 'Marca los días de la plantilla en los que se duerme aquí.'
+            : 'Marca las noches que se duerme en este hotel. Si son días que la hoja de ruta todavía no tenía, se añaden solos.')
+          + '</div>';
+    }
+    function wireHotelDays(m, ho) {
+      hotelDaysSel = {};
+      (ho.days || []).forEach(function (d) { if (d) hotelDaysSel[String(d).slice(0, 10)] = 1; });
+      // Un hotel NUEVO nace con la(s) noche(s) del propio evento marcadas, que es lo de siempre;
+      // de ahí se amplía hacia atrás o hacia delante con los dos campos de fecha.
+      if (!ho.id && !hotelDaysList().length) {
+        (BASE_DAYS.length ? BASE_DAYS : DAYS.map(function (d) { return d.date; }))
+          .forEach(function (d) { if (d) hotelDaysSel[String(d).slice(0, 10)] = 1; });
+      }
+      var box = m.querySelector('[data-hdays]');
+      var inFrom = m.querySelector('[data-hfrom]'), inTo = m.querySelector('[data-hto]');
+      var nights = m.querySelector('[data-hnights]');
+      function draw() {
+        // Las noches que se ofrecen: las de la hoja de ruta MÁS las que se hayan elegido aquí.
+        var universo = {};
+        DAYS.forEach(function (d) { universo[d.date] = 1; });
+        hotelDaysList().forEach(function (d) { universo[d] = 1; });
+        var dias = Object.keys(universo).sort();
+        box.innerHTML = dias.map(function (d) {
+          return '<label class="filter-chip"><input type="checkbox" data-hday value="' + esc(d) + '"'
+            + (hotelDaysSel[d] ? ' checked' : '') + '><i class="fa fa-moon"></i>' + esc(dayLabel(d)) + '</label>';
+        }).join('') || '<span class="text-muted small">Esta hoja de ruta no tiene días.</span>';
+        box.querySelectorAll('[data-hday]').forEach(function (c) {
+          c.addEventListener('change', function () {
+            if (c.checked) hotelDaysSel[c.value] = 1; else delete hotelDaysSel[c.value];
+            pintaRango();
+          });
+        });
+        pintaRango();
+      }
+      function pintaRango() {
+        var sel = hotelDaysList();
+        if (inFrom) inFrom.value = sel[0] || '';
+        if (inTo) inTo.value = sel[sel.length - 1] || '';
+        if (!nights) return;
+        if (!sel.length) { nights.innerHTML = '<span class="text-muted">Sin noches marcadas.</span>'; return; }
+        // ⚠️ La SALIDA es la mañana siguiente a la última noche: es el dato que pide el hotel.
+        nights.innerHTML = '<i class="fa fa-bed me-1"></i>' + sel.length + ' noche' + (sel.length === 1 ? '' : 's')
+          + ' · salida el ' + esc(dayLabel(nextYmd(sel[sel.length - 1], 1)));
+      }
+      function aplicaRango() {
+        var a = (inFrom && inFrom.value) || '', b = (inTo && inTo.value) || '';
+        if (!a && !b) { hotelDaysSel = {}; draw(); return; }
+        if (!a) a = b;
+        if (!b) b = a;
+        if (b < a) { var t = a; a = b; b = t; }
+        // El rango MANDA sobre lo marcado (es «de qué noche a qué noche»); luego se pueden
+        // desmarcar noches sueltas para quedarse con solo parte de los días.
+        hotelDaysSel = {};
+        var cur = a, guarda = 0;
+        while (cur && cur <= b && guarda < 120) { hotelDaysSel[cur] = 1; cur = nextYmd(cur, 1); guarda++; }
+        draw();
+      }
+      if (inFrom) inFrom.addEventListener('change', aplicaRango);
+      if (inTo) inTo.addEventListener('change', aplicaRango);
+      draw();
+    }
+
     function openHotelEditor(ho) {
       var editing = !!ho.id;
       var starOpts = [0, 1, 2, 3, 4, 5].map(function (n) { return '<option value="' + n + '"' + (ho.stars === n ? ' selected' : '') + '>' + (n ? n + ' ★' : 'Sin categoría') + '</option>'; }).join('');
-      var daysChecks = DAYS.map(function (d) { return '<label class="me-2"><input type="checkbox" data-hday value="' + esc(d.date) + '"' + ((ho.days || []).indexOf(d.date) >= 0 ? ' checked' : '') + '> ' + esc(d.label) + '</label>'; }).join('');
       var peopleChecks = P.personnel.map(function (p) { return '<label class="me-2 d-inline-block"><input type="checkbox" data-hwho value="' + esc(p.id) + '"' + ((ho.assignee_ids || []).indexOf(p.id) >= 0 ? ' checked' : '') + '> ' + esc(p.name) + '</label>'; }).join('') || '<span class="text-muted small">Sin personal aún.</span>';
       var h = '<div class="alert alert-light border small py-2">Introduce los datos del hotel a mano (nombre, estrellas, foto, dirección, teléfono, email). La búsqueda automática en internet se añadirá más adelante.</div>';
       h += '<div class="row g-2">';
@@ -4118,13 +4270,14 @@
       h += '<div class="col-12"><label class="form-label">Dirección</label><input class="form-control" data-h="address" value="' + esc(ho.address) + '"></div>';
       h += '<div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" data-h="phone" value="' + esc(ho.phone) + '"></div>';
       h += '<div class="col-md-6"><label class="form-label">Email</label><input class="form-control" data-h="email" value="' + esc(ho.email) + '"></div>';
-      h += '<div class="col-12"><label class="form-label">Días</label><div>' + daysChecks + '</div></div>';
+      h += '<div class="col-12">' + hotelDaysBlock() + '</div>';
       h += '<div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-h="for_all" id="rmHforall"' + (ho.for_all ? ' checked' : '') + '><label class="form-check-label" for="rmHforall">Para todo el equipo</label></div><div data-whowrap class="' + (ho.for_all ? 'd-none' : '') + '"><label class="form-label">Miembros</label><div>' + peopleChecks + '</div></div></div>';
       h += '<div class="col-12"><label class="form-label">Nota</label><textarea class="form-control" data-h="note" rows="2">' + esc(ho.note) + '</textarea></div>';
       h += '</div>';
       if (editing) h += '<div class="mt-2" data-hatts></div><label class="btn btn-outline-secondary btn-sm mt-1"><i class="fa fa-paperclip"></i> Adjuntar archivo<input type="file" hidden data-hattin></label>';
       var m = openModal('rmHotelModal', 'modal-lg', (editing ? 'Editar' : 'Nuevo') + ' hotel', h, [btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmHotelModal'); if (i) i.hide(); }), btn('Guardar', 'btn-primary', function () { saveHotel(ho, m); })]);
       var forall = m.querySelector('[data-h="for_all"]'); forall.addEventListener('change', function () { m.querySelector('[data-whowrap]').classList.toggle('d-none', forall.checked); });
+      wireHotelDays(m, ho);
       if (editing) { renderHotelAtts(m, ho); m.querySelector('[data-hattin]').addEventListener('change', function (e) { var f = e.target.files[0]; if (!f) return; var fd = new FormData(); fd.append('scope', 'hotel'); fd.append('id', ho.id); fd.append('file', f); postForm(ep('/adjunto'), fd).then(function (resp) { if (resp && resp.ok) { P = resp.payload; DAYS = resp.days || DAYS; var hh = hotelById(ho.id); if (hh) { ho.attachments = hh.attachments || []; renderHotelAtts(m, ho); } } }); }); }
     }
     function renderHotelAtts(m, ho) {
@@ -4817,9 +4970,9 @@
 
     // ================================================================ CONFIGURAR DÍAS
     function openDaysConfig() {
-      function pad(n) { return (n < 10 ? '0' : '') + n; }
-      function ymd(dt) { return dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()); }
-      function parseYmd(s) { var p = String(s).split('-'); return new Date(+p[0], (+p[1]) - 1, +p[2]); }
+      // ⚠️ Las mismas dos funciones de fecha que el editor de hoteles (`ymdOf` / `parseYmdDay`):
+      // una cosa, un sitio — aquí estaban escritas otra vez.
+      var ymd = ymdOf, parseYmd = parseYmdDay;
       var base = {}; BASE_DAYS.forEach(function (d) { base[String(d).slice(0, 10)] = 1; });
       var content = {};
       (P.agenda || []).forEach(function (it) { if (it.day) content[String(it.day).slice(0, 10)] = 1; var t = it.transport || {}; if (it.day && t.ends_next_day) { var nd = parseYmd(String(it.day).slice(0, 10)); nd.setDate(nd.getDate() + 1); content[ymd(nd)] = 1; } });

@@ -8504,3 +8504,10 @@ label.ci-imp__row{ cursor:pointer; }
   .ci-card__poster{ width:78px; }
   .ci-imp__row{ align-items:flex-start; }
 }
+
+/* El icono de ONE SHEET de la cabecera de un artista: vive con las redes y las plataformas, así
+   que se ve como ellas (redondo, discreto) y no como un botón de formulario. */
+.artist-social-hero .artist-social-os{ --bs-btn-padding-y:.18rem; --bs-btn-padding-x:.5rem;
+  border-radius:999px; color:var(--brand-accent); border-color:var(--line-2); line-height:1; }
+.artist-social-hero .artist-social-os:hover{ color:#fff; background:var(--brand-accent); border-color:var(--brand-accent); }
+.artist-social-hero .artist-social-os i{ font-size:1rem; }

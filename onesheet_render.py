@@ -104,6 +104,8 @@ MODULES = {
                "kinds": SUBJECT_KINDS, "hint": "Cada premio con el icono de su forma y el año en que se consiguió."},
     "press": {"label": "Notas de prensa", "icon": "fa-newspaper", "w": 7, "single": False, "dynamic": True,
               "kinds": SUBJECT_KINDS, "hint": "Las últimas notas de prensa enviadas: la miniatura y el titular, y se abren enteras."},
+    "documents": {"label": "Documentos", "icon": "fa-file-arrow-down", "w": 5, "single": False, "dynamic": False,
+                  "kinds": SUBJECT_KINDS, "hint": "Archivos para descargar (el dossier, el rider, una ficha técnica…): el icono de cada archivo y su nombre, y se bajan al pincharlos."},
     "contact": {"label": "Contacto", "icon": "fa-envelope", "w": 5, "single": False, "dynamic": False,
                 "kinds": SUBJECT_KINDS, "hint": "Quién lleva qué, con su correo y su teléfono."},
 }
@@ -154,6 +156,70 @@ METRIC_SHORT = {
 SOCIAL_STYLES = ("icons", "pills", "list")
 PHOTO_LAYOUTS = ("grid", "masonry", "strip")
 STAT_LAYOUTS = ("tiles", "row")
+DOC_LAYOUTS = ("list", "grid")
+
+# EL MÓDULO «DOCUMENTOS» (sep 2026, lo pidió Dani: «un módulo de un documento que se vea el icono del
+# archivo y el nombre del archivo para poder descargarlo»). Qué se puede subir y con qué icono se ve
+# cada tipo. ⚠️ Solo iconos que EXISTEN en la Font Awesome de la app (`grep -c "\.fa-file-pdf:" …`):
+# uno que no exista sale vacío. `doc_icon` es el punto único: lo usan la página y el editor.
+DOC_EXTS = {
+    "pdf", "doc", "docx", "odt", "rtf", "txt", "md", "pages",
+    "xls", "xlsx", "csv", "numbers", "ppt", "pptx", "key",
+    "zip", "rar", "7z",
+    "jpg", "jpeg", "png", "webp", "gif", "svg", "heic", "tif", "tiff", "ai", "psd", "eps", "indd",
+    "mp3", "wav", "m4a", "aac", "flac", "aiff", "ogg",
+    "mp4", "mov", "m4v", "webm",
+    "epub", "ics", "vcf", "json", "xml",
+}
+DOC_ICONS = {
+    "pdf": "fa-file-pdf",
+    "doc": "fa-file-word", "docx": "fa-file-word", "odt": "fa-file-word", "rtf": "fa-file-word", "pages": "fa-file-word",
+    "xls": "fa-file-excel", "xlsx": "fa-file-excel", "numbers": "fa-file-excel", "csv": "fa-file-csv",
+    "ppt": "fa-file-powerpoint", "pptx": "fa-file-powerpoint", "key": "fa-file-powerpoint",
+    "zip": "fa-file-zipper", "rar": "fa-file-zipper", "7z": "fa-file-zipper",
+    "jpg": "fa-file-image", "jpeg": "fa-file-image", "png": "fa-file-image", "webp": "fa-file-image", "gif": "fa-file-image",
+    "svg": "fa-file-image", "heic": "fa-file-image", "tif": "fa-file-image", "tiff": "fa-file-image",
+    "ai": "fa-file-image", "psd": "fa-file-image", "eps": "fa-file-image", "indd": "fa-file-image",
+    "mp3": "fa-file-audio", "wav": "fa-file-audio", "m4a": "fa-file-audio", "aac": "fa-file-audio",
+    "flac": "fa-file-audio", "aiff": "fa-file-audio", "ogg": "fa-file-audio",
+    "mp4": "fa-file-video", "mov": "fa-file-video", "m4v": "fa-file-video", "webm": "fa-file-video",
+    "txt": "fa-file-lines", "md": "fa-file-lines", "json": "fa-file-code", "xml": "fa-file-code",
+    "epub": "fa-book", "ics": "fa-calendar-days", "vcf": "fa-address-card",
+}
+DOC_ICON_DEFAULT = "fa-file"
+
+
+def doc_ext(name) -> str:
+    """La extensión de un archivo, en minúsculas y sin el punto («Dossier.PDF» → «pdf»; también
+    vale una URL con query, o la extensión suelta)."""
+    texto = str(name or "").strip().lower().split("?")[0].split("#")[0]
+    if "." in texto:
+        texto = texto.rsplit(".", 1)[1]
+    return re.sub(r"[^a-z0-9]", "", texto)[:12]
+
+
+def doc_icon(ext) -> str:
+    """El icono de Font Awesome (clase `fa-…`) con el que se ve un archivo de ese tipo."""
+    return DOC_ICONS.get(doc_ext(ext), DOC_ICON_DEFAULT)
+
+
+def fmt_size(num_bytes) -> str:
+    """El tamaño de un archivo, legible y en español («2,5 MB»). Sin dato, cadena vacía."""
+    try:
+        n = float(num_bytes)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    if n < 1024:
+        return "%d B" % int(n)
+    if n < 1024 ** 2:
+        return "%d KB" % round(n / 1024)
+    unidad, valor = ("MB", n / 1024 ** 2) if n < 1024 ** 3 else ("GB", n / 1024 ** 3)
+    texto = ("%.1f" % valor).replace(".", ",")
+    if texto.endswith(",0"):
+        texto = texto[:-2]
+    return "%s %s" % (texto, unidad)
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # 1) COLORES · el fondo manda y las letras salen solas
@@ -543,6 +609,19 @@ def normalize_opts(btype: str, raw) -> dict:
         o["limit"] = _int(src.get("limit"), 4, 1, 12)
         o["hidden"] = [_str(x, 40) for x in (src.get("hidden") or [])][:60] if isinstance(src.get("hidden"), list) else []
         o["layout"] = src.get("layout") if src.get("layout") in ("list", "cards") else "cards"
+    elif btype == "documents":
+        # Cada archivo: su URL en Storage (lo sube el editor), el nombre del archivo, cómo se llama en
+        # la página (vacío = el del archivo), su tamaño y su extensión (se deduce si no viene).
+        items = _clean_items(src.get("items"), {"url": ("url", 0), "name": ("str", 120), "file_name": ("str", 200),
+                                                "size": ("int", 10 ** 11), "ext": ("str", 12)}, 30)
+        o["items"] = []
+        for it in items:
+            if not it.get("url"):
+                continue           # sin archivo no hay nada que descargar
+            it["ext"] = doc_ext(it.get("ext") or it.get("file_name") or it.get("url"))
+            o["items"].append(it)
+        o["layout"] = src.get("layout") if src.get("layout") in DOC_LAYOUTS else "list"
+        o["show_size"] = _bool(src.get("show_size"), True)
     elif btype == "contact":
         o["items"] = _clean_items(src.get("items"), {"role": ("str", 80), "name": ("str", 120), "email": ("str", 160),
                                                      "phone": ("str", 60), "photo_url": ("img", 0)}, 12)
@@ -643,6 +722,7 @@ _CONTENT_KEYS = {
     "bio": ("html",), "text": ("html",), "highlights": ("items",), "photos": ("album_ids", "photo_ids"),
     "release": ("pick_kind", "pick_id"), "videos": ("items",), "awards": ("items",),
     "contact": ("items",), "socials": ("keys", "extra"), "certifications": ("hidden",), "press": ("hidden",),
+    "documents": ("items",),
 }
 
 

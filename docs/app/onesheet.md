@@ -14,6 +14,8 @@
 - LA DIRECCIÓN PÚBLICA (slug), los enlaces antiguos por token y el ROSTER (/onesheet)
 - LAS PLANTILLAS: viaja el formato, no el contenido
 - CHARTMETRIC: más redes (solo las que tiene el artista) y «dónde se escucha»
+- EL MÓDULO «DOCUMENTOS»: archivos para descargar (el icono de su tipo y su nombre), subidos desde el
+  editor y servidos por NUESTRO dominio (a Storage el `download` no le vale)
 - LAS TRAMPAS que ya costaron algo (el bucle del mapeo grueso, la clave `items`, las fotos…)
 - LA PRUEBA: `tools/check_onesheet.py`
 
@@ -145,6 +147,37 @@
   con el valor directo o una lista de dicts, y se queda con el último valor. Si en la primera
   actualización real el módulo de países sale vacío, mirar `chartmetric_artist.last_error`
   («where:…») y ajustar ese lector.
+
+- **EL MÓDULO «DOCUMENTOS»** (sep 2026, lo pidió Dani: «un módulo de un documento que se vea el icono
+  del archivo y el nombre del archivo para poder descargarlo»). Tipo **`documents`** del catálogo:
+  una lista de archivos (`opts.items`: `url` · `file_name` · `name` —cómo se llama en la página, vacío
+  = el del archivo— · `size` · `ext`), en lista o en tarjetas (`layout`) y con o sin el tamaño
+  (`show_size`). Cada fila es **el icono de su tipo + el nombre + la flecha de bajar**, y toda la fila
+  descarga.
+  · **El icono sale de UN catálogo**, `onesheet_render.DOC_ICONS` (+ `doc_icon`/`doc_ext`): lo usa el
+  servidor al pintar y el panel del editor lo recibe en `CAT.doc_icons`, así que no hay dos listas.
+  ⚠️ Solo iconos que existen en esta Font Awesome (`fa-file-pdf`, `-word`, `-excel`, `-csv`,
+  `-powerpoint`, `-zipper`, `-image`, `-audio`, `-video`, `-lines`, `-code`, `fa-book`,
+  `fa-calendar-days`, `fa-address-card`; todos comprobados con `grep -c`). Lo que se admite subir es
+  `DOC_EXTS` (PDF, Office, iWork, ZIP, imágenes, audio, vídeo, epub, ics, vcf…); `fmt_size` da el
+  tamaño en español («2,5 MB»).
+  · **Se sube desde el editor** («Añadir documento» en el panel, varios a la vez) a
+  **`onesheet_upload_file`** (`POST /onesheet/editor/<id>/archivo`, carpeta `onesheets/docs`), que
+  devuelve la URL, el nombre, el tamaño, la extensión y el icono; el bloque guarda eso en `items`.
+  ⚠️⚠️ **La descarga va por NUESTRO dominio**: `onesheet_public_file`
+  (`GET /onesheet/<slug>/archivo/<bloque>/<archivo>`, en `PUBLIC_ENDPOINTS_EXTRA`) sirve el archivo en
+  TROZOS con `Content-Disposition: attachment` y el nombre original (`_safe_download_filename` +
+  `filename*` UTF-8). Un enlace directo a Storage con `download` **lo ignoran los navegadores en otro
+  dominio** (y Supabase no manda la disposición), así que un PDF se abría en una pestaña en vez de
+  guardarse: la misma trampa que la cartelería de un grupo. ⚠️ Solo se sirve lo que está en nuestro
+  Storage (`_is_own_media_url`); una URL de fuera se redirige, que esto no puede ser un proxy abierto.
+  `_onesheet_open_remote` es el punto que la prueba simula.
+  · Es CONTENIDO del artista (`_CONTENT_KEYS`): una plantilla no se lleva los archivos y, al cargarla,
+  los que ya había se conservan. Un item sin URL se descarta al normalizar; la extensión se deduce del
+  nombre (o de la URL) y se guarda en minúsculas.
+  Probado en `check_onesheet` (apartado 6b): guardar, la página pública (icono, nombre, tamaño y el
+  enlace de cada archivo), la redirección de un archivo de fuera, la descarga de uno nuestro con su
+  nombre y su tipo, los 404, el módulo en el editor, el rechazo de un `.exe` y la subida de un PDF.
 
 - **LAS TRAMPAS que ya costaron algo**:
   ⚠️⚠️ **El mapeo GRUESO de permisos (`_coarse_endpoint_resource`) NO puede mirar al usuario**. La

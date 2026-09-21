@@ -10,7 +10,7 @@
 {% if font_href %}<link rel="stylesheet" href="{{ font_href }}" data-ose-font>{% endif %}
 <div class="ose" data-ose
      data-osid="{{ row.id }}" data-kind="{{ info.kind }}" data-name="{{ info.name }}" data-subject-photo="{{ info.photo_url }}"
-     data-save-url="{{ save_url }}" data-module-url="{{ module_url }}" data-assets-url="{{ assets_url }}" data-upload-url="{{ upload_url }}"
+     data-save-url="{{ save_url }}" data-module-url="{{ module_url }}" data-assets-url="{{ assets_url }}" data-upload-url="{{ upload_url }}" data-upload-file-url="{{ upload_file_url }}"
      data-settings-url="{{ settings_url }}" data-templates-url="{{ templates_url }}" data-template-new-url="{{ template_new_url }}"
      data-template-apply-url="{{ template_apply_url }}" data-public-url="{{ public_url }}" data-public-base="{{ public_url.rsplit('/', 1)[0] }}/"
      data-can-edit="{{ '1' if can_edit else '' }}" data-slug="{{ slug }}">
@@ -249,7 +249,7 @@
   </div></div></div>
 
   <script type="application/json" id="oseDesign">{{ design_json|tojson }}</script>
-  <script type="application/json" id="oseCatalog">{{ {'modules': catalog, 'metrics': metrics_catalog, 'award_icons': award_icons, 'highlight_icons': highlight_icons, 'corporate': corporate, 'services': services_all, 'fonts': fonts}|tojson }}</script>
+  <script type="application/json" id="oseCatalog">{{ {'modules': catalog, 'metrics': metrics_catalog, 'award_icons': award_icons, 'highlight_icons': highlight_icons, 'corporate': corporate, 'services': services_all, 'fonts': fonts, 'doc_exts': doc_exts, 'doc_icons': doc_icons}|tojson }}</script>
 </div>
 <script src="{{ url_for('static', filename='js/onesheet_editor.js', v=ASSET_V) }}"></script>
 {% endblock %}

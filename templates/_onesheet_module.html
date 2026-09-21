@@ -38,6 +38,7 @@
           {% elif b.type == 'countries' %}Todavía no hay datos de países (llegan con el refresco diario de Chartmetric).
           {% elif b.type == 'awards' %}Añade los premios en el panel de la derecha, con la forma del premio y el año.
           {% elif b.type == 'press' %}No hay notas de prensa enviadas de este artista. Saldrán solas al enviarlas.
+          {% elif b.type == 'documents' %}Sube uno o varios archivos en el panel de la derecha («Añadir documento»): el dossier, el rider, una ficha técnica… Cada uno se ve con el icono de su tipo y su nombre, y se descarga al pincharlo.
           {% elif b.type == 'contact' %}Añade quién lleva qué en el panel de la derecha (o elige a alguien de la casa).
           {% else %}{{ meta.hint }}{% endif %}
         </span>
@@ -201,6 +202,24 @@
         </a>
       {% endfor %}
     </div>
+
+  {% elif b.type == 'documents' %}
+    {# Cada archivo: el icono de su tipo, cómo se llama y (en pequeño) el tipo, el tamaño y el nombre
+       del archivo si es otro. Toda la fila DESCARGA por nuestro dominio (`onesheet_public_file`). #}
+    <ul class="os-docs os-docs--{{ o.layout or 'list' }}">
+      {% for f in d.rows %}
+        <li>
+          <a class="os-doc" href="{{ f.download_url }}" title="Descargar {{ f.file_name }}"{% if editing %} tabindex="-1"{% endif %}>
+            <span class="os-doc__i"><i class="fa-solid {{ f.icon }}"></i></span>
+            <span class="os-doc__b">
+              <span class="os-doc__n">{{ f.name }}</span>
+              <span class="os-doc__m">{{ f.ext_label }}{% if o.show_size and f.size_label %} · {{ f.size_label }}{% endif %}{% if f.name != f.file_name %} · {{ f.file_name }}{% endif %}</span>
+            </span>
+            <span class="os-doc__dl" aria-hidden="true"><i class="fa-solid fa-download"></i></span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
 
   {% elif b.type == 'contact' %}
     <div class="os-contacts os-contacts--{{ o.layout or 'cards' }}">

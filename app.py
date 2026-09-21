@@ -91060,6 +91060,25 @@ def _onesheet_module_data(session_db, row, info: dict, design: dict, block: dict
         ocultas = set(o.get("hidden") or [])
         d["rows"] = [p for p in _onesheet_press_rows(session_db, info, int(o.get("limit") or 4) + len(ocultas)) if p["id"] not in ocultas][:int(o.get("limit") or 4)]
         d["empty"] = not d["rows"]
+    elif t == "documents":
+        # Cada archivo con su icono (por el tipo), cómo se llama en la página, su tamaño y el enlace de
+        # DESCARGA por nuestro dominio (`onesheet_public_file`: a Storage el `download` no le vale).
+        filas = []
+        for it in (o.get("items") or []):
+            if not it.get("url"):
+                continue
+            nombre_archivo = (it.get("file_name") or "").strip() or Path(str(it["url"]).split("?")[0]).name or "archivo"
+            ext = onesheet_render.doc_ext(it.get("ext") or nombre_archivo)
+            filas.append({
+                "id": it["id"], "url": it["url"],
+                "name": (it.get("name") or "").strip() or nombre_archivo,
+                "file_name": nombre_archivo, "ext": ext, "ext_label": ext.upper(),
+                "icon": onesheet_render.doc_icon(ext),
+                "size_label": onesheet_render.fmt_size(it.get("size")),
+                "download_url": url_for("onesheet_public_file", slug=row.slug, bid=block["id"], fid=it["id"]),
+            })
+        d["rows"] = filas
+        d["empty"] = not filas
     elif t == "contact":
         d["rows"] = [it for it in (o.get("items") or []) if (it.get("name") or it.get("email") or it.get("role") or "").strip()]
         d["logos"] = _onesheet_group_logos(session_db) if o.get("show_logos", True) else []
@@ -91360,6 +91379,74 @@ def onesheet_public_og_image(slug):
     return redirect(_absolute_media_url(url))
 
 
+def _onesheet_open_remote(url: str, timeout: int = 30):
+    """Abre un archivo de nuestro Storage para SERVIRLO en trozos (sin cargarlo entero en memoria).
+    Devuelve (respuesta abierta, content-type, longitud o None). Punto único para poder simularlo."""
+    resp = urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=timeout)
+    ctype = resp.headers.get_content_type() if getattr(resp, "headers", None) else None
+    try:
+        length = int(resp.headers.get("Content-Length") or 0) or None
+    except Exception:
+        length = None
+    return resp, ctype, length
+
+
+@app.get("/onesheet/<slug>/archivo/<bid>/<fid>", endpoint="onesheet_public_file")
+def onesheet_public_file(slug, bid, fid):
+    """DESCARGAR un archivo del módulo «Documentos» de un one sheet.
+
+    ⚠️ Va por nuestro dominio y con `Content-Disposition: attachment` a propósito: un enlace directo a
+    Storage con el atributo `download` lo ignoran los navegadores en otro dominio (y Supabase no manda
+    la disposición), así que un PDF se abría en una pestaña en vez de guardarse (la misma trampa que la
+    cartelería de un grupo). Se sirve en TROZOS —un dossier puede pesar decenas de MB y la página es
+    pública— y SOLO lo que está en nuestro Storage: lo demás se redirige a su URL, que esto no puede
+    ser un proxy abierto."""
+    s = db()
+    try:
+        row = _onesheet_resolve_public(s, slug)
+        if not row or (not row.published and not session.get("user_id")):
+            abort(404)
+        bloque = onesheet_render.block_by_id(_onesheet_design(row), bid)
+        if not bloque or bloque.get("type") != "documents":
+            abort(404)
+        item = next((it for it in ((bloque.get("opts") or {}).get("items") or [])
+                     if it.get("id") == fid and it.get("url")), None)
+        if not item:
+            abort(404)
+        url = str(item["url"])
+        nombre = (item.get("file_name") or "").strip() or Path(url.split("?")[0]).name or "documento"
+    finally:
+        s.close()
+    if not _is_own_media_url(url):
+        return redirect(url)
+    try:
+        resp, ctype, length = _onesheet_open_remote(url)
+    except Exception:
+        app.logger.exception("[one sheet] no se pudo abrir el documento %s", url)
+        abort(404)
+
+    def _trozos():
+        try:
+            while True:
+                chunk = resp.read(256 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
+
+    tipo = (ctype if ctype and ctype != "application/octet-stream" else None) or mimetypes.guess_type(nombre)[0] or "application/octet-stream"
+    seguro = _safe_download_filename(nombre, "documento")
+    cabeceras = {"Content-Disposition": "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (seguro, quote(nombre)),
+                 "Cache-Control": "public, max-age=300"}
+    if length:
+        cabeceras["Content-Length"] = str(length)
+    return Response(_trozos(), mimetype=tipo, headers=cabeceras)
+
+
 # ── EL EDITOR y sus endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/onesheet/abrir/<kind>/<sid>", endpoint="onesheet_open")
@@ -91401,6 +91488,10 @@ def onesheet_editor(osid):
             "corporate": PRESS_CORPORATE_COLORS,
             "save_url": url_for("onesheet_save", osid=row.id), "module_url": url_for("onesheet_module_html", osid=row.id),
             "assets_url": url_for("onesheet_assets", osid=row.id), "upload_url": url_for("onesheet_upload_image", osid=row.id),
+            # El módulo «Documentos»: dónde se suben y qué se admite (y el icono de cada tipo, el mismo
+            # que pinta el servidor, para que el panel del editor no tenga su propia lista).
+            "upload_file_url": url_for("onesheet_upload_file", osid=row.id),
+            "doc_exts": sorted(onesheet_render.DOC_EXTS), "doc_icons": onesheet_render.DOC_ICONS,
             "settings_url": url_for("onesheet_settings_save", osid=row.id),
             "templates_url": url_for("onesheet_templates"), "template_new_url": url_for("onesheet_template_new"),
             "template_apply_url": url_for("onesheet_template_apply", osid=row.id),
@@ -91538,6 +91629,48 @@ def onesheet_upload_image(osid):
         s.rollback()
         app.logger.exception("[one sheet] no se pudo subir la imagen")
         return jsonify({"ok": False, "error": "No se pudo subir la imagen."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/onesheet/editor/<osid>/archivo", endpoint="onesheet_upload_file")
+@admin_required
+def onesheet_upload_file(osid):
+    """Sube un DOCUMENTO para el módulo «Documentos» (el dossier, el rider, una ficha técnica…) y
+    devuelve lo que el módulo guarda de él: la URL, el nombre del archivo, su tamaño y su extensión
+    (y el icono con el que se ve, para pintarlo en el panel sin esperar al servidor)."""
+    s = db()
+    try:
+        row = _onesheet_row_or_404(s, osid)
+        if not _onesheet_can_edit():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        fs = request.files.get("file")
+        nombre = Path(((fs.filename if fs is not None else "") or "").replace("\\", "/")).name.strip()
+        if fs is None or not nombre:
+            return jsonify({"ok": False, "error": "Elige un archivo."}), 400
+        ext = onesheet_render.doc_ext(nombre)
+        if ext not in onesheet_render.DOC_EXTS:
+            return jsonify({"ok": False, "error": "Ese tipo de archivo (%s) no se admite. Vale un PDF, Word, Excel, "
+                                                  "PowerPoint, ZIP, una imagen, un audio o un vídeo." % (ext.upper() or "?")}), 400
+        # El tamaño, para enseñarlo junto al nombre (se mide sin consumir el stream).
+        size = 0
+        try:
+            fs.stream.seek(0, 2)
+            size = int(fs.stream.tell())
+            fs.stream.seek(0)
+        except Exception:
+            size = 0
+        url = upload_file(fs, "onesheets/docs", allowed_extensions={"." + e for e in onesheet_render.DOC_EXTS})
+        if not url:
+            return jsonify({"ok": False, "error": "No se pudo subir el archivo."}), 400
+        return jsonify({"ok": True, "url": url, "file_name": nombre, "size": size, "ext": ext,
+                        "icon": onesheet_render.doc_icon(ext), "size_label": onesheet_render.fmt_size(size)})
+    except StorageObjectTooLargeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception:
+        s.rollback()
+        app.logger.exception("[one sheet] no se pudo subir el documento")
+        return jsonify({"ok": False, "error": "No se pudo subir el archivo."}), 400
     finally:
         s.close()
 
@@ -100115,7 +100248,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open",
+PUBLIC_ENDPOINTS_EXTRA = {"onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "onesheet_public_file", "public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open",
                           # El vídeo de YouTube de un correo: la miniatura y el pop-up que lo reproduce.
                           "public_youtube_thumb", "public_youtube_play"}
 

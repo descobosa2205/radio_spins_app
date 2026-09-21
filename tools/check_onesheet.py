@@ -18,6 +18,7 @@ Comprueba de punta a punta el One Sheet rehecho:
     /tmp/python/bin/python3 tools/check_onesheet.py
 Requiere el entorno de /tmp de CLAUDE.md. Es IDEMPOTENTE: borra lo que crea al empezar y al acabar.
 """
+import io
 import json
 import os
 import pathlib
@@ -342,6 +343,56 @@ def main():
     js = r.get_json() or {}
     check("el módulo de conciertos se pinta con el tope", js.get("ok") and d["c1"] in (js.get("html") or "") and d["c4"] not in (js.get("html") or ""), js.get("error"))
 
+    print("\n6b) El módulo de DOCUMENTOS: el icono del archivo, su nombre y la descarga")
+    nuevo["blocks"].append({"id": "doc1", "type": "documents", "x": 0, "y": 0, "w": 5, "h": 1,
+                            "opts": {"title": "Documentos", "items": [
+                                {"id": "f1", "url": "https://fotos.prueba/dossier-prueba.pdf", "file_name": "Dossier Ñu 2026.pdf", "name": "", "size": 2621440},
+                                {"id": "f2", "url": "https://fotos.prueba/rider.docx", "file_name": "rider.DOCX", "name": "Rider técnico", "size": 12345},
+                                {"id": "f3", "url": "", "file_name": "sin-archivo.pdf"}]}})
+    r = cli.post("/onesheet/editor/%s/guardar" % osid, json={"design": nuevo})
+    js = r.get_json() or {}
+    nuevo = js.get("design") or nuevo
+    bloques = nuevo.get("blocks") or bloques
+    docs_b = [b for b in bloques if b["id"] == "doc1"]
+    its = (docs_b[0]["opts"].get("items") if docs_b else None) or []
+    check("se guardan los dos archivos (el que no tiene URL se descarta) y la extensión se deduce en minúsculas",
+          js.get("ok") and [it.get("ext") for it in its] == ["pdf", "docx"], [it.get("ext") for it in its])
+    r = pub.get("/onesheet/prueba-one-sheet")
+    html = r.get_data(as_text=True)
+    check("la página pública pinta el icono del PDF y el del Word, los nombres y el tamaño",
+          "fa-file-pdf" in html and "fa-file-word" in html and "Dossier Ñu 2026.pdf" in html and "Rider técnico" in html and "2,5 MB" in html)
+    enlace = "/onesheet/prueba-one-sheet/archivo/doc1/f1"
+    check("cada archivo enlaza a su descarga por nuestro dominio", enlace in html and "/onesheet/prueba-one-sheet/archivo/doc1/f2" in html)
+    r = pub.get(enlace)
+    check("un archivo que NO es de nuestro Storage se redirige a su URL (esto no es un proxy abierto)",
+          r.status_code == 302 and (r.headers.get("Location") or "").endswith("dossier-prueba.pdf"), r.status_code)
+    propio, abre = A._is_own_media_url, A._onesheet_open_remote
+    A._is_own_media_url = lambda u: True
+    A._onesheet_open_remote = lambda u, timeout=30: (io.BytesIO(b"%PDF-1.4 prueba"), "application/pdf", 15)
+    try:
+        r = pub.get(enlace)
+        cd = r.headers.get("Content-Disposition") or ""
+        check("uno nuestro se DESCARGA (attachment) con su nombre, su tipo y su contenido en trozos",
+              r.status_code == 200 and "attachment" in cd and 'filename="Dossier Nu 2026.pdf"' in cd and r.mimetype == "application/pdf" and r.get_data() == b"%PDF-1.4 prueba", (r.status_code, cd))
+    finally:
+        A._is_own_media_url, A._onesheet_open_remote = propio, abre
+    check("un archivo que no existe da 404", pub.get("/onesheet/prueba-one-sheet/archivo/doc1/nada").status_code == 404)
+    check("y un módulo que no es de documentos también", pub.get("/onesheet/prueba-one-sheet/archivo/vd1/f1").status_code == 404)
+    r = cli.post("/onesheet/editor/%s/modulo" % osid, json={"block": docs_b[0], "design": nuevo})
+    js = r.get_json() or {}
+    check("el módulo se pinta en el editor con sus archivos", js.get("ok") and "fa-file-word" in (js.get("html") or "") and "Rider técnico" in (js.get("html") or ""), js.get("error"))
+    r = cli.post("/onesheet/editor/%s/archivo" % osid, data={"file": (io.BytesIO(b"hola"), "virus.exe")}, content_type="multipart/form-data")
+    check("subir un tipo de archivo que no se admite se rechaza", r.status_code == 400 and "no se admite" in ((r.get_json() or {}).get("error") or ""), r.status_code)
+    subir = A.upload_file
+    A.upload_file = lambda fs, folder, allowed_extensions=None: "https://fotos.prueba/" + folder + "/subido.pdf"
+    try:
+        r = cli.post("/onesheet/editor/%s/archivo" % osid, data={"file": (io.BytesIO(b"%PDF-1.4 " + b"x" * 3000), "Ficha técnica.PDF")}, content_type="multipart/form-data")
+        js = r.get_json() or {}
+        check("subir un PDF devuelve su URL, su nombre, su tamaño, su extensión y su icono",
+              js.get("ok") and js.get("file_name") == "Ficha técnica.PDF" and js.get("ext") == "pdf" and js.get("icon") == "fa-file-pdf" and js.get("size") == 3009 and js.get("size_label") == "3 KB", js)
+    finally:
+        A.upload_file = subir
+
     print("\n7) Los ajustes: dirección, etiquetas, Roster")
     r = cli.post("/onesheet/editor/%s/ajustes" % osid, json={"slug": "roster"})
     check("una palabra reservada como dirección se rechaza", r.status_code == 400, r.status_code)
@@ -370,6 +421,8 @@ def main():
               tpl is not None and all(not (b.get("opts") or {}).get("html") for b in tdes.get("blocks") or [] if b["type"] in ("bio", "text"))
               and all(not (b.get("opts") or {}).get("items") for b in tdes.get("blocks") or [] if b["type"] == "videos")
               and all(not (b.get("opts") or {}).get("album_ids") for b in tdes.get("blocks") or [] if b["type"] == "photos"))
+        check("ni los documentos (son de este artista)", tpl is not None and any(b["type"] == "documents" for b in tdes.get("blocks") or [])
+              and all(not (b.get("opts") or {}).get("items") for b in tdes.get("blocks") or [] if b["type"] == "documents"))
         check("pero sí el formato: mismos módulos y el fondo blanco", tpl is not None and len(tdes.get("blocks") or []) == len(bloques) and (tdes.get("theme") or {}).get("bg") == "#ffffff")
     finally:
         s.close()
@@ -427,7 +480,7 @@ def main():
     with A.app.test_request_context("/onesheet/editor/%s/guardar" % osid, method="POST"):
         A.request.url_rule = A.app.url_map.bind("localhost").match("/onesheet/editor/%s/guardar" % osid, method="POST", return_rule=True)[0]
         check("los endpoints del editor resuelven a artists.onesheet", A._resolve_request_resource_key() == "artists.onesheet", A._resolve_request_resource_key())
-    for ep in ("onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image"):
+    for ep in ("onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "onesheet_public_file"):
         check("%s está en PUBLIC_ENDPOINTS_EXTRA" % ep, ep in A.PUBLIC_ENDPOINTS_EXTRA)
     check("el chartmetric: el plan de fuentes pide YouTube solo si hay enlace", ("youtube_channel", ["subscribers", "views"]) in A._chartmetric_stat_plan(type("L", (), {"social_urls": {"youtube": "x"}})()) and not any(s == "facebook" for s, _f in A._chartmetric_stat_plan(type("L", (), {"social_urls": {}})())))
     paises, ciudades = A._chartmetric_parse_where_people_listen({"obj": {"countries": {"Spain": [{"timestp": "2026-09-01", "listeners": 10, "code2": "ES"}, {"timestp": "2026-09-10", "listeners": 20, "code2": "ES"}], "Mexico": {"listeners": 5}}, "cities": [{"city": "Madrid", "listeners": 7, "code2": "ES"}]}})

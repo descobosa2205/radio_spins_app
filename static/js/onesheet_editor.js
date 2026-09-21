@@ -394,6 +394,9 @@
     } else if (t === 'press') {
       h += '<div class="ose__hint">Las últimas notas de prensa enviadas. Desmarca la que no quieras enseñar.</div><div class="ose__check-list" data-a-press><div class="small text-muted">Cargando…</div></div>' +
         rango('opts.limit', 'Cuántas como máximo', o.limit || 4, 1, 12, 1, '') + '<div class="small fw-semibold mt-2 mb-1">Cómo se ven</div>' + botones('opts.layout', o.layout || 'cards', [['cards', 'Tarjetas'], ['list', 'Lista']]);
+    } else if (t === 'documents') {
+      h += listaDocs(b) + '<div class="small fw-semibold mt-2 mb-1">Cómo se ven</div>' + botones('opts.layout', o.layout || 'list', [['list', 'Lista'], ['grid', 'Tarjetas']]) +
+        check('opts.show_size', 'Con el tamaño del archivo', o.show_size !== false);
     } else if (t === 'contact') {
       h += listaItems(b, CAMPOS.contact) + '<div class="small fw-semibold mt-2 mb-1">Gente de la casa</div><div class="ose__sugg" data-a-contacts><span class="small text-muted">Cargando…</span></div>' +
         '<div class="mt-2">' + botones('opts.layout', o.layout || 'cards', [['cards', 'Tarjetas'], ['list', 'Lista']]) + '</div>' + check('opts.show_logos', 'Con los logos del grupo', o.show_logos !== false);
@@ -408,6 +411,61 @@
     });
     return html + '</div><button type="button" class="btn btn-sm btn-outline-secondary mt-1" data-lx-add><i class="fa-solid fa-plus me-1"></i>Añadir un enlace</button>';
   }
+
+  /* ---------- EL MÓDULO «DOCUMENTOS»: archivos que se SUBEN y se descargan ----------
+     Cada fila enseña el archivo tal cual (el icono de su tipo, su nombre y su tamaño) y deja poner
+     cómo se llama en la página. El icono sale del MISMO catálogo que pinta el servidor
+     (`CAT.doc_icons`, de `onesheet_render.DOC_ICONS`): una lista, no dos. Subir, quitar y ordenar; el
+     nombre se edita con el campo genérico `data-li-field`. */
+  function docExt(nombre) { var t = String(nombre || '').toLowerCase().split('?')[0]; return (t.indexOf('.') >= 0 ? t.split('.').pop() : t).replace(/[^a-z0-9]/g, '').slice(0, 12); }
+  function docIcon(ext) { return (CAT.doc_icons || {})[docExt(ext)] || 'fa-file'; }
+  function fmtSize(n) {
+    n = parseFloat(n); if (!n || n <= 0) return '';
+    if (n < 1024) return Math.round(n) + ' B';
+    if (n < 1048576) return Math.round(n / 1024) + ' KB';
+    var v = n < 1073741824 ? [n / 1048576, 'MB'] : [n / 1073741824, 'GB'];
+    return (v[0].toFixed(1).replace('.', ',').replace(/,0$/, '')) + ' ' + v[1];
+  }
+  function listaDocs(b) {
+    var items = b.opts.items || [];
+    var html = '<div class="ose__list" data-li-list>';
+    items.forEach(function (it, i) {
+      var ext = it.ext || docExt(it.file_name || it.url), tam = fmtSize(it.size);
+      html += '<div class="ose__item" data-li="' + i + '">' +
+        '<div class="ose__item-row"><span class="ose__doc-i"><i class="fa-solid ' + esc(docIcon(ext)) + '"></i></span>' +
+        '<span class="ose__doc-f" title="' + esc(it.file_name || '') + '">' + esc(it.file_name || 'archivo') + (tam ? ' <small class="text-muted">· ' + esc(tam) + '</small>' : '') + '</span>' +
+        '<div class="ose__item-acts"><button type="button" data-li-up title="Subir"><i class="fa-solid fa-chevron-up"></i></button><button type="button" data-li-down title="Bajar"><i class="fa-solid fa-chevron-down"></i></button><button type="button" data-li-del title="Quitar"><i class="fa-solid fa-trash"></i></button></div></div>' +
+        '<input class="form-control form-control-sm" data-li-field="name" placeholder="Cómo se llama en la página (si no, el nombre del archivo)" value="' + esc(it.name || '') + '"></div>';
+    });
+    var acepta = (CAT.doc_exts || []).map(function (e) { return '.' + e; }).join(',');
+    html += '</div><label class="btn btn-sm btn-outline-primary mt-2 mb-0"><i class="fa-solid fa-upload me-1"></i>Añadir documento<input type="file" hidden data-li-file multiple accept="' + esc(acepta) + '"></label>' +
+      '<div class="ose__hint">PDF, Word, Excel, PowerPoint, ZIP, imágenes, audio o vídeo. En la página se descargan al pincharlos.</div>';
+    return html;
+  }
+  function subeDocumentos(b, files) {
+    var url = root.getAttribute('data-upload-file-url'); if (!url || !files.length) return;
+    var i = 0, subidos = 0;
+    function siguiente() {
+      if (i >= files.length) {
+        if (subidos) { marca(subidos > 1 ? 'Documentos subidos · sin guardar' : 'Documento subido · sin guardar'); pintaModulo(b); pintaProps(b); }
+        return;
+      }
+      var f = files[i++]; var fd = new FormData(); fd.append('file', f);
+      toast('Subiendo ' + f.name + (files.length > 1 ? ' (' + i + ' de ' + files.length + ')' : '') + '…');
+      postForm(url, fd).then(function (js) {
+        if (!js || !js.ok) { alert((js && js.error) || ('No se pudo subir ' + f.name + '.')); toast('No se pudo subir', 'error'); }
+        else { b.opts.items = b.opts.items || []; b.opts.items.push({ id: uid(), url: js.url, file_name: js.file_name || f.name, name: '', size: js.size || f.size || 0, ext: js.ext || docExt(f.name) }); subidos++; }
+        siguiente();
+      });
+    }
+    siguiente();
+  }
+  root.addEventListener('change', function (ev) {
+    var inp = ev.target.closest('[data-li-file]'); if (!inp || !inp.files || !inp.files.length || !sel || !canEdit) return;
+    var b = bloque(sel); if (!b) return;
+    var files = Array.prototype.slice.call(inp.files); inp.value = '';
+    subeDocumentos(b, files);
+  });
 
   /* Lo que viene del servidor para elegir (fotos, métricas, redes, lanzamientos…). */
   function cargaAssets() {

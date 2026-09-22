@@ -1,0 +1,135 @@
+{% extends "layout.html" %}
+{# LAS HOJAS DE RUTA DE LA CASA (sep 2026, lo pidió Dani): las dos de serie —general y técnica, que no
+   se pueden quitar— y las que se creen con su NOMBRE y su ICONO (p. ej. una «Camerinos»). Cada punto
+   de los horarios dice en qué hojas sale, y cada hoja tiene su enlace compartido y se puede elegir
+   para las pantallas de los camerinos. Se guarda la lista entera con `roadmap_sheet_kinds_save`. #}
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a class="btn-volver" href="{{ url_for('produccion_view') }}" title="Volver a Producción"><i class="fa fa-arrow-left"></i></a>
+  <div>
+    <h4 class="mb-0"><i class="fa fa-layer-group me-2 text-danger"></i>Hojas de ruta</h4>
+    <div class="text-muted small">Cada punto de los horarios dice en qué hojas sale. Cada hoja tiene su enlace para compartir y se puede elegir para las pantallas de los camerinos.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="sw-step__q"><i class="fa fa-route me-2"></i>Las hojas de ruta de la casa</div>
+    <div class="sw-step__h">Las dos de serie no se pueden quitar. Las demás se crean con su nombre y su icono, y se pueden renombrar o quitar (quitar una no toca ningún punto de ninguna hoja de ruta).</div>
+
+    <div class="rsk-list" id="rskList" data-max="{{ max_kinds }}">
+      {% for k in kinds %}
+        <div class="rsk-row{% if k.builtin %} rsk-row--fixed{% endif %}" data-rsk-row data-key="{{ k.key }}" data-builtin="{{ 1 if k.builtin else 0 }}">
+          <button type="button" class="rsk-ico" data-rsk-pick title="{% if k.builtin %}De serie{% else %}Cambiar el icono{% endif %}" {% if k.builtin %}disabled{% endif %}><i class="fa {{ k.icon }}"></i></button>
+          <input type="hidden" data-rsk-icon value="{{ k.icon }}">
+          {% if k.builtin %}
+            <div class="rsk-name"><span class="fw-semibold">{{ k.label }}</span> <span class="rm-tag ms-1">de serie</span></div>
+          {% else %}
+            <input class="form-control rsk-input" data-rsk-label maxlength="60" value="{{ k.label }}" placeholder="Nombre de la hoja">
+            <button type="button" class="btn btn-sm btn-outline-danger" data-rsk-del title="Quitar esta hoja"><i class="fa fa-xmark"></i></button>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="rsk-add mt-3" id="rskAdd">
+      <div class="sw-step__q fs-6"><i class="fa fa-plus me-2"></i>Crear otra hoja de ruta</div>
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <button type="button" class="rsk-ico" data-rsk-pick title="Elegir el icono"><i class="fa fa-route"></i></button>
+        <input type="hidden" data-rsk-icon value="fa-route">
+        <input class="form-control rsk-input" data-rsk-new maxlength="60" placeholder="Nombre (por ejemplo, Camerinos)">
+        <button type="button" class="btn btn-outline-secondary" id="rskAddBtn"><i class="fa fa-plus me-1"></i>Añadir</button>
+      </div>
+      <div class="form-text">Nace activa en todas las actividades y con todos los puntos dentro; después, en cada punto, se quita de las hojas que no toquen.</div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2 mt-4">
+      <button type="button" class="btn btn-danger" id="rskSave"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      <span class="text-muted small" id="rskMsg"></span>
+    </div>
+  </div>
+</div>
+
+{# El selector de icono: una rejilla con los de la casa. #}
+<div class="modal fade" id="rskIconModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-icons me-2"></i>El icono de la hoja</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="rsk-icons">
+          {% for ic, lbl in icons %}<button type="button" class="rsk-icon-opt" data-rsk-icon-opt="{{ ic }}" title="{{ lbl }}"><i class="fa {{ ic }}"></i><span>{{ lbl }}</span></button>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+  var list = document.getElementById('rskList'), add = document.getElementById('rskAdd'), msg = document.getElementById('rskMsg');
+  var max = parseInt(list.getAttribute('data-max'), 10) || 12;
+  var objetivo = null;                       // el hueco (fila o alta) cuyo icono se está eligiendo
+  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function aviso(t, mal) { msg.textContent = t || ''; msg.className = 'small ' + (mal ? 'text-danger' : 'text-success'); }
+  function fila(label, icon) {
+    var d = document.createElement('div');
+    d.className = 'rsk-row'; d.setAttribute('data-rsk-row', ''); d.setAttribute('data-key', ''); d.setAttribute('data-builtin', '0');
+    d.innerHTML = '<button type="button" class="rsk-ico" data-rsk-pick title="Cambiar el icono"><i class="fa ' + esc(icon) + '"></i></button>'
+      + '<input type="hidden" data-rsk-icon value="' + esc(icon) + '">'
+      + '<input class="form-control rsk-input" data-rsk-label maxlength="60" value="' + esc(label) + '" placeholder="Nombre de la hoja">'
+      + '<button type="button" class="btn btn-sm btn-outline-danger" data-rsk-del title="Quitar esta hoja"><i class="fa fa-xmark"></i></button>';
+    return d;
+  }
+  document.addEventListener('click', function (e) {
+    var pick = e.target.closest('[data-rsk-pick]');
+    if (pick && !pick.disabled) {
+      objetivo = pick.parentElement;
+      var m = document.getElementById('rskIconModal');
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
+      return;
+    }
+    var opt = e.target.closest('[data-rsk-icon-opt]');
+    if (opt && objetivo) {
+      var ic = opt.getAttribute('data-rsk-icon-opt');
+      objetivo.querySelector('[data-rsk-icon]').value = ic;
+      objetivo.querySelector('[data-rsk-pick] i').className = 'fa ' + ic;
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(document.getElementById('rskIconModal')).hide();
+      return;
+    }
+    var del = e.target.closest('[data-rsk-del]');
+    if (del) { del.closest('[data-rsk-row]').remove(); aviso('Quitada de la lista. Guarda para que quede.', false); return; }
+  });
+  document.getElementById('rskAddBtn').addEventListener('click', function () {
+    var inp = add.querySelector('[data-rsk-new]'), nombre = (inp.value || '').trim();
+    if (!nombre) { inp.focus(); return; }
+    if (list.querySelectorAll('[data-rsk-row]').length >= max) { aviso('Ya hay ' + max + ' hojas de ruta: quita alguna antes de crear otra.', true); return; }
+    list.appendChild(fila(nombre, add.querySelector('[data-rsk-icon]').value || 'fa-route'));
+    inp.value = ''; add.querySelector('[data-rsk-icon]').value = 'fa-route'; add.querySelector('[data-rsk-pick] i').className = 'fa fa-route';
+    aviso('Añadida. Guarda para que quede.', false);
+  });
+  document.getElementById('rskSave').addEventListener('click', function () {
+    var kinds = [];
+    list.querySelectorAll('[data-rsk-row]').forEach(function (r) {
+      if (r.getAttribute('data-builtin') === '1') return;
+      var lbl = r.querySelector('[data-rsk-label]'); var ic = r.querySelector('[data-rsk-icon]');
+      var nombre = (lbl && lbl.value || '').trim(); if (!nombre) return;
+      kinds.push({ key: r.getAttribute('data-key') || '', label: nombre, icon: (ic && ic.value) || 'fa-route' });
+    });
+    var btn = this; btn.disabled = true;
+    fetch({{ url_for('roadmap_sheet_kinds_save')|tojson }}, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ kinds: kinds }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (!d || !d.ok) { aviso((d && d.error) || 'No se pudo guardar.', true); return; }
+        aviso(d.message || 'Guardado.', false);
+        setTimeout(function () { location.reload(); }, 600);
+      })
+      .catch(function () { btn.disabled = false; aviso('No hay conexión con el servidor.', true); });
+  });
+})();
+</script>
+{% endblock %}

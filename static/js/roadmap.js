@@ -1187,9 +1187,12 @@
         });
       });
     }
-    // ¿Quién ve cada punto de la agenda? Etiquetas del propio punto, las dos marcadas por defecto.
-    var SHEETS = [{ key: 'GENERAL', label: 'General', icon: 'fa-route' },
-                  { key: 'TECNICA', label: 'Técnica', icon: 'fa-sliders' }];
+    /* ¿Quién ve cada punto de la agenda? Sus etiquetas: UNA POR HOJA DE RUTA, todas marcadas por
+       defecto. ⚠️ LAS HOJAS LAS DA EL SERVIDOR (`CTX.sheet_kinds`, sep 2026): las dos de serie —general
+       y técnica— y las que se hayan creado con su nombre y su icono en `/hojas-de-ruta/tipos`. */
+    var SHEETS = (CTX.sheet_kinds && CTX.sheet_kinds.length)
+      ? CTX.sheet_kinds.map(function (k) { return { key: k.key, label: k.short || k.label, icon: k.icon || 'fa-route' }; })
+      : [{ key: 'GENERAL', label: 'General', icon: 'fa-route' }, { key: 'TECNICA', label: 'Técnica', icon: 'fa-sliders' }];
     function itemSheets(it) {
       var v = (it && it.sheets) || {};
       var out = {};
@@ -1199,12 +1202,12 @@
     function sheetsLabel(it) {
       var sh = itemSheets(it);
       var on = SHEETS.filter(function (s) { return sh[s.key]; });
-      if (on.length === SHEETS.length) return '';                 // en las dos: no hace falta decirlo
+      if (on.length === SHEETS.length) return '';                 // en todas: no hace falta decirlo
       if (!on.length) return 'No se comparte';
-      return 'Solo ' + on[0].label.toLowerCase();
+      return 'Solo ' + on.map(function (s) { return s.label.toLowerCase(); }).join(' · ');
     }
     function newDraft(kind, day) {
-      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, contacts: [], attachments: [], sheets: { GENERAL: true, TECNICA: true },
+      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, contacts: [], attachments: [], sheets: SHEETS.reduce(function (o, s) { o[s.key] = true; return o; }, {}),
                 audience: { mode: 'ALL', roles: [], ids: [] }, sings: false, songs: [], access_note: '', access_lat: null, access_lng: null };
       // La ficha ya dice a qué hora abren las puertas: se precumplimenta (se puede cambiar, y se
       // pueden añadir varias aperturas en la misma actividad).
@@ -2498,7 +2501,7 @@
         + '<div class="rm-wz-lbl"><i class="fa fa-share-nodes"></i>¿En qué hoja de ruta se ve?</div>'
         + '<div class="filter-chips">'
         + SHEETS.map(function (sN) { return '<label class="filter-chip"><input type="checkbox" data-sheet="' + sN.key + '"' + (dsh[sN.key] ? ' checked' : '') + '><i class="fa ' + sN.icon + '"></i>' + sN.label + '</label>'; }).join('')
-        + '</div><div class="filter-hint">Las dos van marcadas. Si quitas una, este punto no sale en el enlace de esa hoja (si quitas las dos, se queda solo aquí dentro).</div>';
+        + '</div><div class="filter-hint">Todas van marcadas. Si quitas una, este punto no sale en esa hoja de ruta (ni en su enlace ni en camerinos); si las quitas todas, se queda solo aquí dentro.</div>';
       pasos.push({ title: 'Quién lo ve', icon: 'fa-users', q: '¿A quién le afecta?',
                    hint: 'Lo de todos lo ve todo el mundo; lo demás, solo a quien se diga.', html: h6 });
 
@@ -4925,9 +4928,11 @@
     }
 
     // ================================================================ COMPARTIR
-    // Dos hojas de ruta: GENERAL y TÉCNICA, cada una con su enlace independiente. Solo se ofrece
-    // la que esté activada en la actividad (etiquetas que se marcan al darla de alta).
-    var RM_KINDS = [['GENERAL', 'Hoja de ruta general', 'fa-route'], ['TECNICA', 'Hoja de ruta técnica', 'fa-sliders']];
+    // LAS HOJAS DE RUTA de la casa (las dos de serie y las creadas), cada una con su enlace
+    // independiente. Solo se ofrece la que esté activada en la actividad.
+    var RM_KINDS = (CTX.sheet_kinds && CTX.sheet_kinds.length)
+      ? CTX.sheet_kinds.map(function (k) { return [k.key, k.label, k.icon || 'fa-route']; })
+      : [['GENERAL', 'Hoja de ruta general', 'fa-route'], ['TECNICA', 'Hoja de ruta técnica', 'fa-sliders']];
 
     function openShareModal() {
       var activos = (P.kinds && typeof P.kinds === 'object') ? P.kinds : { GENERAL: true, TECNICA: true };
@@ -4943,6 +4948,8 @@
           + '<div class="fw-semibold small mb-1"><i class="fa ' + k[2] + ' me-1"></i>' + esc(k[1]) + '</div>'
           + '<div data-share-body class="small">Cargando…</div></div>';
       });
+      // Crear otra hoja de ruta (con su nombre y su icono): la pantalla de la casa.
+      if (CAN_ADMIN && CTX.sheet_kinds_url) html += '<div class="small mt-1"><a href="' + esc(CTX.sheet_kinds_url) + '"><i class="fa fa-layer-group me-1"></i>Hojas de ruta de la casa: crear otra con su nombre y su icono</a></div>';
       var m = openModal('rmShareModal', 'modal-md', 'Compartir hoja de ruta', html, []);
 
       disponibles.forEach(function (k) {

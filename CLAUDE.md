@@ -210,6 +210,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   `ticketing_payload['ticketing_contact']`, **no** en `ticketing_payload['contacts']` como los demás
   roles · y `ticketing_payload['contacts_own']` es la **lista de roles ya decididos**, no un
   booleano. → `docs/app/terceros-medios.md`
+- Las **hojas de ruta** ya no son dos fijas: el catálogo vivo es **`_roadmap_sheet_kinds()`**
+  (GENERAL y TÉCNICA de serie + las creadas con nombre e icono). Nada nuevo debe iterar
+  `ROADMAP_KINDS`/`ROADMAP_SHEET_KEYS` (solo las de serie). → `docs/app/produccion-hoja-ruta.md`
 - `parse_date("")` **revienta** → `parse_optional_date`. `to_uuid` con algo que no es UUID
   **revienta** → `_safe_uuid` (en cualquier id que venga de una URL pública).
 

@@ -89021,7 +89021,7 @@ def _roadmap_load(row) -> dict:
         # ruta las borraría (y el enlace técnico dejaría de funcionar).
         data = {"version": 2}
         if isinstance(raw, dict):
-            for key in ("kinds", "tech_token"):
+            for key in ("kinds", "tech_token", "sheet_tokens"):
                 if raw.get(key) is not None:
                     data[key] = raw[key]
     data["version"] = 2
@@ -89615,6 +89615,10 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "base_days": _roadmap_base_days(row),
         "artist_songs": _roadmap_artist_songs(session_db, row),
         "kinds": _roadmap_kind_catalog(),
+        # LAS HOJAS DE RUTA de la casa (las dos de serie y las creadas): las etiquetas de cada punto y
+        # el pop-up de compartir se pintan con esto (`SHEETS` / `RM_KINDS` en roadmap.js).
+        "sheet_kinds": _roadmap_sheet_kinds(),
+        "sheet_kinds_url": _safe_url_for("roadmap_sheet_kinds_view"),
         "activity_picker": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in ROADMAP_ACTIVITY_TYPES],
         "transport_picker": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_TRANSPORT_MODES],
         "interview_types": ROADMAP_INTERVIEW_TYPES,
@@ -90374,15 +90378,17 @@ def _roadmap_new_contact_person(session_db, row, nombre: str, telefono, correo, 
 # ¿En qué hoja de ruta se ve cada punto de la agenda? Son las etiquetas del PROPIO punto (las dos
 # marcadas por defecto): quien entre por el enlace de la general ve los marcados como general, y por
 # el de la técnica los marcados como técnica. Desmarcar las dos deja el punto solo para dentro.
-ROADMAP_SHEET_KEYS = ("GENERAL", "TECNICA")
+ROADMAP_SHEET_KEYS = ("GENERAL", "TECNICA")      # las de serie; el catálogo vivo es `_roadmap_sheet_keys()`
 ROADMAP_SHEET_SHORT = {"GENERAL": "General", "TECNICA": "Técnica"}
 
 
 def _roadmap_item_sheets(value) -> dict:
-    """Etiquetas de visibilidad de un punto de la agenda. Sin nada guardado, se ve en las DOS."""
+    """Etiquetas de visibilidad de un punto de la agenda: en qué hojas de ruta sale. Sin nada guardado
+    —o una hoja nueva que el punto no conocía—, se ve en TODAS."""
+    claves = _roadmap_sheet_keys()
     if not isinstance(value, dict):
-        return {k: True for k in ROADMAP_SHEET_KEYS}
-    return {k: bool(value.get(k, True)) for k in ROADMAP_SHEET_KEYS}
+        return {k: True for k in claves}
+    return {k: bool(value.get(k, True)) for k in claves}
 
 
 def _roadmap_payload_for_kind(payload: dict, kind: str) -> dict:
@@ -90392,7 +90398,7 @@ def _roadmap_payload_for_kind(payload: dict, kind: str) -> dict:
     así que esconderlo en el navegador no serviría de nada.
     """
     k = (kind or "GENERAL").upper()
-    if k not in ROADMAP_SHEET_KEYS:
+    if k not in _roadmap_sheet_keys():
         k = "GENERAL"
     out = dict(payload or {})
     out["agenda"] = [it for it in ((payload or {}).get("agenda") or [])
@@ -99205,43 +99211,191 @@ def roadmap_template_save_from(entity_type, entity_id):
         session_db.close()
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  LAS HOJAS DE RUTA DE LA CASA · las dos de serie y LAS QUE SE CREEN, con su nombre y su icono
+#  ---------------------------------------------------------------------------------------------
+#  Hasta sep 2026 había DOS hojas de ruta fijas (GENERAL y TÉCNICA). Dani pidió poder crear todas las
+#  que hagan falta con su nombre y su icono (p. ej. una «Camerinos»), porque cada punto de los
+#  horarios dice en qué hojas sale (`item['sheets']`) y eso es lo que decide qué se ve en cada enlace
+#  compartido y en las pantallas de los camerinos.
+#  · EL CATÁLOGO es UNO para toda la casa: las dos de serie (`ROADMAP_KINDS`, no se pueden quitar: el
+#    token de la general es una columna y el de la técnica es `tech_token`) + las creadas, en
+#    `AppSetting['roadmap_sheet_kinds']` (JSON `[{key, label, icon}]`). Punto único:
+#    **`_roadmap_sheet_kinds()`** (cacheado unos segundos por proceso). Se gestiona en
+#    `/hojas-de-ruta/tipos` (`roadmap_sheet_kinds_view` / `_save`, producción).
+#  · Una hoja NUEVA nace ACTIVA en todas las actividades y con TODOS los puntos dentro (las dos
+#    lecturas —`_roadmap_kinds` y `_roadmap_item_sheets`— tratan una clave desconocida como True):
+#    después, en cada punto, se quita de las que no toquen. Su enlace compartido va en
+#    `roadmap_payload['sheet_tokens'][KEY]` (`_ensure_roadmap_token` / `_roadmap_by_token`).
+#  · Quitar una hoja del catálogo no toca ningún punto (la etiqueta se queda guardada y se ignora);
+#    lo que se estuviera viendo en camerinos con ella vuelve a la general.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
 ROADMAP_KINDS = [("GENERAL", "Hoja de ruta general", "fa-route"),
                  ("TECNICA", "Hoja de ruta técnica", "fa-sliders")]
-ROADMAP_KIND_LABELS = {k: l for k, l, _i in ROADMAP_KINDS}
+ROADMAP_KIND_LABELS = {k: l for k, l, _i in ROADMAP_KINDS}      # solo las DE SERIE (respaldo)
+ROADMAP_SHEET_KINDS_KEY = "roadmap_sheet_kinds"
+ROADMAP_SHEET_KINDS_MAX = 12
+ROADMAP_SHEET_KINDS_TTL = 20.0
+# Los iconos que se ofrecen al crear una hoja (todos existen en la Font Awesome de la casa).
+ROADMAP_SHEET_ICONS = [
+    ("fa-route", "Ruta"), ("fa-sliders", "Técnica"), ("fa-door-closed", "Camerinos"), ("fa-tv", "Pantalla"),
+    ("fa-microphone-lines", "Prensa"), ("fa-camera", "Fotos"), ("fa-video", "Vídeo"), ("fa-utensils", "Comidas"),
+    ("fa-bus", "Traslados"), ("fa-hotel", "Hoteles"), ("fa-people-group", "Personal"), ("fa-guitar", "Artista"),
+    ("fa-music", "Música"), ("fa-headphones", "Sonido"), ("fa-lightbulb", "Luces"), ("fa-truck", "Carga"),
+    ("fa-briefcase", "Oficina"), ("fa-user-tie", "Promotor"), ("fa-shield-halved", "Seguridad"),
+    ("fa-ticket", "Taquilla"), ("fa-clipboard-list", "Lista"), ("fa-bell", "Avisos"), ("fa-star", "Estrella"),
+    ("fa-handshake", "Acuerdos"),
+]
+ROADMAP_SHEET_ICON_KEYS = {k for k, _l in ROADMAP_SHEET_ICONS}
+_ROADMAP_SHEET_KINDS_CACHE = {"t": 0.0, "v": None}
+
+
+def _roadmap_sheet_key(texto) -> str:
+    """La CLAVE de una hoja a partir de su nombre: mayúsculas, sin acentos, con `_` («Camerinos» →
+    CAMERINOS, «Sala VIP» → SALA_VIP). Vacío si no queda nada con lo que empezar."""
+    base = _norm_text_key(str(texto or "")).upper().replace(" ", "_")
+    base = re.sub(r"[^A-Z0-9_]", "", base).strip("_")[:24]
+    return base if base and base[0].isalpha() else ""
+
+
+def _roadmap_sheet_short(label: str) -> str:
+    """El nombre CORTO para las etiquetas («Hoja de ruta general» → «General»)."""
+    corto = re.sub(r"^\s*hoja\s+de\s+ruta\s+", "", str(label or ""), flags=re.IGNORECASE).strip()
+    return (corto[:1].upper() + corto[1:]) if corto else str(label or "")
+
+
+def _roadmap_sheet_names_of(label: str) -> set:
+    """Las formas de un nombre que cuentan como REPETIDO: el nombre entero y su forma corta, sin acentos
+    ni mayúsculas («Hoja de ruta general» y «General» son la misma hoja)."""
+    return {_norm_text_key(label), _norm_text_key(_roadmap_sheet_short(label))} - {""}
+
+
+def _roadmap_sheet_names_taken(kinds) -> set:
+    salida = set()
+    for k in (kinds or []):
+        salida |= _roadmap_sheet_names_of(str((k or {}).get("label") or ""))
+    return salida
+
+
+def _roadmap_sheet_name_taken(label: str, nombres: set) -> bool:
+    return bool(_roadmap_sheet_names_of(label) & (nombres or set()))
+
+
+def _roadmap_sheet_icon(icono) -> str:
+    ic = str(icono or "").strip()
+    return ic if ic in ROADMAP_SHEET_ICON_KEYS else "fa-route"
+
+
+def _roadmap_sheet_kinds(force: bool = False) -> list[dict]:
+    """TODAS las hojas de ruta: las dos de serie y las creadas, cada una con `key`, `label`, `short`,
+    `icon` y `builtin`. Punto único; cacheado `ROADMAP_SHEET_KINDS_TTL` segundos por proceso."""
+    ahora = time.time()
+    cache = _ROADMAP_SHEET_KINDS_CACHE
+    if not force and cache["v"] is not None and (ahora - cache["t"]) < ROADMAP_SHEET_KINDS_TTL:
+        return [dict(k) for k in cache["v"]]
+    salida = [{"key": k, "label": l, "short": _roadmap_sheet_short(l), "icon": i, "builtin": True}
+              for k, l, i in ROADMAP_KINDS]
+    vistos = {k["key"] for k in salida}
+    nombres = _roadmap_sheet_names_taken(salida)
+    try:
+        extra = _json_loads_safe(_get_app_setting(ROADMAP_SHEET_KINDS_KEY, "") or "", [])
+    except Exception:
+        extra = []
+    for x in (extra if isinstance(extra, list) else []):
+        if not isinstance(x, dict):
+            continue
+        label = re.sub(r"\s+", " ", str(x.get("label") or "")).strip()[:60]
+        key = _roadmap_sheet_key(x.get("key") or label)
+        if not label or not key or key in vistos or _roadmap_sheet_name_taken(label, nombres):
+            continue
+        vistos.add(key)
+        nombres |= _roadmap_sheet_names_of(label)
+        salida.append({"key": key, "label": label, "short": _roadmap_sheet_short(label),
+                       "icon": _roadmap_sheet_icon(x.get("icon")), "builtin": False})
+        if len(salida) >= ROADMAP_SHEET_KINDS_MAX:
+            break
+    cache["v"] = [dict(k) for k in salida]
+    cache["t"] = ahora
+    return salida
+
+
+def _roadmap_sheet_keys() -> list[str]:
+    return [k["key"] for k in _roadmap_sheet_kinds()]
+
+
+def _roadmap_sheet_labels() -> dict:
+    return {k["key"]: k["label"] for k in _roadmap_sheet_kinds()}
+
+
+def _roadmap_sheet_kinds_store(lista) -> list[dict]:
+    """Guarda las hojas CREADAS (las de serie no se tocan): nombre y icono, sin repetir, con tope.
+    Devuelve el catálogo entero ya limpio."""
+    limpias, vistos = [], {k for k, _l, _i in ROADMAP_KINDS}
+    nombres = _roadmap_sheet_names_taken([{"label": l} for _k, l, _i in ROADMAP_KINDS])
+    for x in (lista or []):
+        if not isinstance(x, dict):
+            continue
+        label = re.sub(r"\s+", " ", str(x.get("label") or "")).strip()[:60]
+        key = _roadmap_sheet_key(x.get("key") or label)
+        if not label or not key or key in vistos or _roadmap_sheet_name_taken(label, nombres):
+            continue
+        vistos.add(key)
+        nombres |= _roadmap_sheet_names_of(label)
+        limpias.append({"key": key, "label": label, "icon": _roadmap_sheet_icon(x.get("icon"))})
+        if len(limpias) >= ROADMAP_SHEET_KINDS_MAX - len(ROADMAP_KINDS):
+            break
+    _set_app_setting(ROADMAP_SHEET_KINDS_KEY, json.dumps(limpias, ensure_ascii=False))
+    _ROADMAP_SHEET_KINDS_CACHE["v"] = None
+    return _roadmap_sheet_kinds(force=True)
 
 
 def _roadmap_kinds(row) -> dict:
-    """Qué hojas de ruta tiene activas la actividad. Sin nada guardado, las DOS."""
+    """Qué hojas de ruta tiene activas la actividad. Sin nada guardado —o una hoja nueva que la
+    actividad no conocía—, ACTIVA."""
     pay = getattr(row, "roadmap_payload", None)
     pay = pay if isinstance(pay, dict) else {}
     saved = pay.get("kinds")
     if not isinstance(saved, dict):
-        return {k: True for k, _l, _i in ROADMAP_KINDS}
-    return {k: bool(saved.get(k, True)) for k, _l, _i in ROADMAP_KINDS}
+        return {k: True for k in _roadmap_sheet_keys()}
+    return {k: bool(saved.get(k, True)) for k in _roadmap_sheet_keys()}
 
 
 def _set_roadmap_kinds(row, kinds: dict) -> None:
     pay = dict(getattr(row, "roadmap_payload", None) or {})
-    pay["kinds"] = {k: bool(kinds.get(k)) for k, _l, _i in ROADMAP_KINDS}
+    pay["kinds"] = {k: bool(kinds.get(k)) for k in _roadmap_sheet_keys()}
     row.roadmap_payload = pay
 
 
 def _parse_roadmap_kinds_form(form) -> dict:
-    """Etiquetas del formulario. Si el formulario no las trae (altas antiguas), las dos activas."""
+    """Etiquetas del formulario. Si el formulario no las trae (lo normal: la hoja de ruta no se
+    pregunta al dar de alta), todas activas."""
     if not form.get("roadmap_kinds_present"):
-        return {k: True for k, _l, _i in ROADMAP_KINDS}
+        return {k: True for k in _roadmap_sheet_keys()}
     picked = {(v or "").strip().upper() for v in form.getlist("roadmap_kinds")}
-    return {k: (k in picked) for k, _l, _i in ROADMAP_KINDS}
+    return {k: (k in picked) for k in _roadmap_sheet_keys()}
 
 
 def _ensure_roadmap_token(session_db, row, kind: str = "GENERAL") -> str:
-    """Devuelve el token público de la hoja de ruta pedida, creándolo si no existe."""
-    if (kind or "GENERAL").upper() == "TECNICA":
+    """Devuelve el token público de la hoja de ruta pedida, creándolo si no existe. La GENERAL va en
+    su columna, la TÉCNICA en `tech_token` (de siempre) y las CREADAS en `sheet_tokens[KEY]`."""
+    k = (kind or "GENERAL").upper()
+    if k == "TECNICA":
         pay = dict(getattr(row, "roadmap_payload", None) or {})
         token = (pay.get("tech_token") or "").strip()
         if not token:
             token = _uuid_token()
             pay["tech_token"] = token
+            row.roadmap_payload = pay
+            session_db.flush()
+        return token
+    if k != "GENERAL":
+        pay = dict(getattr(row, "roadmap_payload", None) or {})
+        tokens = dict(pay.get("sheet_tokens") or {}) if isinstance(pay.get("sheet_tokens"), dict) else {}
+        token = (tokens.get(k) or "").strip()
+        if not token:
+            token = _uuid_token()
+            tokens[k] = token
+            pay["sheet_tokens"] = tokens
             row.roadmap_payload = pay
             session_db.flush()
         return token
@@ -99256,9 +99410,10 @@ def _ensure_roadmap_token(session_db, row, kind: str = "GENERAL") -> str:
 def _roadmap_by_token(session_db, token: str):
     """Busca la entidad (concert/action/promotion) por su token público de hoja de ruta.
 
-    Devuelve (fila, tipo, clase) — la clase es GENERAL o TECNICA según con qué enlace se entra."""
+    Devuelve (fila, tipo, clase): GENERAL, TECNICA o la clave de una hoja creada, según con qué
+    enlace se entra."""
     token = (token or "").strip()
-    if not token:
+    if not token or len(token) > 120:
         return None, None, "GENERAL"
     for model, kind, opts in (
         (Concert, "concert", (joinedload(Concert.artist), joinedload(Concert.venue))),
@@ -99275,6 +99430,23 @@ def _roadmap_by_token(session_db, token: str):
         )
         if row:
             return row, kind, "TECNICA"
+        # Las hojas CREADAS: sus tokens viven en `sheet_tokens` {KEY: token} (se busca por VALOR).
+        # ⚠️ Va con parámetro (`:tok`), nunca interpolado: el token viene de la URL.
+        try:
+            row = (
+                session_db.query(model).options(*opts)
+                .filter(text(f"EXISTS (SELECT 1 FROM jsonb_each_text({model.__tablename__}.roadmap_payload->'sheet_tokens') e "
+                             f"WHERE e.value = :tok)").bindparams(tok=token))
+                .first()
+            )
+        except Exception:
+            session_db.rollback()
+            row = None
+        if row:
+            tokens = (getattr(row, "roadmap_payload", None) or {}).get("sheet_tokens") or {}
+            for k, v in (tokens.items() if isinstance(tokens, dict) else []):
+                if str(v or "").strip() == token and k in _roadmap_sheet_keys():
+                    return row, kind, k
     return None, None, "GENERAL"
 
 
@@ -99292,13 +99464,20 @@ def roadmap_public_link(entity_type, entity_id):
         data = request.get_json(silent=True) or {}
         action = (data.get("action") or "ensure").strip().lower()
         kind = (data.get("kind") or "GENERAL").strip().upper()
-        if kind not in ROADMAP_KIND_LABELS:
+        if kind not in _roadmap_sheet_keys():
             kind = "GENERAL"
         is_tech = kind == "TECNICA"
+        es_creada = kind not in ("GENERAL", "TECNICA")
         if action == "revoke":
             if is_tech:
                 _pay = dict(getattr(row, "roadmap_payload", None) or {})
                 _pay.pop("tech_token", None)
+                row.roadmap_payload = _pay
+            elif es_creada:
+                _pay = dict(getattr(row, "roadmap_payload", None) or {})
+                _tokens = dict(_pay.get("sheet_tokens") or {}) if isinstance(_pay.get("sheet_tokens"), dict) else {}
+                _tokens.pop(kind, None)
+                _pay["sheet_tokens"] = _tokens
                 row.roadmap_payload = _pay
             else:
                 row.roadmap_public_token = None
@@ -99308,6 +99487,12 @@ def roadmap_public_link(entity_type, entity_id):
             if is_tech:
                 _pay = dict(getattr(row, "roadmap_payload", None) or {})
                 _pay["tech_token"] = _uuid_token()
+                row.roadmap_payload = _pay
+            elif es_creada:
+                _pay = dict(getattr(row, "roadmap_payload", None) or {})
+                _tokens = dict(_pay.get("sheet_tokens") or {}) if isinstance(_pay.get("sheet_tokens"), dict) else {}
+                _tokens[kind] = _uuid_token()
+                _pay["sheet_tokens"] = _tokens
                 row.roadmap_payload = _pay
             else:
                 row.roadmap_public_token = _uuid_token()
@@ -99319,6 +99504,31 @@ def roadmap_public_link(entity_type, entity_id):
         return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
+
+
+@app.get('/hojas-de-ruta/tipos', endpoint='roadmap_sheet_kinds_view')
+@admin_required
+def roadmap_sheet_kinds_view():
+    """LAS HOJAS DE RUTA de la casa: las dos de serie y las creadas (nombre + icono). Producción."""
+    if not _production_can_edit():
+        return forbid("Gestionar las hojas de ruta es de producción (hace falta poder editar Producción).")
+    return render_template("roadmap_sheet_kinds.html", kinds=_roadmap_sheet_kinds(force=True),
+                           icons=ROADMAP_SHEET_ICONS, max_kinds=ROADMAP_SHEET_KINDS_MAX)
+
+
+@app.post('/hojas-de-ruta/tipos', endpoint='roadmap_sheet_kinds_save')
+@admin_required
+def roadmap_sheet_kinds_save():
+    """Guardar las hojas de ruta CREADAS (la lista entera, tal como queda): `{kinds: [{key?, label, icon}]}`."""
+    if not _production_can_edit():
+        return jsonify({"ok": False, "error": "Gestionar las hojas de ruta es de producción (hace falta poder editar Producción)."}), 403
+    data = request.get_json(silent=True) or {}
+    lista = data.get("kinds")
+    if not isinstance(lista, list):
+        return jsonify({"ok": False, "error": "Hace falta la lista de hojas de ruta."}), 400
+    kinds = _roadmap_sheet_kinds_store(lista)
+    app.logger.info("[hojas de ruta] catálogo guardado: %s", ", ".join(k["key"] for k in kinds))
+    return jsonify({"ok": True, "kinds": kinds, "message": "Hojas de ruta guardadas."})
 
 
 @app.get("/mi-hoja-de-ruta/<entity_type>/<entity_id>", endpoint="roadmap_mine")
@@ -99463,7 +99673,7 @@ def public_roadmap_view(token):
         # Quién la está mirando (el icono de la esquina): sin sesión, las dos puertas.
         ctx["viewer"] = _roadmap_viewer_badge(session_db)
         ctx["kind"] = roadmap_kind
-        ctx["kind_label"] = ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta")
+        ctx["kind_label"] = _roadmap_sheet_labels().get(roadmap_kind, "Hoja de ruta")
         # Fuera de la app: la CABECERA de la actividad arriba del todo (la misma viñeta de la pestaña
         # «Evento») y el PDF del repertorio por su propio token (no hay sesión).
         ctx["header_on_top"] = True
@@ -99511,7 +99721,7 @@ def public_roadmap_view(token):
             # Quién la está mirando (el icono de la esquina): la plantilla lo lee suelto.
             viewer=ctx.get("viewer"),
             roadmap_kind=roadmap_kind,
-            roadmap_kind_label=ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta"),
+            roadmap_kind_label=_roadmap_sheet_labels().get(roadmap_kind, "Hoja de ruta"),
             og_title=og_title,
             title=title,
             artist_label=ctx.get("artist_label") or "",
@@ -99566,7 +99776,7 @@ def _camerinos_setting() -> dict:
     if et not in CAMERINOS_ENTITY_TYPES or not eid:
         return {}
     kind = str(data.get("kind") or "GENERAL").strip().upper()
-    if kind not in ROADMAP_KIND_LABELS:
+    if kind not in _roadmap_sheet_keys():
         kind = "GENERAL"
     return {"entity_type": et, "entity_id": eid, "kind": kind,
             "set_by": str(data.get("set_by") or ""), "set_at": str(data.get("set_at") or "")}
@@ -99602,7 +99812,7 @@ def _camerinos_card(session_db, entity_type: str, row, kind: str) -> dict:
         "entity_type": entity_type,
         "entity_id": str(getattr(row, "id", "")),
         "kind": kind,
-        "kind_label": ROADMAP_KIND_LABELS.get(kind, "Hoja de ruta"),
+        "kind_label": _roadmap_sheet_labels().get(kind, "Hoja de ruta"),
         "word": card.get("word") or _roadmap_activity_word(row),
         "title": (card.get("title") or _roadmap_title(session_db, entity_type, row, artists) or "Actividad"),
         "subtitle": card.get("subtitle") or "",
@@ -99877,7 +100087,7 @@ def _camerinos_panel_state(session_db, entity_type: str, row):
             "can": True,
             "is_this": es_esta,
             "kind": sel.get("kind") if es_esta else "",
-            "kind_label": (ROADMAP_KIND_LABELS.get(sel.get("kind"), "Hoja de ruta") if es_esta else ""),
+            "kind_label": (_roadmap_sheet_labels().get(sel.get("kind"), "Hoja de ruta") if es_esta else ""),
             "state_url": url_for("camerinos_state", entity_type=entity_type, entity_id=eid),
             "set_url": url_for("camerinos_set", entity_type=entity_type, entity_id=eid),
             "screen_url": _external_url_for("public_camerinos_view"),
@@ -99892,7 +100102,8 @@ def _camerinos_state_payload(session_db, entity_type: str, row) -> dict:
     se está mostrando ahora (con su tarjeta y si es esta misma)."""
     sel = _camerinos_setting()
     activos = _roadmap_kinds(row)
-    kinds = [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_KINDS if activos.get(k, True)]
+    kinds = [{"key": k["key"], "label": k["label"], "icon": k["icon"], "builtin": k["builtin"]}
+             for k in _roadmap_sheet_kinds() if activos.get(k["key"], True)]
     activo = None
     if sel:
         et2, row2 = _roadmap_entity(session_db, sel["entity_type"], sel["entity_id"])
@@ -99910,6 +100121,8 @@ def _camerinos_state_payload(session_db, entity_type: str, row) -> dict:
         "screen_url": _external_url_for("public_camerinos_view"),
         "this": _camerinos_card(session_db, entity_type, row, kind_esta),
         "kinds": kinds,
+        # Dónde se crean más hojas de ruta (con su nombre y su icono).
+        "sheet_kinds_url": _safe_url_for("roadmap_sheet_kinds_view"),
         "active": activo,
         # LOS AVISOS a las pantallas (la campanita del pop-up).
         "notices": _camerinos_notices_payload(session_db),
@@ -99946,6 +100159,7 @@ def public_camerinos_panel():
         cambiado = v != (request.args.get("v") or "").strip()
         resp = jsonify({"ok": True, "v": v, "changed": cambiado, "html": (panel_html if cambiado else ""),
                         "sub": cam.get("sub") or "", "kind": cam.get("kind") or "",
+                        "kind_label": cam.get("kind_label") or "",
                         "active": bool(cam.get("active")), "asset_v": str(_ASSET_VERSION),
                         "logo": ((cam.get("logo") or {}).get("url") or ""),
                         "logo_name": ((cam.get("logo") or {}).get("name") or ""),
@@ -99997,17 +100211,18 @@ def camerinos_set(entity_type, entity_id):
             return jsonify(dict(_camerinos_state_payload(session_db, et, row),
                                 message="Los camerinos ya no muestran ninguna hoja de ruta."))
         kind = str(data.get("kind") or "GENERAL").strip().upper()
-        if kind not in ROADMAP_KIND_LABELS:
+        etiquetas = _roadmap_sheet_labels()
+        if kind not in etiquetas:
             return jsonify({"ok": False, "error": "Esa hoja de ruta no existe."}), 400
         if not _roadmap_kinds(row).get(kind, True):
-            return jsonify({"ok": False, "error": f"La {ROADMAP_KIND_LABELS[kind].lower()} no está activa en esta actividad."}), 400
+            return jsonify({"ok": False, "error": f"La {etiquetas[kind].lower()} no está activa en esta actividad."}), 400
         _camerinos_store({"entity_type": et, "entity_id": str(row.id), "kind": kind,
                           "set_by": quien, "set_at": _now_madrid().isoformat()})
         payload = _camerinos_state_payload(session_db, et, row)
         titulo = (payload.get("this") or {}).get("title") or "la actividad"
         app.logger.info("[camerinos] %s pone en camerinos la %s de %s", quien or "alguien",
-                        ROADMAP_KIND_LABELS[kind].lower(), titulo)
-        return jsonify(dict(payload, message=f"Los camerinos muestran ahora la {ROADMAP_KIND_LABELS[kind].lower()} de {titulo}."))
+                        etiquetas[kind].lower(), titulo)
+        return jsonify(dict(payload, message=f"Los camerinos muestran ahora la {etiquetas[kind].lower()} de {titulo}."))
     finally:
         session_db.close()
 
@@ -107117,6 +107332,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "camerinos_set",
     # …y mandar, retirar y preguardar los AVISOS a las pantallas de los camerinos.
     "camerinos_notice_send", "camerinos_notice_withdraw", "camerinos_presets_save",
+    # …y crear o quitar hojas de ruta (nombre + icono): producción (lo comprueba el endpoint).
+    "roadmap_sheet_kinds_save",
     # PRL / altas del personal del evento (subpestaña PRL del Personal + fichas)
     "prl_request_docs", "prl_doc_upload", "prl_doc_reject", "prl_doc_delete", "prl_set_worker_type",
     # Bolsa: cargar plantillas de gastos y pedir facturas a los proveedores
@@ -107162,6 +107379,8 @@ SUPPORT_READ_ENDPOINTS = {
     # El estado de los CAMERINOS que pide el pop-up del botón: una LECTURA (el endpoint exige
     # además `_production_can_edit`).
     "camerinos_state", "camerinos_notices_state",
+    # Las HOJAS DE RUTA de la casa (nombre + icono): la pantalla la abre producción (lo comprueba ella).
+    "roadmap_sheet_kinds_view",
     # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
     "api_publisher_change",
     # ¿Ya existe una canción con ese nombre de ese artista? Es una BÚSQUEDA, y la hacen el alta de

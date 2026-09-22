@@ -157,7 +157,7 @@
     <div class="cam-bar__brand"><img id="camLogo" class="cam-bar__logo" src="{{ cam.logo.url }}" alt="{{ cam.logo.name }}"></div>
     <div class="cam-bar__title">
       <div class="cam-bar__h">Horarios</div>
-      <div class="cam-bar__sub" id="camSub">{{ cam.sub }}{% if cam.active and cam.kind == 'TECNICA' %}<span class="cam-bar__kind">Hoja técnica</span>{% endif %}</div>
+      <div class="cam-bar__sub" id="camSub">{{ cam.sub }}{% if cam.active and cam.kind != 'GENERAL' and cam.kind_label %}<span class="cam-bar__kind">{{ cam.kind_label }}</span>{% endif %}</div>
     </div>
     <div class="cam-bar__clock" aria-live="off"><span id="camClock">--:--</span></div>
   </header>
@@ -314,7 +314,7 @@
             panel.innerHTML = d.html || '';
             sub.innerHTML = '';
             sub.appendChild(document.createTextNode(d.sub || ''));
-            if (d.kind === 'TECNICA') { var k = document.createElement('span'); k.className = 'cam-bar__kind'; k.textContent = 'Hoja técnica'; sub.appendChild(k); }
+            if (d.kind && d.kind !== 'GENERAL' && d.kind_label) { var k = document.createElement('span'); k.className = 'cam-bar__kind'; k.textContent = d.kind_label; sub.appendChild(k); }
             ultimoAncla = null;
             marcarAhora(true);
           }

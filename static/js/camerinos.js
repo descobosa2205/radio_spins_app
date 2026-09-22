@@ -138,7 +138,8 @@
 
     // 2 · ¿QUÉ HOJA? Solo con las dos activas en la actividad.
     h += '<section class="sw-step" data-step="2" data-title="Qué hoja"' + (kinds.length > 1 ? '' : ' data-sw-skip="1"') + '>'
-      + q('fa-route', '¿Qué hoja de ruta se muestra?', 'La pantalla enseña solo los <b>horarios</b> de esa hoja, como en su enlace compartido: sin contactos, notas ni adjuntos.')
+      + q('fa-route', '¿Qué hoja de ruta se muestra?', 'La pantalla enseña solo los <b>horarios</b> de esa hoja, como en su enlace compartido: sin contactos, notas ni adjuntos.'
+          + (st.sheet_kinds_url ? ' <a href="' + esc(st.sheet_kinds_url) + '">Crear otra hoja de ruta</a>.' : ''))
       + '<div class="promo-pick-grid promo-pick-grid--wide">'
       + kinds.map(function (k) { return pick({ name: 'cam_kind', value: k.key, checked: k.key === kindSel, advance: true, icon: k.icon, label: k.label }); }).join('')
       + '</div></section>';

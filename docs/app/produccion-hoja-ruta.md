@@ -37,6 +37,7 @@
 - HOJA DE RUTA · MANDARLE UN MENSAJE AL PERSONAL. «Mañana el bus sale a las 8:30» hay
 - HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show: una sola hoja elegida, sus horarios con
 - CAMERINOS · AVISOS A LAS PANTALLAS: la campanita del pop-up, los avisos rápidos de un toque, la nota
+- LAS HOJAS DE RUTA DE LA CASA: las dos de serie y las que se creen con su nombre y su icono (el catálogo,
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 - TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
@@ -535,8 +536,30 @@ transporte): ahí se quita y deja de salir.
   · **El DESAYUNO tachado se ve**: la barra va en un gris MÁS OSCURO que el icono apagado (con el
   mismo gris no se distinguía de una taza «apagada» sin más).
 
-- **Hoja de ruta: GENERAL y TÉCNICA** (`ROADMAP_KINDS`, `_roadmap_kinds`/`_set_roadmap_kinds`): cada
-  actividad tiene las dos activas por defecto (etiquetas en el alta) y **un enlace público por hoja**
+- ⚠️⚠️ **LAS HOJAS DE RUTA DE LA CASA: las dos de serie y LAS QUE SE CREEN, con su nombre y su icono**
+  (sep 2026, lo pidió Dani: «que se puedan crear todas las hojas de ruta que se quieran y que se le
+  asigne un icono al nombre», p. ej. una «Camerinos», para elegir después cuál se ve en las pantallas).
+  · **EL CATÁLOGO es UNO para toda la casa**: GENERAL y TÉCNICA (`ROADMAP_KINDS`, no se pueden quitar: el
+  token de la general es una columna y el de la técnica `tech_token`) + las creadas en
+  `AppSetting['roadmap_sheet_kinds']`. Punto único **`_roadmap_sheet_kinds()`** (`key`, `label`,
+  `short`, `icon`, `builtin`; cacheado 20 s por proceso) con `_roadmap_sheet_keys()` /
+  `_roadmap_sheet_labels()`. La clave sale del nombre (`_roadmap_sheet_key`: «Sala VIP» → `SALA_VIP`) y
+  un nombre repetido —aunque la clave saliera distinta, «Hoja de ruta general» frente a GENERAL— no
+  entra (`_roadmap_sheet_name_taken`). Se gestionan en **`/hojas-de-ruta/tipos`**
+  (`roadmap_sheet_kinds_view` / `_save`, producción; `templates/roadmap_sheet_kinds.html`, con el
+  selector de iconos `ROADMAP_SHEET_ICONS`), y se llega desde el pop-up de compartir de la hoja de ruta
+  y desde el paso «¿Qué hoja?» de camerinos.
+  · **Una hoja NUEVA nace activa en todas las actividades y con todos los puntos dentro**: las dos
+  lecturas (`_roadmap_kinds` y `_roadmap_item_sheets`) tratan una clave desconocida como True; después,
+  en cada punto, se quita de las hojas que no toquen (las etiquetas del asistente, `SHEETS` en roadmap.js,
+  salen de `CTX.sheet_kinds`). Su enlace compartido va en `roadmap_payload['sheet_tokens'][KEY]`
+  (`_ensure_roadmap_token`; `_roadmap_by_token` lo busca por VALOR con `jsonb_each_text`, con el token
+  como parámetro). ⚠️ `_roadmap_load` conserva `sheet_tokens` al descartar un payload viejo, como
+  `kinds` y `tech_token`. Quitar una hoja del catálogo no toca ningún punto (la etiqueta se queda
+  guardada y se ignora) y lo que se viera con ella en camerinos vuelve a la general.
+  · Prueba: `check_camerinos.py`, apartado 10, y `check_hoja_ruta.py` sigue en verde (150).
+  · **Lo de antes, que sigue valiendo:** cada
+  actividad tiene las de serie activas por defecto y **un enlace público por hoja**
   (`roadmap_public_token` para la general, `roadmap_payload['tech_token']` para la técnica;
   `_ensure_roadmap_token`/`_roadmap_by_token`). **Quién ve cada cosa se decide punto por punto**: cada
   ítem de la agenda lleva `sheets` `{GENERAL,TECNICA}` (`_roadmap_item_sheets`, las DOS por defecto —

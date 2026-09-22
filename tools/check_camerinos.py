@@ -14,6 +14,8 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
   · los permisos: sin sesión no se cambia nada; sin poder editar producción, tampoco
   · el botón «Camerinos» del panel de la hoja de ruta, con su estado pintado por el servidor, y que no
     asoma en la hoja compartida
+  · las HOJAS DE RUTA con nombre e icono: crear una, que sale en las etiquetas de los puntos, en el
+    pop-up de camerinos y con su propio enlace compartido (que filtra), y quitarla
   · los AVISOS a las pantallas: mandar (y los rápidos preguardados), que la pantalla lo recibe con su
     voz y su hora, que confirma que lo ha visto (visto en x de y), que el nuevo sustituye al anterior,
     retirar, caducar, la lista de rápidos limpia y los permisos; y que un identificador raro no se apunta
@@ -268,7 +270,7 @@ def main():
     check("cambiar a la técnica", r.status_code == 200 and (r.get_json() or {}).get("ok"), r.status_code)
     html = anon.get("/camerinos").get_data(as_text=True)
     check("ahora sí sale el punto solo técnico, con su función", "Prueba de sonido técnica" in html and "Técnico de sonido" in html)
-    check("y la barra dice que es la hoja técnica", "Hoja técnica" in html)
+    check("y la barra dice que es la hoja técnica", "Hoja de ruta técnica" in html)
     m = re.search(r'id="camPanel" data-v="([0-9a-f]+)"', html)
     v_tecnica = m.group(1) if m else ""
     check("la versión cambia al cambiar de hoja", v_tecnica and v_tecnica != v_general)
@@ -424,6 +426,68 @@ def main():
     else:
         A._set_app_setting(A.CAMERINOS_PRESETS_KEY, rapidos_antes)
     check("la lista de avisos rápidos queda como estaba", A._get_app_setting(A.CAMERINOS_PRESETS_KEY, None) == rapidos_antes)
+
+    print("10 · Hojas de ruta con nombre e icono")
+    hojas_antes = A._get_app_setting(A.ROADMAP_SHEET_KINDS_KEY, None)
+    r = prod.post("/hojas-de-ruta/tipos", json={"kinds": [{"label": "Camerinos Prueba", "icon": "fa-door-closed"}, {"label": "  ", "icon": "fa-tv"}, {"label": "Hoja de ruta general", "icon": "fa-tv"}]})
+    j = r.get_json() or {}
+    claves = [k["key"] for k in (j.get("kinds") or [])]
+    check("crear una hoja de ruta con su nombre y su icono (sin vacíos ni nombres repetidos)", r.status_code == 200 and j.get("ok") and claves == ["GENERAL", "TECNICA", "CAMERINOS_PRUEBA"], claves)
+    check("con su icono y sin ser de serie", any(k["key"] == "CAMERINOS_PRUEBA" and k["icon"] == "fa-door-closed" and not k["builtin"] and k["short"] == "Camerinos Prueba" for k in j.get("kinds") or []))
+    check("un icono que no existe cae al de serie", A._roadmap_sheet_icon("fa-inventado") == "fa-route")
+    check("la clave sale del nombre, sin acentos", A._roadmap_sheet_key("Camerinos Técnica 2") == "CAMERINOS_TECNICA_2" and A._roadmap_sheet_key("123") == "")
+    r = prod.get("/hojas-de-ruta/tipos")
+    check("la pantalla de las hojas abre y la enseña", r.status_code == 200 and "Camerinos Prueba" in r.get_data(as_text=True), r.status_code)
+    check("las etiquetas de un punto incluyen la hoja nueva (marcada)", A._roadmap_item_sheets({"GENERAL": True, "TECNICA": False}) == {"GENERAL": True, "TECNICA": False, "CAMERINOS_PRUEBA": True})
+    st = prod.get(url_set).get_json() or {}
+    check("el pop-up de camerinos ofrece la hoja nueva", [k["key"] for k in st.get("kinds", [])] == ["GENERAL", "TECNICA", "CAMERINOS_PRUEBA"] and st.get("sheet_kinds_url"))
+    html = prod.get(f"/conciertos/{cid}?tab=produccion").get_data(as_text=True)
+    check("la hoja de ruta de la ficha lleva el catálogo para sus etiquetas", '"sheet_kinds"' in html and "CAMERINOS_PRUEBA" in html)
+    # El enlace compartido de la hoja nueva: filtra por su etiqueta.
+    s = A.db()
+    try:
+        c = s.get(Concert, A.to_uuid(cid)); pay = dict(c.roadmap_payload)
+        ag = []
+        for it in pay["agenda"]:
+            it = dict(it)
+            if it["id"] == "a7":
+                it["sheets"] = {"GENERAL": True, "TECNICA": True, "CAMERINOS_PRUEBA": False}   # las puertas NO salen en la nueva
+            ag.append(it)
+        pay["agenda"] = ag; c.roadmap_payload = pay
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(c, "roadmap_payload"); s.commit()
+    finally:
+        s.close()
+    r = prod.post(f"/hoja-ruta/concert/{cid}/enlace", json={"action": "ensure", "kind": "CAMERINOS_PRUEBA"}); j = r.get_json() or {}
+    check("la hoja nueva tiene su propio enlace compartido", r.status_code == 200 and j.get("ok") and "/hoja-ruta/ver/" in (j.get("url") or "") and j.get("kind") == "CAMERINOS_PRUEBA", j)
+    ruta = "/hoja-ruta/ver/" + (j.get("url") or "").rsplit("/", 1)[-1]
+    r = anon.get(ruta); pub = r.get_data(as_text=True)
+    check("el enlace abre sin sesión con el nombre de la hoja", r.status_code == 200 and "Camerinos Prueba" in pub, r.status_code)
+    mj = re.search(r'<script type="application/json" id="roadmapData">(.*?)</script>', pub, re.S)
+    ids_pub = [it.get("id") for it in ((json.loads(mj.group(1)) if mj else {}).get("payload") or {}).get("agenda", [])]
+    check("y enseña solo los puntos marcados para ella", "a1" in ids_pub and "a7" not in ids_pub, ids_pub)
+    r = prod.post(f"/hoja-ruta/concert/{cid}/enlace", json={"action": "revoke", "kind": "CAMERINOS_PRUEBA"})
+    check("su enlace se anula sin tocar el de la general", (r.get_json() or {}).get("ok") and anon.get(ruta).status_code == 404)
+    r = prod.post(url_set, json={"action": "show", "kind": "CAMERINOS_PRUEBA"}); j = r.get_json() or {}
+    check("los camerinos pueden mostrar la hoja nueva", r.status_code == 200 and j.get("ok") and (j.get("active") or {}).get("kind") == "CAMERINOS_PRUEBA")
+    html = anon.get("/camerinos").get_data(as_text=True)
+    check("la pantalla dice qué hoja es y filtra por ella", "Camerinos Prueba" in html and "Apertura de puertas" not in html and "Concierto" in html)
+    r = nadie.post("/hojas-de-ruta/tipos", json={"kinds": []})
+    check("sin poder editar producción no se tocan las hojas (403)", r.status_code == 403, r.status_code)
+    r = prod.post("/hojas-de-ruta/tipos", json={"kinds": []}); j = r.get_json() or {}
+    check("quitar la hoja deja las dos de serie", [k["key"] for k in (j.get("kinds") or [])] == ["GENERAL", "TECNICA"])
+    check("y lo que se veía con ella en camerinos vuelve a la general", A._camerinos_setting().get("kind") == "GENERAL")
+    prod.post(url_set, json={"action": "stop"})
+    if hojas_antes is None:
+        s = A.db()
+        try:
+            s.query(models.AppSetting).filter(models.AppSetting.key == A.ROADMAP_SHEET_KINDS_KEY).delete(synchronize_session=False); s.commit()
+        finally:
+            s.close()
+    else:
+        A._set_app_setting(A.ROADMAP_SHEET_KINDS_KEY, hojas_antes)
+    A._ROADMAP_SHEET_KINDS_CACHE["v"] = None
+    check("el catálogo de hojas queda como estaba", A._get_app_setting(A.ROADMAP_SHEET_KINDS_KEY, None) == hojas_antes)
 
     print("8 · Limpieza")
     s = A.db()

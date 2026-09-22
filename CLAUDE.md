@@ -124,6 +124,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_botones.py` | botones muertos: destino inexistente, handler que muere al repintar, función sin definir | al tocar plantillas o JS |
 | `check_permisos.py` | enlaces y formularios pintados que acaban en 403 (usuario por recurso) | al tocar permisos, barras de pestañas o botones |
 | `check_access_coverage.py` | escrituras sin recurso en el catálogo de permisos | al añadir endpoints |
+| `check_pago_inmediato.py` | el correo a administración cuando se pide un pago inmediato (sus datos, quién lo pide con su foto y el botón de gestionarlo) | al tocar las solicitudes de pago o el motor de correos |
 | `check_money.py` | los dos parsers de importes y su espejo en JS | al tocar dinero |
 | `check_plan_pagos.py` | lo que se cobra de una actividad: los equipos que se le facturan al promotor y la parte del caché de cada socio (lo nuestro no se cobra a nadie) | al tocar el plan de pagos, el equipamiento o los socios |
 | `check_resultado.py` | la barra de simular el resultado: el 100% es el AFORO, y marca dónde estamos | al tocar el resultado de una actividad o `sim_calc` |

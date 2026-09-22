@@ -124234,6 +124234,82 @@ def public_bag_expense_document_upload(token):
         session_db.close()
 
 
+def _immediate_payment_email(session_db, expense, *, amount=None, solicitante=None) -> dict:
+    """EL CORREO DE UNA SOLICITUD DE PAGO INMEDIATO, para administración (sep 2026, lo pidió Dani).
+
+    Como todos los de la casa: el **logo de la empresa** arriba a la derecha, el **título centrado**
+    («Solicitud de pago inmediato»), debajo la **cabecera de la actividad** con sus datos, después
+    **los datos del pago** que se pide —con **quién lo ha pedido y su foto**— y el botón
+    **«Gestionar pago»** abajo a la derecha.
+
+    ⚠️ Un gasto no siempre cuelga de una actividad (una bolsa de un proyecto, una general): cuando
+    no la hay se pone la cabecera de **la bolsa**, que es lo que identifica el gasto. Quedarse sin
+    cabecera sería mandar un correo que no dice de qué habla.
+    """
+    bag = getattr(expense, "bag", None)
+    concert = None
+    try:
+        if bag is not None and (getattr(bag, "linked_type", "") or "").upper() == "CONCERT" and bag.linked_id:
+            concert = session_db.get(Concert, bag.linked_id)
+    except Exception:
+        concert = None
+    importe = _money_or_zero(amount if amount is not None else _bag_amount(expense))
+    modo = (getattr(expense, "immediate_payment_amount_mode", None) or "TOTAL").strip().upper()
+    if modo == "PERCENT":
+        cuanto = "%s (%s%% del gasto)" % (format_eur(importe),
+                                          _fmt_pct_es(_money_or_zero(expense.immediate_payment_percent)))
+    elif modo == "AMOUNT":
+        cuanto = "%s (una parte del gasto)" % format_eur(importe)
+    else:
+        cuanto = "%s (el gasto entero)" % format_eur(importe)
+    quien = (getattr(expense, "provider", None) or None)
+    items = [
+        {"icon": "fa-receipt", "title": (expense.concept or "Gasto"),
+         "meta": "Concepto", "due": cuanto},
+        {"icon": "fa-user-tie", "title": (getattr(quien, "nick", None) or "Sin proveedor"),
+         "meta": "A quién se le paga"},
+        {"icon": "fa-folder-open", "title": (getattr(bag, "title", None) or "Sin bolsa"),
+         "meta": "Bolsa"},
+    ]
+    if (getattr(expense, "immediate_payment_reason", None) or "").strip():
+        items.append({"icon": "fa-comment-dots", "title": expense.immediate_payment_reason.strip(),
+                      "meta": "Por qué es urgente"})
+    if (getattr(expense, "invoice_number", None) or "").strip():
+        items.append({"icon": "fa-file-invoice", "title": expense.invoice_number.strip(),
+                      "meta": "Nº de factura"})
+    if getattr(expense, "immediate_payment_send_receipt", False):
+        items.append({"icon": "fa-paper-plane", "title": "Hay que mandarle el justificante",
+                      "meta": "Al pagarlo"})
+    # ⚠️ QUIÉN LO HA PEDIDO, CON SU FOTO: es lo primero que se mira para saber con quién hablar.
+    sol = solicitante or {}
+    if (sol.get("nick") or "").strip():
+        items.append({"photo": (sol.get("photo_url") or ""), "icon": "fa-user",
+                      "title": sol["nick"], "meta": "Lo ha pedido",
+                      "due": _now_madrid().strftime("%d/%m/%Y")})
+    secciones = [{"title": "El pago que se pide", "items": items}]
+    url = _external_url_for("administracion_view", tab="pendiente", subtab="solicitudes")
+    if concert is not None:
+        return _notice_email_activity(
+            concert, title="Solicitud de pago inmediato",
+            subject="Solicitud de pago inmediato · %s" % (expense.concept or "Gasto"),
+            intro="Hay una solicitud de pago inmediato esperando en administración.",
+            button_label="Gestionar pago", button_url=url, sections=secciones)
+    empresa = getattr(bag, "company", None)
+    return {
+        "subject": "Solicitud de pago inmediato · %s" % (expense.concept or "Gasto"),
+        "title": "Solicitud de pago inmediato",
+        "intro": "Hay una solicitud de pago inmediato esperando en administración.",
+        "logo_url": (getattr(empresa, "logo_url", "") or ""),
+        "image_url": (getattr(getattr(bag, "artist", None), "photo_url", "") or ""),
+        "image_round": True,
+        "eyebrow": "Bolsa",
+        "heading": (getattr(bag, "title", None) or "Gasto"),
+        "facts": [("fa-euro-sign", "Importe", format_eur(importe))],
+        "button": {"label": "Gestionar pago", "url": url},
+        "sections": secciones,
+    }
+
+
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/request-payment", endpoint="bag_expense_request_payment")
 @admin_required
 def bag_expense_request_payment(bag_id, expense_id):
@@ -124258,19 +124334,27 @@ def bag_expense_request_payment(bag_id, expense_id):
         expense.immediate_payment_requested_at = _now_madrid()
         if (expense.payment_status or "NO_PAGADO") == "NO_PAGADO":
             expense.payment_status = "PENDIENTE"
+        audit = _bag_current_user_audit()
         # AVISO a administración: les acaba de entrar una petición de pago.
+        # ⚠️⚠️ Y POR CORREO (sep 2026, lo pidió Dani): con el logo de la empresa, la cabecera de la
+        # actividad, los datos del pago, QUIÉN lo ha pedido con su foto y el botón para gestionarlo.
         try:
             _destinos = sorted(_admin_responsible_user_ids(session_db, "PAGOS"))
             if not _destinos:
                 _destinos = _department_user_ids(session_db, "Administración")
+            try:
+                _correo = _immediate_payment_email(
+                    session_db, expense, amount=(amount or _bag_amount(expense)), solicitante=audit)
+            except Exception:
+                app.logger.exception("[avisos] no se pudo componer el correo de la petición de pago")
+                _correo = None
             _notify_users(session_db, _destinos, "ADMIN_PETICION",
                           "Nueva petición de pago",
                           "%s · %s" % ((expense.concept or "Gasto"), format_eur(amount or _bag_amount(expense))),
                           url_for("administracion_view", tab="pendiente", subtab="solicitudes"),
-                          ref_type="EXPENSE", ref_id=str(expense.id))
+                          ref_type="EXPENSE", ref_id=str(expense.id), email=_correo)
         except Exception:
             app.logger.exception("[avisos] no se pudo avisar de la petición de pago")
-        audit = _bag_current_user_audit()
         session_db.add(BagPaymentInteraction(
             expense_id=expense.id,
             kind="SOLICITUD_PAGO_INMEDIATO",
@@ -149444,6 +149528,12 @@ NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA
                               # ENTRA por primera vez).
                               "ACOMPANANTE",
                               "VENTAS_ACTUALIZAR", "PETICION",
+                              # ⚠️ UNA SOLICITUD DE PAGO INMEDIATO SE AVISA POR CORREO (sep 2026, lo
+                              # pidió Dani): es trabajo que le ENTRA a administración y que casi
+                              # siempre corre prisa — dejarlo solo en la campanita es que se vea al
+                              # día siguiente. Dirección puede apagarlo en «Configurar
+                              # notificaciones», como todos.
+                              "ADMIN_PETICION",
                               # Que una actividad se quede sin anunciar cuesta entradas: este no se
                               # puede quedar solo en la campanita.
                               "ANUNCIO"}
@@ -149620,7 +149710,13 @@ def _notice_email_html(*, title: str, intro: str = "", logo_url: str = "", image
     for sec in (sections or ()):
         filas = ""
         for it in (sec.get("items") or ()):
-            ico = _notice_icon_img(it.get("icon"), 16)
+            # ⚠️ UN ITEM PUEDE LLEVAR FOTO (quién ha pedido algo, con su cara): entonces va SU foto
+            # redonda en vez del icono. El icono sigue siendo lo normal — una foto solo cuando lo
+            # que se enseña es una PERSONA.
+            _foto = _absolute_media_url(str(it.get("photo") or "").strip())
+            ico = ('<img src="%s" alt="" style="display:block;width:26px;height:26px;'
+                   'object-fit:cover;border-radius:50%%;border:1px solid #e6e8eb;">' % esc(_foto)
+                   ) if _foto else _notice_icon_img(it.get("icon"), 16)
             derecha = str(it.get("due") or "").strip()
             filas += ('<tr>'
                       '<td width="26" valign="top" style="padding:8px 8px 8px 0;">%s</td>'

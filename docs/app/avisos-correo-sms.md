@@ -12,6 +12,7 @@
 
 - AVISOS · un aviso de algo YA resuelto se cierra solo (_notify_resolve, ago 2026): un aviso es
 - UN AVISO SE VE EN UN POP-UP, no navegando a otra pantalla
+- UNA SOLICITUD DE PAGO INMEDIATO SE AVISA POR CORREO, CON LA CARA DE QUIEN LA PIDE
 - CÓMO SE AVISA DE CADA COSA: app · correo · SMS, y lo configura DIRECCIÓN.
 - AVISOS · franjas bajo el menú y campana al principio
 - EL CORREO DE UN TERCERO ES contact_email, NO email (bug real, ago 2026). En
@@ -125,6 +126,28 @@ icono en el **azul corporativo oscuro** (`BRAND_BLUE_DARK`), para que todos se l
   porque un enlace navegaría. Si se añade otro sitio donde se listen avisos, se marca igual
   (`[data-notif-item]` + sus `data-`) y `notificaciones.js` lo coge por delegación.
 
+- ⚠️⚠️ **UNA SOLICITUD DE PAGO INMEDIATO SE AVISA POR CORREO, CON SUS DATOS Y CON LA CARA DE QUIEN
+  LA PIDE** (sep 2026, lo pidió Dani). Antes solo salía la campanita, y un pago que corre prisa
+  visto al día siguiente ya no corre prisa.
+  · Motor **`_immediate_payment_email`** (el punto único del contenido): **logo de la empresa**
+  arriba a la derecha · **título centrado** «Solicitud de pago inmediato» · la **cabecera de la
+  actividad** con sus datos (la de siempre, `_notice_email_activity`) · la sección **«El pago que se
+  pide»** —concepto e importe (y si es el gasto entero, un % o una parte), a quién se le paga, la
+  bolsa, por qué es urgente, el nº de factura y si hay que mandarle el justificante— y, la última,
+  **quién lo ha pedido con su FOTO** · y el botón **«Gestionar pago»**, que lleva a Administración →
+  Pendiente → Solicitudes.
+  ⚠️ **Un item de una sección puede llevar `photo`**: entonces el motor pinta esa foto redonda en
+  vez del icono. Es para cuando lo que se enseña es una **persona** (quién ha pedido algo); para
+  todo lo demás sigue mandando el icono de la casa.
+  ⚠️ **Un gasto no siempre cuelga de una actividad** (una bolsa de proyecto, una general): entonces
+  la cabecera es la de **la bolsa**. Un correo sin cabecera no dice de qué habla.
+  ⚠️ El tipo **`ADMIN_PETICION`** pasa a salir por correo de fábrica (arriba), así que también le
+  llega el de «royalties a favor pendientes de cobro», que es lo mismo: trabajo que le ENTRA a
+  administración. Dirección puede apagarlo en «Configurar notificaciones».
+  ⚠️ Y sigue valiendo lo de siempre: **por correo se avisa solo la PRIMERA vez** de cada cosa
+  (`_notice_email_already_sent`), así que volver a pedir el pago del mismo gasto no escribe otra vez.
+  · **Prueba de la casa: `tools/check_pago_inmediato.py`** (27 comprobaciones con la app real).
+
 - ⚠️⚠️ **CÓMO SE AVISA DE CADA COSA: app · correo · SMS, y lo configura DIRECCIÓN** (ago 2026).
   Un aviso puede salir por tres sitios y **no todos valen para todo**: la campanita es gratis, el
   correo llega a quien no ha abierto la app y el SMS cuesta dinero.
@@ -140,8 +163,9 @@ icono en el **azul corporativo oscuro** (`BRAND_BLUE_DARK`), para que todos se l
   de `NOTIFICATION_KIND_HELP`) con sus TRES interruptores. Así lo que hoy está encendido se apaga
   y al revés, sin tocar código. Los dos endpoints van en **`_access_exempt_endpoints`** (son de
   dirección por naturaleza, como el modo trabajo).
-  · **De fábrica**: por la app TODO; por correo solo **PRODUCCION · DISENO · VACACIONES ·
-  ADMIN_BOLSA** (`NOTICE_EMAIL_DEFAULT_KINDS`, que es la regla de arriba); por SMS nada.
+  · **De fábrica**: por la app TODO; por correo solo lo que te ENTRA —**PRODUCCION · DISENO ·
+  VACACIONES · ADMIN_BOLSA · ACOMPANANTE · VENTAS_ACTUALIZAR · PETICION · ANUNCIO ·
+  ADMIN_PETICION**— (`NOTICE_EMAIL_DEFAULT_KINDS`, que es la regla de arriba); por SMS nada.
   ⚠️⚠️ **El SMS no tiene dos verdades**: su columna escribe en **`SmsAccount.notice_kinds`**, que
   es lo que ya lee `_sms_notice_enabled` y lo que enseña Integraciones → SMS. La app y el correo
   viven en un `AppSetting` (`notification_channels_v1`). Punto único `_notice_channels_map`

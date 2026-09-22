@@ -3995,6 +3995,17 @@ class ConcertArtworkRequest(Base):
     # cartel lo hacemos nosotros y el promotor NO es empresa del grupo, también con el promotor.
     shared_with_artist_at = Column(DateTime(timezone=True))
     shared_with_promoter_at = Column(DateTime(timezone=True))
+    # ⚠️⚠️ SE HA PEDIDO UNA MODIFICACIÓN DE LOS CARTELES (sep 2026, lo pidió Dani). No es un cambio
+    # de datos de la actividad (eso ya lo detecta `needs_refresh`): es alguien diciendo «cambiadme
+    # esto», con su nota y, si hace falta, sus archivos (un logo, una referencia) en
+    # `ConcertArtworkReference`. Los carteles de antes se archivan y se vuelven a pedir.
+    change_requested_at = Column(DateTime(timezone=True))
+    change_requested_by_nick = Column(Text)
+    change_notes = Column(Text)
+    # Los carteles han cambiado y HAY QUE VOLVER A COMPARTIRLOS: mientras esté puesto no se mandan
+    # solos al artista —se le reclama a quien gestiona la actividad que los comparta— y las marcas
+    # de «compartido» de arriba están limpias a propósito.
+    reshare_pending = Column(Boolean, nullable=False, server_default=text("false"))
     # ⚠️⚠️ EL CARTEL DE SOLD OUT es OTRA petición, no la cartelería de siempre: se pide SOLA cuando
     # la actividad llega al 90% de venta y sus carteles viven en la MISMA solicitud con
     # `category='SOLDOUT'`, en su propia sección (no se mezclan con los carteles normales: ni en el
@@ -4016,6 +4027,31 @@ class ConcertArtworkRequest(Base):
         cascade="all, delete-orphan",
         order_by="ConcertArtworkAsset.created_at",
     )
+
+
+class ConcertArtworkReference(Base):
+    """UN ARCHIVO QUE ACOMPAÑA A LA PETICIÓN DE MODIFICACIÓN de los carteles.
+
+    Lo que se le manda a diseño para que pueda hacer el cambio: un logo nuevo, una captura, una
+    referencia. ⚠️ **No es un cartel**: no vive en `ConcertArtworkAsset` a propósito, porque ahí
+    todo lo que hay se aprueba, se comparte, se descarga en el ZIP y puede acabar de cartel
+    principal — y esto es material de trabajo, no una pieza entregada.
+    """
+
+    __tablename__ = "concert_artwork_references"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artwork_request_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concert_artwork_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    file_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    mime_type = Column(Text)
+    note = Column(Text)
+    uploaded_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class ConcertArtworkAsset(Base):
@@ -10521,6 +10557,12 @@ def ensure_concerts_schema_enhancements():
         # existiera podría no ejecutarse nunca y la app reventaría al leerla (la regla de oro).
         'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_to_promoter boolean NOT NULL DEFAULT false;',
         'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_amount numeric;',
+
+        # PETICIÓN DE MODIFICACIÓN de los carteles (y si hay que volver a compartirlos).
+        'ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS change_requested_at timestamptz;',
+        'ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS change_requested_by_nick text;',
+        'ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS change_notes text;',
+        'ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS reshare_pending boolean NOT NULL DEFAULT false;',
 
         # ¿El CACHÉ lo cubren los SOCIOS? (y cuánto cubre cada uno). Una por sentencia, igual.
         'ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS cache_partner_split boolean NOT NULL DEFAULT false;',

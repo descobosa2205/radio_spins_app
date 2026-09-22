@@ -36,6 +36,7 @@
 - CARTELERÍA · SI EL CARTEL LO HACE EL PROMOTOR, SE LE PIDE A ÉL. Hasta ahora la
 - LA FECHA DE ANUNCIO Y LOS CARTELES SE LE PIDEN AL PROMOTOR EN UN SOLO CORREO (sep 2026)
 - UN CARTEL PASA POR DOS VISTOS BUENOS: DISEÑO Y DESPUÉS CONTRATACIÓN (sep 2026)
+- SE PUEDE PEDIR UNA MODIFICACIÓN DE LOS CARTELES, CON LOS ARCHIVOS QUE HAGAN FALTA
 - CON LOS DOS VISTOS BUENOS, LOS CARTELES SE LE MANDAN SOLOS AL ARTISTA (sep 2026)
 
 ---
@@ -775,6 +776,40 @@
   · Diseño sigue viendo en su bandeja lo que espera **a ella** (`ARTWORK_REVIEW` = `PENDING`), y a
   contratación se le **reclama el segundo** en cuanto diseño ha mirado todos (`ARTWORK_APPROVAL`,
   `_artwork_ask_second_ok`) — no cartel a cartel.
+
+- ⚠️⚠️⚠️ **SE PUEDE PEDIR UNA MODIFICACIÓN DE LOS CARTELES, CON LOS ARCHIVOS QUE HAGAN FALTA**
+  (sep 2026, lo pidió Dani). Hasta ahora los carteles solo se rehacían cuando cambiaban los DATOS de
+  la actividad (`_artwork_request_refresh`, que lo detecta solo); si lo que hacía falta era «cambiadme
+  el logo», no había nada que hacer desde la app.
+  · **SI LOS HACEMOS NOSOTROS** — botón **«Solicitar modificación»** en la pestaña Cartelería (solo
+  cuando ya hay carteles): se escribe **qué hay que cambiar** y se pueden **adjuntar archivos** (un
+  logo nuevo, una captura, una referencia). Punto único **`_artwork_request_change`**:
+    · los carteles de ahora **se archivan** (siguen viéndose hasta que lleguen los nuevos: archivado
+      no es borrado, la regla del cartel de referencia);
+    · la solicitud vuelve a **REQUESTED** — el encargo reaparece en la bandeja de **diseño**, con su
+      correo y su aviso, diciendo qué se pide;
+    · los archivos quedan en **`ConcertArtworkReference`** y se ven en la pestaña («Archivos para la
+      modificación»). ⚠️ **No son `ConcertArtworkAsset`** a propósito: ahí todo lo que entra se
+      aprueba, se comparte, se descarga en el ZIP y puede acabar de cartel principal — y esto es
+      material de trabajo, no una pieza entregada.
+  · **SI LOS HACE EL PROMOTOR** — no se le «piden» así: se **REEMPLAZAN**. El botón **«Reemplazar
+  carteles»** abre el modal de subida de siempre con `replace=1`, y al entrar los nuevos **se
+  archivan los de antes**.
+  · **Y EN LOS DOS CASOS, LOS CARTELES NUEVOS HAY QUE VOLVER A COMPARTIRLOS**: se limpian
+  `shared_with_artist_at` / `shared_with_promoter_at` y queda **`reshare_pending`**. Mientras esté
+  puesto, **NO se mandan solos al artista** (`_announce_share_artwork_with_artist` se planta): los ha
+  cambiado alguien y hay que mirarlos. En su lugar, cuando ya no queda ningún cartel esperando visto
+  bueno, se le **reclama como tarea** a quien gestiona la actividad (**`_artwork_reshare_task`**,
+  kind `ARTWORK_SHARE`): «compártelos con el artista **y con el promotor**» cuando los hacemos
+  nosotros, y «avisa al artista» cuando los hace él.
+  ⚠️ La tarea **se cierra sola** al marcarlos como compartidos (`_artwork_reshare_resolve`, enganchado
+  en `concert_artwork_mark_shared`): mira el DATO, que es la regla de la casa.
+  ⚠️ El botón de modificar **solo sale si ya hay carteles**: sin ellos, lo que toca es pedirlos o
+  subirlos, y ofrecer «modificar» ahí sería un botón que no hace nada.
+  ⚠️ El endpoint es `concert_artwork_request_change`, así que entra solo en la regla de permisos de
+  cartelería (`ARTWORK_ACCESS_KEYS`: diseño y contratación).
+  · **Prueba de la casa: `tools/check_carteleria_modificacion.py`** (21 comprobaciones con la app
+  real, los dos caminos de punta a punta).
 
 - ⚠️⚠️ **CON LOS DOS VISTOS BUENOS, LOS CARTELES SE LE MANDAN SOLOS AL ARTISTA** (sep 2026, lo pidió
   Dani). Es lo que necesita para poder anunciar, y esperar a que alguien se acuerde de compartirlos

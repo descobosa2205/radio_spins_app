@@ -257,6 +257,7 @@ from models import (
     ConcertArtworkRequest,
     ConcertSaleChannelRequest,
     ConcertArtworkAsset,
+    ConcertArtworkReference,
     ConcertNote,
     ConcertEquipment,
     ConcertEquipmentDocument,
@@ -7346,6 +7347,133 @@ def _artwork_request_refresh(session_db, concert, *, motivo: str = "", changes=N
         session_db.rollback()
         app.logger.exception("[carteleria] no se pudo avisar de que hay que rehacer los carteles")
     return True
+
+
+def _artwork_request_change(session_db, concert, *, notas: str = "", ficheros=None,
+                            nick: str = "") -> tuple[bool, str]:
+    """⚠️⚠️ SE PIDE UNA MODIFICACIÓN DE LOS CARTELES. **Punto único** (sep 2026, lo pidió Dani).
+
+    No es un cambio de datos de la actividad (eso ya lo detecta `_artwork_request_refresh` solo):
+    es alguien diciendo **«cambiadme esto»**, con su nota y —si hace falta— sus **archivos** (un
+    logo, una captura, una referencia), que es justo lo que le falta a diseño para poder hacerlo.
+
+    Lo que pasa, en este orden:
+      · los carteles que había **se archivan** (ya no valen, pero siguen a la vista hasta que
+        lleguen los nuevos: archivado no es borrado);
+      · la solicitud vuelve a **REQUESTED** — el encargo reaparece en la bandeja de quien los hace;
+      · se **limpian las marcas de compartido** y queda `reshare_pending`: los carteles nuevos hay
+        que volver a compartirlos, y eso se le reclama a quien gestiona la actividad **como tarea**
+        (no se mandan solos: los datos han cambiado y alguien tiene que mirarlo);
+      · y se avisa: a **diseño** si los hacemos nosotros, y al **promotor** si los hace él.
+
+    Devuelve `(ok, error)`.
+    """
+    row = getattr(concert, "artwork_request", None)
+    if row is None or _artwork_request_status(row) in ("NONE", "DRAFT"):
+        return False, "Todavía no hay ninguna solicitud de cartelería que modificar."
+    notas = (notas or "").strip()
+    quien = (getattr(row, "handled_by", None) or "OURS").strip().upper()
+    ahora = _now_madrid()
+    try:
+        _archive_current_artwork_assets(row)
+        row.status = "REQUESTED"
+        row.requested_at = ahora
+        row.updated_at = ahora
+        row.needs_refresh = False
+        row.change_requested_at = ahora
+        row.change_requested_by_nick = (nick or "").strip() or None
+        row.change_notes = notas or None
+        # ⚠️ Los carteles cambian: lo compartido ya no vale y hay que volver a compartirlo.
+        row.shared_with_artist_at = None
+        row.shared_with_promoter_at = None
+        row.reshare_pending = True
+        row.event_snapshot = _concert_artwork_snapshot(concert)
+        # LOS ARCHIVOS que acompañan a la petición (un logo, una referencia).
+        for fs in (ficheros or []):
+            if not fs or not getattr(fs, "filename", ""):
+                continue
+            try:
+                file_url, mime_type, _kind = _upload_artwork_file(fs)
+            except Exception:
+                app.logger.exception("[carteleria] no se pudo subir un archivo de la petición")
+                continue
+            if not file_url:
+                continue
+            session_db.add(ConcertArtworkReference(
+                artwork_request_id=row.id, file_url=file_url,
+                original_name=(fs.filename or "")[:200] or None,
+                mime_type=mime_type, note=notas or None,
+                uploaded_by_nick=(nick or "").strip() or None))
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[carteleria] no se pudo pedir la modificación de los carteles")
+        return False, str(exc)
+    # El aviso va DESPUÉS de guardar y es *best-effort*: que falle un correo no puede deshacer la
+    # petición (la regla de la casa en todo lo de cartelería).
+    lista = [notas] if notas else ["Hay que modificar los carteles."]
+    try:
+        with _soldout_app_context():
+            if quien == "PROMOTER":
+                _send_promoter_artwork_email(concert, row, kind="CHANGES", changes=lista)
+            else:
+                _send_artwork_request_email(concert, row, is_update=True)
+                _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                              "Hay que modificar los carteles",
+                              "%s · %s" % (_announce_activity_place(concert), " · ".join(lista)),
+                              _safe_url_for("concert_detail_view", cid=concert.id, tab="carteleria"),
+                              ref_type="ARTWORK", ref_id=str(row.id), actor_user_id="")
+                session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[carteleria] no se pudo avisar de la modificación de los carteles")
+    return True, ""
+
+
+def _artwork_reshare_task(session_db, concert, row) -> None:
+    """LOS CARTELES SON NUEVOS: HAY QUE VOLVER A COMPARTIRLOS. Se reclama como tarea.
+
+    ⚠️⚠️ Lo pidió Dani: tras una modificación, cuando los carteles nuevos están subidos «a
+    contratación le aparecerá la tarea pendiente de compartir los nuevos carteles con Artista y
+    Promotor» (y, cuando los hace el promotor, de **notificárselos al artista**).
+    ⚠️ Por eso NO se mandan solos en este caso: los ha cambiado alguien y hay que mirarlos antes.
+    La tarea **se cierra sola** en cuanto se marcan como compartidos (`_notify_resolve`, que mira el
+    DATO: `shared_with_artist_at`).
+    """
+    try:
+        if concert is None or row is None or not getattr(row, "reshare_pending", False):
+            return
+        con_promotor = ((getattr(row, "handled_by", None) or "OURS").strip().upper() == "OURS"
+                        and getattr(concert, "promoter_id", None)
+                        and not _concert_is_group_promoted(session_db, concert))
+        titulo = ("Comparte los carteles nuevos" if con_promotor
+                  else "Avisa al artista de los carteles nuevos")
+        cuerpo = ("Los carteles de %s han cambiado: compártelos con el artista%s."
+                  % (_announce_activity_place(concert),
+                     " y con el promotor" if con_promotor else ""))
+        url = _safe_url_for("concert_detail_view", cid=concert.id, tab="carteleria")
+        correo = _notice_email_activity(
+            concert, title="Carteles nuevos por compartir", subject=titulo, intro=cuerpo,
+            button_label="Ver la cartelería",
+            button_url=_external_url_for("concert_detail_view", cid=concert.id, tab="carteleria"))
+        for uid in _announce_alert_owner_ids(session_db, concert):
+            _notify_user(session_db, uid, "ARTWORK_SHARE", titulo, cuerpo, url,
+                         ref_type="ARTWORK_SHARE", ref_id=str(row.id), email=correo)
+    except Exception:
+        app.logger.exception("[carteleria] no se pudo reclamar que se compartan los carteles nuevos")
+
+
+def _artwork_reshare_resolve(session_db, row) -> None:
+    """La tarea de compartir se cierra SOLA cuando ya se ha compartido con quien tocaba."""
+    try:
+        if row is None or not getattr(row, "reshare_pending", False):
+            return
+        if not getattr(row, "shared_with_artist_at", None):
+            return
+        row.reshare_pending = False
+        _notify_resolve(session_db, "ARTWORK_SHARE", str(row.id))
+    except Exception:
+        app.logger.exception("[carteleria] no se pudo cerrar la tarea de compartir")
 
 
 def _sync_artwork_request_refresh_flag(concert: Concert | None) -> bool:
@@ -72785,6 +72913,12 @@ def concert_detail_view(cid):
             artwork_assets=artwork_assets,
             current_artwork_assets=current_artwork_assets,
             archived_artwork_assets=archived_artwork_assets,
+            # LOS ARCHIVOS que acompañan a la petición de modificación (un logo, una referencia):
+            # es lo que necesita quien tiene que hacer el cambio.
+            artwork_references=((session.query(ConcertArtworkReference)
+                                 .filter(ConcertArtworkReference.artwork_request_id == artwork_request.id)
+                                 .order_by(ConcertArtworkReference.created_at.desc()).all())
+                                if artwork_request is not None else []),
             soldout=soldout,
             # EL PROCESO del Sold Out (declarado · carteles · comunicado al artista), que es lo que
             # pinta la etiqueta de la cabecera. `soldout` es la CARTELERÍA; esto es el proceso.
@@ -73888,7 +74022,13 @@ def _artwork_review_after(session_db, concert, row) -> None:
             _artwork_ask_second_ok(session_db, concert, row, fases.count("DESIGN_OK"))
             return
         if "APPROVED" in fases:
-            _announce_share_artwork_with_artist(session_db, concert, row)
+            # ⚠️⚠️ Si vienen de una MODIFICACIÓN, no se mandan solos: alguien los ha cambiado y hay
+            # que compartirlos a conciencia (con el artista y, si los hacemos nosotros, también con
+            # el promotor). Se reclama como tarea y se cierra sola al compartirlos.
+            if getattr(row, "reshare_pending", False):
+                _artwork_reshare_task(session_db, concert, row)
+            else:
+                _announce_share_artwork_with_artist(session_db, concert, row)
     except Exception:
         app.logger.exception("[carteleria] no se pudo seguir con lo de después del visto bueno")
 
@@ -73924,6 +74064,9 @@ def _announce_share_artwork_with_artist(session_db, concert, row) -> tuple[bool,
     «Compartido con el artista» de la pestaña Cartelería (no hay dos verdades)."""
     if row is None or getattr(row, "shared_with_artist_at", None):
         return False, "ya estaba compartido"
+    if getattr(row, "reshare_pending", False):
+        # Los carteles se han MODIFICADO: se comparten a mano (hay una tarea para eso).
+        return False, "hay carteles nuevos por compartir a mano"
     if not getattr(concert, "artist_id", None):
         return False, "la actividad no tiene artista"
     try:
@@ -74913,6 +75056,47 @@ def group_artwork_asset_download(gkind, gid, asset_id):
         session_db.close()
 
 
+@app.post('/conciertos/<cid>/carteleria/modificar', endpoint='concert_artwork_request_change')
+@admin_required
+def concert_artwork_request_change(cid):
+    """PEDIR UNA MODIFICACIÓN de los carteles, con lo que haga falta para hacerla.
+
+    Se escribe qué hay que cambiar y se pueden **adjuntar archivos** (un logo nuevo, una captura).
+    El resto lo hace el punto único `_artwork_request_change`: archiva los que había, vuelve a
+    pedirlos a quien los hace y deja pendiente volver a compartirlos.
+    """
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                            joinedload(Concert.billing_company), joinedload(Concert.promoter),
+                            selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        if concert is None:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        if not can_upload_artwork():
+            return jsonify({"ok": False, "error": "Sin permiso para tocar la cartelería."}), 403
+        notas = (request.form.get("notes") or "").strip()
+        if not notas:
+            return jsonify({"ok": False, "error": "Escribe qué hay que modificar."}), 400
+        nick = ((_current_user_state() or {}).get("nick") or "").strip()
+        ok, error = _artwork_request_change(
+            session_db, concert, notas=notas,
+            ficheros=(request.files.getlist("files") or request.files.getlist("file")), nick=nick)
+        if not ok:
+            return jsonify({"ok": False, "error": error or "No se pudo pedir la modificación."}), 400
+        if _wants_json_response():
+            return jsonify({"ok": True})
+        flash("Modificación pedida: los carteles de antes quedan archivados hasta que lleguen los nuevos.", "success")
+        return redirect(safe_next_or(url_for("concert_detail_view", cid=cid, tab="carteleria")))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("concert_artwork_request_change")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
 @app.post('/conciertos/<cid>/carteleria/subir', endpoint='concert_artwork_upload_direct')
 @admin_required
 def concert_artwork_upload_direct(cid):
@@ -74937,6 +75121,14 @@ def concert_artwork_upload_direct(cid):
         if cat == "LOGO":
             cat = "POSTER"          # una actividad no tiene imagen de marca: eso es de la gira
         ficheros = request.files.getlist("files") or request.files.getlist("file")
+        # ⚠️⚠️ REEMPLAZAR LOS CARTELES (sep 2026, lo pidió Dani para los que hace el PROMOTOR): los
+        # que había SE ARCHIVAN y hay que volver a avisar al artista. Se archivan ANTES de crear los
+        # nuevos, o se archivarían también ellos.
+        if _truthy(request.form.get("replace")) and cat != "SOLDOUT":
+            _archive_current_artwork_assets(row)
+            row.shared_with_artist_at = None
+            row.shared_with_promoter_at = None
+            row.reshare_pending = True
         etiquetas = request.form.getlist("labels")
         anchos = request.form.getlist("widths")
         altos = request.form.getlist("heights")
@@ -75003,6 +75195,9 @@ def concert_artwork_upload_direct(cid):
                 _artwork_pick_primary_by_squareness(row)
         row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         _artwork_notify_resolve_if_done(session_db, row)
+        # Con los carteles nuevos ya subidos y sin nada esperando visto bueno, se reclama compartirlos.
+        if getattr(row, "reshare_pending", False):
+            _artwork_review_after(session_db, concert, row)
         session_db.commit()
         return jsonify({"ok": True, "assets": subidos, "count": len(subidos),
                         # Lo que no ha entrado NO se calla: el modal lo dice.
@@ -75666,6 +75861,8 @@ def concert_artwork_mark_shared(cid):
             req.shared_with_promoter_at = stamp
         else:
             req.shared_with_artist_at = stamp
+        # La tarea de «comparte los carteles nuevos» se cierra sola al compartirlos (mira el DATO).
+        _artwork_reshare_resolve(session, req)
         session.commit()
         if request.form.get('ajax'):
             return jsonify({"ok": True, "who": who, "shared": not undo})

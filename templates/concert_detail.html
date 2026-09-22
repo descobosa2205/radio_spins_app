@@ -2023,6 +2023,23 @@
         {% if artwork_request and artwork_request.handled_by == 'PROMOTER' and CAN_EDIT_CONCERTS and art_status in ['PROMOTER', 'REQUESTED', 'CORRECTIONS'] %}
           <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-paper-plane me-1"></i>{{ 'Reenviar solicitud' if art_status != 'PROMOTER' else 'Solicitar carteles al promotor' }}</button>
         {% endif %}
+        {# ⚠️⚠️ MODIFICAR LOS CARTELES (sep 2026, lo pidió Dani). Dos caminos, según quién los hace:
+           · los NUESTROS se le piden a diseño otra vez, con una nota y los archivos que haga falta
+             (un logo, una referencia): los de antes se archivan y el encargo reaparece;
+           · los del PROMOTOR no se le «piden» así: se REEMPLAZAN subiendo los nuevos, y entonces
+             queda pendiente avisar al artista.
+           Solo se ofrece cuando ya hay carteles: si no, lo que toca es pedirlos o subirlos. #}
+        {% if CAN_EDIT_CONCERTS and artwork_request and current_artwork_assets %}
+          {% if artwork_request.handled_by == 'PROMOTER' %}
+            <button class="btn btn-outline-warning btn-sm" type="button" data-art-open="POSTER" data-art-replace
+                    data-bs-toggle="modal" data-bs-target="#artworkUploadModal">
+              <i class="fa fa-rotate me-1"></i>Reemplazar carteles</button>
+          {% else %}
+            <button class="btn btn-outline-warning btn-sm" type="button"
+                    data-bs-toggle="modal" data-bs-target="#artworkChangeModal">
+              <i class="fa fa-pen-ruler me-1"></i>Solicitar modificación</button>
+          {% endif %}
+        {% endif %}
         {% if CAN_EDIT_CONCERTS %}
           <button class="btn btn-outline-danger btn-sm" type="button" data-art-open="POSTER" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
         {% endif %}
@@ -2048,6 +2065,35 @@
       </div>
     </div>
 
+    {# ⚠️ LOS CARTELES SON NUEVOS Y HAY QUE COMPARTIRLOS: mientras esté pendiente no se mandan
+       solos (los ha cambiado alguien), así que se dice aquí y se reclama como tarea. #}
+    {% if artwork_request and artwork_request.reshare_pending %}
+      <div class="alert alert-warning d-flex align-items-center gap-2 flex-wrap">
+        <i class="fa fa-share-nodes"></i>
+        <div class="flex-grow-1">
+          <strong>Los carteles han cambiado.</strong>
+          Cuando estén los nuevos, compártelos con el artista{% if show_promoter_share %} y con el promotor{% endif %}:
+          no se mandan solos porque alguien ha pedido modificarlos.
+          {% if artwork_request.change_notes %}<div class="small fst-italic mt-1">Se pidió: {{ artwork_request.change_notes }}</div>{% endif %}
+        </div>
+      </div>
+    {% endif %}
+    {# LO QUE SE MANDÓ PARA HACER EL CAMBIO: los archivos de la petición de modificación. Se ven
+       aquí porque es lo que necesita quien tiene que rehacer el cartel. #}
+    {% if artwork_references %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="fw-semibold mb-2"><i class="fa fa-paperclip me-1 text-danger"></i>Archivos para la modificación</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for ref in artwork_references %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ ref.file_url }}" target="_blank" rel="noopener"
+                 title="{{ ref.original_name or 'Archivo' }}{% if ref.uploaded_by_nick %} · lo subió {{ ref.uploaded_by_nick }}{% endif %}">
+                <i class="fa fa-file me-1"></i>{{ (ref.original_name or 'Archivo')[:40] }}</a>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
     {% if artwork_request and artwork_needs_refresh %}
       <div class="alert alert-warning">
         Los datos del concierto han cambiado desde la última solicitud o subida de cartelería. Al volver a solicitar se archivarán los formatos actuales como <strong>Cartel Antiguo</strong> y se reenviará la petición ({{ 'al promotor' if artwork_request.handled_by == 'PROMOTER' else 'a diseño' }}).
@@ -3042,6 +3088,12 @@
                abre el modal, no en `shown.bs.modal`: con `modal_stack.js` por medio ese evento no
                siempre llega (regla de la casa). #}
             <input type="hidden" id="artworkCategory" value="POSTER">
+            <input type="hidden" id="artworkReplace" value="">
+            {# REEMPLAZAR: los de antes se archivan y hay que volver a avisar al artista. #}
+            <div class="alert alert-danger small d-none" data-art-replace-warn>
+              <i class="fa fa-rotate me-1"></i>Estos carteles <strong>reemplazan a los que hay</strong>:
+              los de antes quedarán archivados y te quedará pendiente <strong>avisar al artista</strong>.
+            </div>
             <div class="alert alert-warning small">
               <i class="fa fa-clock me-1"></i>Los carteles que subas quedan <strong>pendientes de aprobación por diseño</strong>:
               se verán aquí, pero no se pueden usar hasta que les dé el visto bueno (uno a uno).
@@ -3066,6 +3118,45 @@
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
             <button type="button" class="btn btn-danger" id="artworkUploadBtn" disabled><i class="fa fa-cloud-arrow-up me-1"></i>Subir</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    {# ⚠️⚠️ PEDIR UNA MODIFICACIÓN de los carteles: qué hay que cambiar y, si hace falta, los
+       ARCHIVOS para poder hacerlo (un logo nuevo, una captura). Al enviarlo, los carteles de antes
+       se archivan, el encargo vuelve a diseño y queda pendiente volver a compartirlos. #}
+    <div class="modal fade" id="artworkChangeModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <form method="post" enctype="multipart/form-data"
+                action="{{ url_for('concert_artwork_request_change', cid=concert.id) }}">
+            <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">
+            <div class="modal-header sw-head">
+              <h5 class="modal-title"><i class="fa fa-pen-ruler me-2"></i>Solicitar modificación de los carteles</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="alert alert-warning small">
+                <i class="fa fa-box-archive me-1"></i>Los carteles de ahora <strong>quedarán archivados</strong>
+                (se siguen viendo hasta que lleguen los nuevos) y el encargo vuelve a
+                <strong>{{ 'el promotor' if artwork_request and artwork_request.handled_by == 'PROMOTER' else 'diseño' }}</strong>.
+                Cuando estén los nuevos te quedará pendiente compartirlos.
+              </div>
+              <label class="form-label">¿Qué hay que modificar? <span class="text-danger">*</span></label>
+              <textarea class="form-control" name="notes" rows="3" required
+                        placeholder="Ej: cambiar el logo de la ticketera por el nuevo, quitar el patrocinador…"></textarea>
+              <div class="mt-3">
+                <label class="form-label">Archivos que hacen falta <span class="text-muted small fw-normal">(opcional)</span></label>
+                <input type="file" class="form-control" name="files" multiple
+                       accept="image/*,video/*,application/pdf,.ai,.eps,.zip">
+                <div class="form-text">Un logo, una captura, una referencia… Se le mandan a quien tiene que hacer el cambio.</div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Pedir la modificación</button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -3190,6 +3281,10 @@
           var fd = new FormData();
           var catEl = document.getElementById('artworkCategory');
           fd.append('category', (catEl && catEl.value) || 'POSTER');
+          // ⚠️ REEMPLAZAR: lo dice el botón que abrió el modal (lo guarda `data-art-replace`), y
+          //    hace que los carteles de antes se archiven al entrar los nuevos.
+          var repEl = document.getElementById('artworkReplace');
+          if (repEl && repEl.value === '1') fd.append('replace', '1');
           cola.forEach(function (f, i) {
             fd.append('files', f, f.name);
             fd.append('labels', f.name);
@@ -3226,8 +3321,12 @@
         var b = e.target.closest('[data-art-open]'); if (!b) return;
         var cat = (b.getAttribute('data-art-open') || 'POSTER').toUpperCase();
         var el = document.getElementById('artworkCategory'); if (el) el.value = cat;
+        var rep = b.hasAttribute('data-art-replace');
+        var repEl = document.getElementById('artworkReplace'); if (repEl) repEl.value = rep ? '1' : '';
+        var aviso = document.querySelector('[data-art-replace-warn]');
+        if (aviso) aviso.classList.toggle('d-none', !rep);
         var rot = document.querySelector('[data-art-cat-label]');
-        if (rot) rot.textContent = (cat === 'SOLDOUT') ? 'carteles de Sold Out' : 'carteles';
+        if (rot) rot.textContent = (cat === 'SOLDOUT') ? 'carteles de Sold Out' : (rep ? 'los carteles nuevos' : 'carteles');
       }, true);
 
       /* ---------- Aprobar / rechazar UNO A UNO ---------- */

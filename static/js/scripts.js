@@ -2762,3 +2762,40 @@ document.addEventListener('change', function (ev) {
   if (window.appLoader && window.appLoader.show) { try { window.appLoader.show(); } catch (e) {} }
   if (form.requestSubmit) form.requestSubmit(); else form.submit();
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   EQUIPAMIENTO · ¿HAY QUE FACTURARLE LOS EQUIPOS AL PROMOTOR?
+   Solo se pregunta cuando los cubre él («Promotor cubre equipos»), y el importe solo cuando la
+   respuesta es que SÍ. Su importe entra en el plan de pagos como un cobro aparte: no es caché.
+   ⚠️ Lo que se esconde se DESHABILITA: un campo oculto se envía igual (y un importe fantasma
+      volvería a crear la línea del plan de pagos al guardar cualquier otra cosa).
+   Va por DELEGACIÓN: la sección se reemplaza por AJAX al guardar.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  function pinta(raiz) {
+    (raiz || document).querySelectorAll('[data-eq-billed-panel]').forEach(function (panel) {
+      var form = panel.closest('form') || document;
+      var opt = form.querySelector('input[name="equipment_option"]:checked');
+      var cubrePromotor = !!opt && (opt.value || '').toUpperCase() === 'PROMOTER';
+      panel.classList.toggle('d-none', !cubrePromotor);
+      var si = form.querySelector('input[name="equipment_billed"][value="1"]');
+      var factura = cubrePromotor && !!si && si.checked;
+      var caja = panel.querySelector('[data-eq-billed-amount]');
+      if (caja) {
+        caja.classList.toggle('d-none', !factura);
+        caja.querySelectorAll('input').forEach(function (el) { el.disabled = !factura; });
+      }
+      panel.querySelectorAll('input[data-eq-billed]').forEach(function (el) { el.disabled = !cubrePromotor; });
+    });
+  }
+  document.addEventListener('change', function (ev) {
+    if (!ev.target || !ev.target.matches) return;
+    if (ev.target.matches('input[name="equipment_option"], input[name="equipment_billed"]')) pinta();
+  });
+  document.addEventListener('ficha:shown', function () { pinta(); });
+  document.addEventListener('inline:updated', function () { pinta(); });
+  if (document.readyState !== 'loading') pinta();
+  else document.addEventListener('DOMContentLoaded', function () { pinta(); });
+  window.app33EquipmentBilled = pinta;
+})();

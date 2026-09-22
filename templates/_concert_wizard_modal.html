@@ -1047,6 +1047,34 @@
                 </div>
                 {% endfor %}
               </div>
+              {# ⚠️⚠️ SI LOS CUBRE EL PROMOTOR, ¿HAY QUE FACTURÁRSELOS? (sep 2026, lo pidió Dani).
+                 Su importe entra en el plan de pagos como un cobro MÁS —que no es caché y no se
+                 reparte con el artista—. El panel nace oculto y con sus campos DESHABILITADOS:
+                 un campo oculto se envía igual. #}
+              <div class="border rounded p-3 mt-3 d-none" data-eq-billed-panel>
+                <div class="fw-semibold small mb-2"><i class="fa fa-file-invoice-dollar me-1 text-danger"></i>¿Hay que facturarle los equipos al promotor?</div>
+                <div class="row g-2">
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden" type="radio" name="equipment_billed" value="1" data-eq-billed disabled>
+                      <i class="fa fa-circle-check d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Sí, se le factura</span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden" type="radio" name="equipment_billed" value="0" checked data-eq-billed disabled>
+                      <i class="fa fa-circle-xmark d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">No</span>
+                    </label>
+                  </div>
+                  <div class="col-12 col-md-6 d-none" data-eq-billed-amount>
+                    <label class="form-label">Importe a facturarle</label>
+                    <input class="form-control" name="equipment_billed_amount" data-money="1" placeholder="0,00" disabled>
+                    <div class="form-text">Se cobra con la actividad, pero <strong>no es caché</strong>: viene a cubrir un gasto.</div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="wizard-card">
               <div class="d-flex justify-content-between align-items-center mb-2">

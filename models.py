@@ -4616,6 +4616,13 @@ class ConcertEquipment(Base):
     covered_mode = Column(Text)
     covered_amount = Column(Numeric)
 
+    # ⚠️⚠️ CUANDO EL PROMOTOR CUBRE LOS EQUIPOS, ¿HAY QUE FACTURÁRSELOS? (sep 2026, lo pidió Dani).
+    # Es un cobro MÁS de la actividad —entra en su plan de pagos con su propia línea— pero **no es
+    # caché**: viene a cubrir un gasto, así que no se reparte con el artista.
+    # ⚠️ `covered_amount` es otra cosa (lo que el promotor cubre como máximo): una cosa, un nombre.
+    billed_to_promoter = Column(Boolean, nullable=False, server_default=text("false"))
+    billed_amount = Column(Numeric)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -10493,6 +10500,12 @@ def ensure_concerts_schema_enhancements():
 
         # País del recinto (alta de recintos con país; por defecto España en los formularios).
         'ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS country text;',
+
+        # ¿Hay que FACTURARLE LOS EQUIPOS al promotor que los cubre? (y cuánto).
+        # ⚠️ Cada columna en SU PROPIA sentencia: metida en un `DO $$ … IF NOT EXISTS(…)` que ya
+        # existiera podría no ejecutarse nunca y la app reventaría al leerla (la regla de oro).
+        'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_to_promoter boolean NOT NULL DEFAULT false;',
+        'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_amount numeric;',
 
         """
         UPDATE concerts

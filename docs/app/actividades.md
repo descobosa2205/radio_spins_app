@@ -70,6 +70,7 @@
 - QUIEN CREA UNA ACTIVIDAD LA SIGUE VIENDO HASTA QUE SE CONFIRMA: alguien que no es
 - LOS FILTROS Y LA FILA DE UN LISTADO DE ACTIVIDADES SON UN SOLO SITIO. Los
 - LA AGRUPACIÓN POR «GRATUITOS» DESAPARECE, Y LA FILA DICE QUÉ ES CADA ACTIVIDAD.
+- LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR: SE COBRAN, PERO NO SON CACHÉ
 - LA FORMA DE PAGO DEL CACHÉ SE CONFIGURA EN LA FICHA, Y SE AVISA SI FALTA.
 - MARKETING · LA EMPRESA LA DICTA LA ACTIVIDAD: en una campaña vinculada a una
 - CADA TAREA DE UNA ACTIVIDAD ES DE UN ÁREA, Y SOLO LA VE QUIEN TRABAJA EN ELLA.
@@ -1488,6 +1489,30 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   ANTIGUAS guardadas así y un enlace con `?type=GRATUITO` tiene que seguir valiendo.
   · El lugar de la fila va en el formato ÚNICO de la casa (`_place_label`: «Recinto · Municipio,
   Provincia», con el país solo si es de fuera).
+
+- ⚠️⚠️ **LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR: SE COBRAN, PERO NO SON CACHÉ** (sep 2026, lo
+  pidió Dani). Cuando en Equipamiento se marca **«Promotor cubre equipos»**, se pregunta **«¿Hay que
+  facturarle los equipos al promotor?»** (Sí / No, con sus iconos) y, si es que sí, su **importe**.
+  · Ese importe entra en el **plan de pagos** como una línea más a cobrar —con su factura y su
+  cobro, como cualquier otra—, **pero no forma parte del caché**: aparece en la liquidación de la
+  actividad y **NO se reparte con el artista** (`_artist_cash_concert_settled` la deja fuera), porque
+  no es un ingreso: viene a **cubrir un gasto**.
+  · Se guarda en **`ConcertEquipment.billed_to_promoter` / `billed_amount`** (columnas nuevas, cada
+  una en su propia sentencia del `ensure_*`) y lo espeja en el plan **`_concert_equipment_payment_sync`**,
+  el punto único al que llaman los TRES caminos que guardan equipamiento (`_upsert_equipment_from_request`).
+  · La línea se reconoce por su marca **`kind=EQUIPMENT`** (`_payment_row_is_equipment`), así que al
+  cambiar el importe **se actualiza la que ya hay** en vez de crear otra — si se recreara, se
+  perdería su factura y su cobro y el importe se contaría dos veces (la trampa que duplicaba el
+  gasto de las comisiones en la bolsa).
+  ⚠️ Si se dice que ya NO se le factura, la línea **se retira**… salvo que ya tenga factura o cobro:
+  eso ya ha pasado y borrarlo dejaría la actividad diciendo algo que no es.
+  ⚠️⚠️ **NO se edita en el plan de pagos**: se salta del formulario de «Cachés» (si no, habría dos
+  verdades) y **`_merge_payment_terms_rows` la REPONE** al guardar. Sin eso, guardar los cachés la
+  habría borrado con su factura y su cobro, en silencio.
+  ⚠️ El panel nace oculto y con sus campos **DESHABILITADOS** (motor global en `scripts.js`, por
+  delegación: lo usan la ficha —que se repinta por AJAX— y el asistente): un campo oculto se envía
+  igual, y un importe fantasma volvería a crear la línea al guardar cualquier otra cosa.
+  · **Prueba de la casa: `tools/check_plan_pagos.py`** (17 comprobaciones con la app real).
 
 - ⚠️⚠️ **LA FORMA DE PAGO DEL CACHÉ SE CONFIGURA EN LA FICHA, Y SE AVISA SI FALTA** (sep 2026).
   «Forma de pago del caché» **NO es un campo de `ConcertCache`**: es **`Concert.payment_terms_json`**

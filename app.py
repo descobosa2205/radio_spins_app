@@ -2696,7 +2696,10 @@ def _artist_cash_concert_settled(concert) -> tuple:
     administración factura y marca cobrado, y es lo que se corrige a última hora. Si una actividad
     no tiene plan de pagos, manda el **caché** (y se dice, para que se vea que es lo pactado).
     Devuelve `(importe, de_dónde, cobrado)`."""
-    filas = _concert_payment_rows(concert)
+    # ⚠️⚠️ LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR NO SON UN INGRESO QUE SE REPARTA (sep 2026,
+    # lo pidió Dani): se cobran con la actividad, pero vienen a CUBRIR UN GASTO, así que no entran
+    # ni en lo del artista ni en lo de la oficina.
+    filas = [x for x in _concert_payment_rows(concert) if not x.get("is_equipment")]
     if filas:
         total = sum((_money_or_zero(x.get("amount")) for x in filas), Decimal("0"))
         cobrado = sum((_money_or_zero(x.get("amount")) for x in filas
@@ -7562,6 +7565,10 @@ def _normalize_payment_term(row: dict | None, idx: int = 0) -> dict:
     status = _payment_term_status(data)
     return {
         'idx': idx,
+        # ⚠️ QUÉ ES esta línea: vacío = caché; EQUIPMENT = los equipos que se le facturan al
+        # promotor, que se cobran igual pero NO se reparten con el artista.
+        'kind': (str(data.get('kind') or '').strip().upper() or ''),
+        'is_equipment': _payment_row_is_equipment(data),
         'concept': (data.get('concept') or 'Pago').strip() if isinstance(data.get('concept'), str) else 'Pago',
         'amount': amount,
         'due_date': due_date or None,
@@ -7841,6 +7848,15 @@ def _merge_payment_terms_rows(concert, form) -> list[dict]:
         base.setdefault("invoiced_at", None)
         base.setdefault("collected_at", None)
         filas.append(base)
+    # ⚠️⚠️ LA LÍNEA DE LOS EQUIPOS NO SE EDITA AQUÍ: la manda el módulo de Equipamiento (es su
+    # importe), así que se pinta a la vista pero sin campos y se REPONE al guardar. Sin esto,
+    # guardar la sección «Cachés» la haría desaparecer —con su factura y su cobro— sin decir nada,
+    # que es la misma pérdida de datos que ya evitaba el `payment_idx[]` de arriba.
+    ya = {id(f) for f in filas}
+    for vieja in viejas:
+        if isinstance(vieja, dict) and _payment_row_is_equipment(vieja) and id(vieja) not in ya:
+            if not any(_payment_row_is_equipment(f) for f in filas):
+                filas.append(dict(vieja))
     return filas
 
 
@@ -57227,6 +57243,80 @@ def _add_concert_notes_from_request(session, concert_id):
         session.add(ConcertNote(concert_id=concert_id, title=title, body=body))
 
 
+# Marca de la línea del plan de pagos que NO es caché: los EQUIPOS que se le facturan al promotor.
+# ⚠️ Es lo que la distingue en todas partes (se pinta aparte, se bloquea y **no se reparte con el
+# artista**), así que va en la propia fila del JSONB y no en una lista aparte que se pueda desparejar.
+PAYMENT_KIND_EQUIPMENT = "EQUIPMENT"
+PAYMENT_EQUIPMENT_CONCEPT = "Equipos"
+
+
+def _payment_row_is_equipment(row) -> bool:
+    """¿Esta línea del plan de pagos es la de los equipos facturados al promotor?"""
+    return str((row or {}).get("kind") or "").strip().upper() == PAYMENT_KIND_EQUIPMENT
+
+
+def _concert_equipment_payment_sync(session, concert_id, eq=None) -> None:
+    """LA LÍNEA DE LOS EQUIPOS en el plan de pagos de la actividad. **Punto único**.
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026): cuando el promotor cubre los equipos se pregunta si **hay que
+    facturárselos**; si es que sí, ese importe **entra en el plan de pagos como algo más a cobrar,
+    pero NO forma parte del caché** —viene a cubrir un gasto—, así que no se reparte con el artista
+    (`_artist_cash_concert_settled` lo deja fuera).
+
+    · La línea se reconoce por su marca `kind=EQUIPMENT`, así que al cambiar el importe se
+      **ACTUALIZA la que ya hay** en vez de crear otra: si se recreara, se perdería su factura y su
+      cobro y el importe se contaría dos veces (la misma trampa que duplicaba el gasto de las
+      comisiones en la bolsa).
+    · Si deja de facturarse, la línea **se retira** — salvo que ya tenga factura o cobro: eso ya ha
+      pasado y borrarlo sería dejar la actividad diciendo algo que no es.
+    ⚠️ `payment_terms_json` es JSONB: leer-copiar-reasignar **no escribe la segunda vez en la misma
+    petición**, así que se marca con `flag_modified`.
+    """
+    concert = session.get(Concert, to_uuid(str(concert_id)) or uuid.uuid4())
+    if concert is None:
+        return
+    if eq is None:
+        eq = (session.query(ConcertEquipment)
+              .filter(ConcertEquipment.concert_id == concert.id).first())
+    quiere = bool(getattr(eq, "billed_to_promoter", False)) if eq is not None else False
+    importe = _money_or_zero(getattr(eq, "billed_amount", None)) if quiere else Decimal("0")
+    filas = list(getattr(concert, "payment_terms_json", None) or [])
+    nuevas, encontrada, cambio = [], False, False
+    for row in filas:
+        if not isinstance(row, dict) or not _payment_row_is_equipment(row):
+            nuevas.append(row)
+            continue
+        encontrada = True
+        tiene_rastro = bool(row.get("invoice_url") or row.get("invoiced_at") or row.get("collected_at"))
+        if quiere and importe > 0:
+            if _money_or_zero(row.get("amount")) != importe:
+                row = dict(row, amount=float(importe))
+                cambio = True
+            nuevas.append(row)
+        elif tiene_rastro:
+            # Ya se facturó o se cobró: se queda (y se deja de pedir que se facture).
+            nuevas.append(row)
+        else:
+            cambio = True          # se retira
+    if quiere and importe > 0 and not encontrada:
+        nuevas.append({
+            "concept": PAYMENT_EQUIPMENT_CONCEPT,
+            "amount": float(importe),
+            "due_date": None,
+            "cache_ref": None,
+            "kind": PAYMENT_KIND_EQUIPMENT,
+            "invoice_url": None,
+            "invoice_name": None,
+            "invoiced_at": None,
+            "collected_at": None,
+        })
+        cambio = True
+    if cambio:
+        from sqlalchemy.orm.attributes import flag_modified
+        concert.payment_terms_json = nuevas
+        flag_modified(concert, "payment_terms_json")
+
+
 def _upsert_equipment_from_request(session, concert_id):
     """Upsert del resumen de equipamiento.
 
@@ -57257,12 +57347,20 @@ def _upsert_equipment_from_request(session, concert_id):
             # limpiamos para evitar listados antiguos
             eq.included = None
             eq.other = None
+            # ⚠️⚠️ ¿HAY QUE FACTURARLE LOS EQUIPOS? Solo se pregunta aquí (es el promotor quien los
+            # cubre) y, si es que sí, su importe entra en el plan de pagos como un cobro MÁS —que
+            # no es caché— con `_concert_equipment_payment_sync`.
+            eq.billed_to_promoter = _truthy(request.form.get("equipment_billed"))
+            eq.billed_amount = (_parse_optional_money(request.form.get("equipment_billed_amount"))
+                                if eq.billed_to_promoter else None)
         elif opt == "FESTIVAL_RIDER":
             eq.covered_by_promoter = True
             eq.covered_mode = "RIDER"
             eq.covered_amount = None
             eq.included = None
             eq.other = None
+            eq.billed_to_promoter = False
+            eq.billed_amount = None
         elif opt == "ARTIST":
             # Equipo A CARGO DEL ARTISTA (combinación propia: sin promotor + modo ARTIST).
             eq.covered_by_promoter = False
@@ -57270,17 +57368,23 @@ def _upsert_equipment_from_request(session, concert_id):
             eq.covered_amount = None
             eq.included = None
             eq.other = None
+            eq.billed_to_promoter = False
+            eq.billed_amount = None
         else:
             # INCLUDED
             eq.covered_by_promoter = False
             eq.covered_mode = None
             eq.covered_amount = None
             eq.other = None
+            eq.billed_to_promoter = False
+            eq.billed_amount = None
 
             # Si ya había una lista histórica, la conservamos.
             # Si no, guardamos un marcador mínimo para poder mostrar "Equipos incluidos".
             if not eq.included:
                 eq.included = ["Incluido"]
+        session.flush()
+        _concert_equipment_payment_sync(session, concert_id, eq)
         return
 
     # 2) Fallback legacy (por compatibilidad)
@@ -57304,6 +57408,8 @@ def _upsert_equipment_from_request(session, concert_id):
     if not has_any:
         if eq:
             session.delete(eq)
+            session.flush()
+        _concert_equipment_payment_sync(session, concert_id, None)
         return
 
     if not eq:
@@ -57315,6 +57421,8 @@ def _upsert_equipment_from_request(session, concert_id):
     eq.covered_by_promoter = bool(covered)
     eq.covered_mode = covered_mode if covered else None
     eq.covered_amount = covered_amount if (covered and covered_mode == "AMOUNT") else None
+    session.flush()
+    _concert_equipment_payment_sync(session, concert_id, eq)
 
 
 

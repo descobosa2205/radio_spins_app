@@ -39,6 +39,17 @@
                 title="{{ label }}"><i class="fa {{ icon }}"></i> <span>{{ label }}</span></button>
       {% endif %}
     {% endfor %}
+    {# HOJA DE RUTA EN CAMERINOS (sep 2026): el botón de las pantallas de los Echo Show, con su estado
+       pintado por el SERVIDOR (`rm.camerinos`: solo con sesión de la casa y permiso de producción, y
+       encendido cuando ESTA actividad es la que se ve). El pop-up es `camerinos.js`. Ni en una
+       plantilla, ni en lo compartido, ni en el portal (ahí `rm.camerinos` llega vacío). #}
+    {% if rm.camerinos and rm.camerinos.can and not rm.readonly %}
+      <button type="button" class="rm-cam{% if rm.camerinos.is_this %} is-on{% endif %}" data-cam-open
+              data-cam-state-url="{{ rm.camerinos.state_url }}" data-cam-set-url="{{ rm.camerinos.set_url }}"
+              data-cam-screen-url="{{ rm.camerinos.screen_url }}"
+              title="{% if rm.camerinos.is_this %}Se está mostrando en camerinos ({{ rm.camerinos.kind_label|lower }}){% else %}Mostrar en camerinos{% endif %}">
+        <i class="fa fa-tv"></i> <span>Camerinos</span></button>
+    {% endif %}
   </div>
   <div id="rmView" class="rm-view"></div>
 </div>
@@ -58,4 +69,8 @@
 <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/roadmap.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/roadmap_message.js', v=ASSET_V) }}"></script>
+{# El pop-up de CAMERINOS, solo donde está su botón. #}
+{% if rm.camerinos and rm.camerinos.can and not rm.readonly %}
+<script src="{{ url_for('static', filename='js/camerinos.js', v=ASSET_V) }}"></script>
+{% endif %}
 {% endif %}

@@ -89648,6 +89648,9 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "menu_default_sections": ROADMAP_MENU_DEFAULT_SECTIONS,
         "dish_tags": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_DISH_TAGS],
         "show_meals": _roadmap_show_meals(payload),
+        # HOJA DE RUTA EN CAMERINOS: el estado del botón «Camerinos» del panel (lo pinta el servidor).
+        # None donde no toca (una plantilla, un proyecto, lo compartido, el portal).
+        "camerinos": _camerinos_panel_state(session_db, entity_type, row),
     }
 
 
@@ -99515,6 +99518,426 @@ def public_roadmap_view(token):
         session_db.close()
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show (sep 2026, lo pidió Dani)
+#  ---------------------------------------------------------------------------------------------
+#  En cada camerino hay un Alexa Echo Show 8 con el navegador abierto en
+#  `app.33producciones.es/camerinos`: una pantalla completa con la barra de la casa arriba (los logos,
+#  «Horarios» y la hora) y debajo LOS HORARIOS de la hoja de ruta que producción haya elegido, con el
+#  punto en el que estamos remarcado y una línea roja en la hora actual. Se actualiza sola (sondea
+#  `/camerinos/panel` cada 20 s y repinta solo si la versión cambió) y no se apaga (audio silencioso en
+#  bucle + wake lock: está en `camerinos.html`, con el porqué).
+#  · SOLO HAY UNA ELEGIDA EN TODA LA CASA: vive en `AppSetting['camerinos_display']`
+#    (`_camerinos_setting` / `_camerinos_store`). Elegir otra la SUSTITUYE, y por eso el pop-up pregunta
+#    CUÁL se muestra cuando ya hay una. También se elige QUÉ hoja (general o técnica): la pantalla pasa
+#    por `_roadmap_payload_for_kind`, igual que el enlace compartido.
+#  · ⚠️⚠️ LA URL ES PÚBLICA Y SIN TOKEN (lo pidió así, para guardarla en el Alexa). Por eso la pantalla
+#    enseña SOLO los horarios —la hora, qué es, dónde, la línea del traslado y a quién afecta— y NUNCA
+#    contactos con su teléfono, notas, adjuntos, localizadores ni números de habitación:
+#    `_camerinos_item` es una LISTA BLANCA (lo que no está ahí, no sale).
+#  · El botón «Camerinos» del panel de la hoja de ruta lo pinta el SERVIDOR con su estado
+#    (`rm.camerinos` ← `_camerinos_panel_state`); el pop-up (`static/js/camerinos.js`) pide el estado
+#    FRESCO al abrirse (`camerinos_state`), porque lo que se muestra puede haberlo cambiado otra persona.
+#  · Permisos: elegir lo que se muestra es MONTAR producción (`_production_can_edit`), y los endpoints
+#    van en las listas de APOYO (`camerinos_set` en ACTION, `camerinos_state` en READ). Los dos públicos
+#    llevan el prefijo `public_` (la compuerta del login los deja pasar) y están en `PUBLIC_ENDPOINTS_EXTRA`.
+#  · Prueba de regresión: `tools/check_camerinos.py`.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+CAMERINOS_SETTING_KEY = "camerinos_display"
+CAMERINOS_ENTITY_TYPES = ("concert", "action", "promotion")
+CAMERINOS_POLL_SECONDS = 20
+CAMERINOS_PERMISO_MSG = "Elegir lo que se ve en camerinos es de producción (hace falta poder editar Producción)."
+
+
+def _camerinos_setting() -> dict:
+    """QUÉ se está mostrando en los camerinos: `{entity_type, entity_id, kind, set_by, set_at}`, o `{}`
+    si nada. ⚠️ `AppSetting.value` es TEXTO: va como JSON."""
+    raw = _get_app_setting(CAMERINOS_SETTING_KEY, "") or ""
+    data = _json_loads_safe(raw, {})
+    if not isinstance(data, dict):
+        return {}
+    et = str(data.get("entity_type") or "").strip().lower()
+    eid = str(data.get("entity_id") or "").strip()
+    if et not in CAMERINOS_ENTITY_TYPES or not eid:
+        return {}
+    kind = str(data.get("kind") or "GENERAL").strip().upper()
+    if kind not in ROADMAP_KIND_LABELS:
+        kind = "GENERAL"
+    return {"entity_type": et, "entity_id": eid, "kind": kind,
+            "set_by": str(data.get("set_by") or ""), "set_at": str(data.get("set_at") or "")}
+
+
+def _camerinos_store(data: dict | None) -> None:
+    """Guarda (o borra, con `{}`) lo que se muestra en camerinos. UNA clave: solo puede haber una."""
+    _set_app_setting(CAMERINOS_SETTING_KEY, json.dumps(data or {}, ensure_ascii=False))
+
+
+def _camerinos_is_this(sel: dict, entity_type: str, row) -> bool:
+    return bool(sel) and sel.get("entity_type") == entity_type and sel.get("entity_id") == str(getattr(row, "id", ""))
+
+
+def _camerinos_card(session_db, entity_type: str, row, kind: str) -> dict:
+    """LA TARJETA de una actividad para los camerinos: qué es, de quién, cuándo y dónde (y con qué hoja).
+    Sale de `_roadmap_activity_card` —la MISMA cabecera de la hoja de ruta—: aquí no se calcula nada
+    nuevo que se pueda desparejar. La usan el pop-up (la de ahora y esta) y la barra de la pantalla."""
+    payload = _roadmap_load(row)
+    days = _roadmap_days(row, payload)
+    artists = _artists_from_ids(session_db, _roadmap_artist_ids(row))
+    card = _roadmap_activity_card(session_db, entity_type, row, artists, days, payload) or {}
+    filas = [r for r in (card.get("rows") or []) if isinstance(r, dict)]
+
+    def _fila(pred):
+        return next((str(r.get("value") or "").strip() for r in filas if pred(r)), "")
+    recinto = _fila(lambda r: r.get("key") == "venue" or r.get("label") == "Recinto")
+    fecha = _fila(lambda r: r.get("label") in ("Fecha", "Fechas"))
+    if not fecha and days:
+        fecha = days[0]["label"] if len(days) == 1 else f"{days[0]['label']} → {days[-1]['label']}"
+    kind = (kind or "GENERAL").upper()
+    return {
+        "entity_type": entity_type,
+        "entity_id": str(getattr(row, "id", "")),
+        "kind": kind,
+        "kind_label": ROADMAP_KIND_LABELS.get(kind, "Hoja de ruta"),
+        "word": card.get("word") or _roadmap_activity_word(row),
+        "title": (card.get("title") or _roadmap_title(session_db, entity_type, row, artists) or "Actividad"),
+        "subtitle": card.get("subtitle") or "",
+        "photo": card.get("photo") or "",
+        "date": fecha,
+        "venue": recinto,
+        # El recinto y su municipio, sin la provincia: es lo que cabe en la barra de la pantalla.
+        "venue_short": " · ".join(recinto.split(" · ")[:2]) if recinto else "",
+        "url": _roadmap_mine_url(entity_type, str(getattr(row, "id", ""))),
+    }
+
+
+def _camerinos_sort_key(it: dict):
+    """El orden de los horarios, el MISMO que `agendaByDay` en roadmap.js: por hora (lo que no tiene
+    hora o está por confirmar, al final) y después por `order`."""
+    hora = _roadmap_clean_time(it.get("start_time") or "")
+    clave = "99:99" if (it.get("tbc") or not hora) else hora.zfill(5)
+    return (clave, _roadmap_int(it.get("order"), 0))
+
+
+def _camerinos_place(it: dict, venue_name: str) -> str:
+    """DÓNDE, como lo pinta la fila de la hoja de ruta (`placeLabel` en roadmap.js): en un M&G, una
+    sesión de fotos o una comida, el recinto de la actividad con su espacio («Sala Ruta · Camerino 2»)
+    o el otro sitio; en lo demás, lo escrito. Lo que ES en el recinto (la actuación, la prueba de
+    sonido, las puertas) no dice nada, como en la app."""
+    kind = str(it.get("kind") or "").upper()
+    pl = it.get("place") if isinstance(it.get("place"), dict) else None
+    if pl and kind in ROADMAP_PLACE_KINDS:
+        if str(pl.get("mode") or "").upper() == "OTHER":
+            base = str(it.get("location") or pl.get("venue_name") or "").strip()
+        else:
+            base = str(venue_name or "").strip()
+        return " · ".join(x for x in [base, str(pl.get("space") or "").strip()] if x)
+    return str(it.get("location") or "").strip()
+
+
+def _camerinos_item(it: dict, day: str, catalog: dict, venue_name: str, personnel: dict, artistas: dict,
+                    companies: dict) -> dict:
+    """UN PUNTO de los horarios tal como sale en la pantalla de los camerinos.
+
+    ⚠️⚠️ LISTA BLANCA: la pantalla es pública (sin token), así que aquí entra SOLO lo que puede verse
+    desde un camerino —la hora, qué es, dónde, la línea del traslado y a quién afecta— y NADA de
+    contactos, notas, adjuntos, localizadores ni habitaciones. Si un día hace falta enseñar algo más,
+    se añade AQUÍ a conciencia (y se añade a `tools/check_camerinos.py` lo que NO puede salir)."""
+    kind = str(it.get("kind") or "").upper()
+    ki = catalog.get(kind) or {"label": (kind.title() or "Otros"), "icon": "fa-circle", "color": "#6c757d", "transport": False}
+    inicio = _roadmap_clean_time(it.get("start_time") or "")
+    fin = _roadmap_clean_time(it.get("end_time") or "")
+    inicio = inicio.zfill(5) if inicio else ""
+    fin = fin.zfill(5) if fin else ""
+    tbc = bool(it.get("tbc"))
+    if tbc or not (inicio or fin):
+        etiqueta_hora = "TBC"
+    elif inicio:
+        etiqueta_hora = inicio + (f"–{fin}" if fin else "")
+    else:
+        etiqueta_hora = fin
+    transport = it.get("transport") if (ki.get("transport") and isinstance(it.get("transport"), dict)) else None
+    # Un traslado que llega al día siguiente: su fin es del día siguiente (para la línea de la hora).
+    dia_fin = (_roadmap_next_day(day) or day) if (transport and transport.get("ends_next_day")) else day
+    tags: list[dict] = []
+    if it.get("cancelled"):
+        tags.append({"cls": "", "icon": "", "text": "Cancelado"})
+    # UNA ENTREVISTA: de qué medio es, cómo se hace y si es en directo. Creada aquí (`interview`) o
+    # espejada de una promoción de prensa (`promo_meta`): se leen igual, como `ivMeta` en roadmap.js.
+    iv = it.get("interview") if isinstance(it.get("interview"), dict) else {}
+    pm = it.get("promo_meta") if isinstance(it.get("promo_meta"), dict) else {}
+    sub = ""
+    if iv or pm:
+        tipo = str(iv.get("type") or pm.get("media_type") or "").strip()
+        if tipo:
+            tags.append({"cls": "", "icon": str(iv.get("media_icon") or pm.get("media_icon") or "fa-bullhorn"), "text": tipo})
+        modalidad = (PROMO_MODALITY_LABELS.get(str(iv.get("modality") or "").upper(), "")
+                     or str(pm.get("modality_label") or "").strip())
+        if modalidad:
+            tags.append({"cls": "", "icon": "", "text": modalidad})
+        if iv.get("live") or pm.get("is_live"):
+            tags.append({"cls": "live", "icon": "fa-tower-broadcast", "text": "Directo"})
+        medio = str(iv.get("media_name") or pm.get("media_name") or "").strip()
+        linea = " · ".join(x for x in [medio, str(iv.get("program") or "").strip()] if x)
+        # Sin repetir: el título de una entrevista ya empieza por el medio.
+        if linea and not (medio and _norm_text_key(it.get("title") or "").startswith(_norm_text_key(medio))):
+            sub = linea
+    if kind == "MG" and str(it.get("mg_count") or "").strip():
+        tags.append({"cls": "", "icon": "fa-users", "text": str(it.get("mg_count")).strip()})
+    if _roadmap_item_sings(it):
+        tags.append({"cls": "sing", "icon": "fa-music", "text": "Canta"})
+    linea_transporte = None
+    if transport:
+        comp = companies.get(str(transport.get("company_id") or "")) or {}
+        ruta = " → ".join(x for x in [str(transport.get("origin") or "").strip(),
+                                      str(transport.get("destination") or "").strip()] if x)
+        km = transport.get("distance_km")
+        extra = " · ".join(x for x in [str(transport.get("duration") or "").strip(), (f"{km} km" if km else "")] if x)
+        linea_transporte = {
+            # El logo ACTUAL de la base por `company_id` (como `companyLogo` en roadmap.js) y, si no, el guardado.
+            "logo": str(comp.get("logo_url") or transport.get("logo_url") or "").strip(),
+            "company": str(transport.get("company") or comp.get("name") or "").strip(),
+            "number": str(transport.get("number") or "").strip(),
+            "route": ruta,
+            "extra": extra,
+            # Cuántos van: el número, nunca quiénes ni sus localizadores.
+            "passengers": len(transport.get("passengers") or []),
+        }
+        if str(transport.get("status") or "").upper() == "RESERVADO":
+            tags.append({"cls": "warn", "icon": "fa-clock-rotate-left", "text": "Reservado"})
+        if transport.get("ends_next_day"):
+            tags.append({"cls": "plus1", "icon": "", "text": "Fin +1"})
+    # A QUIÉN AFECTA: las funciones, o las personas con su cara (sin teléfonos ni nada más).
+    aud = _roadmap_item_audience(it.get("audience"))
+    roles, personas = [], []
+    if aud["mode"] == "ROLES":
+        roles = list(aud["roles"])
+    elif aud["mode"] == "PEOPLE":
+        for pid in aud["ids"]:
+            if pid.startswith("artist:"):
+                a = artistas.get(pid)
+                if a is not None:
+                    personas.append({"name": (getattr(a, "name", "") or ""), "photo": (getattr(a, "photo_url", "") or "")})
+                continue
+            p = personnel.get(pid)
+            if isinstance(p, dict):
+                personas.append({"name": str(p.get("name") or ""), "photo": str(p.get("photo_url") or "")})
+    return {
+        "id": str(it.get("id") or ""),
+        "kind": kind,
+        "icon": ki.get("icon") or "fa-circle",
+        "color": ki.get("color") or "#6c757d",
+        "title": str(it.get("title") or "").strip() or str(ki.get("label") or "Actividad"),
+        "time_label": etiqueta_hora,
+        "tbc": tbc,
+        # Para la línea de la hora y los estados (los pone el navegador con SU hora local).
+        "when": (f"{day}T{inicio}" if (inicio and not tbc) else ""),
+        "when_end": (f"{dia_fin}T{fin}" if (fin and not tbc) else ""),
+        "cancelled": bool(it.get("cancelled")),
+        # Lo no confirmado va rayado, como en la app (`!it.confirmed` en roadmap.js).
+        "provisional": (not it.get("confirmed")) and not it.get("cancelled"),
+        "place": _camerinos_place(it, venue_name),
+        "sub": sub,
+        "tags": tags,
+        "transport": linea_transporte,
+        "roles": roles,
+        "people": personas,
+    }
+
+
+def _camerinos_context(session_db) -> dict:
+    """TODO lo que pinta la pantalla de los camerinos. Con nada elegido (o una actividad que ya no
+    existe), `active=False` y la pantalla lo dice."""
+    base = {"active": False, "poll": CAMERINOS_POLL_SECONDS, "kind": "", "kind_label": "", "title": "",
+            "subtitle": "", "when": "", "venue": "", "photo": "", "word": "", "days": [], "sub": "", "version": ""}
+    sel = _camerinos_setting()
+    if not sel:
+        return base
+    try:
+        entity_type, row = _roadmap_entity(session_db, sel["entity_type"], sel["entity_id"])
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[camerinos] no se pudo cargar la actividad elegida")
+        return base
+    if row is None:
+        return base
+    kind = sel["kind"]
+    payload = _roadmap_payload_for_kind(_roadmap_load(row), kind)
+    card = _camerinos_card(session_db, entity_type, row, kind)
+    days = _roadmap_days(row, payload)
+    catalog = _roadmap_kind_catalog()
+    venue = getattr(row, "venue", None)
+    venue_name = (getattr(venue, "name", None) or getattr(row, "manual_venue_name", None) or "")
+    personnel = {str(p.get("id")): p for p in (payload.get("personnel") or []) if isinstance(p, dict)}
+    artistas = {_roadmap_artist_audience_key(a.id): a for a in _artists_from_ids(session_db, _roadmap_artist_ids(row))}
+    companies = {str(c.get("id")): c for c in _transport_company_rows(session_db) if isinstance(c, dict)}
+    agenda = [it for it in (payload.get("agenda") or []) if isinstance(it, dict)]
+    dias = []
+    for d in days:
+        del_dia = sorted([it for it in agenda if str(it.get("day") or "")[:10] == d.get("date")], key=_camerinos_sort_key)
+        dias.append(dict(d, items=[_camerinos_item(it, d["date"], catalog, venue_name, personnel, artistas, companies)
+                                   for it in del_dia]))
+    sub = " · ".join(x for x in [card["title"], card["subtitle"], card["venue_short"], card["date"]] if x)
+    return dict(base, active=True, kind=kind, kind_label=card["kind_label"], title=card["title"],
+                subtitle=card["subtitle"], when=card["date"], venue=card["venue_short"], photo=card["photo"],
+                word=card["word"], days=dias, sub=sub)
+
+
+def _camerinos_version(cam: dict, panel_html: str) -> str:
+    """La VERSIÓN de lo que se ve: cambia si cambia el trozo pintado o la cabecera. La pantalla la
+    compara en cada sondeo y solo repinta cuando es distinta."""
+    cabecera = json.dumps({"active": cam.get("active"), "kind": cam.get("kind"), "sub": cam.get("sub")},
+                          sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1((cabecera + "\n" + (panel_html or "")).encode("utf-8")).hexdigest()[:12]
+
+
+def _camerinos_panel_state(session_db, entity_type: str, row):
+    """Lo que necesita el botón «Camerinos» del panel de la hoja de ruta (`rm.camerinos`): si se puede
+    (sesión de la casa con permiso de producción), si ESTA actividad es la que se ve y las URLs. None
+    donde no toca (una plantilla, un proyecto, el enlace compartido, el portal de externos)."""
+    try:
+        if entity_type not in CAMERINOS_ENTITY_TYPES or not session.get("user_id"):
+            return None
+        if not _production_can_edit():
+            return None
+        sel = _camerinos_setting()
+        es_esta = _camerinos_is_this(sel, entity_type, row)
+        eid = str(getattr(row, "id", ""))
+        return {
+            "can": True,
+            "is_this": es_esta,
+            "kind": sel.get("kind") if es_esta else "",
+            "kind_label": (ROADMAP_KIND_LABELS.get(sel.get("kind"), "Hoja de ruta") if es_esta else ""),
+            "state_url": url_for("camerinos_state", entity_type=entity_type, entity_id=eid),
+            "set_url": url_for("camerinos_set", entity_type=entity_type, entity_id=eid),
+            "screen_url": _external_url_for("public_camerinos_view"),
+        }
+    except Exception:
+        app.logger.exception("[camerinos] no se pudo componer el estado del botón")
+        return None
+
+
+def _camerinos_state_payload(session_db, entity_type: str, row) -> dict:
+    """El estado FRESCO que pide el pop-up: esta actividad (su tarjeta), qué hojas tiene activas y qué
+    se está mostrando ahora (con su tarjeta y si es esta misma)."""
+    sel = _camerinos_setting()
+    activos = _roadmap_kinds(row)
+    kinds = [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_KINDS if activos.get(k, True)]
+    activo = None
+    if sel:
+        et2, row2 = _roadmap_entity(session_db, sel["entity_type"], sel["entity_id"])
+        if row2 is not None:
+            activo = _camerinos_card(session_db, et2, row2, sel["kind"])
+            activo["is_this"] = _camerinos_is_this(sel, entity_type, row)
+            activo["set_by"] = sel["set_by"]
+            activo["set_at"] = sel["set_at"]
+        else:
+            # La actividad que se mostraba ya no existe: se limpia, que la pantalla no se quede colgada.
+            _camerinos_store({})
+    kind_esta = sel["kind"] if (activo and activo["is_this"]) else (kinds[0]["key"] if kinds else "GENERAL")
+    return {
+        "ok": True,
+        "screen_url": _external_url_for("public_camerinos_view"),
+        "this": _camerinos_card(session_db, entity_type, row, kind_esta),
+        "kinds": kinds,
+        "active": activo,
+    }
+
+
+@app.get('/camerinos', endpoint='public_camerinos_view')
+@app.get('/Camerinos', endpoint='public_camerinos_view')
+def public_camerinos_view():
+    """LA PANTALLA de los camerinos (pública, sin token: es la dirección que lleva guardada cada Echo
+    Show). `/Camerinos` con mayúscula también vale: es como la escribe uno."""
+    session_db = db()
+    try:
+        cam = _camerinos_context(session_db)
+        panel_html = render_template("_camerinos_panel.html", cam=cam)
+        cam["version"] = _camerinos_version(cam, panel_html)
+        resp = make_response(render_template("camerinos.html", cam=cam, panel_html=Markup(panel_html)))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.get('/camerinos/panel', endpoint='public_camerinos_panel')
+def public_camerinos_panel():
+    """LO QUE SONDEA la pantalla cada pocos segundos: la versión y, si cambió respecto a la que trae
+    (`?v=`), el trozo nuevo ya pintado. Con `asset_v` la pantalla sabe que hay una versión nueva de la
+    app desplegada y se recarga entera."""
+    session_db = db()
+    try:
+        cam = _camerinos_context(session_db)
+        panel_html = render_template("_camerinos_panel.html", cam=cam)
+        v = _camerinos_version(cam, panel_html)
+        cambiado = v != (request.args.get("v") or "").strip()
+        resp = jsonify({"ok": True, "v": v, "changed": cambiado, "html": (panel_html if cambiado else ""),
+                        "sub": cam.get("sub") or "", "kind": cam.get("kind") or "",
+                        "active": bool(cam.get("active")), "asset_v": str(_ASSET_VERSION),
+                        "poll": CAMERINOS_POLL_SECONDS})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/camerinos', endpoint='camerinos_state')
+@admin_required
+def camerinos_state(entity_type, entity_id):
+    """El estado FRESCO para el pop-up del botón «Camerinos» (ver `_camerinos_state_payload`)."""
+    session_db = db()
+    try:
+        et, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if row is None or et not in CAMERINOS_ENTITY_TYPES:
+            return jsonify({"ok": False, "error": "Esa actividad no tiene hoja de ruta que mostrar en camerinos."}), 404
+        if not _production_can_edit():
+            return jsonify({"ok": False, "error": CAMERINOS_PERMISO_MSG}), 403
+        return jsonify(_camerinos_state_payload(session_db, et, row))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/camerinos', endpoint='camerinos_set')
+@admin_required
+def camerinos_set(entity_type, entity_id):
+    """MOSTRAR esta hoja de ruta en camerinos (`action=show`, con su `kind`) o DEJAR DE MOSTRARLA
+    (`action=stop`). Solo puede haber una: mostrar sustituye a la que hubiera."""
+    session_db = db()
+    try:
+        et, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if row is None or et not in CAMERINOS_ENTITY_TYPES:
+            return jsonify({"ok": False, "error": "Esa actividad no tiene hoja de ruta que mostrar en camerinos."}), 404
+        if not _production_can_edit():
+            return jsonify({"ok": False, "error": CAMERINOS_PERMISO_MSG}), 403
+        data = request.get_json(silent=True) or {}
+        accion = str(data.get("action") or "show").strip().lower()
+        sel = _camerinos_setting()
+        estado = _current_user_state() or {}
+        quien = str(estado.get("nick") or "").strip() or _email_to_nick(_current_user_email() or "")
+        if accion == "stop":
+            if sel and not _camerinos_is_this(sel, et, row) and not data.get("force"):
+                return jsonify({"ok": False, "error": "En camerinos se está mostrando otra actividad: se quita desde ella (o eligiendo esta)."}), 409
+            _camerinos_store({})
+            app.logger.info("[camerinos] %s deja los camerinos sin hoja de ruta", quien or "alguien")
+            return jsonify(dict(_camerinos_state_payload(session_db, et, row),
+                                message="Los camerinos ya no muestran ninguna hoja de ruta."))
+        kind = str(data.get("kind") or "GENERAL").strip().upper()
+        if kind not in ROADMAP_KIND_LABELS:
+            return jsonify({"ok": False, "error": "Esa hoja de ruta no existe."}), 400
+        if not _roadmap_kinds(row).get(kind, True):
+            return jsonify({"ok": False, "error": f"La {ROADMAP_KIND_LABELS[kind].lower()} no está activa en esta actividad."}), 400
+        _camerinos_store({"entity_type": et, "entity_id": str(row.id), "kind": kind,
+                          "set_by": quien, "set_at": _now_madrid().isoformat()})
+        payload = _camerinos_state_payload(session_db, et, row)
+        titulo = (payload.get("this") or {}).get("title") or "la actividad"
+        app.logger.info("[camerinos] %s pone en camerinos la %s de %s", quien or "alguien",
+                        ROADMAP_KIND_LABELS[kind].lower(), titulo)
+        return jsonify(dict(payload, message=f"Los camerinos muestran ahora la {ROADMAP_KIND_LABELS[kind].lower()} de {titulo}."))
+    finally:
+        session_db.close()
+
+
 def _tour_concerts_by_slug(session_db, slug: str) -> list[Concert]:
     rows = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(or_(func.upper(func.coalesce(Concert.sale_type, '')) == 'GIRAS_COMPRADAS', func.upper(func.coalesce(Concert.activity_type, '')) == 'GIRA')).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc()).all()
     return [row for row in rows if _tour_group_key(row)[0] == slug]
@@ -101133,6 +101556,8 @@ AUTO_SEGMENT_PARENT = {
 PUBLIC_ENDPOINTS_EXTRA = {"onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "onesheet_public_file", "public_menu_view", "public_menu_save", "public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_announce_confirm", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_caldav_guide_pdf", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest", "public_corporate_invite_open",
                           # El vídeo de YouTube de un correo: la miniatura y el pop-up que lo reproduce.
                           "public_youtube_thumb", "public_youtube_play"}
+# HOJA DE RUTA EN CAMERINOS: la pantalla de los Echo Show y su sondeo (públicos, sin token).
+PUBLIC_ENDPOINTS_EXTRA |= {"public_camerinos_view", "public_camerinos_panel"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -106171,6 +106596,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     # MANDARLE UN MENSAJE (SMS o correo) al personal de la hoja de ruta: lo hace quien monta la
     # producción, que no tiene por qué poder editar la sección de la actividad.
     "roadmap_message_data", "roadmap_message_preview", "roadmap_message_send",
+    # HOJA DE RUTA EN CAMERINOS: elegir qué se ve en las pantallas de los camerinos lo hace quien
+    # monta la producción (el endpoint exige además `_production_can_edit`).
+    "camerinos_set",
     # PRL / altas del personal del evento (subpestaña PRL del Personal + fichas)
     "prl_request_docs", "prl_doc_upload", "prl_doc_reject", "prl_doc_delete", "prl_set_worker_type",
     # Bolsa: cargar plantillas de gastos y pedir facturas a los proveedores
@@ -106213,6 +106641,9 @@ SUPPORT_READ_ENDPOINTS = {
     # puede no poder editar ninguna sección, así que no vale `SUPPORT_ACTION_ENDPOINTS`— y la
     # puerta fina la pone el propio endpoint (va en ella, o ya puede abrir la actividad).
     "roadmap_mine",
+    # El estado de los CAMERINOS que pide el pop-up del botón: una LECTURA (el endpoint exige
+    # además `_production_can_edit`).
+    "camerinos_state",
     # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
     "api_publisher_change",
     # ¿Ya existe una canción con ese nombre de ese artista? Es una BÚSQUEDA, y la hacen el alta de

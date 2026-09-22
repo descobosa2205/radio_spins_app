@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show (sep 2026, lo pidió Dani).
+     Una página SOLA (sin el layout de la app): la barra de la casa arriba —los logos, «Horarios» y la
+     hora— y debajo los horarios de la hoja de ruta elegida, con el punto en el que estamos remarcado
+     y una línea roja en la hora actual. Se actualiza sola y no se apaga. Todo el JS va aquí dentro:
+     la página se recarga entera cuando hay una versión nueva de la app (`asset_v`). #}
+  <title>Camerinos · Horarios</title>
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#E33D48">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}" rel="stylesheet">
+  <style>
+    :root{--cam-red:#E33D48;--cam-blue:#007CA2;}
+    /* ⚠️ Ni `height:100%` ni `overflow` en el body: con eso el BODY pasa a ser el contenedor de scroll
+       (800 px) y `window.scrollTo` no mueve nada (la pantalla no se colocaba sola, visto en la prueba).
+       El que se desplaza es el DOCUMENTO; el `overflow-x: clip` ya lo pone styles.css. */
+    body.cam{margin:0;background:#f4f6f8;color:#212529;
+      font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
+    /* ── LA BARRA: los colores de la casa, los logos, «Horarios» y la hora ── */
+    .cam-bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:1.2rem;padding:.6rem 1.4rem;
+      min-height:86px;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.18);
+      background:linear-gradient(100deg,var(--cam-red) 0%,var(--cam-red) 42%,var(--cam-blue) 100%);}
+    .cam-bar__logos{display:flex;align-items:center;gap:1rem;background:#fff;border-radius:14px;padding:.45rem .9rem;flex:0 0 auto;}
+    /* ⚠️ Lo de tamaño fijo dice que no se encoge (la regla de la casa): sin esto el `img{max-width:100%}`
+       de la app dejaba el logo a 0 px dentro de la pastilla. */
+    .cam-bar__logos img{height:44px;width:auto;max-width:none;flex:0 0 auto;display:block;object-fit:contain;}
+    .cam-bar__title{flex:1 1 auto;min-width:0;}
+    .cam-bar__h{font-size:clamp(1.5rem,3vw,2.3rem);font-weight:800;line-height:1.05;letter-spacing:.01em;}
+    /* De quién es, dónde y qué día: cabe en dos líneas (la fecha va entera, con su día de la semana). */
+    .cam-bar__sub{font-size:clamp(.9rem,1.45vw,1.15rem);opacity:.95;margin-top:.15rem;line-height:1.25;
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+    .cam-bar__kind{display:inline-block;margin-left:.5rem;padding:.05rem .55rem;border-radius:999px;background:rgba(255,255,255,.22);
+      font-size:.72em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:middle;}
+    .cam-bar__clock{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:800;font-size:clamp(2.2rem,5vw,3.5rem);line-height:1;
+      display:flex;align-items:baseline;gap:.25rem;text-shadow:0 2px 10px rgba(0,0,0,.18);}
+    .cam-bar__clock small{font-size:.4em;font-weight:700;opacity:.85;}
+    main.cam-main{padding:1.1rem 1.4rem 5rem;max-width:1400px;margin:0 auto;}
+    /* ── LOS HORARIOS: la agenda de la casa, a tamaño de pantalla de camerino ── */
+    .cam-main .rm-item{cursor:default;padding:.85rem 1rem;grid-template-columns:52px 1fr auto;border-radius:16px;transition:box-shadow .3s,opacity .3s,transform .3s;}
+    .cam-main .rm-ico{width:44px;height:44px;font-size:1.15rem;}
+    .cam-main .rm-item .rm-time{font-size:1.3rem;}
+    .cam-main .rm-title{font-size:1.35rem;font-weight:700;line-height:1.15;}
+    .cam-main .rm-sub{font-size:1.02rem;margin-top:.1rem;}
+    .cam-main .rm-tag{font-size:.8rem;padding:.1rem .5rem;}
+    .cam-main .rm-tags{margin-top:.35rem;}
+    .cam-main .rm-transport-line{font-size:1.02rem;}
+    .cam-main .rm-transport-line img{height:26px;max-width:110px;}
+    .cam-main .rm-aud{margin-top:.35rem;}
+    .cam-main .rm-cal{width:64px;} .cam-main .rm-cal .num{font-size:1.55rem;} .cam-main .rm-cal .wd,.cam-main .rm-cal .mo{font-size:.7rem;}
+    .cam-main .rm-dayhead .lbl{font-size:1.2rem;}
+    .cam-main .rm-agenda::before{left:31px;}
+    .cam-main .rm-dayitems{padding-left:84px;gap:.65rem;}
+    .cam-main .rm-agenda--single .rm-dayitems{padding-left:0;}
+    .cam-sinnada{padding:.4rem .6rem;font-size:1.05rem;}
+    /* Los estados los pone el navegador con la hora: lo pasado se apaga, lo de ahora se remarca. */
+    .cam-item.is-past{opacity:.48;}
+    .cam-item.is-now{border-color:var(--cam-red);border-left-color:var(--cam-red);transform:scale(1.012);
+      box-shadow:0 0 0 3px rgba(227,61,72,.18),0 12px 30px rgba(227,61,72,.2);}
+    .cam-item.is-now .rm-time{color:var(--cam-red);}
+    .cam-state{display:flex;align-items:center;justify-content:flex-end;min-width:70px;align-self:center;}
+    .cam-state span{display:none;}
+    .cam-item.is-now .cam-state__now{display:inline-flex;align-items:center;gap:.4rem;background:var(--cam-red);color:#fff;font-weight:800;
+      font-size:.9rem;letter-spacing:.06em;text-transform:uppercase;padding:.35rem .8rem;border-radius:999px;}
+    .cam-item.is-now .cam-state__now::before{content:"";width:9px;height:9px;border-radius:50%;background:#fff;animation:camPulse 1.2s infinite;}
+    .cam-item.is-next .cam-state__next{display:inline-flex;background:#eef1f4;color:#495057;font-weight:700;font-size:.82rem;
+      text-transform:uppercase;letter-spacing:.05em;padding:.3rem .7rem;border-radius:999px;}
+    .cam-item.is-past .cam-state__done{display:inline-flex;color:#adb5bd;font-size:1.15rem;}
+    @keyframes camPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.65)}}
+    /* La línea roja de la hora actual, entre lo que ya ha pasado y lo que viene. */
+    .cam-now{display:flex;align-items:center;gap:.6rem;margin:.05rem 0;}
+    .cam-now::before,.cam-now::after{content:"";flex:1 1 auto;height:3px;background:var(--cam-red);border-radius:2px;}
+    .cam-now__time{flex:0 0 auto;background:var(--cam-red);color:#fff;font-weight:800;font-variant-numeric:tabular-nums;
+      padding:.15rem .75rem;border-radius:999px;font-size:1.02rem;box-shadow:0 4px 12px rgba(227,61,72,.35);}
+    /* Sin nada elegido. */
+    .cam-empty{min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:.6rem;padding:2rem 1rem;color:#495057;}
+    .cam-empty__ico{width:84px;height:84px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:2rem;color:var(--cam-blue);box-shadow:0 6px 20px rgba(15,23,42,.08);margin-bottom:.4rem;}
+    .cam-empty__t{font-size:1.5rem;font-weight:800;color:#212529;}
+    .cam-empty__s{max-width:560px;font-size:1.05rem;line-height:1.45;}
+    .cam-empty__btn{display:inline-flex;align-items:center;gap:.3rem;border:1px solid rgba(227,61,72,.45);color:#c62330;border-radius:999px;padding:.05rem .6rem;font-weight:700;font-size:.9em;background:#fff;}
+    /* El velo de arranque: el navegador solo deja sonar (y por tanto seguir despierto) tras tocar la
+       pantalla una vez, así que se pide ese toque de forma explícita. */
+    .cam-gate{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.9rem;
+      background:rgba(255,255,255,.97);text-align:center;padding:2rem;cursor:pointer;}
+    .cam-gate[hidden]{display:none;}
+    .cam-gate img{height:54px;width:auto;max-width:none;}
+    .cam-gate__t{font-size:1.7rem;font-weight:800;margin-top:.6rem;}
+    .cam-gate__s{color:#6c757d;font-size:1.05rem;max-width:520px;}
+    .cam-gate__hand{font-size:2.4rem;color:var(--cam-red);animation:camTap 1.4s infinite;}
+    @keyframes camTap{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+    /* El aviso de que no hay conexión (se reintenta solo). */
+    .cam-status{position:fixed;right:1rem;bottom:1rem;z-index:30;background:#212529;color:#fff;padding:.45rem .9rem;border-radius:999px;font-size:.95rem;display:none;box-shadow:0 6px 18px rgba(0,0,0,.25);}
+    .cam-status.is-on{display:inline-flex;align-items:center;gap:.45rem;}
+    @media (max-width:640px){
+      .cam-bar{gap:.7rem;padding:.5rem .8rem;min-height:70px;}
+      .cam-bar__logos img{height:30px;} .cam-bar__logos{gap:.5rem;padding:.35rem .6rem;}
+      .cam-bar__sub{white-space:normal;font-size:.8rem;}
+      main.cam-main{padding:.8rem .8rem 4rem;}
+      .cam-main .rm-item{grid-template-columns:40px 1fr auto;padding:.6rem .7rem;}
+      .cam-main .rm-ico{width:34px;height:34px;font-size:.95rem;}
+      .cam-main .rm-title{font-size:1.1rem;} .cam-main .rm-item .rm-time{font-size:1.05rem;}
+      .cam-main .rm-agenda::before{left:19px;} .cam-main .rm-cal{width:40px;} .cam-main .rm-dayitems{padding-left:52px;}
+      .cam-state{min-width:0;}
+    }
+  </style>
+</head>
+<body class="cam">
+  <header class="cam-bar">
+    <div class="cam-bar__logos">
+      <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records">
+    </div>
+    <div class="cam-bar__title">
+      <div class="cam-bar__h">Horarios</div>
+      <div class="cam-bar__sub" id="camSub">{{ cam.sub }}{% if cam.active and cam.kind == 'TECNICA' %}<span class="cam-bar__kind">Hoja técnica</span>{% endif %}</div>
+    </div>
+    <div class="cam-bar__clock" aria-live="off"><span id="camClock">--:--</span><small id="camSec">--</small></div>
+  </header>
+
+  <main class="cam-main" id="camPanel" data-v="{{ cam.version }}">{{ panel_html }}</main>
+
+  <div class="cam-status" id="camStatus"><i class="fa fa-wifi"></i> <span>Sin conexión · se reintenta solo</span></div>
+
+  <div class="cam-gate" id="camGate" hidden>
+    <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="">
+    <div class="cam-gate__hand"><i class="fa fa-hand-pointer"></i></div>
+    <div class="cam-gate__t">Toca la pantalla para empezar</div>
+    <div class="cam-gate__s">Con un toque la pantalla se queda encendida y los horarios se van actualizando solos.</div>
+  </div>
+
+  {# El audio SILENCIOSO que mantiene despierto el navegador del Echo Show (Silk vuelve a la pantalla
+     de inicio a los ~10 min si no «pasa nada»; con un audio en marcha no). Es un WAV de un segundo de
+     silencio en bucle, y cada minuto se vuelve a cargar (lo que hace `keep-silk-open`, el truco
+     conocido para los paneles en un Echo Show). #}
+  <audio id="camKeep" loop preload="auto" src="{{ url_for('static', filename='audio/silencio.wav') }}"></audio>
+
+  <script>
+  (function () {
+    'use strict';
+    var POLL_MS = {{ (cam.poll or 20) * 1000 }};
+    var ASSET_V = {{ ASSET_V|tojson }};
+    var PANEL_URL = {{ url_for('public_camerinos_panel')|tojson }};
+    var panel = document.getElementById('camPanel');
+    var sub = document.getElementById('camSub');
+    var clock = document.getElementById('camClock'), sec = document.getElementById('camSec');
+    var status = document.getElementById('camStatus');
+    var gate = document.getElementById('camGate');
+    var audio = document.getElementById('camKeep');
+    var version = panel.getAttribute('data-v') || '';
+    var fallos = 0, ultimoToque = 0, wake = null;
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function hoyKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+    function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+    /* «YYYY-MM-DDTHH:MM» en la hora LOCAL del aparato (la hoja de ruta va en la hora del sitio, y el
+       Alexa está en el sitio): nada de zonas horarias del servidor. */
+    function aMs(iso) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})$/.exec(iso || '');
+      if (!m) return NaN;
+      return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0).getTime();
+    }
+
+    /* ── EL RELOJ ── */
+    function tick() { var d = new Date(); clock.textContent = hhmm(d); sec.textContent = pad(d.getSeconds()); }
+    tick(); setInterval(tick, 1000);
+
+    /* ── DÓNDE ESTAMOS: lo pasado se apaga, lo de ahora se remarca, lo siguiente se anuncia y la
+       línea roja se coloca en la hora actual (solo si hoy es uno de los días de la hoja). ── */
+    var ultimoAncla = null;
+    function marcarAhora(forzarScroll) {
+      var ahora = Date.now(), hoy = hoyKey(new Date());
+      var filas = Array.prototype.slice.call(panel.querySelectorAll('.cam-item'));
+      var vieja = panel.querySelector('.cam-now'); if (vieja) vieja.parentNode.removeChild(vieja);
+      var conHora = filas.filter(function (f) { return !isNaN(aMs(f.getAttribute('data-start'))) && !f.classList.contains('cancelled'); });
+      var actual = null, siguiente = null;
+      for (var i = 0; i < conHora.length; i++) {
+        var f = conHora[i], s = aMs(f.getAttribute('data-start')), e = aMs(f.getAttribute('data-end'));
+        if (isNaN(e) || e <= s) {
+          // Sin hora de fin: dura hasta el siguiente punto del MISMO día, o una hora.
+          var n = conHora[i + 1], ns = n ? aMs(n.getAttribute('data-start')) : NaN;
+          var mismoDia = n && n.getAttribute('data-start').slice(0, 10) === f.getAttribute('data-start').slice(0, 10);
+          e = (mismoDia && !isNaN(ns) && ns > s) ? ns : s + 60 * 60000;
+        }
+        if (s <= ahora && ahora < e && !actual) actual = f;
+        if (s > ahora && !siguiente) siguiente = f;
+      }
+      filas.forEach(function (f) { f.classList.remove('is-past', 'is-now', 'is-next'); });
+      conHora.forEach(function (f) { if (aMs(f.getAttribute('data-start')) <= ahora && f !== actual) f.classList.add('is-past'); });
+      if (actual) actual.classList.add('is-now');
+      if (siguiente) siguiente.classList.add('is-next');
+      var ancla = null;
+      var bloqueHoy = panel.querySelector('.cam-day[data-day="' + hoy + '"]');
+      if (bloqueHoy) {
+        var lista = bloqueHoy.querySelector('.rm-dayitems');
+        var linea = document.createElement('div');
+        linea.className = 'cam-now';
+        linea.innerHTML = '<span class="cam-now__time">' + hhmm(new Date()) + '</span>';
+        var tras = null;
+        Array.prototype.forEach.call(lista.querySelectorAll('.cam-item'), function (f) {
+          var s = aMs(f.getAttribute('data-start'));
+          if (!isNaN(s) && s <= ahora) tras = f;
+        });
+        if (tras) tras.insertAdjacentElement('afterend', linea); else lista.insertAdjacentElement('afterbegin', linea);
+        ancla = actual || linea;
+      }
+      // La pantalla se coloca sola para que se vea lo de ahora (si nadie la está tocando).
+      if (ancla && (forzarScroll || ancla !== ultimoAncla) && Date.now() - ultimoToque > 45000) {
+        ultimoAncla = ancla;
+        colocar(ancla, !forzarScroll);
+      }
+    }
+    /* Lleva la pantalla a que `nodo` quede a un tercio de la altura. ⚠️ Al arrancar va EN SECO (sin
+       animación) y después de que cargue todo: un desplazamiento suave lanzado mientras la página
+       todavía se está pintando se pierde por el camino (pasó en la prueba: se quedaba arriba). */
+    function colocar(nodo, suave) {
+      try {
+        var r = nodo.getBoundingClientRect();
+        var destino = Math.max(0, window.scrollY + r.top - Math.max(110, window.innerHeight * 0.3));
+        if (suave && 'scrollBehavior' in document.documentElement.style) window.scrollTo({ top: destino, behavior: 'smooth' });
+        else window.scrollTo(0, destino);
+      } catch (e) { /* un navegador viejo: se queda donde está */ }
+    }
+    window.addEventListener('load', function () { setTimeout(function () { ultimoAncla = null; marcarAhora(true); }, 250); });
+    ['touchstart', 'pointerdown', 'wheel', 'keydown'].forEach(function (ev) {
+      document.addEventListener(ev, function () { ultimoToque = Date.now(); }, { passive: true });
+    });
+    marcarAhora(true);
+    setInterval(function () { marcarAhora(false); }, 20000);
+
+    /* ── LA ACTUALIZACIÓN: se pregunta por la versión y solo se repinta si cambió. ── */
+    function sondear() {
+      var url = PANEL_URL + '?v=' + encodeURIComponent(version) + '&_=' + Date.now();
+      fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (d) {
+          fallos = 0; status.classList.remove('is-on');
+          // Hay una versión nueva de la app desplegada: la página entera se recarga (JS y CSS nuevos).
+          if (d.asset_v && String(d.asset_v) !== String(ASSET_V)) { location.reload(); return; }
+          if (d.v && d.v !== version) {
+            version = d.v; panel.setAttribute('data-v', version);
+            panel.innerHTML = d.html || '';
+            sub.innerHTML = '';
+            sub.appendChild(document.createTextNode(d.sub || ''));
+            if (d.kind === 'TECNICA') { var k = document.createElement('span'); k.className = 'cam-bar__kind'; k.textContent = 'Hoja técnica'; sub.appendChild(k); }
+            ultimoAncla = null;
+            marcarAhora(true);
+          }
+        })
+        .catch(function () { fallos += 1; if (fallos >= 3) status.classList.add('is-on'); })
+        .then(function () { setTimeout(sondear, POLL_MS); });
+    }
+    setTimeout(sondear, POLL_MS);
+    // Y una vez al día, de madrugada, la página se recarga entera (por si acaso).
+    setInterval(function () { var d = new Date(); if (d.getHours() === 5 && d.getMinutes() === 0) location.reload(); }, 60000);
+
+    /* ── NO SE APAGA: el audio silencioso en bucle (recargado cada minuto) y el wake lock. ── */
+    function pedirWake() {
+      if (!('wakeLock' in navigator)) return;
+      try { navigator.wakeLock.request('screen').then(function (l) { wake = l; }).catch(function () {}); } catch (e) {}
+    }
+    var intervaloKeep = null;
+    function mantenerDespierto() {
+      var p;
+      try { audio.volume = 1; p = audio.play(); } catch (e) { p = null; }
+      if (p && p.then) {
+        p.then(function () { gate.hidden = true; }).catch(function () { gate.hidden = false; });
+      }
+      if (!intervaloKeep) {
+        intervaloKeep = setInterval(function () {
+          try { audio.load(); var q = audio.play(); if (q && q.catch) q.catch(function () {}); } catch (e) {}
+        }, 60000);
+      }
+      pedirWake();
+    }
+    gate.addEventListener('click', function () {
+      gate.hidden = true;
+      mantenerDespierto();
+      try { var de = document.documentElement; if (de.requestFullscreen) de.requestFullscreen().catch(function () {}); } catch (e) {}
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') { pedirWake(); tick(); marcarAhora(false); }
+    });
+    mantenerDespierto();
+  })();
+  </script>
+</body>
+</html>

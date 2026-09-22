@@ -35,6 +35,7 @@
 - UN TRASLADO SE LLENA CON VARIAS PERSONAS DE GOLPE: en un transfer va casi
 - HOJA DE RUTA · lo que ve cada uno, quién puede actualizarla y el repertorio (sep 2026,
 - HOJA DE RUTA · MANDARLE UN MENSAJE AL PERSONAL. «Mañana el bus sale a las 8:30» hay
+- HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show: una sola hoja elegida, sus horarios con
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 - TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
@@ -835,6 +836,55 @@ transporte): ahí se quita y deja de salir.
   ⚠️ En una **PLANTILLA** no se ofrece (no hay a quién avisar) y el endpoint lo vuelve a comprobar.
   · Y de paso, `_roadmap_person_rows` **resuelve el NOMBRE de la ficha** cuando en la hoja de ruta
   se quedó vacío: esa persona salía como «Sin nombre» en el listado, en el PDF y aquí.
+
+- ⚠️⚠️ **HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show** (sep 2026, lo pidió Dani). En
+  cada camerino hay un Alexa Echo Show 8 con el navegador abierto en **`app.33producciones.es/camerinos`**
+  (`/Camerinos` con mayúscula también vale): la barra de la casa arriba —los dos logos, «Horarios» y la
+  hora en grande— y debajo **los horarios de la hoja de ruta que producción haya elegido**, con el
+  aspecto de la app (las clases `.rm-*` de la agenda, a tamaño de pantalla), **lo pasado apagado, el
+  punto de AHORA remarcado, el SIGUIENTE anunciado y una línea roja en la hora actual**. Se coloca sola
+  para que se vea lo de ahora (si nadie la está tocando). Plantillas `camerinos.html` (la página, con su
+  CSS y su JS dentro) y `_camerinos_panel.html` (el trozo que se repinta).
+  · **SOLO HAY UNA EN TODA LA CASA**: `AppSetting['camerinos_display']` (`_camerinos_setting` /
+  `_camerinos_store`, JSON en texto). Se elige con el botón **«Camerinos»** de la barra del panel de la
+  hoja de ruta (Producción → Hoja de ruta), que pinta el SERVIDOR con su estado (`rm.camerinos` ←
+  `_camerinos_panel_state`: encendido y latiendo cuando ESTA actividad es la que se ve; vacío en una
+  plantilla, un proyecto, lo compartido y el portal). Su pop-up (`static/js/camerinos.js`, el asistente
+  de la casa arrancado a mano y rehecho en cada apertura) pide el estado FRESCO al abrirse
+  (`camerinos_state`) y pregunta **¿cuál?** (solo si ya se muestra otra: la de ahora o esta), **¿qué
+  hoja?** (general o técnica, solo si la actividad tiene las dos activas) y **listo** (el resumen y la
+  dirección de la pantalla, con **«Dejar de mostrar»** si es esta). Guarda `camerinos_set`.
+  ⚠️ Quitar desde una actividad que NO es la que se ve responde **409** (se quita desde ella, o
+  eligiendo esta): así no se apaga la pantalla de otro sin querer.
+  · ⚠️⚠️ **LA URL ES PÚBLICA Y SIN TOKEN** (así la pidió, para guardarla en el Alexa). Por eso la
+  pantalla pasa por `_roadmap_payload_for_kind` (como el enlace compartido) y **`_camerinos_item` es una
+  LISTA BLANCA**: la hora, qué es, dónde (`_camerinos_place`, el espejo de `placeLabel`), la línea del
+  traslado (logo, nº, trayecto, cuántos van) y a quién afecta (funciones o caras). **Nunca** contactos
+  con su teléfono, notas, adjuntos, localizadores ni números de habitación (`check_camerinos.py` lo
+  comprueba con datos-trampa: si un día hay que enseñar algo más, se añade ahí a conciencia).
+  · **CÓMO SE ACTUALIZA**: la pantalla sondea **`/camerinos/panel?v=`** cada 20 s
+  (`CAMERINOS_POLL_SECONDS`); el servidor responde la **versión** (`_camerinos_version`: un hash de la
+  cabecera y del trozo pintado) y, solo si cambió, el trozo nuevo, que se sustituye entero. ⚠️ Nada que
+  dependa de la hora va en ese trozo: la hora, «Ahora» y la línea roja las pone el navegador sobre los
+  `data-start`/`data-end` de cada fila **con el reloj del aparato** (la hoja va en la hora del sitio y
+  el Alexa está en el sitio), así la versión solo cambia cuando cambia la hoja. Con un `asset_v`
+  distinto (un despliegue) la página **se recarga entera**, y a las 5 de la mañana también.
+  · **NO SE APAGA**: Silk (el navegador del Echo Show) vuelve a la pantalla de inicio a los ~10 min si
+  «no pasa nada», y Amazon no deja desactivarlo; el truco conocido (`keep-silk-open`) es un **audio
+  SILENCIOSO en bucle** que se recarga cada minuto (`static/audio/silencio.wav`, un WAV de un segundo)
+  más el **wake lock** de pantalla. ⚠️ El navegador solo deja sonar tras un TOQUE: si el autoplay
+  falla sale el velo **«Toca la pantalla para empezar»**, y ese toque pide además la pantalla completa.
+  · Permisos: elegir es MONTAR producción (`_production_can_edit`); `camerinos_set` va en
+  `SUPPORT_ACTION_ENDPOINTS` y `camerinos_state` en `SUPPORT_READ_ENDPOINTS`; los dos públicos llevan
+  el prefijo `public_` y están en `PUBLIC_ENDPOINTS_EXTRA`. ⚠️ Los de la casa NO llevan el prefijo
+  `roadmap_` a propósito: un productor EXTERNO (`EXTERNAL_PROD_PREFIXES`) no elige lo que se ve.
+  · Prueba de regresión: **`/tmp/python/bin/python3 tools/check_camerinos.py`** (58 comprobaciones,
+  idempotente: pasa dos veces seguidas). Probado además en el navegador a 1280×800 (la resolución del
+  Echo Show 8): los estados, la línea roja, el sondeo sin repintar, el botón encendido y el pop-up.
+  ⚠️ **Lo que NO se pudo probar es el propio Echo Show** (no había ninguno a mano): el audio
+  silencioso, el wake lock y la pantalla completa en Silk se apoyan en lo documentado por otros.
+  ⚠️ **El desplazamiento inicial va EN SECO y tras `load`**: un `scrollTo` suave lanzado mientras la
+  página todavía se pinta se perdía por el camino (se quedaba arriba, visto en la prueba).
 
 - ⚠️⚠️ **HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos** (sep 2026, lo pidió
   Dani). El editor de un punto de los horarios era un formulario largo de un tirón; ahora es el

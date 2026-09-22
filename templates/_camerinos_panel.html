@@ -1,0 +1,73 @@
+{# HOJA DE RUTA EN CAMERINOS · el TROZO que se repinta (sep 2026).
+   Lo pinta el servidor con `cam` (`_camerinos_context`) y la pantalla (`camerinos.html`) lo pide cada
+   pocos segundos por `/camerinos/panel`: si su versión cambió, sustituye este bloque entero. Por eso
+   aquí NO va nada que dependa de la hora (la hora, «Ahora», la línea roja): eso lo pone el navegador
+   sobre los `data-start`/`data-end` de cada fila, y así la versión solo cambia cuando cambia la hoja.
+   ⚠️ Es el MISMO aspecto que los horarios de la hoja de ruta (las clases `.rm-*` de la casa): la hoja
+   de calendario de cada día sobre la línea, y cada punto con su icono, su hora, su título y su sitio.
+   ⚠️ Es una URL PÚBLICA sin token: lo que llega aquí ya está filtrado por `_camerinos_item` (lista
+   blanca: nada de teléfonos, notas, adjuntos, localizadores ni habitaciones). #}
+{% if not cam.active %}
+  <div class="cam-empty">
+    <div class="cam-empty__ico"><i class="fa fa-tv"></i></div>
+    <div class="cam-empty__t">No hay ninguna hoja de ruta en camerinos</div>
+    <div class="cam-empty__s">Desde la actividad, en <b>Producción → Hoja de ruta</b>, el botón
+      <span class="cam-empty__btn"><i class="fa fa-tv"></i> Camerinos</span> elige la que se muestra aquí.
+      Esta pantalla se actualiza sola.</div>
+  </div>
+{% else %}
+  <div class="rm-agenda cam-agenda{% if cam.days|length < 2 %} rm-agenda--single{% endif %}">
+    {% for d in cam.days %}
+      <div class="rm-dayblock cam-day" data-day="{{ d.date }}">
+        <div class="rm-dayhead">
+          <div class="rm-cal"><span class="wd">{{ d.weekday }}</span><span class="num">{{ d.day }}</span><span class="mo">{{ d.month }}</span></div>
+          <div class="lbl">{{ d.label }}</div>
+        </div>
+        <div class="rm-dayitems">
+          {% if not d['items'] %}
+            <div class="text-muted cam-sinnada">Sin horarios este día</div>
+          {% endif %}
+          {% for it in d['items'] %}
+            <div class="rm-item cam-item{% if it.provisional %} provisional{% endif %}{% if it.cancelled %} cancelled{% endif %}"
+                 data-item="{{ it.id }}" data-start="{{ it.when }}" data-end="{{ it.when_end }}"
+                 style="--rm-line:{{ it.color }}">
+              <div class="rm-ico" style="background:{{ it.color }}"><i class="fa {{ it.icon }}"></i></div>
+              <div class="min-w-0">
+                <div class="rm-time">{% if it.time_label == 'TBC' %}<span class="tbc">TBC</span>{% else %}{{ it.time_label }}{% endif %}</div>
+                <div class="rm-title">{{ it.title }}</div>
+                {% if it.place %}<div class="rm-sub"><i class="fa fa-location-dot"></i> {{ it.place }}</div>{% endif %}
+                {% if it.sub %}<div class="rm-sub">{{ it.sub }}</div>{% endif %}
+                {% if it.transport %}
+                  {% set t = it.transport %}
+                  <div class="rm-transport-line">
+                    {% if t.logo %}<img src="{{ t.logo }}" alt="{{ t.company }}" title="{{ t.company }}">{% elif t.company %}<span>{{ t.company }}</span>{% endif %}
+                    {% if t.number %}<span>{{ t.number }}</span>{% endif %}
+                    {% if t.route %}<span>{{ t.route }}</span>{% endif %}
+                    {% if t.extra %}<span>· {{ t.extra }}</span>{% endif %}
+                    {% if t.passengers %}<span>· <i class="fa fa-user-group"></i> {{ t.passengers }}</span>{% endif %}
+                  </div>
+                {% endif %}
+                {% if it.tags %}
+                  <div class="rm-tags">
+                    {% for tg in it.tags %}<span class="rm-tag {{ tg.cls }}">{% if tg.icon %}<i class="fa {{ tg.icon }}"></i> {% endif %}{{ tg.text }}</span>{% endfor %}
+                  </div>
+                {% endif %}
+                {% if it.roles or it.people %}
+                  <div class="rm-aud">
+                    {% for r in it.roles %}<span class="rm-tag"><i class="fa fa-user-tag"></i> {{ r }}</span>{% endfor %}
+                    {% for p in it.people %}<span class="rm-nick" title="{{ p.name }}">{% if p.photo %}<img src="{{ p.photo }}" alt="">{% else %}<span class="noimg"><i class="fa fa-user"></i></span>{% endif %}<span>{{ p.name }}</span></span>{% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              <div class="cam-state">
+                <span class="cam-state__now">Ahora</span>
+                <span class="cam-state__next">Siguiente</span>
+                <span class="cam-state__done"><i class="fa fa-check"></i></span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

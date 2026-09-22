@@ -8610,3 +8610,25 @@ label.ci-imp__row{ cursor:pointer; }
   border-radius:999px; color:var(--brand-accent); border-color:var(--line-2); line-height:1; }
 .artist-social-hero .artist-social-os:hover{ color:#fff; background:var(--brand-accent); border-color:var(--brand-accent); }
 .artist-social-hero .artist-social-os i{ font-size:1rem; }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   HOJA DE RUTA EN CAMERINOS (sep 2026) · el botón «Camerinos» de la barra del panel de la hoja de
+   ruta (con su punto latiendo cuando ESTA actividad es la que se ve en las pantallas) y las tarjetas
+   de su pop-up. La pantalla en sí (`/camerinos`) lleva su CSS dentro de `camerinos.html`.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+.rm-nav .rm-cam{margin-left:auto;flex:0 0 auto;border-color:rgba(227,61,72,.45);color:#c62330;background:#fff;}
+.rm-nav .rm-cam i{opacity:1;}
+.rm-nav .rm-cam.is-on{background:#c62330;border-color:#c62330;color:#fff;}
+.rm-nav .rm-cam.is-on::after{content:"";width:8px;height:8px;border-radius:50%;background:#fff;margin-left:.15rem;animation:rmCamPulse 1.2s infinite;}
+@keyframes rmCamPulse{0%,100%{opacity:1}50%{opacity:.25}}
+.cam-card{display:flex;gap:.8rem;align-items:center;text-align:left;min-width:0;}
+.cam-card img,.cam-card .cam-card__ico{width:52px;height:52px;border-radius:12px;object-fit:cover;flex:0 0 auto;background:#f1f3f5;}
+.cam-card .cam-card__ico{display:grid;place-items:center;color:var(--brand-accent,#007ca2);font-size:1.4rem;}
+.cam-card__lbl{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--brand-accent,#007ca2);}
+.cam-card__t{font-weight:700;line-height:1.15;}
+.cam-card__s{font-size:.82rem;color:#6c757d;}
+/* En el paso «¿cuál?» la tarjeta va a la izquierda (no centrada como un icono). */
+.cam-which .promo-pick__box{align-items:stretch;text-align:left;}
+.cam-which .promo-pick__box img{width:52px;height:52px;border-radius:12px;}
+.cam-url{display:flex;align-items:center;gap:.5rem;background:#f8f9fa;border:1px dashed rgba(0,0,0,.15);border-radius:10px;padding:.5rem .75rem;font-weight:700;min-width:0;}
+.cam-url .btn{flex:0 0 auto;}

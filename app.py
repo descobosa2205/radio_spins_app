@@ -73087,7 +73087,10 @@ def concert_detail_view(cid):
             # UNA SOLA etiqueta «Artista OK»: las dos vías (su respuesta y lo apuntado a mano) se
             # juntan aquí, y si hubo varias interacciones se ven al pasar el ratón.
             artist_ok=_concert_artist_ok(_artist_confirmation_state(session, c),
-                                         _concert_peticion_phases(session, c)),
+                                         _concert_peticion_phases(session, c),
+                                         _artist_changes_state(session, c)),
+            # ⚠️ El cambio que espera el sí del artista: la barra lo pinta en AMARILLO.
+            artist_changes=_artist_changes_state(session, c),
             # ⚠️⚠️ CONFIRMAR AL PROMOTOR SALE EN TODAS las que tengan promotor (sep 2026, lo pidió
             # Dani), no solo en las de petición. Punto único `_promoter_confirm_state`: el botón
             # «Notificar al promotor» está en la barra HASTA que queda confirmado y entonces
@@ -129361,7 +129364,11 @@ ACTIVITY_NOTICE_KINDS = {
     "APLAZAMIENTO": "Actividad aplazada",
 }
 # Los tipos de aviso que ESPERAN una respuesta del artista.
-ACTIVITY_NOTICE_ASK_KINDS = {"CONFIRMAR"}
+# ⚠️⚠️ PIDEN RESPUESTA AL ARTISTA: la confirmación de siempre **y los CAMBIOS** (sep 2026, lo
+# pidió Dani: «los botones para que el artista lo confirme… y así nos garantizamos que los artistas
+# aprueben los cambios»). Un cambio de fecha o de recinto no vale con avisarlo: hay que saber que lo
+# ha aceptado.
+ACTIVITY_NOTICE_ASK_KINDS = {"CONFIRMAR", "CAMBIOS"}
 ACTIVITY_NOTICE_CHANNELS = [
     ("EMAIL", "Correo", "fa-envelope"),
     ("WHATSAPP", "WhatsApp", "fa-brands fa-whatsapp"),
@@ -130047,6 +130054,9 @@ def _concert_notice_mark_manual(session_db, concert, *, nota: str = "") -> None:
         concert_id=concert.id,
         channel="MANUAL",
         kind=kind,
+        # ⚠️ También aquí se guardan los datos del momento: si después cambia algo, el aviso de
+        # cambios sabrá contra qué comparar (aunque este no se mandara por la app).
+        facts=_activity_notice_facts(_activity_notice_context(session_db, concert, kind=kind)),
         recipients=[],
         # Sin nota escrita, la de su MOTIVO: así en el historial se lee por qué no se mandó nada.
         note=(nota or _artist_notice_ack_texts(_concert_notice_ack_reason(concert))["manual_note"]),
@@ -130846,7 +130856,7 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         session_db, concert, category=("SOLDOUT" if kind == "SOLDOUT" else "POSTER"))
         if kind in ("ANUNCIO", "CARTELERIA", "SOLDOUT") else {})
 
-    return {
+    ctx = {
         "concert_id": str(getattr(concert, "id", "") or ""),
         "kind": kind,
         "title": ACTIVITY_NOTICE_KINDS[kind],
@@ -130880,6 +130890,84 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         "ask_confirm_url": "",
         "ask_reject_url": "",
     }
+    # ⚠️⚠️ EN UN AVISO DE CAMBIOS, CADA DATO QUE HA CAMBIADO LLEVA LO QUE PONÍA ANTES (sep 2026, lo
+    # pidió Dani: «al lado de la información correcta, una etiqueta amarilla de Cambio · Antes: xxx,
+    # para que el artista sepa fácilmente lo que hay»).
+    if kind == "CAMBIOS":
+        try:
+            _activity_notice_mark_changes(session_db, concert, ctx)
+        except Exception:
+            app.logger.exception("[aviso artista] no se pudo marcar lo que ha cambiado")
+    return ctx
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# QUÉ HA CAMBIADO DESDE EL ÚLTIMO AVISO · el «Antes: …» que ve el artista
+# ---------------------------------------------------------------------------------------------
+# La actividad ya guardaba una FIRMA de lo gordo (`_concert_notice_signature`), pero una firma solo
+# dice **si** algo cambió. Para poder decir **qué** cambió y **qué ponía antes** hay que guardar los
+# valores: cada aviso se queda con los suyos (`ConcertArtistNotification.facts`) y el siguiente se
+# compara con ellos.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+def _activity_notice_facts(ctx: dict) -> dict:
+    """LO QUE DICE ESTE AVISO, dato a dato: la cabecera (fecha, hora, recinto…) y el caché."""
+    salida = {}
+    for r in (ctx.get("hero_rows") or []):
+        etiqueta = (r.get("label") or "").strip()
+        if etiqueta:
+            salida["hero:" + etiqueta] = str(r.get("value") or "")
+    for modulo in (ctx.get("conditions") or []):
+        if (modulo.get("key") or "") != "cache":
+            continue
+        for r in (modulo.get("rows") or []):
+            etiqueta = (r.get("label") or "").strip()
+            if etiqueta:
+                salida["cache:" + etiqueta] = str(r.get("value") or "")
+    return salida
+
+
+def _activity_notice_last_facts(session_db, concert) -> dict:
+    """Los datos del ÚLTIMO aviso que se le mandó al artista (para comparar con los de ahora)."""
+    try:
+        fila = (session_db.query(ConcertArtistNotification)
+                .filter(ConcertArtistNotification.concert_id == concert.id)
+                .order_by(ConcertArtistNotification.sent_at.desc()).first())
+    except Exception:
+        app.logger.exception("[aviso artista] no se pudo leer el aviso anterior")
+        return {}
+    datos = getattr(fila, "facts", None) if fila is not None else None
+    return dict(datos) if isinstance(datos, dict) else {}
+
+
+def _activity_notice_mark_changes(session_db, concert, ctx: dict) -> int:
+    """Marca en el contexto lo que ha CAMBIADO desde el último aviso. Devuelve cuántas cosas son.
+
+    Cada fila cambiada se queda con `before` (lo que ponía antes) y las que son NUEVAS con
+    `is_new`. ⚠️ Si no hay aviso anterior con datos no se marca nada: sin el «antes» de verdad,
+    inventarlo sería peor que no decirlo."""
+    antes = _activity_notice_last_facts(session_db, concert)
+    if not antes:
+        return 0
+    n = 0
+    def _marca(prefijo, filas):
+        nonlocal n
+        for r in (filas or []):
+            etiqueta = (r.get("label") or "").strip()
+            if not etiqueta:
+                continue
+            clave = prefijo + etiqueta
+            if clave not in antes:
+                continue
+            viejo_valor = str(antes.get(clave) or "")
+            if viejo_valor != str(r.get("value") or ""):
+                r["before"] = viejo_valor
+                n += 1
+    _marca("hero:", ctx.get("hero_rows"))
+    for modulo in (ctx.get("conditions") or []):
+        if (modulo.get("key") or "") == "cache":
+            _marca("cache:", modulo.get("rows"))
+    ctx["changes_count"] = n
+    return n
 
 
 def _activity_notice_ask_urls(token: str) -> dict:
@@ -130975,6 +131063,21 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
                 f'background:#fff;{estilo_extra}">{cabecera}'
                 f'<div style="padding:0 8px;">{cuerpo_html}</div></div>')
 
+    def cambio_html(fila):
+        """LA ETIQUETA AMARILLA de un dato que ha cambiado: «Cambio · Antes: …».
+
+        ⚠️ Lo pidió Dani (sep 2026): «al lado de la información correcta, una etiqueta amarilla de
+        Cambio, Antes: xxx, para que el artista sepa fácilmente lo que hay». Va PEGADA al dato, no
+        en un aviso aparte arriba: lo que hay que ver de un vistazo es QUÉ cambió.
+        ⚠️ Estilos EN LÍNEA (esto se lee en un cliente de correo, que se come las hojas de estilo)."""
+        antes = (fila.get("before") or "").strip() if isinstance(fila, dict) else ""
+        if not antes:
+            return ""
+        return ('<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;'
+                'background:#fff8d6;border:1px solid #e0b400;color:#8a6d00;font-size:11px;'
+                'font-weight:700;white-space:nowrap;vertical-align:middle;">'
+                'CAMBIO · Antes: ' + esc(antes) + '</span>')
+
     def filas_html(rows, empty_text=""):
         if not rows:
             if not empty_text:
@@ -130990,6 +131093,7 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
                 '<tr>'
                 f'<td width="1%" style="padding:3px 8px 3px 0;color:#6b7683;font-size:12px;vertical-align:top;white-space:nowrap;">{esc(r.get("label") or "")}:</td>'
                 f'<td width="99%" style="padding:3px 0;color:#212529;font-size:14px;font-weight:700;text-align:left;">{esc(r.get("value") or "")}'
+                + cambio_html(r)
                 + (f'<div style="font-weight:400;color:#6b7683;font-size:12px;">{esc(r.get("note"))}</div>' if (r.get("note") or "").strip() else "")
                 + '</td></tr>'
             )
@@ -131034,7 +131138,7 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
         f'<td width="22" style="width:22px;min-width:22px;padding:2px 8px 2px 0;font-size:12px;'
         f'white-space:nowrap;vertical-align:top;" '
         f'title="{esc(r["label"])}">{_notice_icon(r.get("icon") or "", size=14) or esc(r["label"] + ":")}</td>'
-        f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}</td>'
+        f'<td width="99%" style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;text-align:left;">{esc(r["value"])}{cambio_html(r)}</td>'
         '</tr>' for r in (ctx.get("hero_rows") or [])
     )
     # ⚠️ LA ETIQUETA «SOLD OUT» va en la propia cabecera, a la DERECHA y centrada en vertical (lo
@@ -131066,7 +131170,10 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
         _no = ctx.get("ask_reject_url") or ""
         _resp = ctx.get("answer") or ""          # ya contestado: se dice, y no se ofrecen botones
         if _resp:
-            _txt = ("Confirmada por el artista" if _resp == "OK" else "El artista la ha rechazado")
+            _cambios = (ctx.get("kind") or "").upper() == "CAMBIOS"
+            _txt = (("Cambios aceptados por el artista" if _cambios else "Confirmada por el artista")
+                    if _resp == "OK" else
+                    ("El artista NO acepta los cambios" if _cambios else "El artista la ha rechazado"))
             _col = ("#0f7b3f" if _resp == "OK" else "#b42318")
             _fondo = ("#eaf7ef" if _resp == "OK" else "#fdeceb")
             partes.append(
@@ -131078,21 +131185,29 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
                    if (ctx.get("answer_note") or "") else "")
                 + '</div>')
         else:
+            _es_cambio = (ctx.get("kind") or "").upper() == "CAMBIOS"
+            _txt_ok = "Acepto los cambios" if _es_cambio else "Confirmar"
+            _txt_no = "No los acepto" if _es_cambio else "Rechazar"
             partes.append(
                 '<div style="margin:16px 0 4px;text-align:center;">'
                 '<div style="font-size:15px;color:#374151;margin-bottom:10px;">'
-                '¿Confirmas esta actividad?</div>'
+                # ⚠️ En un aviso de CAMBIOS se le pregunta por LOS CAMBIOS: es lo que tiene que
+                # aceptar, y preguntarle «¿confirmas la actividad?» sería otra cosa.
+                + ('¿Aceptas los cambios?' if (ctx.get("kind") or "").upper() == "CAMBIOS"
+                   else '¿Confirmas esta actividad?') + '</div>'
+                # ⚠️ Los botones dicen LO MISMO que los de la landing (a la que llevan): en un
+                # cambio, «Acepto los cambios» / «No los acepto».
                 + (f'<a href="{esc(_ok)}" style="display:inline-block;padding:12px 22px;background:#0f7b3f;'
                    'color:#fff;text-decoration:none;border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">'
-                   'Confirmar</a>' if _ok else
+                   + _txt_ok + '</a>' if _ok else
                    '<span style="display:inline-block;padding:12px 22px;background:#0f7b3f;color:#fff;'
-                   'border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">Confirmar</span>')
+                   'border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">' + _txt_ok + '</span>')
                 + (f'<a href="{esc(_no)}" style="display:inline-block;padding:12px 22px;background:#fff;'
                    'color:#b42318;text-decoration:none;border:1px solid #b42318;border-radius:9px;'
-                   'font-weight:800;font-size:15px;margin:0 6px 8px;">Rechazar</a>' if _no else
+                   'font-weight:800;font-size:15px;margin:0 6px 8px;">' + _txt_no + '</a>' if _no else
                    '<span style="display:inline-block;padding:12px 22px;background:#fff;color:#b42318;'
                    'border:1px solid #b42318;border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">'
-                   'Rechazar</span>')
+                   + _txt_no + '</span>')
                 + '</div>')
 
     # ---- EL BOTÓN DE LOS CARTELES DE SOLD OUT: fuera de la cabecera y a la DERECHA (lo pidió
@@ -131934,6 +132049,9 @@ def concert_artist_notice_send(cid):
             hidden_modules=ocultos,
             snapshot={},
             signature=_concert_notice_signature(session_db, concert),
+            # ⚠️ LOS DATOS DE ESTE AVISO (fecha, hora, recinto, caché): con ellos, el aviso SIGUIENTE
+            # puede decir qué cambió y qué ponía antes. La firma sola solo dice que algo cambió.
+            facts=_activity_notice_facts(ctx),
             sent_by_user_id=to_uuid((_current_user_state() or {}).get("user_id") or "") or None,
             sent_by_nick=((_current_user_state() or {}).get("nick") or None),
         )
@@ -132374,6 +132492,9 @@ def public_activity_notice_view(token):
             body_html=Markup(cuerpo),
             rebuilt=rehecho,
             ask=pide,
+            # ⚠️ De qué aviso es: en un CAMBIOS se le pregunta si ACEPTA LOS CAMBIOS (no si
+            # confirma la actividad, que es otra cosa).
+            kind=((aviso.kind or "").upper()),
             answer=respuesta,
             preset=((request.args.get("r") or "").strip().lower() if pide else ""),
             respond_url=url_for("public_activity_notice_respond", token=token),
@@ -132466,12 +132587,20 @@ def _artist_confirmation_apply(session_db, aviso, concert, respuesta: str, nota:
             destinos.append(uid)
     if destinos:
         artista = (getattr(getattr(concert, "artist", None), "name", "") or "el artista").strip()
-        titulo = ("%s ha confirmado la actividad" % artista) if respuesta == "OK" else \
-                 ("%s ha rechazado la actividad" % artista)
+        # ⚠️ En un aviso de CAMBIOS lo que contesta es si los ACEPTA: decir «ha confirmado la
+        # actividad» sería otra cosa (y quien lo lee tiene que saber de qué le hablan).
+        _es_cambio = (getattr(aviso, "kind", "") or "").upper() == "CAMBIOS"
+        if _es_cambio:
+            titulo = (("%s ha aceptado los cambios" % artista) if respuesta == "OK"
+                      else ("%s NO acepta los cambios" % artista))
+        else:
+            titulo = (("%s ha confirmado la actividad" % artista) if respuesta == "OK"
+                      else ("%s ha rechazado la actividad" % artista))
         cuerpo = _concert_title_for_notice(concert)
         # ⚠️ Con su «sí» ya se puede CONFIRMAR sin mandarle nada más (su confirmación ES la
         # comunicación): que el aviso lo diga, para no tener que adivinar qué toca ahora.
-        if respuesta == "OK" and (getattr(concert, "status", "") or "").upper() != "CONFIRMADO":
+        if (respuesta == "OK" and not _es_cambio
+                and (getattr(concert, "status", "") or "").upper() != "CONFIRMADO"):
             cuerpo = " · ".join([x for x in [cuerpo, "Ya puedes dejarla CONFIRMADA"] if x])
         cuerpo = " · ".join([x for x in [cuerpo, (nota or "").strip()] if x])
         try:
@@ -132541,7 +132670,43 @@ def _artist_confirm_applies(session_db, concert) -> bool:
         return False
 
 
-def _concert_artist_ok(confirmacion, fases) -> dict:
+def _artist_changes_state(session_db, concert) -> dict:
+    """¿HAY UN CAMBIO ESPERANDO EL SÍ DEL ARTISTA? Punto ÚNICO.
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026): «en el caso de cambio, la confirmación aparecerá en amarillo
+    —Artista: pendiente de aceptar cambios—, y así nos garantizamos que los artistas aprueben los
+    cambios». Se mira el **último aviso de CAMBIOS** y lo que contestó (el dato de verdad, no una
+    marca aparte).
+    ⚠️ Si después de ese cambio el artista ha vuelto a confirmar la actividad, ya no hay nada
+    pendiente: manda lo ÚLTIMO que haya contestado."""
+    vacio = {"asked": False, "asked_label": "", "answered": False, "ok": False,
+             "at_label": "", "note": "", "url": ""}
+    if concert is None:
+        return vacio
+    try:
+        aviso = (session_db.query(ConcertArtistNotification)
+                 .filter(ConcertArtistNotification.concert_id == concert.id,
+                         func.upper(func.coalesce(ConcertArtistNotification.kind, "")) == "CAMBIOS")
+                 .order_by(ConcertArtistNotification.sent_at.desc()).first())
+    except Exception:
+        app.logger.exception("[aviso artista] no se pudo leer el aviso de cambios")
+        return vacio
+    if aviso is None:
+        return vacio
+    resp = (aviso.response or "").upper()
+    return {
+        "asked": True,
+        "asked_at": aviso.sent_at,
+        "asked_label": (aviso.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if aviso.sent_at else ""),
+        "answered": bool(resp),
+        "ok": (resp == "OK"),
+        "at_label": (aviso.responded_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if aviso.responded_at else ""),
+        "note": (aviso.response_note or ""),
+        "url": (_safe_url_for("public_activity_notice_view", token=aviso.public_token) if aviso.public_token else ""),
+    }
+
+
+def _concert_artist_ok(confirmacion, fases, cambios=None) -> dict:
     """¿EL ARTISTA HA DICHO QUE SÍ? **Punto único de la etiqueta «Artista OK»** (sep 2026).
 
     ⚠️⚠️ El sí llega por DOS vías y las dos valen: **contestando a su aviso** (`CONFIRMAR`) y
@@ -132553,8 +132718,12 @@ def _concert_artist_ok(confirmacion, fases) -> dict:
     Devuelve `{"ok": bool, "at_label": str, "lines": [str, …]}` — `lines` es lo que va en el título.
     """
     confirmacion = confirmacion or {}
+    cambios = cambios or {}
     fase = (fases or {}).get("artist_ok") or {}
     lineas = []
+    if cambios.get("answered") and cambios.get("ok"):
+        cuando = (cambios.get("at_label") or "").strip()
+        lineas.append("Aceptó los cambios" + (" el %s" % cuando if cuando else ""))
     if confirmacion.get("answered") and confirmacion.get("ok"):
         cuando = (confirmacion.get("at_label") or "").strip()
         lineas.append("Lo confirmó él desde su aviso" + (" el %s" % cuando if cuando else ""))
@@ -132563,8 +132732,18 @@ def _concert_artist_ok(confirmacion, fases) -> dict:
         cuando = (fase.get("at_label") or "").strip()
         lineas.append("Apuntado a mano" + (" por %s" % quien if quien else "")
                       + (" el %s" % cuando if cuando else ""))
+    # ⚠️⚠️ UN CAMBIO SIN ACEPTAR SE COME EL «ARTISTA OK»: lo que dijo que sí ya no es lo que hay.
+    # Mientras no conteste, la etiqueta es AMARILLA («pendiente de aceptar cambios»), que es
+    # justamente lo que garantiza que los cambios se aprueben.
+    pendiente = bool(cambios.get("asked") and not cambios.get("answered"))
+    rechazo = bool(cambios.get("answered") and not cambios.get("ok"))
     return {
-        "ok": bool(lineas),
+        "ok": bool(lineas) and not pendiente and not rechazo,
+        "pending_changes": pendiente,
+        "changes_rejected": rechazo,
+        "changes_asked_label": (cambios.get("asked_label") or ""),
+        "changes_note": (cambios.get("note") or ""),
+        "changes_url": (cambios.get("url") or ""),
         # La fecha que se enseña es la de la PRIMERA vía que haya (la respuesta del artista manda).
         "at_label": ((confirmacion.get("at_label") or fase.get("at_label") or "").strip()),
         "lines": lineas,

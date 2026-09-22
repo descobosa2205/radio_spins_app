@@ -147,7 +147,9 @@
   {# ⚠️⚠️ EL ARTISTA YA HA DICHO QUE SÍ: eso ES la comunicación (se le mandó, la vio y contestó),
      así que la actividad se deja CONFIRMADA de un clic, sin volver a mandarle nada. Vale en
      CUALQUIER actividad, venga o no de una petición. #}
+  {# ⚠️ Con un CAMBIO sin aceptar no se ofrece: lo que el artista confirmó ya no es lo que hay. #}
   {% if artist_confirmation and artist_confirmation.answered and artist_confirmation.ok
+        and not (artist_ok and artist_ok.pending_changes)
         and concert.status != 'CONFIRMADO' and CAN_EDIT_CONCERTS %}
     <form method="post" action="{{ url_for('concert_confirm_after_artist', cid=concert.id) }}" class="d-inline">
       <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -156,6 +158,23 @@
         <i class="fa fa-circle-check me-1"></i>Confirmar la actividad
       </button>
     </form>
+  {% elif artist_ok and artist_ok.pending_changes %}
+    {# ⚠️⚠️ SE LE HAN COMUNICADO CAMBIOS Y TODAVÍA NO LOS HA ACEPTADO (sep 2026, lo pidió Dani:
+       «en el caso de cambio la confirmación aparecerá en amarillo — Artista: pendiente de aceptar
+       cambios—, y así nos garantizamos que los artistas aprueben los cambios»). Manda sobre el
+       «Artista OK» verde: lo que dijo que sí ya no es lo que hay. Se pincha para ver lo que se le
+       mandó. #}
+    <a class="badge text-bg-warning text-dark align-self-center text-decoration-none"
+       href="{{ artist_ok.changes_url or url_for('concert_artist_notice_view', cid=concert.id) }}"
+       data-bs-toggle="tooltip"
+       title="Se le comunicaron los cambios el {{ artist_ok.changes_asked_label }}. Está pendiente de aceptarlos.">
+      <i class="fa fa-hourglass-half me-1"></i>Artista: pendiente de aceptar cambios
+    </a>
+  {% elif artist_ok and artist_ok.changes_rejected %}
+    <span class="badge text-bg-danger align-self-center" data-bs-toggle="tooltip"
+          title="{{ artist_ok.changes_note or 'El artista no acepta los cambios' }}">
+      <i class="fa fa-circle-xmark me-1"></i>El artista no acepta los cambios
+    </span>
   {% elif artist_ok and artist_ok.ok %}
     {# ⚠️⚠️ UNA SOLA ETIQUETA (sep 2026, lo vio Dani: «Artista OK aparece duplicado»). El sí llega
        por DOS vías —contestando a su aviso y apuntado a mano en la fase de la petición— y cada una

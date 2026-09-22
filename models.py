@@ -391,6 +391,10 @@ class ConcertArtistNotification(Base):
     response = Column(Text)
     responded_at = Column(DateTime(timezone=True))
     response_note = Column(Text)
+    # ⚠️⚠️ LO QUE DECÍA LA ACTIVIDAD CUANDO SE MANDÓ ESTE AVISO, dato a dato (fecha, hora, recinto,
+    # caché…). La `signature` solo dice SI cambió algo; con esto se puede decir QUÉ cambió y qué
+    # había antes, que es lo que el artista necesita ver («Cambio · Antes: …»).
+    facts = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     __table_args__ = (
         Index("idx_concert_artist_notif_concert", "concert_id"),
@@ -697,6 +701,9 @@ def ensure_artist_notifications_schema():
             ADD COLUMN IF NOT EXISTS responded_at timestamptz,
             ADD COLUMN IF NOT EXISTS response_note text;
         """,
+        # ⚠️ Lo que decía la actividad al mandar el aviso (para poder enseñar el «Antes: …» de un
+        # cambio). En su PROPIA sentencia, como manda la regla de la casa.
+        "ALTER TABLE concert_artist_notifications ADD COLUMN IF NOT EXISTS facts jsonb NOT NULL DEFAULT '{}'::jsonb;",
         # ⚠️⚠️ EL AVISO AL PROMOTOR (sep 2026): el hermano del aviso al artista para el otro lado de
         # la mesa. Lleva `asked_sections` (qué datos se le piden) y `expires_at` (el enlace se
         # desactiva a los 15 días, lo pidió Dani).

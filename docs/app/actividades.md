@@ -390,6 +390,39 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
   con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
   ticketing ni previsión de ingresos no se muestra nada.
+- ⚠️⚠️⚠️ **UN CAMBIO SE VE AL LADO DEL DATO Y EL ARTISTA TIENE QUE ACEPTARLO** (sep 2026, lo pidió
+  Dani: «cuando se notifica que ha habido un cambio, tiene que aparecer al lado de la información
+  correcta una etiqueta amarilla de Cambio · Antes: xxx —por ejemplo un cambio de fecha—, para que
+  el artista sepa fácilmente lo que hay, y los botones para que lo confirme; en el caso de cambio la
+  confirmación aparecerá en amarillo: Artista: pendiente de aceptar cambios, y así nos garantizamos
+  que los artistas aprueben los cambios»).
+  · **LA ETIQUETA VA PEGADA AL DATO**, no en un aviso aparte arriba: en la cabecera del aviso (fecha,
+  hora, recinto…) y en las filas del **caché**, cada cosa que ha cambiado lleva su
+  **«CAMBIO · Antes: …»** en amarillo (`cambio_html`, con estilos EN LÍNEA porque esto se lee en un
+  cliente de correo). Lo que sigue igual **no se marca**.
+  · **DE DÓNDE SALE EL «ANTES»**: la actividad ya guardaba una FIRMA de lo gordo
+  (`_concert_notice_signature`), pero una firma solo dice **si** cambió algo. Ahora cada aviso guarda
+  **sus valores** (`ConcertArtistNotification.facts`, columna nueva en su propia sentencia del
+  `ensure_artist_notifications_schema`) y el siguiente se compara con ellos
+  (`_activity_notice_facts` → `_activity_notice_last_facts` → `_activity_notice_mark_changes`).
+  ⚠️ **Sin aviso anterior con datos no se marca nada**: inventarse un «antes» sería peor que no
+  decirlo. (Los avisos de antes de este cambio no tienen `facts`, así que el primero que se mande
+  después no marcará nada y el siguiente ya sí.)
+  · **EL AVISO DE CAMBIOS PIDE RESPUESTA** (`ACTIVITY_NOTICE_ASK_KINDS` = CONFIRMAR **+ CAMBIOS**):
+  los mismos botones del correo y de la landing, pero preguntando por lo que toca —«¿Aceptas los
+  cambios?» · «Acepto los cambios» / «No los acepto»—, porque confirmar la actividad y aceptar un
+  cambio no son lo mismo.
+  · **EN LA FICHA**, mientras no conteste: **«Artista: pendiente de aceptar cambios»** en AMARILLO, y
+  **se come el «Artista OK» verde** aunque lo hubiera confirmado antes —lo que dijo que sí ya no es
+  lo que hay—. Si dice que no: en rojo, con su motivo. Punto único **`_concert_artist_ok(...,
+  cambios)`** + **`_artist_changes_state`** (mira el último aviso de CAMBIOS y su respuesta: el dato,
+  no una marca aparte).
+  ⚠️ Con un cambio sin aceptar tampoco sale el botón de **«Confirmar la actividad»** (el que la deja
+  confirmada porque el artista ya dijo que sí).
+  · **Prueba de la casa: `tools/check_aviso_cambios.py`** (24 comprobaciones con la app real: la
+  etiqueta y su «antes» en fecha, recinto y caché, que solo se marca lo cambiado, los botones de la
+  landing, el amarillo de la ficha, el sí y el no).
+
 - ⚠️⚠️⚠️ **RESULTADO · LA PROYECCIÓN SOLO SI LA TAQUILLA ES NUESTRA; SI NO, EL RESUMEN DEL CACHÉ**
   (sep 2026, lo pidió Dani: «solo muestra la proyección sobre el aforo y la barra de simulación
   cuando es una actividad en la que nosotros —una empresa del grupo— somos la promotora y hay venta

@@ -129,6 +129,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_gasto_factura_primero.py` | añadir un gasto empezando por la factura: se lee, rellena lo demás, reconoce al proveedor y pide en amarillo lo que le falte a su ficha | al tocar el formulario de un gasto de bolsa |
 | `check_money.py` | los dos parsers de importes y su espejo en JS | al tocar dinero |
 | `check_plan_pagos.py` | lo que se cobra de una actividad: los equipos que se le facturan al promotor y la parte del caché de cada socio (lo nuestro no se cobra a nadie) | al tocar el plan de pagos, el equipamiento o los socios |
+| `check_aviso_cambios.py` | un cambio en una actividad: la etiqueta «Cambio · Antes: …» pegada al dato y que el artista lo acepte (amarillo mientras no conteste) | al tocar el aviso al artista o los cambios de una actividad |
 | `check_resultado_cache.py` | el resultado de una actividad que NO es de taquilla nuestra: el reparto del caché entre la oficina y el artista (contrato, gastos y comisionistas) | al tocar el resultado de una actividad, los cachés o las comisiones |
 | `check_resultado.py` | la barra de simular el resultado: el 100% es el AFORO, y marca dónde estamos | al tocar el resultado de una actividad o `sim_calc` |
 | `check_ofertas.py` | simular sobre una actividad y las ofertas (descuentos y packs) del ticketing | al tocar las simulaciones o `sim_calc` |

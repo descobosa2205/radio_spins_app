@@ -66,13 +66,17 @@
       {% if ask and not answer %}
         <form method="post" action="{{ respond_url }}" class="an-ask" id="anAskForm">
           <input type="hidden" name="answer" id="anAnswer" value="">
-          <div class="an-ask__title">¿Confirmas esta actividad?</div>
+          {# ⚠️ En un aviso de CAMBIOS se le pregunta por LOS CAMBIOS (sep 2026, lo pidió Dani:
+             «los botones para que el artista lo confirme… así nos garantizamos que los artistas
+             aprueben los cambios»). #}
+          {% set es_cambio = kind == 'CAMBIOS' %}
+          <div class="an-ask__title">{{ '¿Aceptas los cambios?' if es_cambio else '¿Confirmas esta actividad?' }}</div>
           <div class="an-ask__btns">
             <button type="button" class="an-btn an-btn--ok" data-an-answer="OK">
-              <i class="fa fa-circle-check"></i>Confirmar
+              <i class="fa fa-circle-check"></i>{{ 'Acepto los cambios' if es_cambio else 'Confirmar' }}
             </button>
             <button type="button" class="an-btn an-btn--no" data-an-answer="NO">
-              <i class="fa fa-circle-xmark"></i>Rechazar
+              <i class="fa fa-circle-xmark"></i>{{ 'No los acepto' if es_cambio else 'Rechazar' }}
             </button>
           </div>
           <div class="an-ask__note d-none" id="anNoteWrap">

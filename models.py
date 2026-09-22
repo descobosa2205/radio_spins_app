@@ -16008,3 +16008,48 @@ def ensure_corporate_invites_schema():
         "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS resent_at timestamptz;",
         "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS resend_count integer NOT NULL DEFAULT 0;",
     ], "corporate_invites_schema")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  HOJA DE RUTA EN CAMERINOS · los AVISOS a las pantallas y las PANTALLAS conectadas (sep 2026)
+#  ---------------------------------------------------------------------------------------------
+#  Desde el pop-up «Camerinos» de la app se manda un aviso a todas las pantallas (Echo Show) que
+#  tienen abierta la hoja de ruta: sale como una nota en medio, suena la campana y se lee en voz
+#  alta. Uno vivo a la vez (el nuevo retira al anterior), con caducidad. Cada pantalla se identifica
+#  con un `device_id` que genera ella misma y con su sondeo deja su LATIDO (`last_seen_at`) y qué
+#  aviso está enseñando (`last_notice_id`): así la app dice cuántas hay conectadas y cuántas lo han
+#  visto. Las dos tablas las crea `create_all` al arrancar (no hace falta `ensure_*`).
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+class CamerinosNotice(Base):
+    __tablename__ = "camerinos_notices"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    text = Column(Text, nullable=False)
+    # Si además de salir escrito se LEE en voz alta en la pantalla.
+    # ⚠️ La columna de arriba se llama `text` y PISA la función `text()` de SQLAlchemy dentro del cuerpo de
+    # la clase ('Column' object is not callable): el valor por defecto va como cadena.
+    speak = Column(Boolean, nullable=False, server_default="true")
+    # Desde qué actividad se mandó (la que se estaba viendo), para el historial.
+    entity_type = Column(Text)
+    entity_id = Column(PGUUID(as_uuid=True))
+    sent_by_user_id = Column(PGUUID(as_uuid=True))
+    sent_by_nick = Column(Text)
+    sent_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True))
+    # Retirado a mano (o sustituido por el siguiente).
+    withdrawn_at = Column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("idx_camerinos_notices_sent", "sent_at"),
+    )
+
+
+class CamerinosScreen(Base):
+    __tablename__ = "camerinos_screens"
+    # Lo genera la propia pantalla y lo guarda en su navegador (solo letras, cifras, `_` y `-`).
+    device_id = Column(Text, primary_key=True)
+    label = Column(Text)
+    user_agent = Column(Text)
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at = Column(DateTime(timezone=True))
+    last_notice_id = Column(PGUUID(as_uuid=True))
+    last_notice_at = Column(DateTime(timezone=True))

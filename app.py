@@ -88507,6 +88507,8 @@ from models import (
     ensure_enterticket_schema,
     AppSetting,
     ensure_app_settings_schema,
+    CamerinosNotice,
+    CamerinosScreen,
 )
 
 # Arranque del esquema COMPLETO en SEGUNDO PLANO (ver nota más arriba). En este punto ya están
@@ -99774,7 +99776,8 @@ def _camerinos_context(session_db) -> dict:
     """TODO lo que pinta la pantalla de los camerinos. Con nada elegido (o una actividad que ya no
     existe), `active=False` y la pantalla lo dice."""
     base = {"active": False, "poll": CAMERINOS_POLL_SECONDS, "kind": "", "kind_label": "", "title": "",
-            "subtitle": "", "when": "", "venue": "", "photo": "", "word": "", "days": [], "sub": "", "version": ""}
+            "subtitle": "", "when": "", "venue": "", "photo": "", "word": "", "days": [], "sub": "", "version": "",
+            "notice_poll": CAMERINOS_NOTICE_POLL_SECONDS}
     base["logo"] = _camerinos_brand(session_db, "", None)
     sel = _camerinos_setting()
     if not sel:
@@ -99868,6 +99871,8 @@ def _camerinos_state_payload(session_db, entity_type: str, row) -> dict:
         "this": _camerinos_card(session_db, entity_type, row, kind_esta),
         "kinds": kinds,
         "active": activo,
+        # LOS AVISOS a las pantallas (la campanita del pop-up).
+        "notices": _camerinos_notices_payload(session_db),
     }
 
 
@@ -99963,6 +99968,330 @@ def camerinos_set(entity_type, entity_id):
         app.logger.info("[camerinos] %s pone en camerinos la %s de %s", quien or "alguien",
                         ROADMAP_KIND_LABELS[kind].lower(), titulo)
         return jsonify(dict(payload, message=f"Los camerinos muestran ahora la {ROADMAP_KIND_LABELS[kind].lower()} de {titulo}."))
+    finally:
+        session_db.close()
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  CAMERINOS · AVISOS A LAS PANTALLAS (sep 2026, lo pidió Dani)
+#  ---------------------------------------------------------------------------------------------
+#  Desde el pop-up «Camerinos» (la campanita) se escribe un aviso —o se toca uno de los AVISOS
+#  RÁPIDOS preguardados, que se manda sin escribir nada— y en todas las pantallas que tienen abierta
+#  la hoja de ruta sale una NOTA grande en medio, suena la campana y se LEE en voz alta. Uno vivo a
+#  la vez (el nuevo retira al anterior), con un tiempo en pantalla (o hasta que se retire), y las
+#  pantallas confirman que lo han enseñado: en el pop-up se ve «visto en 2 de 3 pantallas».
+#  · Las pantallas preguntan cada 5 s (`public_camerinos_notices`, con `?d=` su identificador y `?n=`
+#    el aviso que están enseñando). Ese sondeo es también su LATIDO (`CamerinosScreen.last_seen_at`):
+#    así se sabe cuántas hay conectadas. Es un GET público SIN token, como la pantalla: solo acepta un
+#    identificador corto y un uuid, y solo devuelve el aviso vivo.
+#  · La VOZ la pone el navegador de la pantalla (`speechSynthesis`, en español) y la campana se genera
+#    allí (WebAudio): nada que configurar y nada que pagar. Si algún día se quiere una voz mejor e
+#    igual en todas, se genera aquí un audio por aviso y la pantalla lo reproduce (`audio_url`).
+#  · Los AVISOS RÁPIDOS viven en `AppSetting['camerinos_notice_presets']` (JSON): la lista se edita
+#    desde el propio pop-up (`camerinos_presets_save`) y nace con unos cuantos de la casa.
+#  · Prueba de regresión: `tools/check_camerinos.py`, apartado 9.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+CAMERINOS_NOTICE_MAX_CHARS = 240
+CAMERINOS_NOTICE_MINUTES = (5, 10, 30, 0)          # 0 = hasta que se retire (con tope de 12 h)
+CAMERINOS_NOTICE_DEFAULT_MINUTES = 10
+CAMERINOS_NOTICE_MAX_HOURS = 12
+CAMERINOS_NOTICE_POLL_SECONDS = 5
+CAMERINOS_SCREEN_ONLINE_SECONDS = 45              # tres sondeos sin señal = desconectada
+CAMERINOS_SCREEN_FORGET_DAYS = 30
+CAMERINOS_PRESETS_KEY = "camerinos_notice_presets"
+CAMERINOS_PRESETS_MAX = 20
+CAMERINOS_DEFAULT_PRESETS = [
+    "Salida al escenario en 5 minutos",
+    "Salida al escenario en 10 minutos",
+    "Prueba de sonido en 10 minutos",
+    "El catering está listo en el camerino",
+    "Se retrasa el inicio 15 minutos",
+    "Todo el equipo al escenario, por favor",
+]
+_CAMERINOS_DEVICE_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def _camerinos_hora(dt) -> str:
+    """Una hora (con zona) como se lee en la casa: HH:MM en Madrid. Vacío si no hay."""
+    if not dt:
+        return ""
+    try:
+        return dt.astimezone(TZ_MADRID).strftime("%H:%M")
+    except Exception:
+        return ""
+
+
+def _camerinos_presets() -> list[str]:
+    """Los AVISOS RÁPIDOS: los guardados o, si nadie ha tocado la lista, los de la casa."""
+    raw = _get_app_setting(CAMERINOS_PRESETS_KEY, None)
+    if raw is None:
+        return list(CAMERINOS_DEFAULT_PRESETS)
+    data = _json_loads_safe(raw, None)
+    if not isinstance(data, list):
+        return list(CAMERINOS_DEFAULT_PRESETS)
+    salida: list[str] = []
+    for x in data:
+        t = str(x or "").strip()[:CAMERINOS_NOTICE_MAX_CHARS]
+        if t and t not in salida:
+            salida.append(t)
+    return salida[:CAMERINOS_PRESETS_MAX]
+
+
+def _camerinos_presets_store(lista) -> list[str]:
+    """Guarda la lista de avisos rápidos LIMPIA (sin vacíos, sin repetidos, con tope)."""
+    limpios: list[str] = []
+    for x in (lista or []):
+        t = re.sub(r"\s+", " ", str(x or "")).strip()[:CAMERINOS_NOTICE_MAX_CHARS]
+        if t and t not in limpios:
+            limpios.append(t)
+    limpios = limpios[:CAMERINOS_PRESETS_MAX]
+    _set_app_setting(CAMERINOS_PRESETS_KEY, json.dumps(limpios, ensure_ascii=False))
+    return limpios
+
+
+def _camerinos_notice_active(session_db):
+    """El aviso VIVO (uno a la vez): el último que no está retirado ni caducado."""
+    try:
+        return (session_db.query(CamerinosNotice)
+                .filter(CamerinosNotice.withdrawn_at.is_(None))
+                .filter(or_(CamerinosNotice.expires_at.is_(None), CamerinosNotice.expires_at > func.now()))
+                .order_by(CamerinosNotice.sent_at.desc()).first())
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[camerinos] no se pudo leer el aviso vivo")
+        return None
+
+
+def _camerinos_notice_dict(n, *, seen=None, total=None) -> dict:
+    return {
+        "id": str(n.id),
+        "text": n.text or "",
+        "speak": bool(n.speak),
+        "sent_at": (n.sent_at.isoformat() if n.sent_at else ""),
+        "sent_at_label": _camerinos_hora(n.sent_at),
+        "sent_by": n.sent_by_nick or "",
+        "expires_at": (n.expires_at.isoformat() if n.expires_at else ""),
+        "expires_label": _camerinos_hora(n.expires_at),
+        "withdrawn": bool(n.withdrawn_at),
+        "seen": seen,
+        "screens": total,
+        # Hueco para una voz generada en el servidor (hoy la pone el navegador de la pantalla).
+        "audio_url": "",
+    }
+
+
+def _camerinos_screens(session_db) -> list[dict]:
+    """Las pantallas que se han conectado (últimos 30 días), y si están CONECTADAS ahora mismo."""
+    ahora = _now_madrid()
+    try:
+        filas = (session_db.query(CamerinosScreen)
+                 .filter(CamerinosScreen.last_seen_at > ahora - timedelta(days=CAMERINOS_SCREEN_FORGET_DAYS))
+                 .order_by(CamerinosScreen.last_seen_at.desc()).all())
+    except Exception:
+        session_db.rollback()
+        return []
+    salida = []
+    for p in filas:
+        visto = p.last_seen_at
+        try:
+            online = bool(visto) and (ahora - visto).total_seconds() <= CAMERINOS_SCREEN_ONLINE_SECONDS
+        except Exception:
+            online = False
+        salida.append({"device_id": p.device_id, "label": p.label or "", "online": online,
+                       "last_seen_label": _camerinos_hora(visto),
+                       "last_notice_id": (str(p.last_notice_id) if p.last_notice_id else "")})
+    return salida
+
+
+def _camerinos_notices_payload(session_db) -> dict:
+    """Lo que enseña la pestaña de AVISOS del pop-up: el aviso vivo (y en cuántas pantallas se ha
+    visto), las pantallas conectadas, los avisos rápidos y los últimos mandados."""
+    activo = _camerinos_notice_active(session_db)
+    pantallas = _camerinos_screens(session_db)
+    conectadas = [p for p in pantallas if p["online"]]
+    vistos = ([p for p in pantallas if p["last_notice_id"] == str(activo.id)] if activo is not None else [])
+    try:
+        ultimos = session_db.query(CamerinosNotice).order_by(CamerinosNotice.sent_at.desc()).limit(8).all()
+    except Exception:
+        session_db.rollback()
+        ultimos = []
+    return {
+        "active": (_camerinos_notice_dict(activo, seen=len(vistos), total=len(conectadas)) if activo is not None else None),
+        "screens": {"online": len(conectadas), "total": len(pantallas), "list": pantallas[:20]},
+        "presets": _camerinos_presets(),
+        "history": [_camerinos_notice_dict(n) for n in ultimos],
+        "max_chars": CAMERINOS_NOTICE_MAX_CHARS,
+        "minutes_options": list(CAMERINOS_NOTICE_MINUTES),
+        "default_minutes": CAMERINOS_NOTICE_DEFAULT_MINUTES,
+    }
+
+
+def _camerinos_notice_create(session_db, et: str, row, data: dict):
+    """Crea el aviso (retirando el que hubiera vivo). Devuelve `(aviso, error, código)`."""
+    texto = re.sub(r"\s+", " ", str(data.get("text") or "")).strip()
+    if not texto:
+        return None, "Escribe el aviso (o toca uno de los avisos rápidos).", 400
+    if len(texto) > CAMERINOS_NOTICE_MAX_CHARS:
+        return None, f"El aviso no puede pasar de {CAMERINOS_NOTICE_MAX_CHARS} caracteres.", 400
+    try:
+        minutos = int(data.get("minutes", CAMERINOS_NOTICE_DEFAULT_MINUTES))
+    except (TypeError, ValueError):
+        minutos = CAMERINOS_NOTICE_DEFAULT_MINUTES
+    if minutos not in CAMERINOS_NOTICE_MINUTES:
+        minutos = CAMERINOS_NOTICE_DEFAULT_MINUTES
+    ahora = _now_madrid()
+    caduca = ahora + (timedelta(minutes=minutos) if minutos else timedelta(hours=CAMERINOS_NOTICE_MAX_HOURS))
+    estado = _current_user_state() or {}
+    quien = str(estado.get("nick") or "").strip() or _email_to_nick(_current_user_email() or "")
+    # UNO A LA VEZ: el que hubiera vivo se retira (la pantalla lo cambia por el nuevo).
+    vivos = (session_db.query(CamerinosNotice)
+             .filter(CamerinosNotice.withdrawn_at.is_(None))
+             .filter(or_(CamerinosNotice.expires_at.is_(None), CamerinosNotice.expires_at > func.now())).all())
+    for viejo in vivos:
+        viejo.withdrawn_at = ahora
+    aviso = CamerinosNotice(
+        text=texto,
+        speak=bool(data.get("speak", True)),
+        entity_type=et,
+        entity_id=getattr(row, "id", None),
+        sent_by_user_id=_safe_uuid(str(estado.get("user_id") or "")),
+        sent_by_nick=(quien or None),
+        sent_at=ahora,
+        expires_at=caduca,
+    )
+    session_db.add(aviso)
+    session_db.commit()
+    if data.get("save_preset"):
+        _camerinos_presets_store(_camerinos_presets() + [texto])
+    return aviso, "", 200
+
+
+def _camerinos_notice_gate(session_db, entity_type, entity_id):
+    """La puerta común de los endpoints de avisos: la actividad existe y quien pide monta producción.
+    Devuelve `(et, row, respuesta_de_error)`."""
+    et, row = _roadmap_entity(session_db, entity_type, entity_id)
+    if row is None or et not in CAMERINOS_ENTITY_TYPES:
+        return et, None, (jsonify({"ok": False, "error": "Esa actividad no tiene hoja de ruta que mostrar en camerinos."}), 404)
+    if not _production_can_edit():
+        return et, None, (jsonify({"ok": False, "error": CAMERINOS_PERMISO_MSG}), 403)
+    return et, row, None
+
+
+@app.get('/camerinos/avisos', endpoint='public_camerinos_notices')
+def public_camerinos_notices():
+    """LO QUE SONDEA la pantalla cada 5 s para los avisos. `d` es su identificador (lo genera ella y lo
+    guarda en su navegador) y `n` el aviso que está enseñando: con eso se sabe qué pantallas hay
+    conectadas y cuáles han visto el aviso. Devuelve SOLO el aviso vivo."""
+    session_db = db()
+    try:
+        d = (request.args.get("d") or "").strip()
+        n = _safe_uuid((request.args.get("n") or "").strip())
+        activo = _camerinos_notice_active(session_db)
+        if d and _CAMERINOS_DEVICE_RE.match(d):
+            try:
+                fila = session_db.get(CamerinosScreen, d)
+                if fila is None:
+                    fila = CamerinosScreen(device_id=d)
+                    session_db.add(fila)
+                fila.last_seen_at = _now_madrid()
+                fila.user_agent = (request.headers.get("User-Agent") or "")[:300]
+                if n is not None and fila.last_notice_id != n:
+                    fila.last_notice_id = n
+                    fila.last_notice_at = _now_madrid()
+                session_db.commit()
+            except Exception:
+                session_db.rollback()
+                app.logger.exception("[camerinos] no se pudo apuntar el latido de una pantalla")
+        resp = jsonify({"ok": True, "notice": (_camerinos_notice_dict(activo) if activo is not None else None),
+                        "poll": CAMERINOS_NOTICE_POLL_SECONDS, "now": _now_madrid().isoformat()})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/camerinos/avisos', endpoint='camerinos_notices_state')
+@admin_required
+def camerinos_notices_state(entity_type, entity_id):
+    """La pestaña de AVISOS del pop-up (se refresca sola mientras está abierta)."""
+    session_db = db()
+    try:
+        _et, row, error = _camerinos_notice_gate(session_db, entity_type, entity_id)
+        if error is not None:
+            return error
+        return jsonify(dict(_camerinos_notices_payload(session_db), ok=True))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/camerinos/aviso', endpoint='camerinos_notice_send')
+@admin_required
+def camerinos_notice_send(entity_type, entity_id):
+    """MANDAR un aviso a las pantallas: `text`, `speak` (se lee en voz alta), `minutes` (cuánto se
+    queda; 0 = hasta que se retire) y `save_preset` (guardarlo como aviso rápido)."""
+    session_db = db()
+    try:
+        et, row, error = _camerinos_notice_gate(session_db, entity_type, entity_id)
+        if error is not None:
+            return error
+        data = request.get_json(silent=True) or {}
+        aviso, motivo, codigo = _camerinos_notice_create(session_db, et, row, data)
+        if aviso is None:
+            return jsonify({"ok": False, "error": motivo}), codigo
+        payload = _camerinos_notices_payload(session_db)
+        n = payload["screens"]["online"]
+        app.logger.info("[camerinos] aviso de %s a %d pantallas: %s", aviso.sent_by_nick or "alguien", n, aviso.text)
+        if n:
+            msg = "Aviso enviado a %d pantalla%s conectada%s." % (n, "" if n == 1 else "s", "" if n == 1 else "s")
+        else:
+            msg = "Aviso enviado. Ahora mismo no hay ninguna pantalla conectada: lo verá la primera que se conecte mientras esté vivo."
+        return jsonify(dict(payload, ok=True, message=msg))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/camerinos/aviso/retirar', endpoint='camerinos_notice_withdraw')
+@admin_required
+def camerinos_notice_withdraw(entity_type, entity_id):
+    """RETIRAR el aviso vivo de las pantallas (o uno concreto por `id`)."""
+    session_db = db()
+    try:
+        _et, row, error = _camerinos_notice_gate(session_db, entity_type, entity_id)
+        if error is not None:
+            return error
+        data = request.get_json(silent=True) or {}
+        pedido = _safe_uuid(str(data.get("id") or ""))
+        ahora = _now_madrid()
+        q = session_db.query(CamerinosNotice).filter(CamerinosNotice.withdrawn_at.is_(None))
+        if pedido is not None:
+            q = q.filter(CamerinosNotice.id == pedido)
+        retirados = 0
+        for n in q.all():
+            n.withdrawn_at = ahora
+            retirados += 1
+        session_db.commit()
+        payload = _camerinos_notices_payload(session_db)
+        return jsonify(dict(payload, ok=True, message=("Aviso retirado de las pantallas." if retirados else "No había ningún aviso en las pantallas.")))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/camerinos/avisos-rapidos', endpoint='camerinos_presets_save')
+@admin_required
+def camerinos_presets_save(entity_type, entity_id):
+    """Guardar la lista de AVISOS RÁPIDOS (entera: se manda la lista tal como queda)."""
+    session_db = db()
+    try:
+        _et, row, error = _camerinos_notice_gate(session_db, entity_type, entity_id)
+        if error is not None:
+            return error
+        data = request.get_json(silent=True) or {}
+        lista = data.get("presets")
+        if not isinstance(lista, list):
+            return jsonify({"ok": False, "error": "Hace falta la lista de avisos rápidos."}), 400
+        _camerinos_presets_store(lista)
+        return jsonify(dict(_camerinos_notices_payload(session_db), ok=True, message="Lista de avisos rápidos guardada."))
     finally:
         session_db.close()
 
@@ -101586,7 +101915,7 @@ PUBLIC_ENDPOINTS_EXTRA = {"onesheet_public_view", "onesheet_roster_public", "one
                           # El vídeo de YouTube de un correo: la miniatura y el pop-up que lo reproduce.
                           "public_youtube_thumb", "public_youtube_play"}
 # HOJA DE RUTA EN CAMERINOS: la pantalla de los Echo Show y su sondeo (públicos, sin token).
-PUBLIC_ENDPOINTS_EXTRA |= {"public_camerinos_view", "public_camerinos_panel"}
+PUBLIC_ENDPOINTS_EXTRA |= {"public_camerinos_view", "public_camerinos_panel", "public_camerinos_notices"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -106628,6 +106957,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     # HOJA DE RUTA EN CAMERINOS: elegir qué se ve en las pantallas de los camerinos lo hace quien
     # monta la producción (el endpoint exige además `_production_can_edit`).
     "camerinos_set",
+    # …y mandar, retirar y preguardar los AVISOS a las pantallas de los camerinos.
+    "camerinos_notice_send", "camerinos_notice_withdraw", "camerinos_presets_save",
     # PRL / altas del personal del evento (subpestaña PRL del Personal + fichas)
     "prl_request_docs", "prl_doc_upload", "prl_doc_reject", "prl_doc_delete", "prl_set_worker_type",
     # Bolsa: cargar plantillas de gastos y pedir facturas a los proveedores
@@ -106672,7 +107003,7 @@ SUPPORT_READ_ENDPOINTS = {
     "roadmap_mine",
     # El estado de los CAMERINOS que pide el pop-up del botón: una LECTURA (el endpoint exige
     # además `_production_can_edit`).
-    "camerinos_state",
+    "camerinos_state", "camerinos_notices_state",
     # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
     "api_publisher_change",
     # ¿Ya existe una canción con ese nombre de ese artista? Es una BÚSQUEDA, y la hacen el alta de

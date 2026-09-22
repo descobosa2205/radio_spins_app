@@ -36,6 +36,7 @@
 - HOJA DE RUTA · lo que ve cada uno, quién puede actualizarla y el repertorio (sep 2026,
 - HOJA DE RUTA · MANDARLE UN MENSAJE AL PERSONAL. «Mañana el bus sale a las 8:30» hay
 - HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show: una sola hoja elegida, sus horarios con
+- CAMERINOS · AVISOS A LAS PANTALLAS: la campanita del pop-up, los avisos rápidos de un toque, la nota
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 - TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
@@ -891,6 +892,43 @@ transporte): ahí se quita y deja de salir.
   silencioso, el wake lock y la pantalla completa en Silk se apoyan en lo documentado por otros.
   ⚠️ **El desplazamiento inicial va EN SECO y tras `load`**: un `scrollTo` suave lanzado mientras la
   página todavía se pinta se perdía por el camino (se quedaba arriba, visto en la prueba).
+
+- ⚠️⚠️ **CAMERINOS · AVISOS A LAS PANTALLAS** (sep 2026, lo pidió Dani: «mandar un mensaje que se
+  muestre superpuesto como una nota, con un sonido de aviso y el texto hablado»). En el pop-up
+  «Camerinos», el botón **Avisos** (la campanita, con el nº de pantallas conectadas) abre la vista de
+  avisos: los **AVISOS RÁPIDOS** preguardados —**un toque y se manda**, sin escribir nada; la lista se
+  edita ahí mismo («Editar la lista», `camerinos_presets_save`, en `AppSetting['camerinos_notice_presets']`,
+  y nace con seis de la casa)—, o se **escribe** uno (240 caracteres), con «Leer en voz alta», cuánto
+  se queda (5 · 10 · 30 min · hasta que se retire, con tope de 12 h) y «Guardar como aviso rápido».
+  · **En la pantalla** (`camerinos.html`): sale una **NOTA grande en medio** sobre los horarios (la
+  campanita, «Aviso», la hora y quién lo manda), suena la **campana** (tres notas generadas con
+  WebAudio, sin ningún archivo) y se **lee en voz alta** con la voz del navegador (`speechSynthesis`,
+  la primera voz `es-ES` que tenga el aparato). Se cierra con un toque o se va sola al caducar o al
+  retirarlo. ⚠️ Las dos cosas necesitan el toque de arranque (el velo): ahí se crea el `AudioContext`.
+  Tras una recarga, un aviso que sigue vivo y ya se anunció se enseña **sin volver a sonar**
+  (`localStorage.cam_last_notice`).
+  · **UNO VIVO A LA VEZ** (`CamerinosNotice`: el nuevo retira al anterior con `withdrawn_at`;
+  `_camerinos_notice_active`). Las pantallas **sondean cada 5 s** `public_camerinos_notices` con
+  `?d=` su identificador (lo genera cada pantalla y lo guarda en su navegador: `CamerinosScreen`) y
+  `?n=` el aviso que están enseñando: ese sondeo es su **LATIDO** (`last_seen_at`; conectada = vista en
+  los últimos 45 s) y su **CONFIRMACIÓN** (`last_notice_id`), así el pop-up dice «visto en 2 de 3
+  pantallas» y se refresca solo cada 4 s mientras está abierto. Es un GET público sin token, como la
+  pantalla: solo acepta un identificador corto (`_CAMERINOS_DEVICE_RE`) y un uuid, y solo devuelve el
+  aviso vivo. Las dos tablas las crea `create_all` al arrancar (no hay `ensure_*`); en una BD de
+  prueba las crea el propio `check_camerinos.py`.
+  ⚠️⚠️ **La columna `text` de `CamerinosNotice` PISA la función `text()` de SQLAlchemy dentro del
+  cuerpo de la clase** («'Column' object is not callable», bug real de este lote): el `server_default`
+  de las columnas que van detrás va como CADENA (`"true"`), no con `text("true")`.
+  · Endpoints: `camerinos_notice_send` · `camerinos_notice_withdraw` · `camerinos_presets_save`
+  (`SUPPORT_ACTION_ENDPOINTS`, y `_production_can_edit` dentro: la puerta común `_camerinos_notice_gate`)
+  · `camerinos_notices_state` (`SUPPORT_READ_ENDPOINTS`) · `public_camerinos_notices`
+  (`PUBLIC_ENDPOINTS_EXTRA`). El estado del pop-up (`_camerinos_state_payload`) trae ya `notices`.
+  · **Lo que NO se pudo probar aquí**: la voz y la campana en el Echo Show real (Silk); en el
+  navegador de pruebas hay voces `es-ES` y el flujo entero funciona. Si algún día se quiere una voz
+  mejor e igual en todas, se genera aquí un audio por aviso y la pantalla lo reproduce (`audio_url`).
+  · Prueba de regresión: `tools/check_camerinos.py`, apartado 9 (31 comprobaciones; idempotente y deja la
+  lista de rápidos como estaba). Probado además en el navegador: el pop-up, el envío de un rápido, la
+  nota en la pantalla con su hora y quién, la confirmación «visto en 1 de 1» y el retirar.
 
 - ⚠️⚠️ **HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos** (sep 2026, lo pidió
   Dani). El editor de un punto de los horarios era un formulario largo de un tirón; ahora es el

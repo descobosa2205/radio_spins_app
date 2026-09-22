@@ -100,6 +100,23 @@
     .cam-gate__s{color:#6c757d;font-size:1.05rem;max-width:520px;}
     .cam-gate__hand{font-size:2.4rem;color:var(--cam-red);animation:camTap 1.4s infinite;}
     @keyframes camTap{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+    /* ── EL AVISO: la nota en medio, encima de los horarios (suena la campana y se lee en voz alta) ── */
+    .cam-note{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:2rem;
+      background:rgba(17,24,39,.55);cursor:pointer;}
+    .cam-note[hidden]{display:none;}
+    .cam-note__card{background:#fff;border-radius:22px;border-left:12px solid var(--cam-red);box-shadow:0 30px 80px rgba(0,0,0,.35);
+      max-width:960px;width:100%;padding:1.4rem 1.8rem 1.2rem;animation:camNoteIn .35s ease-out;}
+    .cam-note__head{display:flex;align-items:center;gap:.6rem;color:var(--cam-red);font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:1rem;}
+    .cam-note__head i{font-size:1.4rem;animation:camRing 1.2s ease-in-out 3;}
+    .cam-note__meta{margin-left:auto;color:#6c757d;font-weight:600;text-transform:none;letter-spacing:0;font-size:.95rem;}
+    .cam-note__text{font-size:clamp(1.6rem,3.4vw,2.6rem);font-weight:800;line-height:1.2;color:#212529;margin:.8rem 0 .6rem;overflow-wrap:anywhere;}
+    .cam-note__hint{color:#adb5bd;font-size:.9rem;}
+    @keyframes camNoteIn{from{transform:translateY(24px) scale(.97);opacity:0}to{transform:none;opacity:1}}
+    @keyframes camRing{0%,100%{transform:rotate(0)}20%{transform:rotate(18deg)}40%{transform:rotate(-14deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-6deg)}}
+    /* La tira para VOLVER a pantalla completa (sale cuando el aparato ha salido de ella). */
+    .cam-fs{position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);z-index:30;background:#212529;color:#fff;
+      padding:.5rem 1rem;border-radius:999px;font-size:.95rem;display:none;align-items:center;gap:.5rem;box-shadow:0 6px 18px rgba(0,0,0,.25);white-space:nowrap;}
+    .cam-fs.is-on{display:inline-flex;}
     /* El aviso de que no hay conexión (se reintenta solo). */
     .cam-status{position:fixed;right:1rem;bottom:1rem;z-index:30;background:#212529;color:#fff;padding:.45rem .9rem;border-radius:999px;font-size:.95rem;display:none;box-shadow:0 6px 18px rgba(0,0,0,.25);}
     .cam-status.is-on{display:inline-flex;align-items:center;gap:.45rem;}
@@ -131,6 +148,17 @@
   <main class="cam-main" id="camPanel" data-v="{{ cam.version }}">{{ panel_html }}</main>
 
   <div class="cam-status" id="camStatus"><i class="fa fa-wifi"></i> <span>Sin conexión · se reintenta solo</span></div>
+  <div class="cam-fs" id="camFs"><i class="fa fa-expand"></i> <span>Toca la pantalla para volver a pantalla completa</span></div>
+
+  {# EL AVISO que manda la casa desde el pop-up «Camerinos»: la nota en medio (la campana y la voz las
+     pone el navegador). Se cierra con un toque; si no, se va sola cuando el aviso caduca o se retira. #}
+  <div class="cam-note" id="camNote" hidden>
+    <div class="cam-note__card">
+      <div class="cam-note__head"><i class="fa fa-bell"></i> Aviso <span class="cam-note__meta" id="camNoteMeta"></span></div>
+      <div class="cam-note__text" id="camNoteText"></div>
+      <div class="cam-note__hint">Toca para cerrar</div>
+    </div>
+  </div>
 
   <div class="cam-gate" id="camGate" hidden>
     <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="">
@@ -303,17 +331,120 @@
       }
       pedirWake();
     }
+    /* La tira «toca para volver a pantalla completa»: si el aparato sale de ella (al cambiar de app y
+       volver), se dice bien claro; cualquier toque vuelve a entrar. */
+    var fsStrip = document.getElementById('camFs');
+    function pintaFs() { fsStrip.classList.toggle('is-on', !!(tocado && document.fullscreenEnabled && !document.fullscreenElement)); }
+    document.addEventListener('fullscreenchange', function () { setTimeout(pintaFs, 50); });
+    window.addEventListener('resize', function () { setTimeout(pintaFs, 200); });
     gate.addEventListener('click', function () {
       tocado = true;
       gate.hidden = true;
+      ctxAudio();
       mantenerDespierto();
       pantallaCompleta();
+      setTimeout(pintaFs, 400);
     });
-    document.addEventListener('pointerdown', function () { if (gate.hidden) pantallaCompleta(); }, { passive: true });
+    document.addEventListener('pointerdown', function () { if (gate.hidden) { pantallaCompleta(); ctxAudio(); } }, { passive: true });
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') { pedirWake(); tick(); marcarAhora(false); }
+      if (document.visibilityState === 'visible') { pedirWake(); tick(); marcarAhora(false); pantallaCompleta(); setTimeout(pintaFs, 300); }
     });
     mantenerDespierto();
+
+    /* ── LOS AVISOS: la nota en medio, la campana y la voz ──
+       La pantalla pregunta cada pocos segundos si hay un aviso vivo (`?d=` su identificador, `?n=` el
+       que está enseñando: así la app sabe qué pantallas hay y cuáles lo han visto). La campana se
+       genera aquí (WebAudio) y la voz la pone el navegador (`speechSynthesis`, en español): nada que
+       configurar. ⚠️ Las dos necesitan el toque de arranque (el velo): por eso `ctxAudio()` se crea ahí. */
+    var AVISOS_URL = {{ url_for('public_camerinos_notices')|tojson }};
+    var AVISOS_MS = {{ (cam.notice_poll or 5) * 1000 }};
+    var note = document.getElementById('camNote'), noteText = document.getElementById('camNoteText'), noteMeta = document.getElementById('camNoteMeta');
+    function guarda(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    function lee(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+    // El identificador de ESTA pantalla: se genera una vez y se queda en su navegador.
+    var deviceId = lee('cam_device');
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(deviceId)) {
+      deviceId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : ('p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
+      guarda('cam_device', deviceId);
+    }
+    // El aviso que se está enseñando (o que ya se enseñó): tras una recarga no se vuelve a anunciar.
+    var avisoActual = lee('cam_last_notice');
+    var audioCtx = null;
+    function ctxAudio() {
+      try {
+        if (!audioCtx) { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null; audioCtx = new AC(); }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      } catch (e) { return null; }
+    }
+    /* La campana: tres notas ascendentes, generadas (sin ningún archivo). */
+    function campana() {
+      var c = ctxAudio(); if (!c) return;
+      try {
+        var t0 = c.currentTime + 0.02;
+        [[659.25, 0], [783.99, 0.22], [1046.5, 0.44]].forEach(function (p) {
+          var o = c.createOscillator(), g = c.createGain();
+          o.type = 'sine'; o.frequency.value = p[0];
+          g.gain.setValueAtTime(0.0001, t0 + p[1]);
+          g.gain.exponentialRampToValueAtTime(0.7, t0 + p[1] + 0.03);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + p[1] + 0.6);
+          o.connect(g); g.connect(c.destination);
+          o.start(t0 + p[1]); o.stop(t0 + p[1] + 0.65);
+        });
+      } catch (e) {}
+    }
+    function vozEs() {
+      try {
+        var vs = speechSynthesis.getVoices() || [];
+        return vs.filter(function (v) { return /^es[-_]ES/i.test(v.lang); })[0] || vs.filter(function (v) { return /^es/i.test(v.lang); })[0] || null;
+      } catch (e) { return null; }
+    }
+    function hablar(texto) {
+      if (!('speechSynthesis' in window) || !texto) return;
+      try {
+        speechSynthesis.cancel();
+        var u = new SpeechSynthesisUtterance(texto);
+        u.lang = 'es-ES'; u.rate = 0.95; u.pitch = 1; u.volume = 1;
+        var v = vozEs(); if (v) u.voice = v;
+        speechSynthesis.speak(u);
+      } catch (e) {}
+    }
+    if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.addEventListener('voiceschanged', function () { speechSynthesis.getVoices(); }); } catch (e) {} }
+    function ensenarAviso(n, enSilencio) {
+      noteText.textContent = n.text || '';
+      noteMeta.textContent = [n.sent_at_label, n.sent_by].filter(Boolean).join(' · ');
+      note.hidden = false;
+      if (enSilencio) return;
+      campana();
+      if (n.speak) setTimeout(function () { hablar(n.text); }, 900);
+    }
+    note.addEventListener('click', function () {
+      note.hidden = true;
+      try { speechSynthesis.cancel(); } catch (e) {}
+      pantallaCompleta();
+    });
+    function sondearAvisos() {
+      var url = AVISOS_URL + '?d=' + encodeURIComponent(deviceId) + '&n=' + encodeURIComponent(avisoActual) + '&_=' + Date.now();
+      fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (d) {
+          var n = d && d.notice;
+          if (n && n.id && n.id !== avisoActual) {
+            avisoActual = n.id; guarda('cam_last_notice', n.id); note.__cerrado = false;
+            ensenarAviso(n, false);
+          } else if (n && n.id && n.id === avisoActual && note.hidden && !note.__cerrado) {
+            // Tras una recarga: el aviso sigue vivo y ya se anunció → se enseña sin volver a sonar.
+            ensenarAviso(n, true);
+          } else if (!n && avisoActual) {
+            avisoActual = ''; guarda('cam_last_notice', '');
+            note.hidden = true; note.__cerrado = false;
+          }
+        })
+        .catch(function () {})
+        .then(function () { setTimeout(sondearAvisos, AVISOS_MS); });
+    }
+    note.addEventListener('click', function () { note.__cerrado = true; });
+    setTimeout(sondearAvisos, 1500);
   })();
   </script>
 </body>

@@ -175,6 +175,18 @@
                   <select id="beLinkedSelect{{ uid }}" class="d-none" data-be-linked-select><option value=""></option></select>
                   <div class="form-text">Se guarda como el proveedor del gasto: es quien emite la factura.</div>
                 </div>
+                {# ⚠️⚠️ LA CUENTA EN LA QUE COBRA (sep 2026, lo pidió Dani: «no pueden llegar las
+                   facturas a pago sin tener configurado el número de cuenta»). Se precarga con la
+                   que ya tenga su ficha —o con la que diga la factura al subirla— y lo que se
+                   escriba aquí queda GUARDADO en su ficha, así que solo se pide una vez.
+                   Con factura subida y sin cuenta, el guardado se rechaza diciendo qué falta. #}
+                <div class="mt-2">
+                  <label class="form-label small">Nº de cuenta <span class="text-muted">(donde cobra)</span></label>
+                  <input class="form-control" name="bank_account" autocomplete="off"
+                         placeholder="ES00 0000 0000 0000 0000 0000"
+                         value="{{ pre.get('bank_account', '') if editando else '' }}">
+                  <div class="form-text">Sin ella el gasto no se puede pagar. Si la factura la dice, se coge de ahí.</div>
+                </div>
               </div>
             </div>
           </div>

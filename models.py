@@ -2342,6 +2342,14 @@ class PromoterCompany(Base):
     # Su contacto en HOLDED por empresa del grupo, igual que en `Promoter`: cuando factura la
     # sociedad, es ELLA la que se da de alta allí, así que es aquí donde hay que recordarlo.
     holded_contact_ids = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # ⚠️⚠️ LA CUENTA EN LA QUE COBRA LA SOCIEDAD (sep 2026). Cuando un gasto factura con ella, el
+    # pago SALE DE AQUÍ (`_expense_beneficiary` la mira antes que la del tercero) — y hasta ahora
+    # esta columna **no existía**: `_iban_fill` escribía `company.bank_account` sobre un objeto que
+    # no la tenía, así que la cuenta leída de la factura se perdía **sin dar ningún error** y el
+    # gasto llegaba a «pendiente de pago» sin IBAN. Era la causa de fondo de «siguen llegando
+    # facturas sin cuenta».
+    bank_account = Column(Text)
+    bank_bic = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -10557,6 +10565,11 @@ def ensure_concerts_schema_enhancements():
         # existiera podría no ejecutarse nunca y la app reventaría al leerla (la regla de oro).
         'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_to_promoter boolean NOT NULL DEFAULT false;',
         'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_amount numeric;',
+
+        # LA CUENTA DE LA SOCIEDAD con la que factura un tercero: sin ella, lo que se leía de la
+        # factura se perdía en silencio (la columna no existía) y el gasto llegaba a pago sin IBAN.
+        'ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS bank_account text;',
+        'ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS bank_bic text;',
 
         # PETICIÓN DE MODIFICACIÓN de los carteles (y si hay que volver a compartirlos).
         'ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS change_requested_at timestamptz;',

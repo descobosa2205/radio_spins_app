@@ -112235,6 +112235,60 @@ def _expense_beneficiary(session_db, expense) -> dict:
     }
 
 
+def _expense_bank_apply(session_db, expense, form) -> tuple[bool, str]:
+    """FIJA LA CUENTA EN LA QUE COBRA quien emite la factura de un gasto. Punto único del formulario.
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026): «cuando se sube la factura por parte de cualquier tercero tiene
+    que quedar fijado el número de cuenta; no pueden llegar las facturas a pago sin tenerlo». La
+    landing pública ya lo exigía, pero **subiendo la factura desde el formulario del gasto** no: de
+    ahí salían los gastos que llegaban a «pendiente de pago» sin IBAN y había que ir detrás de
+    alguien para que lo dijera.
+
+    Lo que llega del formulario se valida (mod-97) y se guarda **en la ficha de quien cobra** —la
+    SOCIEDAD si el gasto factura con ella y el tercero si no—, así que la próxima vez ya no se pide.
+    ⚠️ No se acepta una cuenta NUESTRA (`_invoice_iban_candidate`): pagarnos a nosotros mismos es el
+    error que ya se evita al leerla de la factura.
+    """
+    escrito = (form.get("bank_account") or "").strip() if form is not None else ""
+    if not escrito:
+        return True, ""
+    if not _iban_is_valid(escrito):
+        return False, "Ese número de cuenta no es válido: repásalo."
+    bueno = _invoice_iban_candidate(session_db, escrito)
+    if not bueno:
+        return False, "Esa cuenta es de una empresa nuestra: pon la del tercero que cobra."
+    destino = (getattr(expense, "provider_company", None) or getattr(expense, "provider", None))
+    if destino is None:
+        return False, "Antes de poner la cuenta hay que decir quién cobra."
+    destino.bank_account = bueno
+    return True, ""
+
+
+def _expense_bank_missing(session_db, expense) -> str:
+    """¿ESTE GASTO TIENE FACTURA Y NO SE SABE A QUÉ CUENTA PAGARLA? Devuelve el aviso (o "").
+
+    Es la comprobación que impide que una factura llegue a «pendiente de pago» sin cuenta. Solo
+    aplica **con factura**: un gasto que todavía no la tiene no va a pago, y exigirla antes sería
+    bloquear a quien está apuntando lo que le acaba de llegar.
+    ⚠️ Un gasto que **lo cubre el artista o el promotor** no lo pagamos nosotros, así que tampoco
+    se le exige cuenta."""
+    try:
+        if expense is None or not (getattr(expense, "attachment_url", None) or ""):
+            return ""
+        if (getattr(expense, "covered_by", None) or "BOLSA").strip().upper() != "BOLSA":
+            return ""
+        ben = _expense_beneficiary(session_db, expense)
+        if _iban_is_valid(ben.get("iban") or ""):
+            return ""
+        quien = (ben.get("name") or "quien cobra").strip()
+        return ("No se ha guardado: falta el número de cuenta de %s. La factura no lo dice y su "
+                "ficha no lo tiene, y sin eso el gasto llega a pendiente de pago sin poder pagarse."
+                % quien)
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo comprobar la cuenta del gasto")
+        return ""
+
+
 def _expense_pending_amount(expense) -> Decimal:
     """Lo que queda por pagar de un gasto (bruto menos lo ya pagado)."""
     bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
@@ -122846,6 +122900,15 @@ def _bag_create_expense(session_db, bag: WorkflowBag, form, *, file_storage=None
     _bag_update_expense_from_form(session_db, expense, form, file_storage=file_storage, append_history=False)
     _bag_apply_provider_from_form(session_db, expense, form)
     _bag_expense_extras_from_form(session_db, expense, form)
+    # La cuenta en la que cobra (ver `_expense_bank_apply`): quien crea el gasto la deja fijada, y
+    # con factura subida no se deja pasar sin ella (si no, el gasto llega a pago sin poder pagarse).
+    ok_iban, err_iban = _expense_bank_apply(session_db, expense, form)
+    if not ok_iban:
+        raise ValueError(err_iban)
+    session_db.flush()
+    falta_iban = _expense_bank_missing(session_db, expense)
+    if falta_iban:
+        raise ValueError(falta_iban)
     return expense
 
 
@@ -123261,6 +123324,9 @@ def _bag_expense_form_context(session_db, expense: BagExpense) -> dict:
                     else BAG_VAT_PCT_DEFAULT),
         "provider_row": _bag_provider_row(getattr(expense, "provider", None)),
         "provider_company_id": (str(expense.provider_company_id) if getattr(expense, "provider_company_id", None) else ""),
+        # LA CUENTA en la que cobra quien factura (la de la sociedad si factura con ella): se
+        # precarga para que se vea que ya la hay y solo haya que escribirla cuando falta.
+        "bank_account": (_expense_beneficiary(session_db, expense).get("iban") or ""),
         "category": _bag_expense_display_cat(getattr(expense, "category", None)),
         "document_type": (getattr(expense, "document_type", None) or "FACTURA"),
         "payment_status": estado,
@@ -123871,6 +123937,12 @@ def bag_expense_create(bag_id):
         flash(f"Gasto{'s' if len(created) != 1 else ''} añadido{'s' if len(created) != 1 else ''}.", "success")
         if embargo_hits:
             flash("Esta persona no puede facturar porque tiene una orden de embargo activa.", "warning")
+    except ValueError as exc:
+        # ⚠️ Lo que falta se dice CON EL CAMPO MARCADO (la regla de la casa: `_flash_form_error`,
+        # nunca un flash suelto). Hoy es la cuenta en la que cobra, que es lo que impide que una
+        # factura llegue a pendiente de pago sin poder pagarse.
+        session_db.rollback()
+        _flash_form_error(str(exc) or "No se pudo añadir el gasto.", campos=["bank_account"])
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo añadir el gasto: {exc}", "danger")
@@ -124077,6 +124149,18 @@ def bag_expense_edit(bag_id, expense_id):
         # artista como proveedor no guardaba nada y la nota se tiraba.
         _bag_apply_provider_from_form(session_db, expense, _form)
         _bag_expense_extras_from_form(session_db, expense, _form)
+        # ⚠️⚠️ LA CUENTA EN LA QUE COBRA, ANTES DE DEJARLO PASAR (sep 2026, lo pidió Dani): va
+        # DESPUÉS del proveedor —que se acaba de aplicar— porque se guarda en SU ficha.
+        _ok_iban, _err_iban = _expense_bank_apply(session_db, expense, _form)
+        if not _ok_iban:
+            session_db.rollback()
+            _flash_form_error(_err_iban, campos=["bank_account"])
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+        _falta_iban = _expense_bank_missing(session_db, expense)
+        if _falta_iban:
+            session_db.rollback()
+            _flash_form_error(_falta_iban, campos=["bank_account"])
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         # Los SUPLIDOS están DENTRO de `amount_gross`, y el recálculo del importe los machaca: se
         # vuelven a sumar (el formulario pregunta por la parte GRAVABLE, sin suplidos).
         if getattr(expense, "supplements", None):

@@ -56,6 +56,7 @@
 - DIVIDIR UN GASTO · LAS DOCE TRAMPAS QUE SACÓ LA REVISIÓN. Ninguna daba
 - EL DINERO NO SE ALTERA · HAY DOS PARSERS Y EL FORMATO LO DECIDE EL ORIGEN DEL DATO
 - UNA BOLSA NO REPITE SUS DATOS: la cabecera ya los dice
+- Y AUN ASÍ SEGUÍAN LLEGANDO FACTURAS SIN CUENTA: FALTABAN DOS COSAS
 - UNA FACTURA DICE DÓNDE HAY QUE PAGARLA: EL IBAN SE RESUELVE AL SUBIRLA (sep 2026, bug
 - ADMINISTRACIÓN · DE QUIÉN ES CADA BOLSA, debajo de su nombre
 
@@ -1247,6 +1248,30 @@
   · **LAS NOTAS solo son un módulo SI HAY NOTAS**; si no, queda una **barra fina con el icono de una
   nota** (`.bag-notes-bar__btn`) que abre el formulario. Un módulo vacío que dice «todavía no hay
   notas» solo ocupa sitio. El formulario es una macro (`bag_note_form`), la misma en los dos casos.
+
+- ⚠️⚠️⚠️ **Y AUN ASÍ SEGUÍAN LLEGANDO FACTURAS SIN CUENTA: FALTABAN DOS COSAS** (sep 2026, lo
+  volvió a decir Dani: «cuando se sube la factura por parte de cualquier tercero tiene que quedar
+  fijado el número de cuenta; no pueden llegar las facturas a pago sin tenerlo»). Lo de abajo cerró
+  la landing pública, pero quedaban dos agujeros —y uno de ellos **perdía la cuenta en silencio**:
+  ⚠️⚠️ **1 · `PromoterCompany` NO TENÍA COLUMNA `bank_account`.** Cuando el gasto factura con una
+  SOCIEDAD, el pago sale de ella (`_expense_beneficiary` la mira antes que al tercero) y
+  `_iban_fill(session, company, iban)` hacía `company.bank_account = …` sobre un objeto **que no
+  tiene esa columna**: SQLAlchemy se queda tan ancho, el atributo no se persiste y **la cuenta leída
+  de la factura desaparecía sin dar ningún error**. Ahora la sociedad tiene `bank_account` y
+  `bank_bic` (columnas nuevas, cada una en su sentencia del `ensure_*`).
+  ⚠️⚠️ **2 · EL FORMULARIO DEL GASTO NO LA EXIGÍA.** Leía la factura y completaba la ficha, pero si
+  la factura no la decía y la ficha no la tenía, el gasto se consolidaba igual y llegaba a
+  «pendiente de pago» sin IBAN. Ahora el formulario tiene su campo **«Nº de cuenta»** (precargado
+  con la que ya haya) y **el guardado se rechaza** si hay FACTURA y no hay cuenta, con
+  `_flash_form_error` y el campo marcado — en el alta y en la edición.
+  · Puntos únicos: **`_expense_bank_apply`** (valida mod-97, rechaza una cuenta NUESTRA y la guarda
+  en la ficha de quien cobra —la SOCIEDAD si factura con ella—) y **`_expense_bank_missing`** (¿este
+  gasto tiene factura y no se sabe a qué cuenta pagarle?).
+  ⚠️ **Solo se exige CON FACTURA**: un gasto que todavía no la tiene no va a pago, y pedirla antes
+  sería bloquear a quien está apuntando lo que le acaba de llegar. Y lo que **cubre el artista o el
+  promotor** tampoco lo pagamos nosotros: ahí no se pide.
+  · **Prueba de la casa: `tools/check_iban_factura.py`** (15 comprobaciones con la app real,
+  incluida la de que el gasto llega a la remesa sin que le falte nada).
 
 - ⚠️⚠️⚠️ **UNA FACTURA DICE DÓNDE HAY QUE PAGARLA: EL IBAN SE RESUELVE AL SUBIRLA** (sep 2026, bug
   real: «llegan facturas a pendiente de pago sin el IBAN del proveedor, y en la factura viene»).

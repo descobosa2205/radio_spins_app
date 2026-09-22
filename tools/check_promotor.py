@@ -573,6 +573,36 @@ def main() -> int:
               (t2.get("promotor") or {}).get("blocked") is True,
               (t2.get("promotor") or {}).get("blocked_reason"))
 
+    # ── 12 bis · «ARTISTA OK» SALE UNA SOLA VEZ ───────────────────────────────────────────
+    # ⚠️⚠️ El sí del artista llega por DOS vías —contestando a su aviso y apuntado a mano en la
+    # fase de la petición— y cada una pintaba SU etiqueta: en una actividad con las dos salía
+    # «Artista OK» DOS VECES (lo vio Dani). Ahora las junta `_concert_artist_ok`: una sola etiqueta
+    # y, si hubo varias interacciones, todas en el tooltip.
+    print("\n12 bis · «Artista OK» no se duplica")
+    pet4 = models.BookingRequest(subject="Doble OK %s" % suf, status="CONVERTIDA",
+                                 created_by_user_id=yo.id, accepted_at=A._now_madrid(),
+                                 artist_agreed_at=A._now_madrid(), artist_agreed_by_nick="Dani")
+    s.add(pet4)
+    s.flush()
+    c6 = concierto()
+    pet4.concert_id = c6.id
+    # Y ADEMÁS contesta que sí a su aviso: las dos vías a la vez.
+    s.add(models.ConcertArtistNotification(
+        concert_id=c6.id, channel="EMAIL", kind="CONFIRMAR", recipients=[],
+        response="OK", responded_at=A._now_madrid()))
+    s.commit()
+    import re as _re6
+    _ficha = cli.get("/conciertos/%s?tab=general" % c6.id).get_data(as_text=True)
+    _i = _ficha.find("ficha-quick")
+    _barra = _ficha[_i:_i + 9000] if _i > 0 else _ficha
+    _cuantas = len(_re6.findall(r'</i>Artista OK', _barra))
+    comprueba("con las DOS vías, «Artista OK» sale UNA sola vez", _cuantas == 1, _cuantas)
+    comprueba("y el tooltip cuenta las dos interacciones",
+              "Lo confirmó él desde su aviso" in _barra and "Apuntado a mano" in _barra,
+              _barra[:0])
+    comprueba("sin botón de volver a pedírsela",
+              "Pedir confirmación al artista" not in _barra)
+
     # ── 13 · «ACTIVAR PRODUCCIÓN» DESDE LAS TAREAS PENDIENTES ──────────────────────────────
     # ⚠️⚠️ Su botón ABRE EL POP-UP de quién se encarga. Antes la fase solo traía la URL de la ficha
     # de la actividad, así que pulsarlo DESDE la propia ficha recargaba la misma página y **no

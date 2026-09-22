@@ -156,9 +156,13 @@
         <i class="fa fa-circle-check me-1"></i>Confirmar la actividad
       </button>
     </form>
-  {% elif artist_confirmation and artist_confirmation.answered and artist_confirmation.ok %}
+  {% elif artist_ok and artist_ok.ok %}
+    {# ⚠️⚠️ UNA SOLA ETIQUETA (sep 2026, lo vio Dani: «Artista OK aparece duplicado»). El sí llega
+       por DOS vías —contestando a su aviso y apuntado a mano en la fase de la petición— y cada una
+       pintaba la suya. Ahora las junta `_concert_artist_ok` y, si hubo varias interacciones, se
+       ven todas al pasar el ratón. #}
     <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
-          title="El artista la confirmó el {{ artist_confirmation.at_label }}">
+          title="{{ artist_ok.lines|join(' · ') }}">
       <i class="fa fa-user-check me-1"></i>Artista OK
     </span>
   {% elif artist_confirmation and artist_confirmation.answered %}
@@ -177,12 +181,9 @@
        tanto si se apuntó en la fase (`pf.artist_ok.done`) como si contestó que sí al aviso
        (`artist_confirmation`): son la MISMA respuesta vista desde dos sitios, y mientras solo se
        miraba la primera se le seguía ofreciendo pedirle algo que ya había dado. #}
-    {% set artista_ok = pf.artist_ok.done or (artist_confirmation and artist_confirmation.answered and artist_confirmation.ok) %}
-    {% if artista_ok %}
-      <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
-            title="El artista confirmó la fecha{% if pf.artist_ok.at_label %} el {{ pf.artist_ok.at_label }}{% elif artist_confirmation and artist_confirmation.at_label %} el {{ artist_confirmation.at_label }}{% endif %}{% if pf.artist_ok.by %} · lo apuntó {{ pf.artist_ok.by }}{% endif %}">
-        <i class="fa fa-user-check me-1"></i>Artista OK
-      </span>
+    {# ⚠️ Con el sí del artista, aquí NO se pinta nada: su etiqueta «Artista OK» ya está arriba
+       (una sola, con todas las interacciones en el tooltip) y los botones de pedírselo sobran. #}
+    {% if artist_ok and artist_ok.ok %}
     {% elif pf.artist_ok.mine %}
       {# ⚠️ Se le PIDE al artista con el aviso de siempre (kind CONFIRMAR): el correo y la landing
          llevan los botones de Confirmar/Rechazar y lo que conteste queda guardado con su fecha.

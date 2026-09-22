@@ -1525,6 +1525,12 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   confirmación (y el de marcarlo a mano). ⚠️ El sí del artista llega por **DOS sitios** —la fase de
   la petición (`pf.artist_ok.done`) y su respuesta al aviso (`artist_confirmation`)— y solo se
   miraba el primero: con el segundo, la etiqueta verde salía arriba **y debajo seguía el botón**.
+  ⚠️⚠️ **Y CON LAS DOS VÍAS SALÍA DOS VECES** (lo vio Dani en cuanto se subió lo anterior): cada
+  bloque pintaba SU etiqueta y en una actividad de petición con el artista confirmado había **dos
+  «Artista OK»**. Punto único **`_concert_artist_ok(confirmacion, fases)`**: devuelve si ha dicho
+  que sí y **la lista de interacciones**, así que la barra pinta **UNA** etiqueta y, si hubo varias,
+  se ven todas **al pasar el ratón** («Lo confirmó él desde su aviso el … · Apuntado a mano por …»).
+  Es la regla de siempre: un dato que se enseña en dos sitios sale de la misma función.
   · **FECHA DE ANUNCIO Y CARTELERÍA** — en cuanto se le ha pedido (`announce_ask.asked_label`), la
   pelota es suya: queda la etiqueta **AMARILLA** («Cartelería y fecha de anuncio pendientes» /
   «Cartelería pendiente» / «Fecha de anuncio pendiente») y **no el botón**. Como la del artista,

@@ -72964,6 +72964,10 @@ def concert_detail_view(cid):
             # FASES de la petición de la que salió (si salió de una): confirmar con el artista y
             # confirmar al promotor, en ese orden. Las otras dos ya tienen su botón en la barra.
             peticion_phases=_concert_peticion_phases(session, c),
+            # UNA SOLA etiqueta «Artista OK»: las dos vías (su respuesta y lo apuntado a mano) se
+            # juntan aquí, y si hubo varias interacciones se ven al pasar el ratón.
+            artist_ok=_concert_artist_ok(_artist_confirmation_state(session, c),
+                                         _concert_peticion_phases(session, c)),
             # ⚠️⚠️ CONFIRMAR AL PROMOTOR SALE EN TODAS las que tengan promotor (sep 2026, lo pidió
             # Dani), no solo en las de petición. Punto único `_promoter_confirm_state`: el botón
             # «Notificar al promotor» está en la barra HASTA que queda confirmado y entonces
@@ -131798,6 +131802,36 @@ def _artist_confirm_applies(session_db, concert) -> bool:
     except Exception:
         app.logger.exception("[tareas] no se pudo mirar si aplica la confirmación del artista")
         return False
+
+
+def _concert_artist_ok(confirmacion, fases) -> dict:
+    """¿EL ARTISTA HA DICHO QUE SÍ? **Punto único de la etiqueta «Artista OK»** (sep 2026).
+
+    ⚠️⚠️ El sí llega por DOS vías y las dos valen: **contestando a su aviso** (`CONFIRMAR`) y
+    **apuntado a mano** en la fase de la petición (lo dijo por teléfono). Cada una tenía su etiqueta
+    en la barra, así que en una actividad con las dos salía **«Artista OK» DOS VECES** (lo vio
+    Dani). Aquí se juntan: **una sola etiqueta** y, si hubo varias interacciones, todas se ven **al
+    pasar el ratón**.
+
+    Devuelve `{"ok": bool, "at_label": str, "lines": [str, …]}` — `lines` es lo que va en el título.
+    """
+    confirmacion = confirmacion or {}
+    fase = (fases or {}).get("artist_ok") or {}
+    lineas = []
+    if confirmacion.get("answered") and confirmacion.get("ok"):
+        cuando = (confirmacion.get("at_label") or "").strip()
+        lineas.append("Lo confirmó él desde su aviso" + (" el %s" % cuando if cuando else ""))
+    if fase.get("done"):
+        quien = (fase.get("by") or "").strip()
+        cuando = (fase.get("at_label") or "").strip()
+        lineas.append("Apuntado a mano" + (" por %s" % quien if quien else "")
+                      + (" el %s" % cuando if cuando else ""))
+    return {
+        "ok": bool(lineas),
+        # La fecha que se enseña es la de la PRIMERA vía que haya (la respuesta del artista manda).
+        "at_label": ((confirmacion.get("at_label") or fase.get("at_label") or "").strip()),
+        "lines": lineas,
+    }
 
 
 def _artist_confirmation_state(session_db, concert) -> dict:

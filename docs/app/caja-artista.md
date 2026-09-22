@@ -300,6 +300,15 @@ De lo anterior a la app no hay ni una fila, así que el cuadro de mando empezar�
   (`ARTIST_CASH_*`). Un CHECK con lista cerrada es una trampa conocida (ver `CLAUDE.md`) y aquí no
   aporta nada que no haga ya el formulario.
 
+- ⚠️⚠️ **EN LA BOLSA NO SE DICE NADA DE LA CAJA** (sep 2026, lo pidió Dani: «esa línea no se tiene
+  que mostrar en la bolsa, quita directamente ese módulo»). La barra «Caja del artista» del panel de
+  la bolsa se **retiró**: mientras la bolsa está abierta solo podía decir «se decide al cerrar la
+  liquidación», o sea, que todavía no hay nada que decir. **Se decide donde se decide**: al CERRAR la
+  liquidación, en Administración → Pendiente → De cierre, que es el único momento en el que alguien
+  la revisa con el coste FINAL delante (`administration_bag_close_liquidation`).
+  ⚠️ El motor (`_bag_cash_*`, `WorkflowBag.cash_impact`) y el endpoint `bag_cash_impact_save` siguen
+  estando: lo que se ha quitado es el módulo de la pantalla de la bolsa.
+
 ## Dónde está cada cosa
 
 | qué | dónde |

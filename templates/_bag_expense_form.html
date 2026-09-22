@@ -2,10 +2,16 @@
    AÑADIR UN GASTO A LA BOLSA · el formulario, por MÓDULOS (bocadillos) y en un solo paso.
    Estética de las bolsas (`.sim-cat-card`), y el ÚNICO campo obligatorio es el CONCEPTO.
 
-   Cuatro módulos, cada uno en su bocadillo:
-     1 · DATOS      → concepto · importe (con o sin IVA) · nota y aviso
-     2 · PROVEEDOR  → quién nos factura (barra de búsqueda en toda la base) y con qué sociedad
-     3 · FACTURA    → se arrastra el documento: se lee y se dice si es FACTURA o TICKET
+   Cuatro módulos, cada uno en su bocadillo. ⚠️⚠️ EL PRIMERO ES LA FACTURA (sep 2026, lo pidió
+   Dani): se sube lo primero porque, en cuanto se lee, RELLENA todo lo demás —el importe, el
+   concepto, las fechas y hasta quién nos factura—, así que preguntar antes lo que el documento ya
+   dice es hacer teclear dos veces. ⚠️ **No siempre hay factura**: nada de este módulo es
+   obligatorio y un gasto se puede apuntar sin ella.
+     1 · FACTURA    → se arrastra el documento: se lee, se dice si es FACTURA o TICKET y se ve
+                      A LA IZQUIERDA mientras se repasan los datos (sin abrirla en otra pantalla)
+     2 · DATOS      → concepto · importe (con o sin IVA) · nota y aviso
+     3 · PROVEEDOR  → quién nos factura (se reconoce solo si está en la base) y QUÉ LE FALTA a su
+                      ficha, en amarillo y guardado en ella
      4 · PAGO       → si está pagado (completo o parcial) y con qué método
 
    Del contexto necesita: `bag`, `bag_next`, `bag_payment_methods`, `bag_payment_method_icons`,
@@ -27,8 +33,10 @@
 {% set exp = be_expense %}
 {% set pre = be_prefill|default({}) %}
 {% set editando = modo == 'edit' %}
+{% set perfil = pre.get('provider_profile') or {} %}
+{% set falta_cuenta = editando and ('bank_account' in (perfil.get('missing') or [])) %}
 <div class="modal fade" id="{{ be_modal_id|default('addExpenseModal') }}" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable be-dialog" data-be-dialog>
     <div class="modal-content">
       <form method="post" action="{{ be_action|default(url_for('bag_expense_create', bag_id=bag.id)) }}"
             enctype="multipart/form-data" data-bag-expense-form>
@@ -38,8 +46,88 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+        {# ⚠️⚠️ PANTALLA PARTIDA: con documento subido, la FACTURA se ve A LA IZQUIERDA y el
+           formulario se queda EXACTAMENTE con el ancho que tiene ahora (el modal es el que crece).
+           Así se comprueba que lo que se está apuntando es lo que pone la factura sin abrirla en
+           otra pantalla. Sin documento, el modal se ve igual que siempre. #}
+        <div class="be-split">
+          <aside class="be-doc-view d-none" data-be-viewer
+                 {% if editando and exp and exp.attachment_url %}
+                   data-be-doc-url="{{ exp.attachment_url }}"
+                   data-be-doc-label="{{ exp.attachment_name or 'Documento' }}"
+                 {% endif %}>
+            <div class="be-doc-view__lab">
+              <span class="text-truncate" data-be-viewer-name>Factura</span>
+              <button type="button" class="btn btn-sm btn-link p-0 ms-auto text-muted" data-be-viewer-hide
+                      title="Ocultar el documento"><i class="fa fa-xmark"></i></button>
+            </div>
+            <div class="be-doc-view__frame" data-be-viewer-frame></div>
+          </aside>
+          <div class="be-split__form">
 
-          {# ═════════ 1 · DATOS ═════════ #}
+          {# ═════════ 1 · FACTURA / TICKET ═════════ #}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><span><i class="fa fa-file-invoice"></i>Factura o ticket</span>
+              <span class="badge text-bg-light border d-none" data-be-doc-kind></span></div>
+            <div class="sim-cat-card__body" data-be-doc
+                 data-url-detect="{{ url_for('api_bag_document_detect') }}">
+              {# Se arrastra o se elige (el mecanismo global `file_drop.js`). #}
+              {% if editando and exp and exp.attachment_url %}
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                  <button type="button" class="badge text-bg-light border" data-be-viewer-show>
+                    <i class="fa fa-paperclip me-1"></i>{{ exp.attachment_name or 'Documento' }}</button>
+                  <span class="form-text mb-0">Si subes otro, <strong>reemplaza</strong> a este (el anterior se guarda en su historial).</span>
+                </div>
+              {% endif %}
+              <label class="be-drop w-100 mb-0" data-file-drop-for="#beDocInput{{ uid }}">
+                <i class="fa fa-cloud-arrow-up"></i>
+                <span data-be-doc-name>Arrastra aquí la factura o el ticket, o pincha para elegirlo</span>
+              </label>
+              <input type="file" id="beDocInput{{ uid }}" name="{{ be_doc_field|default('documents') }}" class="d-none"
+                     accept=".pdf,image/*" data-be-doc-input {% if not editando %}multiple{% endif %}>
+              {# QUÉ ES: se lee solo del documento, pero se puede corregir a mano. #}
+              <div class="d-flex flex-wrap gap-2 mt-2">
+                {% for value, label in bag_document_types %}
+                  <input type="radio" class="btn-check" name="document_type" value="{{ value }}"
+                         id="beDocT{{ uid }}{{ loop.index }}" data-be-doc-type
+                         {% if (pre.get('document_type') if editando else 'FACTURA') == value %}checked{% endif %}>
+                  <label class="btn btn-outline-secondary btn-sm" for="beDocT{{ uid }}{{ loop.index }}">
+                    <i class="fa {{ {'FACTURA':'fa-file-invoice','TICKET':'fa-receipt','SIN_DOCUMENTO':'fa-ban'}.get(value, 'fa-file') }} me-1"></i>{{ label }}</label>
+                {% endfor %}
+              </div>
+              <div class="form-text" data-be-doc-hint>Se lee solo y rellena lo demás. <strong>No siempre
+                hay factura</strong>: el gasto se puede apuntar sin ella.</div>
+              {# Lo que se ha podido leer, dicho en una línea: así se sabe qué revisar. #}
+              <div class="alert alert-success py-2 px-3 small mt-2 mb-0 d-none" data-be-read-note></div>
+              <div class="row g-2 mt-2 {% if not editando %}d-none{% endif %}" data-be-doc-fields>
+                <div class="col-md-4">
+                  <label class="form-label small">Nº de factura</label>
+                  <input type="text" name="invoice_number" class="form-control form-control-sm" data-be-invnum
+                         value="{{ exp.invoice_number or '' if editando and exp else '' }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Fecha de emisión</label>
+                  <input type="date" name="issue_date" class="form-control form-control-sm" data-be-issue
+                         value="{{ exp.issue_date.isoformat() if editando and exp and exp.issue_date else '' }}">
+                </div>
+                <div class="col-md-4">
+                  {# ⚠️ La RETENCIÓN cambia lo que se le PAGA al proveedor (base + IVA − retención),
+                     así que se puede corregir aquí. Un hueco vacío no es un 0. #}
+                  <label class="form-label small">Retención <span class="text-muted">(si la lleva)</span></label>
+                  <input type="text" name="retention_amount" class="form-control form-control-sm" data-money
+                         inputmode="decimal" placeholder="0,00"
+                         value="{{ money_text(pre.get('retention')) if editando else '' }}">
+                </div>
+                <div class="col-md-4 {% if not (editando and pre.get('document_type') == 'TICKET') %}d-none{% endif %}" data-be-establishment-wrap>
+                  <label class="form-label small">Establecimiento</label>
+                  <input type="text" name="ticket_establishment" class="form-control form-control-sm"
+                         value="{{ exp.ticket_establishment or '' if editando and exp else '' }}">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# ═════════ 2 · DATOS ═════════ #}
           <div class="sim-cat-card">
             <div class="sim-cat-card__head"><span><i class="fa fa-circle-info"></i>Datos</span></div>
             <div class="sim-cat-card__body">
@@ -121,11 +209,14 @@
             </div>
           </div>
 
-          {# ═════════ 2 · PROVEEDOR ═════════ #}
+          {# ═════════ 3 · PROVEEDOR ═════════ #}
           <div class="sim-cat-card">
-            <div class="sim-cat-card__head"><span><i class="fa fa-user-tie"></i>Proveedor</span></div>
+            <div class="sim-cat-card__head"><span><i class="fa fa-user-tie"></i>Proveedor</span>
+              <span class="badge text-bg-light border d-none" data-be-prov-auto></span></div>
             <div class="sim-cat-card__body" data-be-provider
-                 data-url-search="{{ url_for('api_bag_provider_search') }}">
+                 data-url-search="{{ url_for('api_bag_provider_search') }}"
+                 data-url-profile="{{ url_for('api_bag_provider_profile') }}"
+                 data-url-save="{{ url_for('api_bag_provider_save') }}">
               <label class="form-label">¿Quién nos factura?</label>
               <div class="input-group">
                 <input type="text" class="form-control" data-be-prov-input autocomplete="off"
@@ -175,76 +266,34 @@
                   <select id="beLinkedSelect{{ uid }}" class="d-none" data-be-linked-select><option value=""></option></select>
                   <div class="form-text">Se guarda como el proveedor del gasto: es quien emite la factura.</div>
                 </div>
-                {# ⚠️⚠️ LA CUENTA EN LA QUE COBRA (sep 2026, lo pidió Dani: «no pueden llegar las
-                   facturas a pago sin tener configurado el número de cuenta»). Se precarga con la
-                   que ya tenga su ficha —o con la que diga la factura al subirla— y lo que se
-                   escriba aquí queda GUARDADO en su ficha, así que solo se pide una vez.
-                   Con factura subida y sin cuenta, el guardado se rechaza diciendo qué falta. #}
-                <div class="mt-2">
-                  <label class="form-label small">Nº de cuenta <span class="text-muted">(donde cobra)</span></label>
-                  <input class="form-control" name="bank_account" autocomplete="off"
-                         placeholder="ES00 0000 0000 0000 0000 0000"
-                         value="{{ pre.get('bank_account', '') if editando else '' }}">
-                  <div class="form-text">Sin ella el gasto no se puede pagar. Si la factura la dice, se coge de ahí.</div>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {# ═════════ 3 · FACTURA / RECIBO ═════════ #}
-          <div class="sim-cat-card">
-            <div class="sim-cat-card__head"><span><i class="fa fa-file-invoice"></i>Factura o ticket</span>
-              <span class="badge text-bg-light border d-none" data-be-doc-kind></span></div>
-            <div class="sim-cat-card__body" data-be-doc
-                 data-url-detect="{{ url_for('api_bag_document_detect') }}">
-              {# Se arrastra o se elige (el mecanismo global `file_drop.js`). #}
-              {% if editando and exp and exp.attachment_url %}
-                <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
-                  <span class="badge text-bg-light border"><i class="fa fa-paperclip me-1"></i>{{ exp.attachment_name or 'Documento' }}</span>
-                  <span class="form-text mb-0">Si subes otro, <strong>reemplaza</strong> a este (el anterior se guarda en su historial).</span>
-                </div>
-              {% endif %}
-              <label class="be-drop w-100 mb-0" data-file-drop-for="#beDocInput{{ uid }}">
-                <i class="fa fa-cloud-arrow-up"></i>
-                <span data-be-doc-name>Arrastra aquí la factura o el ticket, o pincha para elegirlo</span>
-              </label>
-              <input type="file" id="beDocInput{{ uid }}" name="{{ be_doc_field|default('documents') }}" class="d-none"
-                     accept=".pdf,image/*" data-be-doc-input {% if not editando %}multiple{% endif %}>
-              {# QUÉ ES: se lee solo del documento, pero se puede corregir a mano. #}
-              <div class="d-flex flex-wrap gap-2 mt-2">
-                {% for value, label in bag_document_types %}
-                  <input type="radio" class="btn-check" name="document_type" value="{{ value }}"
-                         id="beDocT{{ uid }}{{ loop.index }}" data-be-doc-type
-                         {% if (pre.get('document_type') if editando else 'FACTURA') == value %}checked{% endif %}>
-                  <label class="btn btn-outline-secondary btn-sm" for="beDocT{{ uid }}{{ loop.index }}">
-                    <i class="fa {{ {'FACTURA':'fa-file-invoice','TICKET':'fa-receipt','SIN_DOCUMENTO':'fa-ban'}.get(value, 'fa-file') }} me-1"></i>{{ label }}</label>
-                {% endfor %}
-              </div>
-              <div class="form-text" data-be-doc-hint>Se lee solo: si es una <strong>factura</strong> se
-                desglosa el IVA y si es un <strong>ticket</strong> no (el IVA de un ticket no es deducible).</div>
-              <div class="row g-2 mt-2 {% if not editando %}d-none{% endif %}" data-be-doc-fields>
-                <div class="col-md-4">
-                  <label class="form-label small">Nº de factura</label>
-                  <input type="text" name="invoice_number" class="form-control form-control-sm" data-be-invnum
-                         value="{{ exp.invoice_number or '' if editando and exp else '' }}">
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label small">Fecha de emisión</label>
-                  <input type="date" name="issue_date" class="form-control form-control-sm" data-be-issue
-                         value="{{ exp.issue_date.isoformat() if editando and exp and exp.issue_date else '' }}">
-                </div>
-                <div class="col-md-4">
-                  {# ⚠️ La RETENCIÓN cambia lo que se le PAGA al proveedor (base + IVA − retención),
-                     así que se puede corregir aquí. Un hueco vacío no es un 0. #}
-                  <label class="form-label small">Retención <span class="text-muted">(si la lleva)</span></label>
-                  <input type="text" name="retention_amount" class="form-control form-control-sm" data-money
-                         inputmode="decimal" placeholder="0,00"
-                         value="{{ money_text(pre.get('retention')) if editando else '' }}">
-                </div>
-                <div class="col-md-4 {% if not (editando and pre.get('document_type') == 'TICKET') %}d-none{% endif %}" data-be-establishment-wrap>
-                  <label class="form-label small">Establecimiento</label>
-                  <input type="text" name="ticket_establishment" class="form-control form-control-sm"
-                         value="{{ exp.ticket_establishment or '' if editando and exp else '' }}">
+                {# ⚠️⚠️ LO QUE LE FALTA A SU FICHA, EN AMARILLO (sep 2026, lo pidió Dani). Lo que ya
+                   tenemos NO se pregunta; lo que falta sale aquí con lo que diga la factura ya
+                   puesto, y al guardar queda en SU ficha: así solo se pide una vez.
+                   ⚠️ Los campos de aquí los pinta el JS (`data-be-prov-fields`) con el mismo punto
+                   único que usa el servidor (`_bag_provider_profile`), salvo la CUENTA, que va
+                   siempre en el HTML porque es la que el servidor EXIGE cuando hay factura. #}
+                <div class="be-prov-card mt-3 {% if not (editando and (pre.get('provider_row') or {}).get('id')) %}d-none{% endif %}" data-be-prov-card>
+                  <div class="be-prov-card__head">
+                    <span><i class="fa fa-id-card-clip me-1"></i>Su ficha</span>
+                    <span class="be-prov-card__state" data-be-prov-state></span>
+                  </div>
+                  <div class="row g-2" data-be-prov-fields></div>
+                  <div class="row g-2 mt-0">
+                    <div class="col-md-6 {% if falta_cuenta %}inv-need{% endif %}" data-be-bank-wrap>
+                      <label class="form-label small">Nº de cuenta <span class="text-muted">(donde cobra)</span></label>
+                      <input class="form-control form-control-sm {% if falta_cuenta %}is-need{% endif %}"
+                             name="bank_account" autocomplete="off" data-be-bank
+                             placeholder="ES00 0000 0000 0000 0000 0000"
+                             value="{{ pre.get('bank_account', '') if editando else '' }}">
+                      <div class="form-text">Sin ella el gasto no se puede pagar. Si la factura la dice, se coge de ahí.</div>
+                    </div>
+                  </div>
+                  <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-be-prov-save>
+                      <i class="fa fa-floppy-disk me-1"></i>Guardar proveedor</button>
+                    <span class="small" data-be-prov-msg></span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -301,6 +350,8 @@
             </div>
           </div>
 
+          </div>{# /.be-split__form #}
+        </div>{# /.be-split #}
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>

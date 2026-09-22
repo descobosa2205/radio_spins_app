@@ -881,6 +881,56 @@ img.img-error-pending{ visibility: hidden; }
 .be-opt:has(input:checked){ border-color:var(--brand-primary); background:#fff4f4; color:var(--brand-primary); }
 .be-opt:has(input:checked) i{ color:var(--brand-primary); }
 
+/* ⚠️⚠️ LA FACTURA, A LA IZQUIERDA (sep 2026, lo pidió Dani: «se mantiene el mismo tamaño actual del
+   formulario, pero la factura aparecerá en la parte izquierda, para no tener que abrirla en otra
+   pantalla mientras subes los datos»). El FORMULARIO conserva su ancho (el del modal-lg de
+   siempre): el que crece es el modal, y el hueco que se gana es para el documento.
+   ⚠️ El visor va `sticky`: el cuerpo del modal se desliza y la factura se queda a la vista. */
+.be-split{ display:flex; align-items:flex-start; gap:1rem; }
+.be-split__form{ flex:1 1 auto; min-width:0; }
+.be-dialog.is-split{ max-width:min(1400px, 96vw); }
+/* ⚠️ `flex:0 0` en lo de tamaño fijo y `min-width:0` en lo que debe encogerse: si no, el visor
+   empuja al formulario y los campos se parten (la regla de siempre de los hijos de un flex). */
+.be-dialog.is-split .be-split__form{ flex:0 0 min(768px, 100%); max-width:min(768px, 100%); }
+.be-doc-view{
+  flex:1 1 auto; min-width:0; position:sticky; top:0; align-self:flex-start;
+  border:1px solid #e3e6eb; border-radius:12px; overflow:hidden; background:#f8f9fa;
+}
+.be-doc-view__lab{
+  display:flex; align-items:center; gap:.5rem; font-size:.75rem; font-weight:700;
+  text-transform:uppercase; letter-spacing:.03em; color:#6c757d;
+  padding:.4rem .6rem; border-bottom:1px solid #e9ecef; background:#fff;
+}
+.be-doc-view__frame{ height:min(74vh, 640px); }
+.be-doc-view__frame iframe{ width:100%; height:100%; border:0; }
+.be-doc-view__frame img{ width:100%; height:100%; object-fit:contain; background:#fff; }
+/* En pantalla estrecha no hay sitio para dos columnas: la factura va ARRIBA y más baja. */
+@media (max-width: 1199.98px){
+  .be-split{ flex-direction:column; }
+  .be-split__form, .be-dialog.is-split .be-split__form{ flex:1 1 auto; max-width:100%; width:100%; }
+  .be-doc-view{ position:static; width:100%; }
+  .be-doc-view__frame{ height:min(40vh, 340px); }
+}
+
+/* LA FICHA DEL PROVEEDOR dentro del formulario: lo que YA tenemos se ve de un vistazo y lo que
+   falta sale en amarillo (`.inv-need` / `.is-need`, las mismas marcas que el repaso de una
+   factura) con lo que diga el documento ya puesto. */
+.be-prov-card{ border:1px solid #e9ecef; border-radius:12px; padding:.7rem .8rem; background:#fcfcfd; }
+.be-prov-card__head{
+  display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;
+  font-size:.82rem; font-weight:700; margin-bottom:.5rem;
+}
+.be-prov-card__head i{ color:var(--brand-primary); }
+.be-prov-card__state{ margin-left:auto; font-size:.78rem; font-weight:600; }
+.be-prov-card__state.is-need{ color:#8a6d00; }
+.be-prov-card__state.is-ok{ color:#198754; }
+.be-prov-ok{
+  display:inline-flex; align-items:center; gap:.4rem; max-width:100%;
+  border:1px solid #e9ecef; border-radius:999px; padding:.2rem .6rem; background:#fff;
+  font-size:.82rem; color:#495057;
+}
+.be-prov-ok i{ color:#adb5bd; }
+
 /* ══════════ LO QUE FALTA, EN AMARILLO; LO QUE ESTÁ MAL, EN ROJO ══════════
    Marcas de `form_check.js` (global). ⚠️ AMARILLO = obligatorio y sin rellenar (no es un error, es
    que falta); ROJO = relleno pero mal. Se ven igual en un campo, en un `<select>` y en una tarjeta
@@ -6332,18 +6382,6 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .bag-close__part.is-done{ color:#0f5132; border-color:#badbcc; background:#eaf6ef; }
 .bag-close__part i:first-child{ font-size:.9em; }
 .bag-close__note{ font-size:.85rem; color:#6b7280; margin-left:auto; }
-/* ¿ESTA BOLSA VA A LA CAJA DEL ARTISTA? Misma barra que el cierre, para que se lea igual. */
-.bag-cash{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; border:1px solid #e9ecef;
-  border-radius:.7rem; padding:.5rem .75rem; background:#fff; }
-.bag-cash__ttl{ font-weight:600; font-size:.88rem; display:inline-flex; align-items:center; gap:.4rem; }
-.bag-cash__ttl i{ color:var(--brand-primary,#E33D48); }
-.bag-cash__v{ font-size:.86rem; font-weight:600; }
-.bag-cash__v.is-in{ color:#198754; }
-.bag-cash__v.is-out{ color:#6c757d; }
-.bag-cash__v.is-wait{ color:#b58105; }
-.bag-cash__note{ font-size:.78rem; color:#6c757d; }
-.bag-cash__form{ margin-left:auto; }
-
 /* ═════════════ DOBLE BOLSA de un proyecto con videoclip (audio + vídeo) ═════════════
    Se gestionan las dos desde la misma pestaña, pero son bolsas separadas y se liquidan aparte. */
 .dp-bags{ display:flex; align-items:center; flex-wrap:wrap; gap:.5rem;

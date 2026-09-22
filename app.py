@@ -105998,6 +105998,10 @@ SUPPORT_ACTION_ENDPOINTS = {
     # LEER la factura o el ticket que se arrastra al formulario de un gasto: es una herramienta del
     # propio formulario (lo hace quien apunta el gasto, que puede no tener la sección de bolsas).
     "api_bag_document_detect",
+    # COMPLETAR la ficha del proveedor desde ese mismo formulario (la cuenta, el CIF, su dirección):
+    # es la misma herramienta —quien apunta el gasto rellena lo que falta— y va a la ficha del
+    # tercero, igual que el alta rápida de aquí abajo.
+    "api_bag_provider_save",
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     # Una compañía de transporte nueva desde el asistente de un traslado.
@@ -106111,8 +106115,9 @@ SUPPORT_READ_ENDPOINTS = {
     "api_demo_sender_search",
     "api_city_search",
     # El PROVEEDOR de un gasto de bolsa (terceros, medios, artistas y personal) y la lectura del
-    # documento que se arrastra: son apoyo del formulario del gasto.
-    "api_bag_provider_search",
+    # documento que se arrastra: son apoyo del formulario del gasto. `api_bag_provider_profile` dice
+    # qué le falta a su ficha (lo que se pinta en amarillo): también es una LECTURA.
+    "api_bag_provider_search", "api_bag_provider_profile",
     # Asistente de actividad: repertorio + # del artista (para eventos promocionales y sugerencias).
     "api_artist_wizard_meta",
     # Hoja de ruta: exportaciones de rooming y listado de personal (PDF/Excel).
@@ -122904,6 +122909,9 @@ def _bag_create_expense(session_db, bag: WorkflowBag, form, *, file_storage=None
     _bag_update_expense_from_form(session_db, expense, form, file_storage=file_storage, append_history=False)
     _bag_apply_provider_from_form(session_db, expense, form)
     _bag_expense_extras_from_form(session_db, expense, form)
+    # Lo que se haya rellenado de la ficha del proveedor (su CIF, su dirección fiscal, su correo)
+    # queda GUARDADO en ella: así la próxima factura suya ya no lo pide.
+    _bag_provider_fields_from_form(session_db, expense, form)
     # La cuenta en la que cobra (ver `_expense_bank_apply`): quien crea el gasto la deja fijada, y
     # con factura subida no se deja pasar sin ella (si no, el gasto llega a pago sin poder pagarse).
     ok_iban, err_iban = _expense_bank_apply(session_db, expense, form)
@@ -123331,6 +123339,10 @@ def _bag_expense_form_context(session_db, expense: BagExpense) -> dict:
         # LA CUENTA en la que cobra quien factura (la de la sociedad si factura con ella): se
         # precarga para que se vea que ya la hay y solo haya que escribirla cuando falta.
         "bank_account": (_expense_beneficiary(session_db, expense).get("iban") or ""),
+        # QUÉ LE FALTA A SU FICHA (lo que se pinta en amarillo). El mismo punto único que usa el
+        # formulario cuando se elige el proveedor a mano o lo reconoce la factura.
+        "provider_profile": _bag_provider_profile(
+            session_db, getattr(expense, "provider", None), getattr(expense, "provider_company", None)),
         "category": _bag_expense_display_cat(getattr(expense, "category", None)),
         "document_type": (getattr(expense, "document_type", None) or "FACTURA"),
         "payment_status": estado,
@@ -123685,10 +123697,6 @@ def _bag_panel_context(session_db, bag) -> dict:
     return dict(
         bag=bag,
         bag_close_state=bag_close_state,
-        # ⚠️ ¿Esta bolsa va a la CAJA del artista? Se ve aquí y se puede cambiar, para que una bolsa
-        # no entre (ni deje de entrar) en la caja de nadie sin que se sepa.
-        bag_cash_state=_bag_cash_state(session_db, bag, expenses),
-        bag_cash_can_edit=bool(can_view_economics() and (is_master() or has_access_key("administracion", include_descendants=True))),
         bag_artists=bag_artists,
         bag_artist_id_strings=[str(a.id) for a in bag_artists],
         invoices=invoices,
@@ -123867,6 +123875,348 @@ def api_bag_provider_search():
         session_db.close()
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# LA FACTURA DICE QUIÉN LA EMITE · el proveedor se reconoce solo y su ficha se completa
+# ---------------------------------------------------------------------------------------------
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «cuando se sube la factura te rellena todos los campos; si el
+# proveedor está en nuestra base de datos se selecciona, y si le falta algún campo por cumplimentar
+# —como la cuenta bancaria— se muestra en amarillo para rellenarlo y queda guardado».
+# El orden de reconocimiento importa, de lo más fiable a lo menos:
+#   1 · el CIF/NIF (es exacto) · 2 · la CUENTA (si ya le hemos pagado, el IBAN lo identifica) ·
+#   3 · el NOMBRE (el nick del tercero o la razón social de su sociedad dentro del texto).
+# ⚠️⚠️ NUESTRO propio CIF sale en TODAS las facturas que recibimos —somos el destinatario—, así que
+# los de las empresas del grupo se DESCARTAN: si no, el «proveedor» detectado seríamos nosotros.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+_BAG_TAX_ID_RE = re.compile(r"(?<![A-Z0-9])([A-HJ-NP-SUVW]\d{7}[0-9A-J]|[XYZ]\d{7}[A-Z]|\d{8}[A-Z])(?![A-Z0-9])")
+_BAG_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_BAG_PHONE_RE = re.compile(r"(?<!\d)(?:\+?34[\s.\-]?)?([6-9]\d{2}(?:[\s.\-]?\d{2}){3})(?!\d)")
+_DNI_CONTROL_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE"
+
+
+def _tax_id_clean(value) -> str:
+    """Un NIF/CIF EN SECO (mayúsculas, sin puntos, guiones ni espacios): así se compara."""
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _tax_id_looks_valid(value) -> bool:
+    """¿Tiene pinta de NIF/NIE/CIF de verdad?
+
+    El DNI y el NIE se comprueban con su LETRA DE CONTROL (el módulo 23): sin eso, cualquier número
+    de ocho cifras seguido de una letra —un número de pedido, un código de barras— se colaría como
+    el CIF del proveedor. El CIF de una sociedad se acepta por formato."""
+    v = _tax_id_clean(value)
+    if len(v) != 9:
+        return False
+    if v[:8].isdigit() and v[8].isalpha():
+        return _DNI_CONTROL_LETTERS[int(v[:8]) % 23] == v[8]
+    if v[0] in "XYZ" and v[1:8].isdigit() and v[8].isalpha():
+        return _DNI_CONTROL_LETTERS[int(str("XYZ".index(v[0])) + v[1:8]) % 23] == v[8]
+    return bool(re.fullmatch(r"[A-HJ-NP-SUVW]\d{7}[0-9A-J]", v))
+
+
+def _group_tax_ids(session_db) -> set[str]:
+    """Los NIF de NUESTRAS empresas (salen en toda factura que recibimos: somos el cliente)."""
+    fuera = set()
+    try:
+        for c in session_db.query(GroupCompany).all():
+            for m in _BAG_TAX_ID_RE.finditer((getattr(c, "tax_info", None) or "").upper()):
+                fuera.add(_tax_id_clean(m.group(1)))
+    except Exception:
+        app.logger.exception("[bolsas] no se pudieron leer los CIF de las empresas del grupo")
+    return fuera
+
+
+def _our_mail_domains() -> set[str]:
+    """Los dominios de correo de la casa: un correo nuestro en la factura no es el del proveedor."""
+    dominios = set()
+    for correo in (ADMIN_INVOICE_CONTACT_EMAIL, PRESS_CONTACT_EMAIL):
+        if "@" in (correo or ""):
+            dominios.add(correo.split("@", 1)[1].strip().lower())
+    host = (_CANONICAL_HOST or "").strip().lower()
+    if host.count(".") >= 2:
+        host = host.split(".", 1)[1]
+    if host:
+        dominios.add(host)
+    return {d for d in dominios if d}
+
+
+def _invoice_contact_bits(session_db, text: str) -> dict:
+    """El CIF, el correo y el teléfono que dice la factura (los NUESTROS no cuentan)."""
+    texto = str(text or "")
+    fuera_nif = _group_tax_ids(session_db)
+    nifs = []
+    for m in _BAG_TAX_ID_RE.finditer(texto.upper()):
+        v = _tax_id_clean(m.group(1))
+        if v in fuera_nif or v in nifs or not _tax_id_looks_valid(v):
+            continue
+        nifs.append(v)
+    fuera_mail = _our_mail_domains()
+    correo = ""
+    for m in _BAG_EMAIL_RE.finditer(texto):
+        cand = (m.group(0) or "").strip(" .,;:")
+        dominio = cand.split("@", 1)[1].lower() if "@" in cand else ""
+        if dominio and not any(dominio == d or dominio.endswith("." + d) for d in fuera_mail):
+            correo = cand
+            break
+    m = _BAG_PHONE_RE.search(texto)
+    telefono = re.sub(r"[\s.\-]", "", m.group(1)) if m else ""
+    return {"tax_ids": nifs, "tax_id": (nifs[0] if nifs else ""),
+            "email": correo, "phone": telefono}
+
+
+def _sql_tax_clean(col):
+    """El CIF de una columna, EN SECO, para compararlo en la propia consulta (se guardan con guiones)."""
+    return func.upper(func.replace(func.replace(func.replace(col, "-", ""), " ", ""), ".", ""))
+
+
+def _bag_issuer_by_tax_id(session_db, tax_ids: list[str]) -> tuple:
+    """El tercero (y su sociedad) cuyo CIF aparece en la factura. Es el emparejamiento EXACTO."""
+    for nif in tax_ids:
+        company = (session_db.query(PromoterCompany)
+                   .filter(_sql_tax_clean(PromoterCompany.tax_id) == nif).first())
+        if company is not None:
+            return (session_db.get(Promoter, company.promoter_id), company, "CIF")
+        promoter = (session_db.query(Promoter)
+                    .filter(_sql_tax_clean(Promoter.tax_id) == nif).first())
+        if promoter is not None:
+            return (promoter, None, "CIF")
+    return (None, None, "")
+
+
+def _bag_issuer_by_iban(session_db, iban: str) -> tuple:
+    """A quien ya le hemos pagado alguna vez lo identifica su CUENTA, aunque la factura no traiga CIF."""
+    limpio = _iban_clean(iban)
+    if not limpio:
+        return (None, None, "")
+    seco = lambda col: func.upper(func.replace(func.replace(col, " ", ""), "-", ""))
+    company = (session_db.query(PromoterCompany)
+               .filter(seco(PromoterCompany.bank_account) == limpio).first())
+    if company is not None:
+        return (session_db.get(Promoter, company.promoter_id), company, "CUENTA")
+    promoter = session_db.query(Promoter).filter(seco(Promoter.bank_account) == limpio).first()
+    if promoter is not None:
+        return (promoter, None, "CUENTA")
+    return (None, None, "")
+
+
+def _bag_issuer_by_name(session_db, text: str) -> tuple:
+    """El nombre del proveedor DENTRO del texto de la factura (el más largo gana).
+
+    ⚠️ Se pide un nombre de 5 caracteres o más y se compara normalizado (sin acentos ni puntuación,
+    `_norm_text_key`): un nick de dos letras casaría con cualquier cosa."""
+    plano = _norm_text_key(text)
+    if not plano:
+        return (None, None, "")
+    mejor = (0, None, None)
+    for cid, pid, nombre in session_db.query(
+            PromoterCompany.id, PromoterCompany.promoter_id, PromoterCompany.legal_name).all():
+        clave = _norm_text_key(nombre)
+        if len(clave) >= 5 and clave in plano and len(clave) > mejor[0]:
+            mejor = (len(clave), pid, cid)
+    for pid, nombre in session_db.query(Promoter.id, Promoter.nick).all():
+        clave = _norm_text_key(nombre)
+        if len(clave) >= 5 and clave in plano and len(clave) > mejor[0]:
+            mejor = (len(clave), pid, None)
+    if not mejor[0]:
+        return (None, None, "")
+    return (session_db.get(Promoter, mejor[1]),
+            (session_db.get(PromoterCompany, mejor[2]) if mejor[2] else None), "NOMBRE")
+
+
+def _bag_invoice_issuer(session_db, text: str, iban: str = "") -> dict:
+    """QUIÉN EMITE esta factura: el tercero de nuestra base (y con qué sociedad), si lo tenemos.
+
+    Punto único del reconocimiento. Devuelve también lo que dice la factura de él (CIF, correo y
+    teléfono) para COMPLETAR su ficha sin teclearlo."""
+    bits = _invoice_contact_bits(session_db, text)
+    promoter, company, como = _bag_issuer_by_tax_id(session_db, bits["tax_ids"])
+    if promoter is None and iban:
+        promoter, company, como = _bag_issuer_by_iban(session_db, iban)
+    if promoter is None:
+        promoter, company, como = _bag_issuer_by_name(session_db, text)
+    return {"promoter": promoter, "company": company, "matched_by": como, **bits}
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# LA FICHA DEL PROVEEDOR, DENTRO DEL FORMULARIO DEL GASTO · lo que le falta, en AMARILLO
+# ---------------------------------------------------------------------------------------------
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «si le falta algún campo por cumplimentar, como la cuenta bancaria,
+# se muestran los campos que faltan con recuadro amarillo para rellenarlo, y se quedan guardados».
+# Es la misma idea que el repaso de una factura en la landing (`.inv-need`): lo que ya tenemos NO se
+# pregunta y lo que falta se ve en amarillo con lo que diga la factura ya puesto.
+# ⚠️ **Cada dato vive donde cobra quien factura**: si el gasto factura con una SOCIEDAD, el CIF, la
+# dirección fiscal y la cuenta son de ELLA (`_expense_beneficiary` paga a la sociedad antes que al
+# tercero); el correo y el teléfono son siempre del tercero, que es quien tiene contacto.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+BAG_PROVIDER_FIELDS = [
+    # clave                 rótulo               icono                  ¿vive en la sociedad?
+    ("tax_id",             "CIF / NIF",          "fa-id-card",          True),
+    ("fiscal_address",     "Dirección fiscal",   "fa-location-dot",     True),
+    ("fiscal_postal_code", "Código postal",      "fa-map-pin",          True),
+    ("fiscal_city",        "Municipio",          "fa-city",             True),
+    ("fiscal_province",    "Provincia",          "fa-map",              True),
+    ("email",              "Correo",             "fa-envelope",         False),
+    ("phone",              "Teléfono",           "fa-phone",            False),
+    ("bank_account",       "Nº de cuenta",       "fa-building-columns", True),
+]
+# El nombre de la columna en el TERCERO (en la sociedad se llaman igual salvo estas dos, que no tiene).
+_BAG_PROVIDER_COLS = {"email": "contact_email", "phone": "contact_phone"}
+
+
+def _bag_provider_field_owner(promoter, company, key: str):
+    """El objeto donde vive ese dato: la SOCIEDAD si factura con ella, y si no el tercero."""
+    de_sociedad = next((s for k, _l, _i, s in BAG_PROVIDER_FIELDS if k == key), False)
+    return company if (company is not None and de_sociedad) else promoter
+
+
+def _bag_provider_field_value(promoter, company, key: str) -> str:
+    dueno = _bag_provider_field_owner(promoter, company, key)
+    return (getattr(dueno, _BAG_PROVIDER_COLS.get(key, key), None) or "").strip() if dueno is not None else ""
+
+
+def _bag_provider_profile(session_db, promoter, company=None) -> dict:
+    """QUÉ TIENE Y QUÉ LE FALTA a quien nos factura. Punto único de la pantalla y del guardado.
+
+    Un IBAN mal escrito cuenta como que NO lo tiene (la remesa lo rechazaría y el pago se quedaría
+    parado): se vuelve a pedir en vez de darlo por bueno."""
+    if promoter is None:
+        return {"ok": False, "id": "", "fields": [], "missing": [], "complete": False}
+    if company is not None and str(getattr(company, "promoter_id", "")) != str(promoter.id):
+        company = None
+    filas, faltan = [], []
+    for key, label, icon, _s in BAG_PROVIDER_FIELDS:
+        valor = _bag_provider_field_value(promoter, company, key)
+        if key == "bank_account" and valor and not _iban_is_valid(valor):
+            valor = ""
+        falta = not valor
+        if falta:
+            faltan.append(key)
+        filas.append({"key": key, "label": label, "icon": icon, "value": valor, "missing": falta,
+                      "where": ("company" if _bag_provider_field_owner(promoter, company, key) is company
+                                and company is not None else "promoter")})
+    return {
+        "ok": True,
+        "id": str(promoter.id),
+        "company_id": (str(company.id) if company is not None else ""),
+        "name": (_promoter_display_name(promoter) or (promoter.nick or "—")),
+        "photo_url": (promoter.logo_url or ""),
+        "billing_label": ((company.legal_name or "Su sociedad") if company is not None
+                          else "Datos del proveedor"),
+        "fields": filas,
+        "missing": faltan,
+        "complete": not faltan,
+    }
+
+
+def _bag_provider_profile_apply(session_db, promoter, company, datos) -> tuple[bool, str]:
+    """GUARDA en la ficha lo que se haya rellenado en el formulario del gasto.
+
+    Devuelve `(ok, error)`. Solo se escribe lo que LLEGA con algo: un campo vacío no borra lo que ya
+    hay (el formulario solo pregunta por lo que falta, pero un guardado parcial de otra pantalla no
+    puede vaciar una ficha)."""
+    if promoter is None:
+        return False, "Antes de completar su ficha hay que decir quién nos factura."
+    if company is not None and str(getattr(company, "promoter_id", "")) != str(promoter.id):
+        company = None
+    for key, label, _i, _s in BAG_PROVIDER_FIELDS:
+        valor = (datos.get("prov_" + key) if ("prov_" + key) in datos else datos.get(key)) or ""
+        valor = str(valor).strip()
+        if not valor:
+            continue
+        if key == "tax_id" and not _tax_id_looks_valid(valor):
+            return False, "Ese CIF/NIF no es válido: repásalo."
+        if key == "email" and not _looks_like_email_address(valor):
+            return False, "Ese correo no es válido: repásalo."
+        if key == "bank_account":
+            if not _iban_is_valid(valor):
+                return False, "Ese número de cuenta no es válido: repásalo."
+            valor = _invoice_iban_candidate(session_db, valor)
+            if not valor:
+                return False, "Esa cuenta es de una empresa nuestra: pon la del tercero que cobra."
+        dueno = _bag_provider_field_owner(promoter, company, key)
+        if dueno is None:
+            continue
+        setattr(dueno, _BAG_PROVIDER_COLS.get(key, key), valor)
+    return True, ""
+
+
+def _bag_provider_fields_from_form(session_db, expense, form) -> None:
+    """Los datos del proveedor que vengan EN EL FORMULARIO DEL GASTO se guardan en su ficha.
+
+    Así lo que se escribe en los recuadros amarillos queda guardado aunque no se pulse «Guardar
+    proveedor»: el gasto se guarda y la ficha también, que es lo que evita volver a pedirlo.
+    ⚠️ La CUENTA no se toca aquí: es `_expense_bank_apply` (punto único, y el que rechaza una cuenta
+    nuestra y no deja guardar un gasto con factura sin ella)."""
+    try:
+        promoter = getattr(expense, "provider", None)
+        if promoter is None and getattr(expense, "provider_id", None):
+            promoter = session_db.get(Promoter, expense.provider_id)
+        if promoter is None:
+            return
+        datos = {k: v for k, v in form.items() if k.startswith("prov_") and k != "prov_bank_account"}
+        if not datos:
+            return
+        ok, err = _bag_provider_profile_apply(
+            session_db, promoter, getattr(expense, "provider_company", None), datos)
+        if not ok:
+            raise ValueError(err)
+    except ValueError:
+        raise
+    except Exception:
+        app.logger.exception("[bolsas] no se pudieron guardar los datos del proveedor del gasto")
+
+
+@app.get("/api/bolsas/proveedor/ficha", endpoint="api_bag_provider_profile")
+@admin_required
+def api_bag_provider_profile():
+    """LO QUE LE FALTA A LA FICHA de quien nos factura (para pintarlo en amarillo). Es una LECTURA."""
+    pid = _safe_uuid(request.args.get("id"))
+    if not pid:
+        return jsonify({"ok": False, "error": "Falta el proveedor."}), 400
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, pid)
+        if promoter is None:
+            return jsonify({"ok": False, "error": "No se ha encontrado el proveedor."}), 404
+        cid = _safe_uuid(request.args.get("company_id"))
+        return jsonify(_bag_provider_profile(session_db, promoter,
+                                             session_db.get(PromoterCompany, cid) if cid else None))
+    finally:
+        session_db.close()
+
+
+@app.post("/api/bolsas/proveedor/ficha", endpoint="api_bag_provider_save")
+@admin_required
+def api_bag_provider_save():
+    """GUARDA en la ficha del proveedor lo que se ha rellenado en el formulario del gasto.
+
+    ⚠️ Queda en SU ficha, así que la próxima factura suya ya no lo pide: es justo lo que hace que
+    una factura no llegue a «pendiente de pago» sin saber a qué cuenta pagarla."""
+    pid = _safe_uuid(request.form.get("provider_id"))
+    if not pid:
+        return jsonify({"ok": False, "error": "Falta el proveedor."}), 400
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, pid)
+        if promoter is None:
+            return jsonify({"ok": False, "error": "No se ha encontrado el proveedor."}), 404
+        cid = _safe_uuid(request.form.get("company_id"))
+        company = session_db.get(PromoterCompany, cid) if cid else None
+        ok, err = _bag_provider_profile_apply(session_db, promoter, company, request.form)
+        if not ok:
+            session_db.rollback()
+            return jsonify({"ok": False, "error": err}), 400
+        session_db.commit()
+        perfil = _bag_provider_profile(session_db, promoter, company)
+        perfil["saved"] = True
+        return jsonify(perfil)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[bolsas] no se pudo guardar la ficha del proveedor")
+        return jsonify({"ok": False, "error": "No se ha podido guardar: %s" % exc}), 500
+    finally:
+        session_db.close()
+
+
 @app.post("/api/bolsas/documento", endpoint="api_bag_document_detect")
 @admin_required
 def api_bag_document_detect():
@@ -123897,7 +124247,7 @@ def api_bag_document_detect():
     total = meta.get("amount_gross")
     # FACTURA si trae número o desglose de IVA; si no, es un ticket (y ahí el IVA no se desglosa).
     es_factura = bool(numero) or bool(base and iva)
-    return jsonify({
+    salida = {
         "ok": True,
         "kind": "FACTURA" if es_factura else "TICKET",
         "invoice_number": numero,
@@ -123908,7 +124258,38 @@ def api_bag_document_detect():
         "amount_gross": (str(total) if total is not None else ""),
         "retention_amount": (str(meta.get("retention_amount")) if meta.get("retention_amount") is not None else ""),
         "vat_pct": (str(meta.get("vat_pct")) if meta.get("vat_pct") is not None else ""),
-    })
+        "bank_account": "", "tax_id": "", "email": "", "phone": "",
+        "provider": {}, "provider_company_id": "", "matched_by": "", "profile": {},
+    }
+    # ⚠️⚠️ QUIÉN LA EMITE: si el proveedor está en nuestra base, se elige SOLO (por su CIF, por su
+    # cuenta o por su nombre) y se dice qué le falta en la ficha, que es lo que se pinta en amarillo.
+    # Lo que diga la factura (CIF, cuenta, correo, teléfono) va aparte para rellenar esos huecos.
+    session_db = db()
+    try:
+        # ⚠️ De los IBAN del documento, el bueno es el primero que NO sea de una empresa nuestra
+        # (muchas facturas llevan también dónde domiciliar el cobro: darlo por bueno sería pagarnos
+        # a nosotros mismos).
+        cuenta = ""
+        for cand in ([meta.get("bank_account") or ""] + _ibans_in_text(meta.get("text") or "")):
+            cuenta = _invoice_iban_candidate(session_db, cand)
+            if cuenta:
+                break
+        emisor = _bag_invoice_issuer(session_db, meta.get("text") or "", cuenta)
+        salida["bank_account"] = cuenta
+        salida["tax_id"] = emisor.get("tax_id") or ""
+        salida["email"] = emisor.get("email") or ""
+        salida["phone"] = emisor.get("phone") or ""
+        promoter, company = emisor.get("promoter"), emisor.get("company")
+        if promoter is not None:
+            salida["provider"] = _bag_provider_row(promoter)
+            salida["provider_company_id"] = str(company.id) if company is not None else ""
+            salida["matched_by"] = emisor.get("matched_by") or ""
+            salida["profile"] = _bag_provider_profile(session_db, promoter, company)
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo reconocer al emisor de la factura")
+    finally:
+        session_db.close()
+    return jsonify(salida)
 
 
 @app.post("/bolsas/<bag_id>/expenses", endpoint="bag_expense_create")
@@ -124153,6 +124534,8 @@ def bag_expense_edit(bag_id, expense_id):
         # artista como proveedor no guardaba nada y la nota se tiraba.
         _bag_apply_provider_from_form(session_db, expense, _form)
         _bag_expense_extras_from_form(session_db, expense, _form)
+        # Los datos de la ficha del proveedor que se hayan rellenado (los recuadros amarillos).
+        _bag_provider_fields_from_form(session_db, expense, _form)
         # ⚠️⚠️ LA CUENTA EN LA QUE COBRA, ANTES DE DEJARLO PASAR (sep 2026, lo pidió Dani): va
         # DESPUÉS del proveedor —que se acaba de aplicar— porque se guarda en SU ficha.
         _ok_iban, _err_iban = _expense_bank_apply(session_db, expense, _form)
@@ -146175,16 +146558,30 @@ def _iban_pretty(value) -> str:
     return " ".join(iban[i:i + 4] for i in range(0, len(iban), 4))
 
 
-def _detect_iban_in_text(text: str) -> str:
-    """Primer IBAN VÁLIDO que aparezca en el texto (con o sin espacios de por medio)."""
-    limpio = re.sub(r"[   ]", " ", str(text or ""))
+def _ibans_in_text(text: str) -> list[str]:
+    """TODOS los IBAN válidos que aparezcan en el texto, en orden (con o sin espacios de por medio).
+
+    ⚠️ Hacen falta todos y no solo el primero: muchas facturas llevan también la cuenta en la que se
+    domicilia el cobro —la NUESTRA—, y si esa va delante, quedarse con la primera sería perder la
+    del proveedor (`_invoice_iban_candidate` descarta las nuestras, y entonces no habría ninguna).
+    """
+    limpio = re.sub(r"[\xa0\u2007\u202f]", " ", str(text or ""))
+    salida = []
     for m in re.finditer(r"\b([A-Z]{2})\s?(\d{2})((?:\s?[A-Z0-9]){10,30})", limpio.upper()):
         cand = _iban_clean(m.group(0))
         # Se prueba recortando por la cola: el OCR/PDF suele pegar basura detrás.
         for fin in range(len(cand), 14, -1):
             if _iban_is_valid(cand[:fin]):
-                return cand[:fin]
-    return ""
+                if cand[:fin] not in salida:
+                    salida.append(cand[:fin])
+                break
+    return salida
+
+
+def _detect_iban_in_text(text: str) -> str:
+    """Primer IBAN VÁLIDO que aparezca en el texto. Punto único: `_ibans_in_text`."""
+    todos = _ibans_in_text(text)
+    return todos[0] if todos else ""
 
 
 # ⚠️⚠️ EL IBAN DE UN PROVEEDOR SALE DE SU PROPIA FACTURA. Una factura casi siempre dice dónde hay

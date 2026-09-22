@@ -413,19 +413,24 @@ with A.app.test_request_context("/"):
               d["balance"]["office_invested"])
     finally:
         s.close()
-# Desde la bolsa se puede cambiar.
+# Se puede cambiar (el endpoint sigue estando: lo usa quien revisa la liquidación).
 r = cli.post("/bolsas/%s/caja-artista" % B4, data={"cash_impact": "INCLUIR"}, follow_redirects=True)
 with A.app.test_request_context("/"):
     s = models.SessionLocal()
     try:
         art = s.get(models.Artist, A.to_uuid(AID))
         d = A._artist_cash_data(s, art, None)
-        check("cambiándola desde la bolsa, entra", d["balance"]["office_invested"] == D("6700"),
+        check("cambiándola, entra", d["balance"]["office_invested"] == D("6700"),
               d["balance"]["office_invested"])
     finally:
         s.close()
+# ⚠️⚠️ EN LA BOLSA NO SE DICE (sep 2026, lo pidió Dani: «esa línea no se tiene que mostrar en la
+# bolsa, quita directamente ese módulo»): se DECIDE al cerrar la liquidación, en Administración →
+# Pendiente → De liquidación, que es donde alguien la revisa con el coste final delante. La barra
+# solo decía «se decide al cerrar la liquidación», o sea: que todavía no había nada que decir.
 html = cli.get("/bolsas/%s" % B4).get_data(as_text=True)
-check("la bolsa dice si va a la caja del artista", "Caja del artista" in html)
+check("⚠️ la bolsa NO enseña la línea de la caja", "Caja del artista" not in html)
+# (que se decide al cerrar ya está comprobado arriba: «al cerrar, administración ve la pregunta»).
 
 print("\n── 8. LAS BOLSAS DE ANTES: se marcan solas ────────────────────────────")
 s = models.SessionLocal()

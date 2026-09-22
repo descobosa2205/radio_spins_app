@@ -3,14 +3,19 @@
    Por módulos (bocadillos), en un solo paso y con el CONCEPTO como único campo obligatorio.
 
    Lo que hace:
+     · **LA FACTURA ES LO PRIMERO**: se arrastra y se LEE (el mismo lector que la base de facturas).
+       De ahí salen el tipo (factura o ticket), el nº, la fecha, el importe, el concepto y **quién
+       nos factura**. ⚠️ No siempre hay factura: nada de esto es obligatorio.
+     · **SE VE A LA IZQUIERDA** mientras se repasan los datos (`.be-split`), para no tener que
+       abrirla en otra pantalla. El formulario NO cambia de tamaño: crece el modal.
      · **IMPORTE con o sin IVA**: se escribe una vez y se dice si lo lleva; si no, se ve al momento
        el IVA que se le va a calcular (21% por defecto, configurable en el gasto). ⚠️ El desglose que
        se GUARDA lo hace el servidor (`_bag_update_expense_from_form`): aquí solo se enseña.
      · **AVISO**: la campanita abre el día y la hora, con «el día de antes» y «una semana antes».
-     · **PROVEEDOR**: se busca en toda la base (terceros, medios, artistas y personal) y sale con su
-       foto o su logo; con el «+» se crea un tercero al vuelo. Debajo, con qué **sociedad factura**.
-     · **FACTURA O TICKET**: se arrastra y se LEE (el mismo lector que la base de facturas). Si es
-       factura se desglosa el IVA; si es un ticket, no (su IVA no es deducible).
+     · **PROVEEDOR**: se reconoce solo si está en la base (por su CIF, por su cuenta o por su
+       nombre) y, si no, se busca en toda la base (terceros, medios, artistas y personal). Debajo,
+       con qué **sociedad factura** y **QUÉ LE FALTA A SU FICHA**, en amarillo: lo que se rellene
+       queda guardado en ella y no se vuelve a pedir.
      · **PAGO**: pagado (completo o parcial) y con qué método, todo con iconos.
 
    ⚠️ GLOBAL y por DELEGACIÓN: este formulario se pinta en la pantalla de la bolsa y también EMBEBIDO
@@ -39,6 +44,10 @@
   }
   function form(el) { return el ? el.closest('[data-bag-expense-form]') : null; }
   function q(root, sel) { return root ? root.querySelector(sel) : null; }
+  function csrf() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? { 'X-CSRFToken': m.getAttribute('content') } : {};
+  }
 
   /* ---------------------------------------------------------------- 1 · IMPORTE E IVA */
   /* QUÉ ES el documento (FACTURA / TICKET / SIN_DOCUMENTO). ⚠️ Punto único: es un grupo de RADIOS
@@ -86,7 +95,50 @@
     return d.getFullYear() + '-' + (m.length < 2 ? '0' + m : m) + '-' + (dd.length < 2 ? '0' + dd : dd);
   }
 
-  /* ---------------------------------------------------------------- 2 · EL PROVEEDOR */
+  /* ---------------------------------------------------------------- EL VISOR DE LA FACTURA
+     ⚠️ La factura se ve A LA IZQUIERDA y el formulario conserva su ancho: el que crece es el modal
+     (`.be-dialog.is-split`). Así se repasa lo que se está apuntando contra el documento sin abrirlo
+     en otra pantalla, que es justo lo que pidió Dani. */
+  function esImagen(nombre, tipo) {
+    return /^image\//.test(String(tipo || '')) || /\.(png|jpe?g|webp|gif|heic|bmp|tiff?)($|\?)/i.test(String(nombre || ''));
+  }
+  function abreVisor(root, src, nombre, imagen) {
+    var caja = q(root, '[data-be-viewer]');
+    var marco = q(root, '[data-be-viewer-frame]');
+    if (!caja || !marco || !src) return;
+    var rotulo = q(root, '[data-be-viewer-name]');
+    if (rotulo) rotulo.textContent = nombre || 'Documento';
+    marco.innerHTML = imagen
+      ? '<img src="' + esc(src) + '" alt="Documento del gasto">'
+      : '<iframe src="' + esc(src) + (src.indexOf('#') >= 0 ? '&' : '#') + 'view=FitH&zoom=page-width" title="Documento del gasto"></iframe>';
+    caja.classList.remove('d-none');
+    var dlg = root.closest('.modal-dialog');
+    if (dlg) dlg.classList.add('is-split');
+  }
+  function cierraVisor(root) {
+    var caja = q(root, '[data-be-viewer]');
+    var marco = q(root, '[data-be-viewer-frame]');
+    if (marco) marco.innerHTML = '';
+    if (caja) caja.classList.add('d-none');
+    var dlg = root.closest('.modal-dialog');
+    if (dlg) dlg.classList.remove('is-split');
+  }
+  function visorDeArchivo(root, file) {
+    if (!file) return;
+    if (root.__beObjUrl) { try { URL.revokeObjectURL(root.__beObjUrl); } catch (e) {} }
+    root.__beObjUrl = URL.createObjectURL(file);
+    abreVisor(root, root.__beObjUrl, file.name, esImagen(file.name, file.type));
+  }
+  function visorGuardado(root) {
+    // En EDICIÓN el gasto ya tiene su documento: se monta EN EL CLIC que abre el modal (con
+    // `modal_stack` por medio, `shown.bs.modal` no siempre llega — regla de la casa).
+    var caja = q(root, '[data-be-viewer]');
+    var url = caja && caja.getAttribute('data-be-doc-url');
+    if (!url || (q(root, '[data-be-viewer-frame]') || {}).innerHTML) return;
+    abreVisor(root, url, caja.getAttribute('data-be-doc-label') || 'Documento', esImagen(url, ''));
+  }
+
+  /* ---------------------------------------------------------------- 3 · EL PROVEEDOR */
   var caja = null, activo = null, dejarDeSeguir = null;
   var ALTO_MAX = 320;         // una lista más alta tapa media pantalla y no se deja deslizar
   function lista() {
@@ -179,6 +231,7 @@
     elegido.classList.remove('d-none');
     zona.__prov = f;
     pintaFacturacion(root, f);
+    pideFicha(root);
   }
   function limpiaProveedor(root) {
     var zona = q(root, '[data-be-provider]');
@@ -195,18 +248,23 @@
     if (zona) zona.__prov = null;
     var emb = q(root, '[data-be-prov-embargo]');
     if (emb) emb.classList.add('d-none');
+    ocultaFicha(root);
+    var auto = q(root, '[data-be-prov-auto]');
+    if (auto) auto.classList.add('d-none');
   }
 
   /* DATOS DE FACTURACIÓN: sus sociedades con logo, o las dos opciones con icono. */
-  function pintaFacturacion(root, f) {
+  function pintaFacturacion(root, f, companyId) {
     var fact = q(root, '[data-be-billing]');
     var opts = q(root, '[data-be-billing-opts]');
     if (!fact || !opts) return;
     var empresas = f.companies || [];
-    var html = '<label class="be-opt"><input type="radio" name="be_billing" value="SELF" checked>' +
-      '<i class="fa fa-user"></i><span>Datos del proveedor</span></label>';
+    var elegida = String(companyId || '');
+    var html = '<label class="be-opt"><input type="radio" name="be_billing" value="SELF"' +
+      (elegida ? '' : ' checked') + '><i class="fa fa-user"></i><span>Datos del proveedor</span></label>';
     empresas.forEach(function (c) {
-      html += '<label class="be-opt"><input type="radio" name="be_billing" value="C:' + esc(c.id) + '">' +
+      html += '<label class="be-opt"><input type="radio" name="be_billing" value="C:' + esc(c.id) + '"' +
+        (elegida && String(c.id) === elegida ? ' checked' : '') + '>' +
         (c.logo_url ? '<img src="' + esc(c.logo_url) + '" alt="" onerror="this.remove()">' : '<i class="fa fa-building"></i>') +
         '<span>' + esc(c.name) + '</span></label>';
     });
@@ -215,7 +273,7 @@
     opts.innerHTML = html;
     fact.classList.remove('d-none');
     var cid = q(root, '[data-be-company-id]');
-    if (cid) cid.value = '';
+    if (cid) cid.value = elegida;
     var link = q(root, '[data-be-linked-wrap]');
     if (link) link.classList.add('d-none');
   }
@@ -245,7 +303,116 @@
     }
   }
 
-  /* ---------------------------------------------------------------- 3 · FACTURA O TICKET */
+  /* ---------------------------------------------------------------- 3 · SU FICHA: LO QUE FALTA
+     ⚠️ Lo que ya tenemos NO se pregunta (se enseña de un vistazo) y lo que falta sale EN AMARILLO
+     con lo que diga la factura ya puesto. Al guardar queda en SU ficha: solo se pide una vez. */
+  var SUGERENCIAS = { tax_id: 'tax_id', email: 'email', phone: 'phone', bank_account: 'bank_account' };
+
+  function ocultaFicha(root) {
+    var card = q(root, '[data-be-prov-card]');
+    if (card) card.classList.add('d-none');
+    var campos = q(root, '[data-be-prov-fields]');
+    if (campos) campos.innerHTML = '';
+  }
+
+  function pintaFicha(root, perfil, leido) {
+    var card = q(root, '[data-be-prov-card]');
+    var campos = q(root, '[data-be-prov-fields]');
+    if (!card || !campos || !perfil || !perfil.ok) { ocultaFicha(root); return; }
+    root.__bePerfil = perfil;
+    var sug = leido || root.__beLeido || {};
+    var faltan = [], hechos = [], html = '';
+    (perfil.fields || []).forEach(function (f) {
+      // La CUENTA vive en el HTML (es la que EXIGE el servidor cuando hay factura): aquí solo se
+      // marca en amarillo y se precarga con la que diga la factura.
+      if (f.key === 'bank_account') {
+        var wrap = q(root, '[data-be-bank-wrap]');
+        var input = q(root, '[data-be-bank]');
+        if (input) {
+          if (!input.value) input.value = f.value || (sug[SUGERENCIAS[f.key]] || '');
+          var falta = f.missing && !input.value;
+          input.classList.toggle('is-need', !!falta);
+          if (wrap) wrap.classList.toggle('inv-need', !!falta);
+        }
+        (f.missing ? faltan : hechos).push(f.label);
+        return;
+      }
+      if (f.missing) {
+        faltan.push(f.label);
+        var valor = sug[SUGERENCIAS[f.key]] || '';
+        html += '<div class="col-md-6 inv-need"><label class="form-label small"><i class="fa ' +
+          esc(f.icon) + ' me-1"></i>' + esc(f.label) + '</label>' +
+          '<input class="form-control form-control-sm is-need" name="prov_' + esc(f.key) + '" ' +
+          'autocomplete="off" value="' + esc(valor) + '"></div>';
+      } else {
+        hechos.push(f.label);
+        html += '<div class="col-md-6"><span class="be-prov-ok" title="' + esc(f.label) + '">' +
+          '<i class="fa ' + esc(f.icon) + '"></i><span class="text-truncate">' + esc(f.value) + '</span></span></div>';
+      }
+    });
+    campos.innerHTML = html;
+    var estado = q(root, '[data-be-prov-state]');
+    if (estado) {
+      estado.className = 'be-prov-card__state ' + (faltan.length ? 'is-need' : 'is-ok');
+      estado.innerHTML = faltan.length
+        ? '<i class="fa fa-triangle-exclamation me-1"></i>Le falta: ' + esc(faltan.join(', '))
+        : '<i class="fa fa-circle-check me-1"></i>Su ficha está completa';
+    }
+    card.classList.remove('d-none');
+    var msg = q(root, '[data-be-prov-msg]');
+    if (msg) { msg.textContent = ''; msg.className = 'small'; }
+  }
+
+  function pideFicha(root, leido) {
+    var zona = q(root, '[data-be-provider]');
+    var url = (zona && zona.getAttribute('data-url-profile')) || '';
+    var pid = (q(root, '[data-be-prov-id]') || {}).value || '';
+    var cid = (q(root, '[data-be-company-id]') || {}).value || '';
+    if (leido) root.__beLeido = leido;
+    if (!url || !pid) { ocultaFicha(root); return; }
+    fetch(url + '?id=' + encodeURIComponent(pid) + (cid ? '&company_id=' + encodeURIComponent(cid) : ''),
+          { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { pintaFicha(root, d, leido); })
+      .catch(function () { /* es una AYUDA: sin ella el gasto se guarda igual */ });
+  }
+
+  function guardaProveedor(root, boton) {
+    var zona = q(root, '[data-be-provider]');
+    var url = (zona && zona.getAttribute('data-url-save')) || '';
+    var pid = (q(root, '[data-be-prov-id]') || {}).value || '';
+    var msg = q(root, '[data-be-prov-msg]');
+    if (!url || !pid) {
+      if (msg) { msg.className = 'small text-danger'; msg.textContent = 'Antes hay que elegir quién nos factura.'; }
+      return;
+    }
+    var datos = new FormData();
+    datos.append('provider_id', pid);
+    datos.append('company_id', (q(root, '[data-be-company-id]') || {}).value || '');
+    root.querySelectorAll('[name^="prov_"]').forEach(function (el) { datos.append(el.name, el.value || ''); });
+    var banco = q(root, '[data-be-bank]');
+    if (banco) datos.append('bank_account', banco.value || '');
+    if (boton) boton.disabled = true;
+    if (msg) { msg.className = 'small text-muted'; msg.textContent = 'Guardando…'; }
+    fetch(url, { method: 'POST', body: datos,
+                 headers: Object.assign({ 'X-Requested-With': 'XMLHttpRequest' }, csrf()) })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (boton) boton.disabled = false;
+        if (!res.ok || !res.d || res.d.ok === false) {
+          if (msg) { msg.className = 'small text-danger'; msg.textContent = (res.d && res.d.error) || 'No se ha podido guardar.'; }
+          return;
+        }
+        pintaFicha(root, res.d);
+        if (msg) { msg.className = 'small text-success'; msg.textContent = 'Guardado en su ficha.'; }
+      })
+      .catch(function () {
+        if (boton) boton.disabled = false;
+        if (msg) { msg.className = 'small text-danger'; msg.textContent = 'No se ha podido guardar.'; }
+      });
+  }
+
+  /* ---------------------------------------------------------------- 1 · LO QUE DICE EL DOCUMENTO */
   function ponDoc(root, res, nombre) {
     var badge = q(root, '[data-be-doc-kind]');
     var campos = q(root, '[data-be-doc-fields]');
@@ -260,10 +427,16 @@
     if (campos) campos.classList.remove('d-none');
     var est = q(root, '[data-be-establishment-wrap]');
     if (est) est.classList.toggle('d-none', !esTicket);
+    var leidos = [];
     var invnum = q(root, '[data-be-invnum]');
-    if (invnum && res && res.invoice_number && !invnum.value) invnum.value = res.invoice_number;
+    if (invnum && res && res.invoice_number && !invnum.value) { invnum.value = res.invoice_number; leidos.push('el nº'); }
     var issue = q(root, '[data-be-issue]');
-    if (issue && res && res.issue_date && !issue.value) issue.value = res.issue_date;
+    if (issue && res && res.issue_date && !issue.value) { issue.value = res.issue_date; leidos.push('la fecha'); }
+    var ret = root.querySelector('input[name="retention_amount"]');
+    if (ret && res && res.retention_amount && !num(ret.value)) {
+      ret.value = String(res.retention_amount).replace('.', ',');
+      leidos.push('la retención');
+    }
     // El IMPORTE: lo que diga el documento (con IVA), y el modo se ajusta a lo que se ha leído.
     var valor = q(root, 'input[name="amount_value"]');
     if (valor && !num(valor.value) && res) {
@@ -272,6 +445,7 @@
         valor.value = String(total).replace('.', ',');
         var gross = q(root, 'input[name="amount_mode"][value="GROSS"]');
         if (gross) { gross.checked = true; }
+        leidos.push('el importe');
       }
     }
     if (res && res.vat_pct) {
@@ -281,7 +455,40 @@
     var concepto = q(root, 'input[name="concept"]');
     if (concepto && !concepto.value.trim()) {
       concepto.value = (res && res.concept) ? res.concept : (nombre || '').replace(/\.[a-z0-9]+$/i, '');
+      if (res && res.concept) leidos.push('el concepto');
       if (window.app33FormCheck) window.app33FormCheck.ok(concepto);
+    }
+    // ⚠️⚠️ QUIÉN NOS FACTURA: si el proveedor está en la base, se elige SOLO (por su CIF, por su
+    // cuenta o por su nombre) y se pide su ficha para pintar en amarillo lo que le falte.
+    root.__beLeido = res || {};
+    var yaHay = (q(root, '[data-be-prov-id]') || {}).value || '';
+    var auto = q(root, '[data-be-prov-auto]');
+    if (res && res.provider && res.provider.id && !yaHay) {
+      eligeProveedor(root, res.provider);
+      if (res.provider_company_id) {
+        pintaFacturacion(root, res.provider, res.provider_company_id);
+      }
+      if (auto) {
+        auto.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Reconocido por ' +
+          esc({ CIF: 'su CIF', CUENTA: 'su cuenta', NOMBRE: 'su nombre' }[res.matched_by] || 'la factura');
+        auto.classList.remove('d-none');
+      }
+      leidos.push('el proveedor');
+      pideFicha(root, res);
+    } else if (yaHay) {
+      pideFicha(root, res);
+    }
+    var nota = q(root, '[data-be-read-note]');
+    if (nota) {
+      if (leidos.length) {
+        nota.innerHTML = '<i class="fa fa-circle-check me-1"></i>De la factura se han cogido <strong>' +
+          esc(leidos.join(', ')) + '</strong>. Repásalo con el documento al lado.';
+        nota.classList.remove('d-none');
+      } else {
+        nota.innerHTML = '<i class="fa fa-circle-info me-1"></i>No se ha podido leer nada del documento: rellénalo a mano.';
+        nota.className = 'alert alert-warning py-2 px-3 small mt-2 mb-0';
+        nota.classList.remove('d-none');
+      }
     }
     pintaIva(root);
   }
@@ -291,18 +498,21 @@
     var url = (zona && zona.getAttribute('data-url-detect')) || '';
     var f = input.files && input.files[0];
     var nombre = q(root, '[data-be-doc-name]');
-    if (!f) { if (nombre) nombre.textContent = 'Arrastra aquí la factura o el ticket, o pincha para elegirlo'; return; }
+    if (!f) {
+      if (nombre) nombre.textContent = 'Arrastra aquí la factura o el ticket, o pincha para elegirlo';
+      return;
+    }
     if (nombre) nombre.textContent = input.files.length > 1
       ? (input.files.length + ' documentos · se creará un gasto por cada uno')
       : f.name;
+    // LA FACTURA, A LA IZQUIERDA: se pinta desde el propio archivo, sin subirla todavía.
+    if (input.files.length === 1) visorDeArchivo(root, f);
     if (!url || input.files.length > 1) { return; }
     var datos = new FormData();
     datos.append('document', f);
-    var csrf = document.querySelector('meta[name="csrf-token"]');
     fetch(url, {
       method: 'POST', body: datos,
-      headers: Object.assign({ 'X-Requested-With': 'XMLHttpRequest' },
-                             csrf ? { 'X-CSRFToken': csrf.getAttribute('content') } : {})
+      headers: Object.assign({ 'X-Requested-With': 'XMLHttpRequest' }, csrf())
     }).then(function (r) { return r.json(); })
       .then(function (d) { if (d && d.ok) ponDoc(root, d, f.name); })
       .catch(function () { /* es una AYUDA: si no se puede leer, se rellena a mano */ });
@@ -356,6 +566,8 @@
         var bid = q(root, '[data-be-billing-id]');
         if (bid) bid.value = '';
       }
+      // La ficha que hay que completar es la de QUIEN COBRA: si factura una sociedad, la de ella.
+      if (v !== 'LINKED') pideFicha(root);
     }
     // El alta rápida deja el tercero nuevo en el `<select>` oculto: se recoge de ahí.
     if (e.target.matches('[data-be-prov-select]')) {
@@ -372,9 +584,21 @@
     }
   });
   document.addEventListener('click', function (e) {
+    /* EN EDICIÓN el documento ya está subido: el visor se monta EN EL CLIC que abre el modal
+       (`shown.bs.modal` no siempre llega con `modal_stack` por medio). */
+    var abre = e.target.closest ? e.target.closest('[data-bs-toggle="modal"][data-bs-target]') : null;
+    if (abre) {
+      var destino = document.querySelector(abre.getAttribute('data-bs-target'));
+      var dentro = destino ? destino.querySelector('[data-bag-expense-form]') : null;
+      if (dentro) setTimeout(function () { visorGuardado(dentro); }, 60);
+    }
     var root = form(e.target);
     if (!root) return;
     if (e.target.closest('[data-be-prov-clear]')) { e.preventDefault(); limpiaProveedor(root); return; }
+    if (e.target.closest('[data-be-viewer-hide]')) { e.preventDefault(); cierraVisor(root); return; }
+    if (e.target.closest('[data-be-viewer-show]')) { e.preventDefault(); visorGuardado(root); return; }
+    var guardar = e.target.closest('[data-be-prov-save]');
+    if (guardar) { e.preventDefault(); guardaProveedor(root, guardar); return; }
     if (e.target.closest('[data-be-alert-toggle]')) {
       e.preventDefault();
       var panel = q(root, '[data-be-alert-panel]');
@@ -404,5 +628,5 @@
   document.addEventListener('ficha:shown', pintaTodos);
   if (document.readyState !== 'loading') { try { pintaTodos(); } catch (e) {} }
 
-  window.app33BagExpense = { paintVat: pintaIva, docType: tipoDoc };
+  window.app33BagExpense = { paintVat: pintaIva, docType: tipoDoc, providerCard: pideFicha };
 })();

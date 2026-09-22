@@ -59,6 +59,7 @@
 - Y AUN ASÍ SEGUÍAN LLEGANDO FACTURAS SIN CUENTA: FALTABAN DOS COSAS
 - UNA FACTURA DICE DÓNDE HAY QUE PAGARLA: EL IBAN SE RESUELVE AL SUBIRLA (sep 2026, bug
 - ADMINISTRACIÓN · DE QUIÉN ES CADA BOLSA, debajo de su nombre
+- AÑADIR UN GASTO EMPIEZA POR LA FACTURA: se lee, rellena lo demás y reconoce al proveedor
 
 ---
 
@@ -1349,3 +1350,55 @@
   `_zone_agent_key` (persona + qué es + tipo + concepto).
   · **Y SE NOTIFICA**: en el aviso al artista, «Comisiones» y «Otros gastos» son **dos módulos
     distintos**, cada uno con su ojo, y el gasto dice de qué es. → `docs/app/actividades.md`
+
+- ⚠️⚠️⚠️ **AÑADIR UN GASTO EMPIEZA POR LA FACTURA: SE LEE, RELLENA LO DEMÁS Y RECONOCE AL
+  PROVEEDOR** (sep 2026, lo pidió Dani: «lo primero que tiene que aparecer es subir la factura o el
+  ticket; cuando se sube te rellena todos los campos; si el proveedor está en nuestra base se
+  selecciona, y si le falta algún campo —como la cuenta bancaria— se muestra en amarillo para
+  rellenarlo y queda guardado. No siempre hay factura, así que nada de esto es obligatorio»).
+  · **EL ORDEN DE LOS MÓDULOS** (`templates/_bag_expense_form.html`): **1 Factura o ticket · 2 Datos
+  · 3 Proveedor · 4 Estado del pago**. La factura va primero porque, en cuanto se lee, rellena todo
+  lo demás: preguntar antes lo que el documento ya dice es hacer teclear dos veces.
+  ⚠️ **Nada de ese módulo es obligatorio**: el único campo obligatorio sigue siendo el CONCEPTO y un
+  gasto se apunta igual sin factura (lo dice el propio módulo).
+  · ⚠️⚠️ **LA FACTURA SE VE A LA IZQUIERDA** (`.be-split` + `.be-doc-view`, `data-be-viewer`): al
+  elegir el archivo se pinta desde el propio fichero (`URL.createObjectURL`, sin subirlo todavía) y
+  **el formulario conserva EXACTAMENTE su ancho** —el que crece es el modal (`.be-dialog.is-split`,
+  hasta 1400 px)—, que es lo que se pidió. El visor va `sticky`: el cuerpo se desliza y la factura se
+  queda a la vista. Por debajo de 1200 px se apila (la factura arriba, más baja). En EDICIÓN, el
+  documento ya subido se monta **en el clic que abre el modal** (con `modal_stack` por medio,
+  `shown.bs.modal` no siempre llega).
+  · **QUIÉN EMITE LA FACTURA se reconoce solo** (`_bag_invoice_issuer`, punto único), de lo más
+  fiable a lo menos: **1 · su CIF** (exacto, contra el tercero y contra sus sociedades) · **2 · su
+  CUENTA** (si ya le hemos pagado alguna vez, el IBAN lo identifica) · **3 · su NOMBRE** dentro del
+  texto (normalizado con `_norm_text_key`, mínimo 5 caracteres, gana el más largo). Se devuelve en
+  `api_bag_document_detect` con `matched_by`, y el formulario lo deja **elegido** con su pastilla
+  «Reconocido por su CIF».
+  ⚠️⚠️ **NUESTRO CIF SALE EN TODAS LAS FACTURAS QUE RECIBIMOS** (somos el destinatario), así que los
+  de las empresas del grupo se DESCARTAN (`_group_tax_ids`, leídos de `GroupCompany.tax_info`): sin
+  eso, el «proveedor» reconocido seríamos nosotros —y pasa de verdad, porque alguien puede tener
+  nuestra empresa dada de alta como tercero—.
+  ⚠️ Lo mismo con la CUENTA: una factura suele llevar también dónde domiciliar el cobro, así que de
+  los IBAN del documento se coge **el primero que no sea nuestro** (`_ibans_in_text` +
+  `_invoice_iban_candidate`). Antes se leía solo el primero: con la nuestra delante, se perdía la
+  del proveedor.
+  ⚠️ El NIF/NIE se valida con su **letra de control** (módulo 23, `_tax_id_looks_valid`): sin eso,
+  cualquier número de ocho cifras con una letra detrás (un número de pedido) se colaría como CIF.
+  · **LO QUE LE FALTA A SU FICHA, EN AMARILLO** (`_bag_provider_profile` / `BAG_PROVIDER_FIELDS`:
+  CIF, dirección fiscal en piezas, correo, teléfono y **nº de cuenta**). Lo que ya tenemos no se
+  pregunta —se ve de un vistazo (`.be-prov-ok`)— y lo que falta sale en amarillo (`.inv-need` /
+  `.is-need`, las mismas marcas que el repaso de una factura) **con lo que diga el documento ya
+  puesto**. Con **«Guardar proveedor»** (`api_bag_provider_save`) queda en SU ficha y no se vuelve a
+  pedir; y si no se pulsa, se guarda igual **al guardar el gasto**
+  (`_bag_provider_fields_from_form`), que es por donde pasa todo.
+  ⚠️ **Cada dato vive donde cobra quien factura**: si el gasto factura con una SOCIEDAD, el CIF, la
+  dirección y la cuenta son de ELLA (`_expense_beneficiary` paga a la sociedad antes que al
+  tercero); el correo y el teléfono, siempre del tercero.
+  ⚠️ La CUENTA sigue siendo el campo del HTML (`name="bank_account"`) y su punto único al guardar
+  sigue siendo **`_expense_bank_apply`** —el que rechaza una cuenta nuestra o inválida y el que no
+  deja guardar un gasto CON FACTURA sin ella—: el resto de la ficha es una ayuda, esto es un
+  candado. `tools/check_iban_factura.py` sigue en verde.
+  · **Prueba de la casa: `tools/check_gasto_factura_primero.py`** (37 comprobaciones con la app
+  real: el orden de los módulos, el visor, el reconocimiento por CIF/cuenta/nombre, que NO se coge
+  lo nuestro, la ficha que se completa y se guarda —en el tercero y en la sociedad—, los rechazos y
+  que sin factura el gasto se crea igual).

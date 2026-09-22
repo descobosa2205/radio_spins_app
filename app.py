@@ -2526,6 +2526,45 @@ def _artist_cash_concert_cache(concert) -> Decimal:
     return total
 
 
+# ⚠️⚠️ EN LA CAJA SOLO ENTRA LO EFECTIVAMENTE LIQUIDADO (sep 2026, lo pidió Dani). De royalties,
+# **lo que el artista YA HA FACTURADO** —su liquidación con factura (o ya pagada)—; lo demás está
+# calculado pero todavía no se le debe, así que no puede aparecer como cobrado.
+ARTIST_CASH_ROYALTY_BILLED_STATUSES = {"INVOICED", "PAID"}
+
+
+def _artist_cash_concert_bags(session_db, concert_ids) -> dict:
+    """Las BOLSAS de esas actividades, en UNA consulta: `{id de la actividad: [bolsas]}`.
+
+    ⚠️ De una en una serían cientos de consultas en una caja con muchas fechas (el mismo N+1 que ya
+    se evita con los gastos)."""
+    salida: dict = {}
+    ids = [x for x in (concert_ids or []) if x]
+    if not ids:
+        return salida
+    try:
+        for bag in (session_db.query(WorkflowBag)
+                    .filter(func.upper(func.coalesce(WorkflowBag.linked_type, "")) == "CONCERT",
+                            WorkflowBag.linked_id.in_(ids)).limit(1000).all()):
+            salida.setdefault(str(bag.linked_id), []).append(bag)
+    except Exception:
+        app.logger.exception("[caja] no se pudieron leer las bolsas de las actividades")
+    return salida
+
+
+def _artist_cash_activity_settled(bolsas) -> bool:
+    """¿Ha TERMINADO la liquidación de esa actividad?
+
+    ⚠️⚠️ Lo pidió Dani: «de las actividades se apunta lo que en la liquidación le haya correspondido
+    al artista, no la factura del caché; **hasta que no finalice la liquidación no aparecen
+    importes**». La liquidación de una actividad es la de **su bolsa**, así que la actividad entra
+    en la caja cuando tiene bolsa y **todas** sus bolsas están cerradas (`_bag_is_closed`, el mismo
+    punto único con el que ya entran los GASTOS): mientras quede una abierta, el número todavía
+    puede cambiar. Una actividad **sin bolsa** no está liquidada, así que tampoco entra — y se dice
+    aparte, que un total más bajo sin explicación parece un fallo."""
+    bolsas = list(bolsas or [])
+    return bool(bolsas) and all(_bag_is_closed(b) for b in bolsas)
+
+
 def _artist_cash_repertoire_ids(session_db, artist) -> set:
     """EL REPERTORIO de un artista: sus canciones y sus discos, por id (en texto).
 
@@ -2598,7 +2637,8 @@ def _artist_cash_royalties(session_db, artist, year: int | None, liquidaciones=N
             continue
         clave = (inicio, fin)
         d = por_periodo.setdefault(clave, {"income_por_obra": {}, "pagado": Decimal("0"),
-                                           "del_artista": Decimal("0")})
+                                           "del_artista": Decimal("0"),
+                                           "sin_facturar": Decimal("0")})
         es_suya = (str(getattr(liq, "beneficiary_kind", "") or "").upper() == "ARTIST"
                    and str(getattr(liq, "beneficiary_id", "")) == str(artist.id))
         for item in (snap.get("items") or []):
@@ -2614,7 +2654,13 @@ def _artist_cash_royalties(session_db, artist, year: int | None, liquidaciones=N
                 d["income_por_obra"][oid] = base
             d["pagado"] += _money_value(item.get("amount"))
         if es_suya:
-            d["del_artista"] += _money_value(snap.get("total_amount"))
+            # ⚠️⚠️ SOLO LO QUE YA HA FACTURADO ÉL: una liquidación generada o enviada todavía no se
+            # le debe, así que no puede salir como cobrada. Lo que falta por facturar se cuenta
+            # aparte y se DICE en la línea (un 0 sin explicar parece un fallo).
+            if str(getattr(liq, "status", "") or "").upper() in ARTIST_CASH_ROYALTY_BILLED_STATUSES:
+                d["del_artista"] += _money_value(snap.get("total_amount"))
+            else:
+                d["sin_facturar"] += _money_value(snap.get("total_amount"))
     salida = []
     for (inicio, fin), d in sorted(por_periodo.items(), key=lambda kv: kv[0][1], reverse=True):
         ingreso = sum(d["income_por_obra"].values(), Decimal("0"))
@@ -2628,7 +2674,8 @@ def _artist_cash_royalties(session_db, artist, year: int | None, liquidaciones=N
                 inicio.year, (1 if inicio.month <= 6 else 2)),
             "income": ingreso,                 # lo que factura la compañía por su repertorio
             "paid": pagado,                    # todo lo que se paga por él (el artista y los demás)
-            "artist_amount": d["del_artista"],  # lo que factura ÉL
+            "artist_amount": d["del_artista"],  # lo que ya ha FACTURADO él (lo demás no suma)
+            "artist_pending": d["sin_facturar"],  # liquidado pero todavía sin su factura
             # ⚠️ Puede salir NEGATIVO (se liquidó más de lo ingresado ese semestre): se dice tal cual,
             # maquillarlo a 0 escondería justo lo que hay que mirar.
             "office_amount": de_la_oficina,
@@ -2669,12 +2716,18 @@ def _artist_cash_income(session_db, artist, year: int | None, prefetch: dict | N
     # por él** —los royalties del propio artista y los de cualquier otro que cobre de sus obras—.
     # Un royalty pagado **no es gasto ni inversión: reduce el ingreso** (lo pidió Dani así), por eso
     # se resta aquí y no aparece en «invertido»: contarlo en los dos sitios sería contarlo dos veces.
+    royalties_pendientes, royalties_pendientes_importe = 0, Decimal("0")
     for r in _artist_cash_royalties(session_db, artist, year, (prefetch or {}).get("liquidations")):
         detalle = []
         if r["income"]:
             detalle.append("Facturado %s" % format_eur(r["income"]))
         if r["paid"]:
             detalle.append("royalties pagados %s" % format_eur(r["paid"]))
+        # ⚠️ Lo liquidado que el artista TODAVÍA NO HA FACTURADO no suma, y se dice aquí mismo.
+        if r.get("artist_pending"):
+            royalties_pendientes += 1
+            royalties_pendientes_importe += r["artist_pending"]
+            detalle.append("pendiente de que él facture %s" % format_eur(r["artist_pending"]))
         filas.append(_artist_cash_row(
             group="DISCOGRAFICO", title=r["label"], subtitle="Liquidación de royalties",
             day=r["period_end"], artist_amount=r["artist_amount"], office_amount=r["office_amount"],
@@ -2682,7 +2735,8 @@ def _artist_cash_income(session_db, artist, year: int | None, prefetch: dict | N
             url=_safe_url_for("discografica_view", section="royalties", roy_tab="liquidaciones"),
             note=" · ".join(detalle)))
 
-    # ── 2) ACTIVIDADES · su parte del caché, según el contrato ─────────────────────────────────
+    # ── 2) ACTIVIDADES · lo que le corresponde EN LA LIQUIDACIÓN, cuando ya está cerrada ───────
+    sin_liquidar, sin_liquidar_importe = 0, Decimal("0")
     try:
         consulta = (session_db.query(Concert)
                     .options(joinedload(Concert.artist), joinedload(Concert.venue),
@@ -2692,7 +2746,9 @@ def _artist_cash_income(session_db, artist, year: int | None, prefetch: dict | N
                     .filter(Concert.date <= today_local()))
         if year:
             consulta = consulta.filter(func.extract("year", Concert.date) == year)
-        for c in consulta.order_by(Concert.date.desc()).limit(400).all():
+        conciertos = consulta.order_by(Concert.date.desc()).limit(400).all()
+        bolsas_por_actividad = _artist_cash_concert_bags(session_db, [c.id for c in conciertos])
+        for c in conciertos:
             # ⚠️ EL IMPORTE es el FINAL de la liquidación (lo que administración ha facturado), y el
             # REPARTO lo dice el contrato del artista. Si no hay liquidación todavía, manda el caché
             # pactado — y se dice cuál de los dos se está usando.
@@ -2701,6 +2757,13 @@ def _artist_cash_income(session_db, artist, year: int | None, prefetch: dict | N
                 continue
             del_artista, de_la_oficina, etiqueta = _artist_cash_commitment_split(
                 session_db, aid, c, importe)
+            # ⚠️⚠️ HASTA QUE NO TERMINA LA LIQUIDACIÓN NO APARECE NINGÚN IMPORTE (lo pidió Dani): lo
+            # que se apunta es lo que le ha correspondido al artista en la liquidación, no lo que se
+            # facturó del caché. Lo que queda por liquidar se cuenta aparte y se dice debajo.
+            if not _artist_cash_activity_settled(bolsas_por_actividad.get(str(c.id))):
+                sin_liquidar += 1
+                sin_liquidar_importe += del_artista
+                continue
             donde = _place_label(_concert_city(c), _concert_province_value(c))
             detalle = [("Liquidación %s" % format_eur(importe)) if de_donde == "liquidación"
                        else ("Caché %s" % format_eur(importe))]
@@ -2724,7 +2787,14 @@ def _artist_cash_income(session_db, artist, year: int | None, prefetch: dict | N
 
     # ── 3) LOS APUNTES DE ANTES DE LA APP (los del Excel) ──────────────────────────────────────
     filas.extend(_artist_cash_manual_rows(session_db, artist, year, "INGRESO"))
-    return _artist_cash_pack(filas, ARTIST_CASH_INCOME_GROUPS)
+    datos = _artist_cash_pack(filas, ARTIST_CASH_INCOME_GROUPS)
+    # LO QUE TODAVÍA NO CUENTA, para poder decirlo (la regla de la casa: un total más bajo sin
+    # explicación parece un fallo).
+    datos["pending_activities"] = sin_liquidar
+    datos["pending_activity_amount"] = sin_liquidar_importe
+    datos["pending_royalties"] = royalties_pendientes
+    datos["pending_royalty_amount"] = royalties_pendientes_importe
+    return datos
 
 
 def _artist_cash_bag_group(session_db, bag) -> str:
@@ -2987,11 +3057,12 @@ def _group_cash_data(session_db, kind: str, obj, year: int | None) -> dict:
     except Exception:
         app.logger.exception("[caja] no se pudieron leer las actividades del grupo")
         conciertos = []
-    ids_conciertos = []
+    ids_conciertos = [c.id for c in conciertos]
+    bolsas_por_actividad = _artist_cash_concert_bags(session_db, ids_conciertos)
+    sin_liquidar, sin_liquidar_importe = 0, Decimal("0")
     for c in conciertos:
         if getattr(c, "date", None):
             años.add(c.date.year)
-        ids_conciertos.append(c.id)
         if year and getattr(getattr(c, "date", None), "year", None) != year:
             continue
         importe, de_donde, cobrado = _artist_cash_concert_settled(c)
@@ -2999,6 +3070,12 @@ def _group_cash_data(session_db, kind: str, obj, year: int | None) -> dict:
             continue
         del_artista, de_la_oficina, etiqueta = _artist_cash_commitment_split(
             session_db, getattr(c, "artist_id", None), c, importe)
+        # ⚠️ MISMA REGLA QUE EN LA CAJA DE UN ARTISTA: hasta que no termina la liquidación de la
+        # actividad no aparece ningún importe (si no, la gira diría una cosa y el artista otra).
+        if not _artist_cash_activity_settled(bolsas_por_actividad.get(str(c.id))):
+            sin_liquidar += 1
+            sin_liquidar_importe += del_artista
+            continue
         donde = _place_label(_concert_city(c), _concert_province_value(c))
         detalle = [("Liquidación %s" % format_eur(importe)) if de_donde == "liquidación"
                    else ("Caché %s" % format_eur(importe))]
@@ -3065,6 +3142,9 @@ def _group_cash_data(session_db, kind: str, obj, year: int | None) -> dict:
             "positive": (de_la_casa - invertido) >= 0,
             "advance_pending": Decimal("0"), "advance_count": 0, "pending_entries": 0,
             "open_bags": abiertas, "open_amount": abiertas_coste,
+            # Actividades cuya liquidación todavía no ha terminado: no cuentan, pero se dicen.
+            "pending_activities": sin_liquidar, "pending_activity_amount": sin_liquidar_importe,
+            "pending_royalties": 0, "pending_royalty_amount": Decimal("0"),
         },
     }
 
@@ -3166,7 +3246,11 @@ def _cash_overview(session_db, year: int | None) -> dict:
             app.logger.exception("[caja] no se pudo calcular la caja de %s", getattr(artist, "name", ""))
             continue
         b = datos["balance"]
-        if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"]]):
+        # ⚠️ Un sujeto que SOLO tiene cosas pendientes (actividades sin liquidar, royalties sin
+        # facturar) tiene que seguir saliendo: si no, desaparecería de la lista justo cuando hay
+        # trabajo que hacer con él.
+        if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"],
+                    b.get("pending_activities"), b.get("pending_royalties")]):
             continue
         nombre, que_es, icono = _cash_subject_label(artist)
         filas.append({
@@ -3175,6 +3259,8 @@ def _cash_overview(session_db, year: int | None) -> dict:
             "artist_billed": b["artist_billed"], "office_invested": b["office_invested"],
             "office_income": b["office_income"], "office_result": b["office_result"],
             "positive": b["positive"], "open_bags": b["open_bags"], "open_amount": b["open_amount"],
+            "pending_activities": b.get("pending_activities", 0),
+            "pending_activity_amount": b.get("pending_activity_amount", Decimal("0")),
             "url": url_for("administracion_view", tab="caja", sujeto=str(artist.id),
                            **({"anio": year} if year else {})),
         })
@@ -3193,7 +3279,11 @@ def _cash_overview(session_db, year: int | None) -> dict:
             app.logger.exception("[caja] no se pudo calcular la caja de un grupo")
             continue
         b = datos["balance"]
-        if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"]]):
+        # ⚠️ Un sujeto que SOLO tiene cosas pendientes (actividades sin liquidar, royalties sin
+        # facturar) tiene que seguir saliendo: si no, desaparecería de la lista justo cuando hay
+        # trabajo que hacer con él.
+        if not any([b["artist_billed"], b["office_invested"], b["office_income"], b["open_bags"],
+                    b.get("pending_activities"), b.get("pending_royalties")]):
             continue
         meta = CASH_GROUP_KINDS[kind]
         grupos.append({
@@ -3203,6 +3293,8 @@ def _cash_overview(session_db, year: int | None) -> dict:
             "artist_billed": b["artist_billed"], "office_invested": b["office_invested"],
             "office_income": b["office_income"], "office_result": b["office_result"],
             "positive": b["positive"], "open_bags": b["open_bags"], "open_amount": b["open_amount"],
+            "pending_activities": b.get("pending_activities", 0),
+            "pending_activity_amount": b.get("pending_activity_amount", Decimal("0")),
             "url": url_for("administracion_view", tab="caja", sujeto="%s:%s" % (kind, obj.id),
                            **({"anio": year} if year else {})),
         })
@@ -3323,9 +3415,16 @@ def _artist_cash_data(session_db, artist, year: int | None = None, prefetch: dic
             "advance_pending": sum((a["pending"] for a in adelantos_abiertos), Decimal("0")),
             "advance_count": len(adelantos_abiertos),
             "pending_entries": ingresos["pending_count"] + gastos["pending_count"],
-            # Lo que TODAVÍA no cuenta: las bolsas abiertas (lo que se va a gastar, no lo gastado).
+            # Lo que TODAVÍA no cuenta: las bolsas abiertas (lo que se va a gastar, no lo gastado),
+            # las actividades cuya liquidación no ha terminado y lo liquidado de royalties que el
+            # artista aún no ha facturado. Se cuentan para poder DECIRLO: un total más bajo sin
+            # explicación parece un fallo.
             "open_bags": gastos.get("open_bags", 0),
             "open_amount": gastos.get("open_amount", Decimal("0")),
+            "pending_activities": ingresos.get("pending_activities", 0),
+            "pending_activity_amount": ingresos.get("pending_activity_amount", Decimal("0")),
+            "pending_royalties": ingresos.get("pending_royalties", 0),
+            "pending_royalty_amount": ingresos.get("pending_royalty_amount", Decimal("0")),
         },
     }
 
@@ -3521,7 +3620,7 @@ def _artist_cash_pdf_bytes(session_db, artist, datos: dict, nombre: str, que_es:
     val_ok = ParagraphStyle("CajaValOk", parent=val, textColor=colors.HexColor("#198754"))
     val_ko = ParagraphStyle("CajaValKo", parent=val, textColor=colors.HexColor("#dc3545"))
     tarjetas = [
-        ("FACTURADO POR EL ARTISTA", b["artist_billed"], val),
+        ("COBRADO POR EL ARTISTA", b["artist_billed"], val),
         ("INVERTIDO POR COMPAÑÍA", b["office_invested"], val),
         ("INGRESADO POR COMPAÑÍA", b["office_income"], val),
         ("RESULTADO PARA COMPAÑÍA", b["office_result"], (val_ok if b["positive"] else val_ko)),
@@ -3534,13 +3633,26 @@ def _artist_cash_pdf_bytes(session_db, artist, datos: dict, nombre: str, que_es:
         ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
         ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
     story.append(resumen)
+    nota = ParagraphStyle("CajaNota", parent=styles["Normal"], fontSize=7.5, leading=10,
+                          textColor=colors.HexColor("#6b7280"))
     if b.get("open_bags"):
         story.append(Spacer(1, 4))
         story.append(Paragraph(
             "Y además hay %d bolsa(s) todavía abierta(s) por %s: no cuentan en el balance hasta "
-            "que se cierren." % (b["open_bags"], esc(format_eur(b["open_amount"]))),
-            ParagraphStyle("CajaNota", parent=styles["Normal"], fontSize=7.5, leading=10,
-                           textColor=colors.HexColor("#6b7280"))))
+            "que se cierren." % (b["open_bags"], esc(format_eur(b["open_amount"]))), nota))
+    # ⚠️ Lo que TODAVÍA no se le debe se dice también en el papel: el PDF no puede decir un número
+    # sin la misma explicación que la pantalla.
+    if b.get("pending_activities"):
+        story.append(Spacer(1, 3))
+        story.append(Paragraph(
+            "%d actividad(es) con la liquidación sin terminar (%s para el artista): no aparecen "
+            "hasta que se cierre su bolsa."
+            % (b["pending_activities"], esc(format_eur(b.get("pending_activity_amount") or 0))), nota))
+    if b.get("pending_royalties"):
+        story.append(Spacer(1, 3))
+        story.append(Paragraph(
+            "De royalties hay %s liquidados que el artista todavía no ha facturado: no cuentan "
+            "como cobrados." % esc(format_eur(b.get("pending_royalty_amount") or 0)), nota))
     story.append(Spacer(1, 10))
 
     # ── Cada CATEGORÍA con su desglose por bolsas ────────────────────────────────────────────

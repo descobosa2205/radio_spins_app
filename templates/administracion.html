@@ -1156,8 +1156,8 @@
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
       <div>
         <h5 class="mb-0"><i class="fa fa-wallet me-2 text-danger"></i>Caja</h5>
-        <div class="small text-muted">Lo que factura cada artista, lo que se ha invertido en él y lo
-          que deja. Solo cuenta lo que ya está <strong>cerrado</strong>.</div>
+        <div class="small text-muted">Lo que cobra cada artista, lo que se ha invertido en él y lo
+          que deja. Solo cuenta lo que ya está <strong>liquidado</strong>.</div>
       </div>
       <div class="ac-bar__years">
         <a class="ac-year {{ 'is-on' if not cash_year }}" href="{{ url_for('administracion_view', tab='caja') }}">Todo</a>
@@ -1172,7 +1172,7 @@
     {% set t = cash_overview.totals %}
     <div class="ac-cards mb-3">
       <div class="ac-card">
-        <div class="ac-card__k"><i class="fa fa-guitar me-1"></i>Facturado por los artistas</div>
+        <div class="ac-card__k"><i class="fa fa-guitar me-1"></i>Cobrado por los artistas</div>
         <div class="ac-card__v">{{ t.artist_billed|eur }}</div>
       </div>
       <div class="ac-card">
@@ -1199,9 +1199,9 @@
             {% else %}<span class="ac-ph"><i class="fa {{ r.icon }}"></i></span>{% endif %}
             <span class="ac-list__t">
               <b>{{ r.name }}</b>
-              <small>{{ r.kind_label }}{% if r.open_bags %} · {{ r.open_bags }} bolsa{{ '' if r.open_bags == 1 else 's' }} abierta{{ '' if r.open_bags == 1 else 's' }}{% endif %}</small>
+              <small>{{ r.kind_label }}{% if r.open_bags %} · {{ r.open_bags }} bolsa{{ '' if r.open_bags == 1 else 's' }} abierta{{ '' if r.open_bags == 1 else 's' }}{% endif %}{% if r.pending_activities %} · {{ r.pending_activities }} sin liquidar{% endif %}</small>
             </span>
-            <span class="ac-list__n"><small>Factura</small><b>{{ r.artist_billed|eur }}</b></span>
+            <span class="ac-list__n"><small>Cobrado</small><b>{{ r.artist_billed|eur }}</b></span>
             <span class="ac-list__n"><small>Invertido</small><b>{{ r.office_invested|eur }}</b></span>
             <span class="ac-list__n"><small>Ingresado</small><b>{{ r.office_income|eur }}</b></span>
             <span class="ac-list__n ac-list__n--res {{ 'is-ok' if r.positive else 'is-ko' }}">
@@ -1229,9 +1229,9 @@
             {% else %}<span class="ac-ph"><i class="fa {{ r.icon }}"></i></span>{% endif %}
             <span class="ac-list__t">
               <b>{{ r.name }}</b>
-              <small>{{ r.kind_label }}{% if r.open_bags %} · {{ r.open_bags }} bolsa{{ '' if r.open_bags == 1 else 's' }} abierta{{ '' if r.open_bags == 1 else 's' }}{% endif %}</small>
+              <small>{{ r.kind_label }}{% if r.open_bags %} · {{ r.open_bags }} bolsa{{ '' if r.open_bags == 1 else 's' }} abierta{{ '' if r.open_bags == 1 else 's' }}{% endif %}{% if r.pending_activities %} · {{ r.pending_activities }} sin liquidar{% endif %}</small>
             </span>
-            <span class="ac-list__n"><small>Factura</small><b>{{ r.artist_billed|eur }}</b></span>
+            <span class="ac-list__n"><small>Cobrado</small><b>{{ r.artist_billed|eur }}</b></span>
             <span class="ac-list__n"><small>Invertido</small><b>{{ r.office_invested|eur }}</b></span>
             <span class="ac-list__n"><small>Ingresado</small><b>{{ r.office_income|eur }}</b></span>
             <span class="ac-list__n ac-list__n--res {{ 'is-ok' if r.positive else 'is-ko' }}">

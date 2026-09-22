@@ -106,10 +106,52 @@ with A.app.test_request_context("/"):
         check("con plan de pagos manda la LIQUIDACIÓN, no el caché pactado",
               de_donde == "liquidación" and importe == D("9000"), (de_donde, importe))
         check("y se sabe cuánto se ha cobrado de verdad", cobrado == D("9000"), cobrado)
+        # ⚠️⚠️ HASTA QUE NO TERMINA LA LIQUIDACIÓN NO HAY IMPORTE (sep 2026, lo pidió Dani): lo que
+        # se apunta es lo que le ha correspondido al artista EN LA LIQUIDACIÓN, no la factura del
+        # caché. Una actividad sin bolsa no está liquidada.
+        d = A._artist_cash_data(s, art, None)
+        check("sin liquidación cerrada, la actividad NO entra en los ingresos",
+              not [g for g in d["income"]["groups"] if g["key"] == "ACTIVIDADES"],
+              [g["key"] for g in d["income"]["groups"]])
+        check("pero se DICE que hay 1 actividad sin liquidar",
+              d["balance"]["pending_activities"] == 1, d["balance"]["pending_activities"])
+        check("y con lo que le correspondería al artista",
+              d["balance"]["pending_activity_amount"] == D("9000"),
+              d["balance"]["pending_activity_amount"])
+    finally:
+        s.close()
+
+# La BOLSA de esa actividad: mientras esté abierta, su liquidación no ha terminado.
+s = models.SessionLocal()
+try:
+    b3 = models.WorkflowBag(title="Bolsa del concierto", artist_id=A.to_uuid(AID), artist_ids=[AID],
+                            bag_type="CONCIERTO", status="ACTIVA", start_date=AYER,
+                            linked_type="CONCERT", linked_id=A.to_uuid(CID), company_id=A.to_uuid(EMP))
+    s.add(b3); s.flush()
+    B3 = str(b3.id)
+    s.commit()
+finally:
+    s.close()
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        art = s.get(models.Artist, A.to_uuid(AID))
+        d = A._artist_cash_data(s, art, None)
+        check("con su bolsa TODAVÍA ABIERTA, sigue sin entrar",
+              not [g for g in d["income"]["groups"] if g["key"] == "ACTIVIDADES"],
+              [g["key"] for g in d["income"]["groups"]])
+        # Al cerrar la liquidación de la actividad, ya aparece.
+        b3 = s.get(models.WorkflowBag, A.to_uuid(B3))
+        b3.status = "CERRADA"
+        A._bag_cash_default_on_close(s, b3)
+        s.commit()
         # Sin contrato: entero al artista, y se dice.
         d = A._artist_cash_data(s, art, None)
         acts = [g for g in d["income"]["groups"] if g["key"] == "ACTIVIDADES"]
-        check("la actividad entra en los ingresos", bool(acts), [g["key"] for g in d["income"]["groups"]])
+        check("cerrada la liquidación, la actividad entra en los ingresos", bool(acts),
+              [g["key"] for g in d["income"]["groups"]])
+        check("y deja de contarse como pendiente", d["balance"]["pending_activities"] == 0,
+              d["balance"]["pending_activities"])
         check("sin contrato, el importe va ENTERO al artista",
               acts and acts[0]["artist_amount"] == D("9000"), acts and acts[0]["artist_amount"])
         check("y se dice que es porque no hay contrato",
@@ -206,13 +248,10 @@ with A.app.test_request_context("/"):
 print("\n── 4. LA REGLA DEL CACHÉ: la bolsa de una actividad la paga su caché ──")
 s = models.SessionLocal()
 try:
-    art = s.get(models.Artist, A.to_uuid(AID))
-    b3 = models.WorkflowBag(title="Bolsa del concierto", artist_id=art.id, artist_ids=[AID],
-                            bag_type="CONCIERTO", status="CERRADA", start_date=AYER,
-                            linked_type="CONCERT", linked_id=A.to_uuid(CID), company_id=A.to_uuid(EMP),
-                            cash_impact="INCLUIR")
-    s.add(b3); s.flush()
-    B3 = str(b3.id)
+    # ⚠️ La bolsa de la actividad se creó y se cerró en el apartado 2 (es lo que hace que la
+    # actividad entre en la caja): aquí solo se le mete el gasto.
+    b3 = s.get(models.WorkflowBag, A.to_uuid(B3))
+    b3.cash_impact = "INCLUIR"
     s.add(models.BagExpense(bag_id=b3.id, concept="Backline", amount_gross=D("4000"), covered_by="BOLSA"))
     s.commit()
 finally:
@@ -275,7 +314,24 @@ with A.app.test_request_context("/"):
               r["paid"] == D("4000"), r["paid"])
         check("el beneficio de la compañía es 10.000 − 4.000 = 6.000",
               r["office_amount"] == D("6000"), r["office_amount"])
-        check("y lo que factura el artista son sus 3.000", r["artist_amount"] == D("3000"), r["artist_amount"])
+        # ⚠️⚠️ SOLO LO YA FACTURADO POR ÉL (sep 2026, lo pidió Dani): la liquidación está calculada
+        # pero todavía no ha emitido su factura, así que no puede salir como cobrada.
+        check("lo liquidado SIN su factura todavía no cuenta como cobrado",
+              r["artist_amount"] == D("0"), r["artist_amount"])
+        check("y se cuenta aparte, para poder decirlo", r["artist_pending"] == D("3000"),
+              r["artist_pending"])
+        d = A._artist_cash_data(s, art, None)
+        check("el balance lo dice", d["balance"]["pending_royalty_amount"] == D("3000"),
+              d["balance"]["pending_royalty_amount"])
+        # En cuanto el artista factura (INVOICED), ya es suyo.
+        liq = (s.query(models.RoyaltyLiquidation)
+               .filter(models.RoyaltyLiquidation.beneficiary_kind == "ARTIST").first())
+        liq.status = "INVOICED"
+        s.commit()
+        filas = A._artist_cash_royalties(s, art, None)
+        r = filas[0]
+        check("y lo que YA HA FACTURADO el artista son sus 3.000", r["artist_amount"] == D("3000"),
+              r["artist_amount"])
         d = A._artist_cash_data(s, art, None)
         disco = [g for g in d["income"]["groups"] if g["key"] == "DISCOGRAFICO"][0]
         check("en la caja, el discográfico dice lo mismo", disco["office_amount"] == D("6000"), disco["office_amount"])
@@ -296,7 +352,7 @@ with A.app.test_request_context("/"):
         art = s.get(models.Artist, A.to_uuid(AID))
         d = A._artist_cash_data(s, art, None)
         b = d["balance"]
-        check("1) facturado por el artista = 7.200 (actividad) + 3.000 (royalties)",
+        check("1) cobrado por el artista = 7.200 (actividad) + 3.000 (royalties ya facturados)",
               b["artist_billed"] == D("10200.00"), b["artist_billed"])
         check("2) invertido por compañía = 1.000 + 3.000 + 2.000 (lo que el caché no cubre)",
               b["office_invested"] == D("6000"), b["office_invested"])
@@ -316,7 +372,7 @@ with cli.session_transaction() as ses:
 r = cli.get("/artistas/%s?tab=caja" % AID)
 html = r.get_data(as_text=True)
 check("la pestaña Caja abre (200)", r.status_code == 200, r.status_code)
-for rotulo in ("Facturado por el artista", "Invertido por compañía",
+for rotulo in ("Cobrado por el artista", "Invertido por compañía",
                "Ingresado por compañía", "Resultado para compañía"):
     check("el resumen dice «%s»" % rotulo, rotulo in html)
 check("se despliega cada tipo con sus bolsas", "ac-group__head" in html and "Gira de promoción" in html)
@@ -407,7 +463,7 @@ r = cli.get("/administracion?tab=caja")
 html = r.get_data(as_text=True)
 check("la pestaña Caja abre (200)", r.status_code == 200, r.status_code)
 check("sale el artista con su balance", "Los Ñus" in html)
-for rotulo in ("Facturado por los artistas", "Invertido por compañía",
+for rotulo in ("Cobrado por los artistas", "Invertido por compañía",
                "Ingresado por compañía", "Resultado para compañía"):
     check("el total de todos dice «%s»" % rotulo, rotulo in html)
 with A.app.test_request_context("/"):
@@ -425,7 +481,7 @@ with A.app.test_request_context("/"):
         s.close()
 html = cli.get("/administracion?tab=caja&sujeto=%s" % AID).get_data(as_text=True)
 check("al abrir un sujeto se ve SU caja, la misma de la ficha",
-      "Facturado por el artista" in html and "Invertido por compañía" in html)
+      "Cobrado por el artista" in html and "Invertido por compañía" in html)
 check("con el enlace a su ficha", "Abrir su ficha" in html)
 check("y el selector de año lleva a la pestaña (no a la ficha)",
       "/administracion?tab=caja&amp;sujeto=" in html or "administracion" in html)
@@ -492,7 +548,7 @@ check("y dice que no se suman arriba", "No se suman arriba" in html)
 r = cli.get("/administracion?tab=caja&sujeto=TOUR:%s" % GIRA)
 html = r.get_data(as_text=True)
 check("se abre la caja de la gira (200)", r.status_code == 200, r.status_code)
-check("con la misma pantalla", "Facturado por el artista" in html and "Invertido por compañía" in html)
+check("con la misma pantalla", "Cobrado por el artista" in html and "Invertido por compañía" in html)
 check("sin los botones de apuntes anteriores (una gira no los tiene)", "Subir apuntes" not in html)
 check("y diciendo que ese dinero ya cuenta en la caja del artista",
       "ya cuenta también en la caja de cada artista" in html)

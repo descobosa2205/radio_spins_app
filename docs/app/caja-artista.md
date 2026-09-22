@@ -7,12 +7,13 @@
 ## Qué hay aquí
 
 - ⚠️ SOLO CUENTA LO YA CERRADO, y sobre el BALANCE FINAL (sep 2026)
+- ⚠️⚠️ COBRADO POR EL ARTISTA · solo lo EFECTIVAMENTE LIQUIDADO (sep 2026)
 - ⚠️ ROYALTIES · el beneficio es lo facturado MENOS todo lo que se paga
 - ⚠️ ACTIVIDADES · el contrato reparte el importe FINAL de la liquidación
 - LA PESTAÑA «CAJA» DE ADMINISTRACIÓN (la misma pantalla y el mismo motor)
 - EL PDF del resumen, y la PLANTILLA con desplegables
 - QUÉ ES LA CAJA y por qué no guarda ni un número
-- INGRESOS · lo que FACTURA el artista (no lo que entra en la casa)
+- INGRESOS · lo que COBRA el artista (no lo que entra en la casa)
 - GASTOS · lo que pagan las empresas del grupo, y **la regla del caché**
 - BALANCE · los adelantos y lo que le queda a la oficina
 - EL PERMISO · un recurso que **no se hereda de la sección**
@@ -43,6 +44,40 @@ cambiable** en el panel de la bolsa (`bag_cash_impact_save`, solo administració
 dejarla sin decidir la haría desaparecer de la caja en silencio.
 ⚠️ Las bolsas que **ya estaban cerradas** entraron de una vez (`_bag_cash_backfill`, marca en los
 ajustes): si no, el balance de todos los artistas habría cambiado de golpe sin que nadie tocara nada.
+
+## ⚠️⚠️ COBRADO POR EL ARTISTA · solo lo EFECTIVAMENTE LIQUIDADO
+
+Se llamaba «**Facturado** por el artista» y contaba cosas que todavía no se le debían. Lo pidió Dani
+(sep 2026): «lo facturado por el artista va a llamarse **cobrado por el artista**, y solo se va a
+incluir **lo efectivamente liquidado**: lo ya facturado por el artista de royalties y, de las
+actividades, **lo que en la liquidación le haya correspondido**, no la factura del caché — hasta que
+no finalice la liquidación no aparecen importes».
+
+- **ROYALTIES** — solo suma la liquidación que **él ya ha facturado**:
+  `ARTIST_CASH_ROYALTY_BILLED_STATUSES` = **INVOICED · PAID**. Una generada o enviada está
+  calculada, pero todavía no se le debe. Lo que falta se cuenta aparte (`artist_pending`) y **se
+  dice** en la línea («pendiente de que él facture 3.000 €») y debajo del balance.
+  ⚠️ Lo de la OFICINA no cambia: su beneficio por el repertorio (lo ingresado menos TODO lo pagado)
+  no depende de que el artista haya emitido su factura.
+- **ACTIVIDADES** — la actividad entra **cuando su liquidación ha terminado**, y la liquidación de
+  una actividad es la de **su bolsa**: punto único **`_artist_cash_activity_settled`** — tiene bolsa
+  y **todas** sus bolsas están cerradas (`_bag_is_closed`, el mismo con el que entran los GASTOS).
+  Mientras quede una abierta el número puede cambiar, así que no se enseña.
+  ⚠️ Una actividad **sin bolsa** no está liquidada: tampoco entra.
+  ⚠️ El IMPORTE sigue siendo el de `_artist_cash_concert_settled` repartido por el contrato (lo de
+  más abajo): lo que cambia es **cuándo** aparece.
+  · Las bolsas de las actividades se leen **en bloque** (`_artist_cash_concert_bags`): de una en una
+  serían cientos de consultas en una caja con muchas fechas.
+- **SE DICE LO QUE NO CUENTA**, como ya se hacía con las bolsas abiertas: «N actividades con la
+  liquidación sin terminar (X € para el artista)» y «de royalties hay X liquidados que el artista
+  todavía no ha facturado». Van en `balance.pending_activities` / `pending_activity_amount` /
+  `pending_royalties` / `pending_royalty_amount`, y salen en la pantalla **y en el PDF**.
+  ⚠️ En la pestaña Caja de Administración, un sujeto que **solo** tiene pendientes **sigue saliendo**
+  en la lista (con «N sin liquidar»): si desapareciera, se escondería justo lo que hay que trabajar.
+- ⚠️ Lo mismo vale para la caja de una **gira o un ciclo** (`_group_cash_data`): si no, la gira diría
+  una cosa y la caja del artista otra.
+- ⚠️ La clave interna del dato **sigue siendo `balance["artist_billed"]`** (la leen la pantalla, la
+  lista de administración, el PDF y la prueba): lo que cambió es **qué** entra y cómo se llama.
 
 ## ⚠️⚠️ ROYALTIES · el beneficio es lo facturado MENOS todo lo que se paga
 
@@ -146,7 +181,7 @@ y las liquidaciones del artista, y eso no se le hace pagar a quien entra a ver o
 El selector de **AÑO** de arriba sale de `_artist_cash_years` (los años en los que ese artista
 tiene *algo*), más «Todo».
 
-## INGRESOS · lo que FACTURA el artista (no lo que entra en la casa)
+## INGRESOS · lo que COBRA el artista (no lo que entra en la casa)
 
 ⚠️⚠️ **Es lo que se lleva ÉL**, no lo que entra en la casa. Lo pidió Dani con esas palabras: «lo
 que finalmente factura el artista, la parte del reparto que le corresponde». Lo que se queda la
@@ -154,8 +189,8 @@ casa se lee aparte, en el Balance.
 
 | tipo | de dónde sale | lo del artista | lo de la oficina |
 |---|---|---|---|
-| **Discográfico** | `RoyaltyLiquidation` del artista | `snapshot['total_amount']` (su parte, ya calculada y congelada) | `total_income − total_amount`: **el royalty que queda tras pagar los suyos** |
-| **Actividades** | sus `Concert` no cancelados y ya celebrados, con caché | el **% del artista** de su contrato | el **% de la oficina** |
+| **Discográfico** | `RoyaltyLiquidation` del artista **ya facturada** (INVOICED/PAID) | `snapshot['total_amount']` (su parte, ya calculada y congelada) | `total_income − total_amount`: **el royalty que queda tras pagar los suyos** |
+| **Actividades** | sus `Concert` no cancelados, ya celebrados y con **su liquidación cerrada** | el **% del artista** de su contrato | el **% de la oficina** |
 | **Otros** | los apuntes del Excel de tipo INGRESO | `amount_artist` | `amount_company` |
 
 - **EL CACHÉ ya viene con las comisiones descontadas** (`_artist_cash_concert_cache` suma los
@@ -207,7 +242,7 @@ que no pasara. Y como cada gasto pertenece a UNA bolsa, recorrer bolsas no puede
 
 Cuatro cifras grandes y, debajo, los adelantos:
 
-- **Factura el artista** — el total de Ingresos.
+- **Cobrado por el artista** — el total de Ingresos (solo lo ya liquidado: ver la sección de arriba).
 - **Invertido por la casa** — el total de Gastos.
 - **Se lleva la oficina** — la parte de la oficina de esos ingresos (royalties tras pagar los
   suyos + su % de los cachés).

@@ -56800,10 +56800,16 @@ def _parse_optional_int(value: str | None, *, min_v: int | None = None, max_v: i
 
 
 def _norm_base(val: str | None) -> str | None:
-    """Normaliza base a GROSS/NET/PROFIT. Vacío -> None."""
+    """Normaliza base a GROSS/NET/PROFIT/OFFICE. Vacío -> None.
+
+    ⚠️ **OFFICE** = la comisión se cobra **sobre el fee de la oficina** (sep 2026, lo pidió Dani):
+    en una actividad con caché, esa sale de NUESTRA parte y no de la del artista
+    (`_concert_cache_commissions`)."""
     v = (val or "").strip().upper()
     if not v:
         return None
+    if v in ("OFFICE", "OFICINA", "FEE", "FEE_OFICINA"):
+        return "OFFICE"
     if v in ("NET", "NETO"):
         return "NET"
     if v in ("PROFIT", "BENEFIT", "BENEFICIO", "EMPRESA"):
@@ -72852,7 +72858,7 @@ def concert_detail_view(cid):
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
         production_panel = _concert_production_panel(session, c)
         roadmap_ctx = _roadmap_context(session, "concert", c)
-        result_ctx = _concert_result_context(session, c) if tab == "resultado" else None
+        result_ctx = _concert_result_view(session, c) if tab == "resultado" else None
         # Punto de empate (solo donde se enseña: pestaña Resultado): manda lo que puso contratación;
         # si no, los gastos CONSOLIDADOS de la bolsa; y si tampoco, el presupuesto. El aviso salta
         # únicamente cuando el de contratación NO cuadra con el calculado.
@@ -73124,8 +73130,11 @@ def concert_detail_view(cid):
             # Todas las cartelerías GENERALES que le tocan a esta fecha (evento, gira, ciclo): una
             # puede tener varias, y cada una se pinta en su módulo.
             artwork_groups=grupos_art,
-            result_calc=(result_ctx["calc"] if result_ctx else None),
-            result_module=(result_ctx["module"] if result_ctx else None),
+            result_calc=(result_ctx.get("calc") if result_ctx else None),
+            result_module=(result_ctx.get("module") if result_ctx else None),
+            # ⚠️ TAQUILLA (proyección + barra) o CACHÉ (resumen provisional): lo decide el servidor.
+            result_mode=(result_ctx.get("mode") if result_ctx else None),
+            result_cache=(result_ctx.get("cache") if result_ctx else None),
             result_sold=(result_ctx.get("sold") if result_ctx else None),
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
             venue_saved_ticket_count=venue_saved_ticket_count,
@@ -74796,7 +74805,8 @@ def concert_simulate(cid):
                 name=((a.concept or "").strip() or None),
                 mode=("VARIABLE" if variable else "FIXED"),
                 amount=_money_value(a.commission_amount or 0),
-                var_type=({"PROFIT": "PERCENT_PROFIT", "NET": "PERCENT_NET"}.get(base, "PERCENT_GROSS")
+                var_type=({"PROFIT": "PERCENT_PROFIT", "NET": "PERCENT_NET",
+                           "OFFICE": "PERCENT_PROFIT"}.get(base, "PERCENT_GROSS")
                           if variable else None),
                 var_value=_money_value(a.commission_pct or 0),
                 exempt_amount=_money_value(a.exempt_amount or 0), sort_order=i))
@@ -127490,7 +127500,10 @@ def _concert_build_calc_data(s, concert):
             # dos sobre la taquilla —que lleva la SGAE dentro— y eran lo mismo. Ahora: BRUTO = el
             # ingreso sin IVA ni SGAE · NETO = ese menos los gastos de gestión de la ticketera ·
             # BENEFICIO = lo que queda tras todos los gastos.
-            vt = {"PROFIT": "PERCENT_PROFIT", "NET": "PERCENT_NET"}.get(
+            # ⚠️ OFFICE («sobre el fee de la oficina») solo existe cuando el dinero es un CACHÉ;
+            # aquí, con taquilla, lo más parecido es el BENEFICIO — nunca el bruto, que inflaría
+            # la comisión (ver `_concert_cache_commissions`).
+            vt = {"PROFIT": "PERCENT_PROFIT", "NET": "PERCENT_NET", "OFFICE": "PERCENT_PROFIT"}.get(
                 (a.commission_base or "").upper(), "PERCENT_GROSS")
             commissions.append({"mode": "VARIABLE", "var_type": vt, "var_value": _ff(a.commission_pct),
                                 "includes_iva": False, "exempt_amount": _ff(a.exempt_amount)})
@@ -128290,6 +128303,209 @@ def _concert_break_even_info(s, concert):
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# EL RESULTADO DE UNA ACTIVIDAD · proyección de TAQUILLA o resumen provisional de CACHÉ
+# ---------------------------------------------------------------------------------------------
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «solo muestra la proyección sobre el aforo y la barra de simulación
+# cuando es una actividad en la que nosotros (una empresa del grupo) somos la promotora y hay venta
+# de entradas; si no, se muestra un resumen provisional de resultado en el que se tiene en cuenta el
+# caché».
+# · **TAQUILLA** (promovemos nosotros + se venden entradas): la proyección de siempre, con el 100%
+#   del aforo y el riesgo por socio según se mueve la barra.
+# · **CACHÉ** (todo lo demás: una fecha vendida a un promotor, una participada, o una propia a la
+#   que todavía no se le ha configurado el ticketing): el dinero no sale de la taquilla, así que
+#   proyectar sobre el aforo no dice NADA. Lo que se enseña es el reparto del caché.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+CONCERT_RESULT_MODE_TICKETS = "TAQUILLA"
+CONCERT_RESULT_MODE_CACHE = "CACHE"
+# La base de una comisión que se cobra SOBRE NUESTRO FEE (y no sobre el caché del artista): se
+# descuenta de LA PARTE DE LA OFICINA. ⚠️ Es un valor más de `ConcertZoneAgent.commission_base`
+# (GROSS | NET | PROFIT | OFFICE): no hace falta columna nueva ni hay CHECK que actualizar.
+COMMISSION_BASE_OFFICE = "OFFICE"
+
+
+def _concert_has_ticket_sales(session_db, concert) -> bool:
+    """¿ESTA ACTIVIDAD VENDE ENTRADAS? (no es gratuita y tiene ticketing configurado).
+
+    Sin esto no hay proyección posible: una fecha sin tipos de entrada ni venta sincronizada no
+    tiene de dónde sacar ingresos, y la barra solo diría ceros."""
+    if concert is None or _concert_is_free(concert):
+        return False
+    for t in (getattr(concert, "ticket_types", None) or []):
+        if _money_or_zero(getattr(t, "price", None)) > 0 or _money_or_zero(getattr(t, "qty_for_sale", None)) > 0:
+            return True
+    try:
+        ev = (session_db.query(EnterticketEvent.id)
+              .filter(EnterticketEvent.concert_id == concert.id).first())
+        if ev is not None:
+            return True
+    except Exception:
+        app.logger.exception("[resultado] no se pudo mirar la venta sincronizada")
+    return False
+
+
+def _concert_result_is_ours(session_db, concert) -> bool:
+    """¿LA TAQUILLA ES NUESTRA? (la promueve una empresa del grupo o participamos en ella).
+
+    ⚠️ Vale también con el tipo de venta **EMPRESA** aunque todavía no se haya elegido CUÁL de
+    nuestras empresas la promueve: eso es un dato que falta, no una fecha de otro. Lo que queda
+    fuera es lo **VENDIDO** a un promotor y lo que no tiene nada nuestro detrás."""
+    try:
+        if _concert_is_group_promoted(session_db, concert):
+            return True
+    except Exception:
+        app.logger.exception("[resultado] no se pudo mirar quién promueve la actividad")
+    return (getattr(concert, "sale_type", None) or "").strip().upper() == "EMPRESA"
+
+
+def _concert_result_mode(session_db, concert) -> str:
+    """TAQUILLA solo si la promueve una empresa del GRUPO **y** se venden entradas; si no, CACHÉ."""
+    try:
+        if _concert_result_is_ours(session_db, concert) and _concert_has_ticket_sales(session_db, concert):
+            return CONCERT_RESULT_MODE_TICKETS
+    except Exception:
+        app.logger.exception("[resultado] no se pudo decidir el modo de la actividad")
+    return CONCERT_RESULT_MODE_CACHE
+
+
+def _concert_configured_expenses(session_db, concert) -> tuple:
+    """LOS GASTOS YA CONFIGURADOS de la actividad y de dónde salen.
+
+    El MISMO criterio que el punto de empate (`_concert_break_even_info`): mandan los gastos
+    CONSOLIDADOS de la bolsa y, si todavía no hay, el presupuesto. Así los dos sitios dicen lo
+    mismo."""
+    bolsa = _concert_bag_expense_totals(session_db, concert)
+    if bolsa and bolsa.get("consolidated_count"):
+        return _money_value(bolsa.get("consolidated") or 0), "BOLSA"
+    total = Decimal("0")
+    try:
+        for b in (session_db.query(ConcertBudgetItem)
+                  .filter(ConcertBudgetItem.concert_id == concert.id,
+                          ConcertBudgetItem.status != "ELIMINADO").all()):
+            total += _money_or_zero(getattr(b, "amount_net", None))
+    except Exception:
+        app.logger.exception("[resultado] no se pudo leer el presupuesto de la actividad")
+    return total, ("PRESUPUESTO" if total else "")
+
+
+def _concert_cache_commissions(session_db, concert, *, cache_net: Decimal, office_fee: Decimal) -> dict:
+    """LOS COMISIONISTAS de una actividad con caché, y CONTRA QUIÉN van.
+
+    ⚠️⚠️ Lo pidió Dani: «menos comisionistas y demás que pueda haber configurado, y **si el
+    comisionista es sobre el fee de la oficina se descontará de nuestra parte**». Por eso cada uno
+    se calcula sobre SU base y se apunta en la columna que le toca:
+      · base **OFFICE** → sale de la parte de la OFICINA (es una comisión sobre nuestro fee);
+      · el resto → es un gasto **sobre el caché**, así que sale de la parte del ARTISTA.
+    ⚠️ Las que REDUCEN el caché no están aquí: esas se descuentan antes (`_concert_commission_reduction`),
+    porque quien las cobra se las queda antes de que el caché llegue."""
+    filas_oficina, filas_artista = [], []
+    for a in (getattr(concert, "zone_agents", None) or []):
+        if _commission_apply_mode(getattr(a, "apply_mode", None)) == "REDUCE":
+            continue
+        base_key = (getattr(a, "commission_base", None) or "GROSS").strip().upper()
+        sobre_oficina = base_key == COMMISSION_BASE_OFFICE
+        exento = _money_or_zero(getattr(a, "exempt_amount", None))
+        base = office_fee if sobre_oficina else cache_net
+        base = base - exento
+        if base < 0:
+            base = Decimal("0")
+        importe = _money_or_zero(getattr(a, "commission_amount", None))
+        if not importe:
+            pct = getattr(a, "commission_pct", None)
+            if pct not in (None, ""):
+                try:
+                    importe = (base * Decimal(str(pct)) / Decimal("100")).quantize(Decimal("0.01"))
+                except Exception:
+                    importe = Decimal("0")
+        if importe <= 0:
+            continue
+        promoter = getattr(a, "promoter", None)
+        fila = {
+            "name": (_promoter_display_name(promoter) if promoter is not None else "") or "Comisionista",
+            "photo_url": ((getattr(promoter, "logo_url", None) or "") if promoter is not None else ""),
+            "concept": (getattr(a, "concept", None) or "").strip(),
+            "kind_label": ("Otro gasto" if (getattr(a, "entry_kind", None) or "COMMISSION").upper() == "OTHER_EXPENSE"
+                           else "Comisión"),
+            "amount": importe,
+            "over_office": sobre_oficina,
+        }
+        (filas_oficina if sobre_oficina else filas_artista).append(fila)
+    return {
+        "office": filas_oficina,
+        "artist": filas_artista,
+        "office_total": sum([f["amount"] for f in filas_oficina], Decimal("0")),
+        "artist_total": sum([f["amount"] for f in filas_artista], Decimal("0")),
+    }
+
+
+def _concert_cache_result(session_db, concert) -> dict:
+    """EL RESUMEN PROVISIONAL de una actividad con CACHÉ: qué queda para la oficina y para el artista.
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026), tal cual:
+      · **Oficina** = el % que le corresponde según SU CONTRATO sobre el caché **sin IVA**
+        (el importe se configura sin IVA: se factura +IVA), menos las comisiones sobre nuestro fee.
+      · **Artista** = caché sin IVA − comisión de la oficina − gastos configurados − comisionistas.
+    ⚠️ El reparto por contrato sale del PUNTO ÚNICO de la caja del artista
+    (`_artist_cash_commitment_split`): si ese % se calculara aquí aparte, la ficha y la caja podrían
+    decir cosas distintas del mismo dinero. Y si el artista no tiene contrato **se dice** («sin
+    contrato»): inventarse un porcentaje es peor que reconocer que falta el dato."""
+    caches, variables = Decimal("0"), []
+    for c in (getattr(concert, "caches", None) or []):
+        importe = _money_or_zero(getattr(c, "amount", None))
+        caches += importe
+        pct = getattr(c, "pct", None)
+        if (getattr(c, "kind", None) or "").upper() == "VARIABLE" or pct not in (None, ""):
+            variables.append({"concept": (getattr(c, "concept", None) or "Caché variable"),
+                              "pct": _money_value(pct or 0),
+                              "basis": (getattr(c, "variable_basis", None) or getattr(c, "pct_base", None) or "")})
+    reduccion = _concert_commission_reduction(session_db, concert)
+    cache_net = caches - reduccion
+    if cache_net < 0:
+        cache_net = Decimal("0")
+    del_artista, de_la_oficina, etiqueta = (Decimal("0"), Decimal("0"), "")
+    try:
+        if getattr(concert, "artist_id", None):
+            del_artista, de_la_oficina, etiqueta = _artist_cash_commitment_split(
+                session_db, concert.artist_id, concert, cache_net)
+    except Exception:
+        app.logger.exception("[resultado] no se pudo leer el contrato del artista")
+    sin_contrato = (etiqueta == "sin contrato") or not etiqueta
+    gastos, origen_gastos = _concert_configured_expenses(session_db, concert)
+    comisiones = _concert_cache_commissions(session_db, concert,
+                                            cache_net=cache_net, office_fee=de_la_oficina)
+    oficina = de_la_oficina - comisiones["office_total"]
+    artista = cache_net - de_la_oficina - gastos - comisiones["artist_total"]
+    pct_oficina = ((de_la_oficina * Decimal("100") / cache_net).quantize(Decimal("0.01"))
+                   if cache_net else Decimal("0"))
+    # LO QUE FALTA POR CONFIGURAR: se dice, en vez de enseñar un balance que parece cerrado.
+    falta = []
+    if caches <= 0:
+        falta.append("el caché de la actividad")
+    if sin_contrato and caches > 0:
+        falta.append("el contrato del artista (su %% para esta actividad)")
+    if not gastos:
+        falta.append("los gastos (ni presupuesto ni bolsa)")
+    return {
+        "cache_gross": caches,
+        "reduction": reduccion,
+        "cache_net": cache_net,
+        "variables": variables,
+        "office_pct": pct_oficina,
+        "office_fee": de_la_oficina,
+        "artist_share": del_artista,
+        "contract_label": etiqueta,
+        "no_contract": sin_contrato,
+        "expenses": gastos,
+        "expenses_source": origen_gastos,
+        "commissions": comisiones,
+        "office_result": oficina,
+        "artist_result": artista,
+        "total_result": oficina + artista,
+        "missing": falta,
+        "ready": bool(caches > 0),
+    }
+
+
 def _concert_result_context(s, concert):
     """{calc, module} para la pestaña Resultado del concierto, o None si falla el cálculo."""
     try:
@@ -128309,6 +128525,30 @@ def _concert_result_context(s, concert):
                 "sold": _concert_sold_now(s, concert)}
     except Exception:
         return None
+
+
+def _concert_result_view(session_db, concert) -> dict:
+    """LO QUE SE PINTA EN LA PESTAÑA RESULTADO. Punto único de la decisión.
+
+    ⚠️ La proyección sobre el aforo y la barra SOLO tienen sentido cuando el dinero sale de la
+    TAQUILLA y es nuestra (`_concert_result_mode`); si no, lo que se enseña es el reparto del
+    CACHÉ. Antes se pintaba la proyección siempre, y en una fecha vendida a un promotor eso era
+    un cuadro de escenarios de una taquilla que no es nuestra."""
+    modo = _concert_result_mode(session_db, concert)
+    salida = {"mode": modo, "cache": None}
+    if modo == CONCERT_RESULT_MODE_TICKETS:
+        salida.update(_concert_result_context(session_db, concert) or {})
+        # Sin ticketing configurado no hay proyección: se cae al resumen del caché, que al menos
+        # dice lo que se sabe.
+        if not salida.get("calc"):
+            salida["mode"] = CONCERT_RESULT_MODE_CACHE
+    if salida["mode"] == CONCERT_RESULT_MODE_CACHE:
+        try:
+            salida["cache"] = _concert_cache_result(session_db, concert)
+        except Exception:
+            app.logger.exception("[resultado] no se pudo calcular el resumen del caché")
+            salida["cache"] = None
+    return salida
 
 
 def _concert_production_panel(session_db, concert):

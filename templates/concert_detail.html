@@ -4512,6 +4512,120 @@
       {% endif %}
     </div></div>
   {% elif tab == 'resultado' %}
+    {# ══════════ RESUMEN PROVISIONAL · cuando el dinero sale del CACHÉ ══════════
+       ⚠️⚠️ Lo pidió Dani (sep 2026): «solo muestra la proyección sobre el aforo y la barra de
+       simulación cuando es una actividad en la que nosotros somos la promotora y hay venta de
+       entradas; si no, un resumen provisional en el que se tiene en cuenta el caché». Proyectar
+       sobre el aforo una taquilla que no es nuestra no dice nada. #}
+    {% if result_mode == 'CACHE' %}
+    {% set rc = result_cache %}
+    <div class="card mb-3"><div class="card-body">
+      <div class="d-flex align-items-start gap-2 flex-wrap mb-3">
+        <div>
+          <h5 class="mb-1"><i class="fa fa-scale-balanced me-1 text-danger"></i>Resumen provisional del resultado</h5>
+          <div class="small text-muted">Esta actividad no se cobra en taquilla: el dinero es el
+            <strong>caché</strong>, así que aquí va lo que queda para cada uno, no una proyección sobre el aforo.</div>
+        </div>
+      </div>
+      {% if rc and rc.ready %}
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <div class="sim-stat"><div class="sim-stat__n">{{ rc.cache_net|eur }}</div><div class="sim-stat__l">Caché (sin IVA)</div></div>
+          <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if rc.office_result >= 0 else 'text-danger' }}">{{ rc.office_result|eur }}</div><div class="sim-stat__l">Potencial para la oficina</div></div>
+          <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if rc.artist_result >= 0 else 'text-danger' }}">{{ rc.artist_result|eur }}</div><div class="sim-stat__l">Potencial para el artista</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{{ rc.expenses|eur }}</div><div class="sim-stat__l">Gastos{% if rc.expenses_source == 'BOLSA' %} · de la bolsa{% elif rc.expenses_source == 'PRESUPUESTO' %} · del presupuesto{% endif %}</div></div>
+        </div>
+
+        <div class="row g-3">
+          {# ---------- EL CACHÉ: lo que se ha pactado y lo que de verdad llega ---------- #}
+          <div class="col-12 col-lg-4">
+            <div class="sim-cat-card h-100">
+              <div class="sim-cat-card__head"><span><i class="fa fa-file-signature"></i>El caché</span></div>
+              <div class="sim-cat-card__body">
+                <table class="table table-sm mb-0 res-cache">
+                  <tr><td>Caché configurado</td><td class="text-end">{{ rc.cache_gross|eur }}</td></tr>
+                  {% if rc.reduction %}
+                    <tr class="text-muted"><td>− comisiones que lo reducen</td><td class="text-end">−{{ rc.reduction|eur }}</td></tr>
+                  {% endif %}
+                  <tr class="fw-bold border-top"><td>Caché que llega</td><td class="text-end">{{ rc.cache_net|eur }}</td></tr>
+                </table>
+                <div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>El caché se configura
+                  <strong>sin IVA</strong> (se factura +IVA), así que es con lo que se calcula todo lo de aquí.</div>
+                {% if rc.variables %}
+                  <div class="alert alert-warning small mt-2 mb-0">
+                    <i class="fa fa-triangle-exclamation me-1"></i>Hay <strong>caché variable</strong>
+                    ({% for v in rc.variables %}{{ v.concept }}{% if v.pct %} · {{ v.pct }}%{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}):
+                    depende de la taquilla, así que no se puede contar hasta liquidar.
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {# ---------- LA OFICINA: su % según contrato, menos lo que se cobra sobre nuestro fee ---------- #}
+          <div class="col-12 col-lg-4">
+            <div class="sim-cat-card h-100">
+              <div class="sim-cat-card__head"><span><i class="fa fa-building"></i>La oficina</span>
+                {% if not rc.no_contract %}<span class="badge text-bg-light border">{{ rc.office_pct }}% según contrato</span>{% endif %}</div>
+              <div class="sim-cat-card__body">
+                {% if rc.no_contract %}
+                  <div class="alert alert-warning small mb-2">
+                    <i class="fa fa-triangle-exclamation me-1"></i>El artista <strong>no tiene contrato</strong>
+                    con un concepto de conciertos, así que el caché se da por entero al artista.
+                    En cuanto se configure, esto se calcula solo.
+                  </div>
+                {% endif %}
+                <table class="table table-sm mb-0 res-cache">
+                  <tr><td>Comisión de la oficina</td><td class="text-end">{{ rc.office_fee|eur }}</td></tr>
+                  {% for c in rc.commissions.office %}
+                    <tr class="text-muted"><td>− {{ c.name }}{% if c.concept %} <span class="small">({{ c.concept }})</span>{% endif %}
+                      <span class="badge text-bg-light border ms-1">sobre nuestro fee</span></td>
+                      <td class="text-end">−{{ c.amount|eur }}</td></tr>
+                  {% endfor %}
+                  <tr class="fw-bold border-top"><td>Resultado potencial</td>
+                    <td class="text-end {{ 'text-success' if rc.office_result >= 0 else 'text-danger' }}">{{ rc.office_result|eur }}</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {# ---------- EL ARTISTA: lo que le queda después de todo ---------- #}
+          <div class="col-12 col-lg-4">
+            <div class="sim-cat-card h-100">
+              <div class="sim-cat-card__head"><span><i class="fa fa-guitar"></i>El artista</span></div>
+              <div class="sim-cat-card__body">
+                <table class="table table-sm mb-0 res-cache">
+                  <tr><td>Caché que llega</td><td class="text-end">{{ rc.cache_net|eur }}</td></tr>
+                  <tr class="text-muted"><td>− comisión de la oficina</td><td class="text-end">−{{ rc.office_fee|eur }}</td></tr>
+                  {% if rc.expenses %}
+                    <tr class="text-muted"><td>− gastos{% if rc.expenses_source == 'BOLSA' %} (bolsa){% elif rc.expenses_source == 'PRESUPUESTO' %} (presupuesto){% endif %}</td>
+                      <td class="text-end">−{{ rc.expenses|eur }}</td></tr>
+                  {% endif %}
+                  {% for c in rc.commissions.artist %}
+                    <tr class="text-muted"><td>− {{ c.name }} <span class="small">({{ c.kind_label|lower }}{% if c.concept %} · {{ c.concept }}{% endif %})</span></td>
+                      <td class="text-end">−{{ c.amount|eur }}</td></tr>
+                  {% endfor %}
+                  <tr class="fw-bold border-top"><td>Resultado potencial</td>
+                    <td class="text-end {{ 'text-success' if rc.artist_result >= 0 else 'text-danger' }}">{{ rc.artist_result|eur }}</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {% if rc.missing %}
+          <div class="alert alert-light border small mt-3 mb-0">
+            <i class="fa fa-circle-info me-1"></i><strong>Es provisional</strong>: todavía falta por configurar
+            {% for m in rc.missing %}{{ m }}{% if not loop.last %} · {% endif %}{% endfor %}.
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="alert alert-light border mb-0">
+          Todavía no se puede calcular: <strong>esta actividad no tiene caché configurado</strong>.
+          Se pone en la pestaña <strong>Económico</strong>, y aquí sale solo el reparto.
+        </div>
+      {% endif %}
+    </div></div>
+    {% else %}
     <div class="card mb-3"><div class="card-body">
       {# El aviso SOLO cuando el punto de empate que puso contratación NO cuadra con el calculado
          (con los gastos consolidados de la bolsa o, si no hay, con el presupuesto). Si coinciden, o
@@ -4586,6 +4700,7 @@
         <div class="alert alert-light border">Aún no se puede calcular el resultado. Configura los tipos de entrada (ticketing) y los cachés/gastos del concierto.</div>
       {% endif %}
     </div></div>
+    {% endif %}
   {% elif tab in ['promocion','marketing'] %}
     {% include "_promotion_entity_panel.html" %}
     {% include "_promo_entity_panel.html" %}

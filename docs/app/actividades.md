@@ -390,6 +390,45 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
   con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
   ticketing ni previsión de ingresos no se muestra nada.
+- ⚠️⚠️⚠️ **RESULTADO · LA PROYECCIÓN SOLO SI LA TAQUILLA ES NUESTRA; SI NO, EL RESUMEN DEL CACHÉ**
+  (sep 2026, lo pidió Dani: «solo muestra la proyección sobre el aforo y la barra de simulación
+  cuando es una actividad en la que nosotros —una empresa del grupo— somos la promotora y hay venta
+  de entradas; si no, un resumen provisional en el que se tiene en cuenta el caché»).
+  · **Lo decide el SERVIDOR**, punto único `_concert_result_mode` → `_concert_result_view`:
+  **TAQUILLA** si `_concert_result_is_ours` (la promueve una empresa del grupo, participamos con un
+  `ConcertCompanyShare` o el tipo de venta es EMPRESA) **y** `_concert_has_ticket_sales` (no es
+  gratuita y tiene ticketing o venta sincronizada). Todo lo demás es **CACHÉ**.
+  ⚠️ Vale también con EMPRESA **sin** empresa del grupo elegida: eso es un dato que falta, no una
+  fecha de otro. Y una propia **sin ticketing todavía** cae al resumen del caché en vez de dejar la
+  pestaña en blanco («aún no se puede calcular»), que es lo que hacía antes.
+  · **EL RESUMEN DEL CACHÉ** (`_concert_cache_result`) es una cuenta en tres columnas —el caché, la
+  oficina y el artista— y sale así:
+    · **Caché sin IVA**: el importe configurado (⚠️ el caché **se configura sin IVA**: se factura
+      +IVA), **menos** las comisiones que lo REDUCEN (`_concert_commission_reduction`, quien las
+      cobra se las queda antes de que el caché llegue).
+    · **Oficina** = el **% de SU CONTRATO** sobre ese caché — punto único
+      **`_artist_cash_commitment_split`**, el MISMO de la caja del artista, para que la ficha y la
+      caja no digan cosas distintas del mismo dinero— **menos** las comisiones **sobre nuestro fee**.
+    · **Artista** = caché − comisión de la oficina − **gastos configurados** − comisionistas.
+  ⚠️ **Los gastos son los mismos que el punto de empate** (`_concert_configured_expenses`): manda la
+  **bolsa consolidada** y, si todavía no hay, el **presupuesto**. Y se dice de cuál sale.
+  ⚠️⚠️ **«SOBRE EL FEE DE LA OFICINA» ES UNA BASE NUEVA DE LA COMISIÓN** (`commission_base = OFFICE`,
+  un valor más de la columna que ya existía: ni columna nueva ni CHECK que tocar). Lo pidió Dani:
+  «si el comisionista es sobre el fee de la oficina se descontará de nuestra parte». Se elige en el
+  formulario de la actividad junto a Bruto / Neto / Beneficio.
+  ⚠️ Con TAQUILLA esa base no significa nada (ahí no hay «fee»), así que el adaptador a `sim_calc` la
+  trata como **BENEFICIO** — nunca como bruto, que inflaría la comisión.
+  ⚠️⚠️ **SIN CONTRATO NO SE INVENTA NINGÚN PORCENTAJE**: se dice «el artista no tiene contrato» y el
+  caché se da por entero al artista. Un % inventado en una pantalla de dinero es peor que un hueco.
+  · **Un caché VARIABLE** (un % de la taquilla) no se puede contar hasta liquidar: se avisa en su
+  módulo en vez de sumarlo como si fuera fijo.
+  · En **TAQUILLA no cambia nada**: la proyección de siempre, con su tabla por % de aforo y el
+  módulo «Reparto por socios y riesgo» (`sim_partners.js`), donde el **riesgo por socio** se ve en
+  vivo al mover la barra.
+  · **Prueba de la casa: `tools/check_resultado_cache.py`** (32 comprobaciones con la app real: los
+  dos modos, las cuentas exactas, la comisión sobre nuestro fee, la que reduce el caché, el «sin
+  contrato», los gastos de la bolsa y las propias sin ticketing o gratuitas).
+
 - ⚠️⚠️⚠️ **LA BARRA DE SIMULAR EL RESULTADO LLEGA AL 100% DEL AFORO, Y MARCA DÓNDE ESTAMOS**
   (sep 2026, lo pidió Dani: «tiene que marcar el punto que está ahora y poder moverse hasta el 100%
   de ventas, para ver escenarios; ahora te lleva solo hasta el 100% de lo vendido ahora, no del

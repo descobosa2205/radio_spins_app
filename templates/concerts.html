@@ -1671,6 +1671,9 @@
           <select name="zone_commission_base[]" class="form-select">
             <option value="GROSS">Bruto</option>
             <option value="NET">Neto</option>
+            <option value="PROFIT">Beneficio</option>
+            {# ⚠️ Con CACHÉ, esta comisión sale de NUESTRA parte y no de la del artista. #}
+            <option value="OFFICE" title="Se descuenta de la parte de la oficina, no del caché del artista">Sobre el fee de la oficina</option>
           </select>
         </div>
 

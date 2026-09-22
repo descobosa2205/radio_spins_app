@@ -1914,6 +1914,13 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
    una gira comprada). LOGO = se ve entero sobre blanco; FOTO = rellena el marco. */
 .ficha-hero__media--logo{ object-fit:contain; background:#fff; padding:6px; }
 
+/* ══════════ RESUMEN PROVISIONAL DEL RESULTADO (actividad con CACHÉ) ══════════
+   Las tres columnas —el caché, la oficina y el artista— son tablas compactas dentro de un
+   bocadillo: se leen como una cuenta, de arriba abajo. */
+.res-cache td{ padding:.3rem .2rem; border:0; font-size:.92rem; vertical-align:middle; }
+.res-cache tr.border-top td{ border-top:1px solid var(--line-2, rgba(0,0,0,.08)) !important; padding-top:.45rem; }
+.res-cache .badge{ font-weight:600; }
+
 /* ══════════ EL MAPA DE LA RUTA de una gira / ciclo (fechas NUMERADAS) ══════════
    ⚠️ Lo pidió Dani (sep 2026): el listado como está y debajo el mapa, con una chincheta con el
    número de cada fecha. El número es el MISMO en la lista y en el mapa. */

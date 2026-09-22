@@ -37,7 +37,10 @@
        · BENEFICIO = lo que queda tras TODOS los gastos (incluidas las comisiones de otros).
      ⚠️ Lo que se cobra sobre el INGRESO se cobra haya o no beneficio, así que es un gasto más de
      la actividad; lo que se cobra sobre el BENEFICIO, si no hay, es cero. */
-  function moneyBaseSelect(name, selected) {
+  /* ⚠️ `conOficina` añade «Sobre el fee de la oficina» (sep 2026, lo pidió Dani): en una actividad
+     con CACHÉ esa comisión sale de NUESTRA parte, no de la del artista. Solo vale para
+     comisionistas: un socio no cobra sobre nuestro fee. */
+  function moneyBaseSelect(name, selected, conOficina) {
     var sel = (selected || 'GROSS').toUpperCase();
     function opt(v, t, title) {
       return '<option value="' + v + '"' + (sel === v ? ' selected' : '') + ' title="' + title + '">' + t + '</option>';
@@ -46,6 +49,8 @@
       + opt('GROSS', 'Ingreso bruto', 'El ingreso sin IVA y sin SGAE')
       + opt('NET', 'Ingreso neto', 'Sin IVA, sin SGAE y sin los gastos de gestión de la ticketera')
       + opt('PROFIT', 'Beneficio', 'Lo que queda tras todos los gastos, incluidas las comisiones de otros')
+      + (conOficina ? opt('OFFICE', 'Sobre el fee de la oficina',
+                          'Se descuenta de la parte de la oficina, no del caché del artista') : '')
       + '</select>';
   }
 
@@ -217,7 +222,7 @@
         + '<div class="col-md-4"><label class="form-label small zone-who-label">Comisionista</label>' + promoterGroup('zone_promoter_id[]') + '</div>'
         + '<div class="col-md-2"><label class="form-label small">Tipo</label><select name="zone_commission_mode[]" class="form-select zone-mode"><option value="FIXED" selected>Fijo</option><option value="PERCENT">% Variable</option></select></div>'
         + '<div class="col-md-2 zone-pct" style="display:none;"><label class="form-label small">%</label><input type="number" step="0.01" name="zone_commission_pct[]" class="form-control" placeholder="%"></div>'
-        + '<div class="col-md-2 zone-base" style="display:none;"><label class="form-label small">Base</label>' + moneyBaseSelect('zone_commission_base[]') + '</div>'
+        + '<div class="col-md-2 zone-base" style="display:none;"><label class="form-label small">Base</label>' + moneyBaseSelect('zone_commission_base[]', null, true) + '</div>'
         + '<div class="col-md-2 zone-amount"><label class="form-label small">Importe (€)</label><input type="number" step="0.01" name="zone_commission_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-3"><label class="form-label small">Importe exento <span class="text-muted">(opc.)</span></label><input type="number" step="0.01" name="zone_exempt_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-7"><label class="form-label small">Motivo / concepto</label><textarea name="zone_concept[]" class="form-control" rows="1" placeholder="Motivo de la comisión..."></textarea></div>'

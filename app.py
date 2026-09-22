@@ -67048,6 +67048,77 @@ def _group_result_context(s, concerts, general):
             "break_even_pct": be_pct, "break_even_tickets": be_tickets, "sellable": total_sellable, "has_partners": bool(partners)}
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# EL MAPA DE LA RUTA · las fechas de una gira (o de un ciclo) vistas de un vistazo
+# ---------------------------------------------------------------------------------------------
+# ⚠️⚠️ Lo pidió Dani (sep 2026): «que aparezca el listado de fechas como está ahora y debajo un mapa
+# con las fechas enumeradas, y enumera el listado, con una chincheta con el número».
+# El NÚMERO es el del listado (cronológico), así que la chincheta 3 es la tercera fila: es lo que
+# permite leer el mapa y la lista a la vez.
+# ⚠️ Las coordenadas salen de `_venue_coords` (geocodifica UNA vez y las guarda en el recinto), y
+# esto corre AL PINTAR: por eso hay **presupuesto de tiempo** —como las acciones en bloque de la
+# casa—. Lo que no dé tiempo a resolver hoy se resuelve en la siguiente carga; el mapa nunca puede
+# hacer esperar a la pantalla.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+def _group_map_points(session_db, rows, concerts, *, presupuesto: float = 4.0) -> list[dict]:
+    """Los puntos del mapa de una gira / ciclo, con el NÚMERO de su fila en el listado."""
+    salida = []
+    arranque = time.monotonic()
+    for pos, (fila, c) in enumerate(zip(rows, concerts), start=1):
+        fila["n"] = pos
+        venue = getattr(c, "venue", None)
+        lat = lng = None
+        if venue is not None:
+            ya = (getattr(venue, "lat", None) is not None and getattr(venue, "lng", None) is not None)
+            # Si no está geocodificado, solo se intenta mientras quede presupuesto.
+            if ya or (time.monotonic() - arranque) < presupuesto:
+                try:
+                    lat, lng = _venue_coords(session_db, venue)
+                except Exception:
+                    app.logger.exception("[giras] no se pudieron resolver las coordenadas del recinto")
+        if lat is None or lng is None:
+            continue
+        salida.append({
+            "n": pos,
+            "id": fila.get("id"),
+            "lat": lat,
+            "lng": lng,
+            "date_label": fila.get("date_label") or "",
+            "venue_name": fila.get("venue_name") or "",
+            "municipality": fila.get("municipality") or "",
+            "artist_name": fila.get("artist_name") or "",
+            "status_label": fila.get("status_label") or "",
+            "status": fila.get("status") or "",
+            "url": url_for("concert_detail_view", cid=fila.get("id")),
+        })
+    return salida
+
+
+def _group_candidate_row(c) -> dict:
+    """UNA FECHA QUE SE PUEDE VINCULAR, tal y como la enseña el pop-up (la misma en gira y ciclo).
+
+    ⚠️ Lo pidió Dani (sep 2026): «a la hora de vincular fechas tiene que abrirse en pop-up el
+    listado de fechas de ese artista o evento, y poder seleccionar varias a la vez». Por eso la fila
+    lleva sus piezas por separado (fecha, artista, recinto, municipio y estado) y no un texto
+    pegado: así se puede buscar y leer de un vistazo."""
+    etiqueta, _badge = _concert_status_meta(c.status)
+    sitio = (c.venue.name if c.venue else (c.manual_venue_name or c.festival_name or "Sin recinto"))
+    municipio = (c.venue.municipality if c.venue else (c.manual_municipality or "")) or ""
+    return {
+        "id": str(c.id),
+        "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+        "artist_name": (c.artist.name if getattr(c, "artist", None) else ""),
+        "venue_name": sitio,
+        "municipality": municipio,
+        "status_label": etiqueta,
+        # Lo que se busca al escribir en el pop-up: todo junto y sin acentos.
+        "search": _norm_text_key(" ".join([
+            (c.date.strftime("%d/%m/%Y %d-%m-%Y") if c.date else ""),
+            (c.artist.name if getattr(c, "artist", None) else ""), sitio, municipio, etiqueta])),
+        "label": ((c.date.strftime("%d/%m/%Y") + " · ") if c.date else "") + sitio,
+    }
+
+
 def _group_concert_row(c):
     label, badge = _concert_status_meta(c.status)
     _es_concierto = (_activity_kind_key(c.activity_type) or "CONCIERTO") in CONCERT_LIKE_ACTIVITY_TYPES
@@ -67206,6 +67277,8 @@ def purchased_tour_detail(tid):
         rows = [_group_concert_row(c) for c in concerts]
         for _row, _c in zip(rows, concerts):
             _row["econ"] = _group_concert_econ(s, _c)
+        # EL MAPA DE LA RUTA: cada fecha con el NÚMERO de su fila (y de paso se numeran las filas).
+        map_points = _group_map_points(s, rows, concerts)
         general = _group_general(t)
         n = len(rows) or 1
         advance_share = (general["advance"] / n) if general["advance"] else 0.0
@@ -67218,7 +67291,7 @@ def purchased_tour_detail(tid):
                     Concert.artist_id == t.artist_id, Concert.purchased_tour_id.is_(None)
                 ).order_by(Concert.date.asc().nullslast()).limit(100).all()
             )
-        cand_rows = [{"id": str(c.id), "label": ((c.date.strftime("%d/%m/%Y") + " · ") if c.date else "") + (c.venue.name if c.venue else (c.manual_venue_name or c.festival_name or "Concierto"))} for c in candidates]
+        cand_rows = [_group_candidate_row(c) for c in candidates]
         label, badge = _group_status_meta(t.status)
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
@@ -67240,6 +67313,7 @@ def purchased_tour_detail(tid):
                 **_promotion_panel_context(s, "GIRA", t.id),
                 can_validate_artwork=_can_validate_artwork(),
                 group_kind="TOUR", group_is_event=False, group=t, concerts=rows, general=general,
+                map_points=map_points,
                 advance_share=advance_share, gen_total=gen_total,
                 candidates=cand_rows, status_label=label, status_badge=badge,
                 artists=artists, companies=companies, simulations=simulations,
@@ -67312,6 +67386,38 @@ def purchased_tour_link_sim(tid):
     return redirect(url_for("purchased_tour_detail", tid=tid))
 
 
+def _group_link_ids(form) -> list:
+    """LAS FECHAS QUE SE VAN A VINCULAR: el pop-up manda VARIAS (`concert_ids`).
+
+    ⚠️ Lo pidió Dani (sep 2026): «tiene que haber la opción de seleccionar varias a la vez para que
+    se vinculen». Se sigue aceptando el `concert_id` de una sola (el selector de siempre y cualquier
+    enlace antiguo), y los ids que no valen se tiran aquí (`_safe_uuid`), que es la puerta."""
+    crudos = list(form.getlist("concert_ids")) if hasattr(form, "getlist") else []
+    uno = (form.get("concert_id") or "").strip()
+    if uno:
+        crudos.append(uno)
+    salida, vistos = [], set()
+    for x in crudos:
+        u = _safe_uuid((x or "").strip())
+        if u and str(u) not in vistos:
+            vistos.add(str(u))
+            salida.append(u)
+    return salida
+
+
+def _group_link_flash(n: int, total: int) -> None:
+    """Lo que se dice después de vincular: cuántas han entrado (y si alguna no se ha encontrado)."""
+    if not n:
+        flash("No se ha vinculado ninguna fecha: no se ha elegido ninguna.", "warning")
+        return
+    if n == 1:
+        flash("Fecha vinculada.", "success")
+    else:
+        flash("%d fechas vinculadas." % n, "success")
+    if total > n:
+        flash("%d de las elegidas ya no existen y no se han podido vincular." % (total - n), "warning")
+
+
 @app.post("/contratacion/giras/<tid>/vincular", endpoint="purchased_tour_link_concert")
 @admin_required
 def purchased_tour_link_concert(tid):
@@ -67320,12 +67426,15 @@ def purchased_tour_link_concert(tid):
         t = s.get(PurchasedTour, to_uuid(tid))
         if not t:
             abort(404)
-        cid = (request.form.get("concert_id") or "").strip()
-        c = s.get(Concert, to_uuid(cid)) if cid else None
-        if c:
-            c.purchased_tour_id = t.id
-            s.commit()
-            flash("Concierto vinculado a la gira.", "success")
+        ids = _group_link_ids(request.form)
+        puestas = 0
+        for cid in ids:
+            c = s.get(Concert, cid)
+            if c:
+                c.purchased_tour_id = t.id
+                puestas += 1
+        s.commit()
+        _group_link_flash(puestas, len(ids))
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo vincular: {exc}", "danger")
@@ -67520,6 +67629,8 @@ def cycle_festival_detail(cfid):
         rows = [_group_concert_row(c) for c in concerts]
         for _row, _c in zip(rows, concerts):
             _row["econ"] = _group_concert_econ(s, _c)
+        # EL MAPA DE LA RUTA (el mismo que el de una gira: las fechas numeradas como el listado).
+        map_points = _group_map_points(s, rows, concerts)
         general = _group_general(cf)
         gen_total = general["advance"] + sum(x["amount"] for x in general["expenses"])
         candidates = (
@@ -67527,7 +67638,7 @@ def cycle_festival_detail(cfid):
             .filter(Concert.cycle_festival_id.is_(None))
             .order_by(Concert.date.asc().nullslast()).limit(150).all()
         )
-        cand_rows = [{"id": str(c.id), "label": ((c.date.strftime("%d/%m/%Y") + " · ") if c.date else "") + ((c.artist.name + " · ") if c.artist else "") + (c.venue.name if c.venue else (c.manual_venue_name or c.festival_name or "Concierto"))} for c in candidates]
+        cand_rows = [_group_candidate_row(c) for c in candidates]
         label, badge = _group_status_meta(cf.status)
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
@@ -67551,7 +67662,7 @@ def cycle_festival_detail(cfid):
                 group_kind=(cf.kind or "FESTIVAL").upper(),
                 # Un contenedor es de un EVENTO por su tipo o por colgar de un AppEvent.
                 group_is_event=bool(cf.event_id) or (cf.kind or "").upper() in CYCLE_FESTIVAL_EVENT_KINDS,
-                group=cf, concerts=rows, general=general,
+                group=cf, concerts=rows, general=general, map_points=map_points,
                 advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
                 status_label=label, status_badge=badge, artists=artists, companies=companies,
                 venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
@@ -67644,12 +67755,15 @@ def cycle_festival_link_concert(cfid):
         cf = s.get(CycleFestival, to_uuid(cfid))
         if not cf:
             abort(404)
-        cid = (request.form.get("concert_id") or "").strip()
-        c = s.get(Concert, to_uuid(cid)) if cid else None
-        if c:
-            c.cycle_festival_id = cf.id
-            s.commit()
-            flash("Concierto vinculado.", "success")
+        ids = _group_link_ids(request.form)
+        puestas = 0
+        for cid in ids:
+            c = s.get(Concert, cid)
+            if c:
+                c.cycle_festival_id = cf.id
+                puestas += 1
+        s.commit()
+        _group_link_flash(puestas, len(ids))
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo vincular: {exc}", "danger")

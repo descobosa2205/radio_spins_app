@@ -25,12 +25,16 @@
   {% set kind_label = ('Gira del evento' if is_event_tour else ('Evento' if is_event else ('Festival' if is_festival else 'Ciclo'))) %}
 {% endif %}
 {% set items_label = 'Artistas' if is_festival else 'Fechas' %}
-{% set logo = group.logo_url or (group.artist.photo_url if (is_tour and group.artist) else '') or (group.managing_company.logo_url if group.managing_company else '') or DEFAULT_PHOTO_URL %}
+{% set artist_photo = (group.artist.photo_url if (is_tour and group.artist) else '') %}
+{% set logo = group.logo_url or artist_photo or (group.managing_company.logo_url if group.managing_company else '') or DEFAULT_PHOTO_URL %}
+{# ⚠️ Una FOTO se recorta para llenar el marco (`cover`) y un LOGO se ve ENTERO sobre blanco
+   (`contain`): un logo apaisado recortado pierde justo lo que lo identifica. #}
+{% set logo_es_logo = (logo != artist_photo) and (logo != DEFAULT_PHOTO_URL) %}
 
 <div class="mb-2"><a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary btn-volver" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a></div>
 
 <div class="ficha-hero mb-3">
-  <div class="ficha-hero__media"><img src="{{ logo }}" alt="" data-default-photo="1"></div>
+  <img class="ficha-hero__media{% if logo_es_logo %} ficha-hero__media--logo{% endif %}" src="{{ logo }}" alt="" data-default-photo="1">
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ kind_label }}{% if not is_tour and group.edition %} · {{ group.edition }}{% endif %}</div>
     <div class="ficha-hero__title">{{ group.name }}</div>
@@ -72,9 +76,14 @@
       {% if is_tour %}<div class="col-6 col-md-3"><div class="card h-100"><div class="card-body text-center"><div class="h4 mb-0">{{ advance_share|eur }}</div><div class="small text-muted">Adelanto / fecha</div></div></div></div>{% endif %}
     </div>
     {% if concerts %}
+    {# ⚠️⚠️ CADA FECHA LLEVA SU NÚMERO y el mapa de abajo usa EL MISMO (sep 2026, lo pidió Dani):
+       así la chincheta 3 es la tercera fila y la lista y el mapa se leen a la vez. El número lo
+       pone el servidor (`_group_map_points`), que es quien ordena las fechas. #}
     <div class="list-group">
       {% for c in concerts %}
-      <a href="{{ url_for('concert_detail_view', cid=c.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+      <a href="{{ url_for('concert_detail_view', cid=c.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+         data-tour-row="{{ c.n or loop.index }}">
+        <span class="tour-num{% if c.status == 'CONFIRMADO' %} is-done{% endif %}">{{ c.n or loop.index }}</span>
         {% if is_festival and c.artist_photo %}<img src="{{ c.artist_photo }}" alt="" data-default-photo="1" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">{% endif %}
         <div class="flex-grow-1" style="min-width:0;">
           <div class="fw-semibold text-truncate">{% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% if c.venue_name %} · {{ c.venue_name }}{% endif %}{% endif %}</div>
@@ -84,6 +93,26 @@
       </a>
       {% endfor %}
     </div>
+    {# ---------- EL MAPA DE LA RUTA: las mismas fechas, con su chincheta numerada ---------- #}
+    {% if map_points %}
+    <div class="card mt-3 tour-map-card">
+      <div class="tour-map-card__head">
+        <i class="fa fa-map-location-dot"></i>
+        <span>La ruta sobre el mapa</span>
+        <span class="badge text-bg-light border ms-auto">{{ map_points|length }} de {{ concerts|length }} ubicadas</span>
+      </div>
+      {# ⚠️ `|tojson|forceescape` dentro de un atributo con comillas dobles: con `tojson` a secas, la
+         primera comilla CORTA el atributo (la trampa de siempre). #}
+      <div class="tour-map" data-tour-map data-points="{{ map_points|tojson|forceescape }}"></div>
+      {% if map_points|length < concerts|length %}
+        <div class="card-footer bg-transparent small text-muted">
+          <i class="fa fa-circle-info me-1"></i>{{ concerts|length - map_points|length }}
+          {{ 'fecha' if (concerts|length - map_points|length) == 1 else 'fechas' }} sin ubicar: su recinto
+          todavía no tiene dirección (se sitúan solas en cuanto la tenga).
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
     {% else %}
     <div class="alert alert-light border">Todavía no hay {{ items_label|lower }} en {% if is_tour %}esta gira{% else %}este {{ kind_label|lower }}{% endif %}. Añádelas en la pestaña «{{ items_label }}».</div>
     {% endif %}
@@ -182,16 +211,21 @@
     {% if CAN_EDIT_CONCERTS %}
     <div class="card mb-3">
       <div class="card-body d-flex flex-wrap gap-2 align-items-end">
-        <form method="post" action="{{ link_url }}" class="d-flex gap-2 align-items-end flex-grow-1">
-          <div class="flex-grow-1">
-            <label class="form-label mb-1">Vincular un concierto existente</label>
-            <select class="form-select" name="concert_id" required>
-              <option value="">Selecciona un concierto…</option>
-              {% for cand in candidates %}<option value="{{ cand.id }}">{{ cand.label }}</option>{% endfor %}
-            </select>
-          </div>
-          <button class="btn btn-outline-primary" type="submit"><i class="fa fa-link me-1"></i>Vincular</button>
-        </form>
+        {# ⚠️ VINCULAR FECHAS ES UN POP-UP Y SE ELIGEN VARIAS (sep 2026, lo pidió Dani): antes era un
+           desplegable de una en una, así que meter ocho fechas eran ocho envíos. #}
+        <div class="flex-grow-1">
+          <label class="form-label mb-1 d-block">Fechas que ya existen</label>
+          {% if candidates %}
+            <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#linkDatesModal">
+              <i class="fa fa-link me-1"></i>Vincular fechas
+              <span class="badge text-bg-light border ms-1">{{ candidates|length }}</span>
+            </button>
+          {% else %}
+            <button class="btn btn-outline-secondary" type="button" disabled
+                    title="No hay {{ 'fechas de este artista' if is_tour else 'actividades' }} sin vincular">
+              <i class="fa fa-link me-1"></i>Vincular fechas</button>
+          {% endif %}
+        </div>
         {% set _gref = ('tour:' ~ group.id) if is_tour else ('cycle:' ~ group.id) %}
         {# ⚠️ El asistente es el MISMO de toda la app y se abre EN ESTA PANTALLA (antes te llevaba a
            /conciertos y perdías el contexto de la gira). Los parámetros van a la propia URL: los lee
@@ -204,7 +238,7 @@
     <ul class="nav nav-pills flex-nowrap overflow-auto pb-2 mb-3" role="tablist">
       {% for c in concerts %}
       <li class="nav-item flex-shrink-0"><button class="nav-link {{ 'active' if loop.first }}" data-bs-toggle="pill" data-bs-target="#item-{{ c.id }}" type="button">
-        {% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% endif %} <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
+        <span class="badge text-bg-light border me-1">{{ c.n or loop.index }}</span>{% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% endif %} <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
       </button></li>
       {% endfor %}
     </ul>
@@ -393,6 +427,56 @@
   });
 })();
 </script>
+{# ══════════ VINCULAR FECHAS · el pop-up con TODAS las que se pueden vincular ══════════
+   ⚠️ Lo pidió Dani (sep 2026): «a la hora de vincular fechas tiene que abrirse en pop-up el listado
+   de fechas de ese artista o evento, y tiene que haber la opción de seleccionar varias a la vez
+   para que se vinculen». El motor es `static/js/tour_map.js` (global, por delegación). #}
+{% if CAN_EDIT_CONCERTS and candidates %}
+<div class="modal fade" id="linkDatesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ link_url }}" data-ld-form>
+        <div class="modal-header sw-head">
+          <h5 class="modal-title"><i class="fa fa-link me-2"></i>Vincular fechas{% if is_tour and group.artist %} de {{ group.artist.name }}{% endif %}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <div class="input-group input-group-sm" style="max-width:320px;">
+              <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+              <input type="text" class="form-control" data-ld-search placeholder="Busca por fecha, recinto o ciudad…">
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-ld-all>
+              <i class="fa fa-check-double me-1"></i>Seleccionar todas</button>
+            <span class="small text-muted ms-auto" data-ld-count>Ninguna seleccionada</span>
+          </div>
+          <div class="list-group">
+            {% for cand in candidates %}
+            <label class="list-group-item d-flex align-items-center gap-3" data-ld-item data-ld-search-key="{{ cand.search }}">
+              <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" name="concert_ids" value="{{ cand.id }}">
+              <span class="flex-grow-1" style="min-width:0;">
+                <span class="d-block fw-semibold text-truncate">{{ cand.date_label }} · {{ cand.venue_name }}</span>
+                <span class="d-block small text-muted text-truncate">
+                  {% if cand.artist_name %}{{ cand.artist_name }}{% endif %}{% if cand.municipality %}{% if cand.artist_name %} · {% endif %}{{ cand.municipality }}{% endif %}</span>
+              </span>
+              <span class="badge text-bg-light border flex-shrink-0">{{ cand.status_label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <div class="alert alert-light border small mt-2 mb-0 d-none" data-ld-empty>
+            <i class="fa fa-circle-info me-1"></i>Ninguna fecha coincide con lo que has escrito.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" data-ld-submit disabled><i class="fa fa-link me-1"></i>Vincular</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# El asistente de actividad, el mismo de todas las pantallas (aquí se abre con la gira o el
    ciclo ya vinculado). #}
 {% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}

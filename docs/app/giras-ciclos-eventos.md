@@ -21,6 +21,8 @@
 - UN EVENTO PROMOCIONAL PUEDE SER SIN CACHÉ Y CON GASTOS CUBIERTOS: en el asistente de
 - UN EVENTO PROMOCIONAL TIENE NOMBRE, Y SE PIDE EN LOS PRIMEROS PASOS. Sin él la
 - QUIÉN VA CON EL ARTISTA · en un EVENTO PROMOCIONAL y en una PROMOCIÓN. Hay
+- EL MAPA DE LA RUTA: el listado de fechas numerado y, debajo, sus chinchetas con el número
+- VINCULAR FECHAS es un POP-UP y se eligen VARIAS a la vez
 
 ---
 
@@ -305,3 +307,56 @@
   ⚠️ **`_office_people`** es el punto único del personal de la oficina para elegir acompañante
   (antes se llamaba `_promo_office_people`, que hacía pensar que era solo de promoción).
 
+- ⚠️⚠️ **EL MAPA DE LA RUTA: EL LISTADO NUMERADO Y, DEBAJO, SUS CHINCHETAS CON EL NÚMERO** (sep
+  2026, lo pidió Dani: «que aparezca el listado de fechas como está ahora y debajo un mapa con las
+  fechas enumeradas, y enumera el listado, con una chincheta con el número»).
+  · **El NÚMERO es el mismo en los dos sitios**: el del listado, que va por fecha. La chincheta 3 es
+  la tercera fila, y eso es lo que permite leer la lista y el mapa a la vez. Lo pone el SERVIDOR
+  (`_group_map_points`, que numera las filas y devuelve los puntos), nunca el navegador: así el
+  listado y el mapa no se pueden desparejar.
+  · **Dónde**: pestaña **Resumen** de la ficha de una gira comprada / ciclo / festival / evento
+  (`activity_group_detail.html`), debajo del listado de siempre. Las pestañas de «Fechas» llevan
+  también su número.
+  · **Motor**: `static/js/tour_map.js` (GLOBAL y por delegación) + **Leaflet 1.9.4 cargado BAJO
+  DEMANDA** (el mismo patrón que la hoja de ruta: solo se descarga en las pantallas con mapa) sobre
+  tiles de OpenStreetMap. La chincheta es un `divIcon` con el número dentro (`.tour-pin`): **verde
+  si la fecha está CONFIRMADA** y en el rojo de la casa si no, la misma lectura que las etiquetas
+  del listado. La ruta se dibuja punteada en el orden de las fechas y al pasar el ratón por una fila
+  se levanta su chincheta.
+  ⚠️ El mapa **solo mueve el encuadre si la fecha no se está viendo**: moverlo cuando ya está
+  delante desencuadraba la ruta entera por pasar el ratón por encima de una fila.
+  ⚠️ El encuadre va con **margen en PÍXELES** (`fitBounds(..., {padding:[34,34]})`): con `pad()`
+  —que es proporcional— la ruta se quedaba diminuta en medio del mapa.
+  · **Las COORDENADAS** salen de `_venue_coords` (geocodifica UNA vez y las guarda en el recinto).
+  ⚠️⚠️ Eso corre **AL PINTAR**, así que `_group_map_points` lleva **presupuesto de tiempo** (4 s, la
+  regla de las acciones en bloque de la casa): lo que no dé tiempo a resolver hoy se resuelve en la
+  siguiente carga. **El mapa nunca puede hacer esperar a la pantalla.** Una fecha sin ubicar sale
+  igual en el listado y el mapa dice cuántas faltan («3 de 4 ubicadas»).
+  ⚠️ El `data-points` va con **`|tojson|forceescape`**: con `tojson` a secas, la primera comilla
+  corta el atributo (la trampa de siempre) y el mapa se quedaría sin datos.
+  · **Los tiles necesitan `max-width:none`**: con el `img{max-width:100%}` de la app el mapa sale
+  descuadrado (lo mismo que ya pasaba en los cuadrantes).
+
+- ⚠️⚠️ **VINCULAR FECHAS ES UN POP-UP Y SE ELIGEN VARIAS A LA VEZ** (sep 2026, lo pidió Dani: «a la
+  hora de vincular fechas tiene que abrirse en pop-up el listado de fechas de ese artista o evento,
+  y tiene que haber la opción de seleccionar varias a la vez»). Antes era un **desplegable de una en
+  una**: meter ocho fechas eran ocho envíos.
+  · El pop-up (`#linkDatesModal`) lista las fechas que se pueden vincular con **su casilla**, un
+  **buscador** (por fecha, recinto o ciudad, sin acentos) y **«Seleccionar todas»**; el botón dice
+  cuántas van («Vincular (3)») y nace deshabilitado.
+  ⚠️ **«Seleccionar todas» marca solo LO QUE SE ESTÁ VIENDO**: con un filtro puesto, marcar a ciegas
+  lo que el buscador esconde es la forma de vincular algo sin querer.
+  · Punto único de la fila: **`_group_candidate_row`** (fecha, artista, recinto, municipio, estado y
+  la clave de búsqueda), la misma en una gira y en un ciclo. Y del guardado:
+  **`_group_link_ids`** (acepta `concert_ids` en lista **y** el `concert_id` de siempre, y tira los
+  ids que no valen) + **`_group_link_flash`** (dice cuántas han entrado).
+  · **Prueba de la casa: `tools/check_mapa_fechas.py`** (28 comprobaciones con la app real: la
+  numeración, el mapa, el presupuesto de tiempo, el pop-up y la foto de la cabecera).
+
+- ⚠️ **LA FOTO DE LA CABECERA DE UNA GIRA se veía pequeña dentro de su marco** (bug real con
+  captura, sep 2026). Esta ficha era la ÚNICA que ponía `ficha-hero__media` en un **`<div>`** que
+  envolvía al `<img>`: el `object-fit:cover` **no hace nada sobre un contenedor**, así que la foto
+  se quedaba a su tamaño natural con el marco gris alrededor. La clase va **en el propio `<img>`**,
+  como en todas las demás fichas. Y se distingue: una **foto** rellena el marco (`cover`) y un
+  **logo** se ve entero sobre blanco (`.ficha-hero__media--logo`, `contain`), porque un logo
+  apaisado recortado pierde justo lo que lo identifica.

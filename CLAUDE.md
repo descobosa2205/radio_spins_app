@@ -142,6 +142,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_press_render.py` | notas de prensa: el correo sale como se ve en el editor | al tocar `press_render.py` |
 | `check_diseno_comunicaciones.py` | el editor que vale para los tres envíos: el cartel de una actividad (también en PDF), los módulos que se arrastran vacíos y elegir varios a la vez | al tocar `press_editor.js`, `press_render.py` o el cartel de una actividad |
 | `check_carteleria_modificacion.py` | pedir que cambien un cartel (con sus archivos) y reemplazar los del promotor: se archivan los de antes y queda pendiente compartir los nuevos | al tocar la cartelería de una actividad |
+| `check_mapa_fechas.py` | el mapa de la ruta de una gira o un ciclo (listado numerado + chinchetas con el número) y el pop-up para vincular varias fechas a la vez | al tocar la ficha de una gira, un ciclo o un festival |
 | `check_plano_recinto.py` | el diseñador del plano: marcar las butacas de un bloque y que un plano nuevo no tape lo que ya hay | al tocar `venue_map.js` |
 | `check_hoja_ruta.py` · `check_externos.py` · `check_invitaciones_generadas.py` | esas épicas de punta a punta con la app real | al tocarlas |
 | `check_invitaciones_corporativas.py` | la lista de invitados de cada uno y su envío (el módulo de la actividad, el fichero, que sale desde su correo y que nadie ve lo de nadie) | al tocar las invitaciones corporativas o el editor de diseños |
@@ -251,6 +252,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   fila), o `getElementById` y los `<label for>` cogen el primero.
 - Bootstrap se carga **después** del contenido: los scripts en línea de una plantilla corren antes
   (reintentar, o `DOMContentLoaded`). Y `style.display='none'` no oculta un `.d-flex` → `d-none`.
+- ⚠️ **`object-fit` sobre un `<div>` NO HACE NADA**: la clase de una foto (`ficha-hero__media`,
+  `artist-avatar`…) va **en el propio `<img>`**. Envuelto en un `<div>` con esa clase, la imagen se
+  queda a su tamaño natural dentro del marco (bug real con captura: la cabecera de una gira).
 - Un hijo de un flex o de un grid **se encoge por debajo de su contenido** (fotos ovaladas, texto
   partido letra a letra) → `flex:0 0 auto` en lo de tamaño fijo, `min-width:0` en lo que debe bajar.
 - `stopPropagation` no detiene a otro listener del **mismo** nodo (el loader, el AJAX y el motor

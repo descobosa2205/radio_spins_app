@@ -1908,6 +1908,60 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .ficha-hero__media{ flex:0 0 auto; width:96px; height:96px; border-radius:20px; object-fit:cover;
   background:#f1f3f8; border:1px solid var(--line-2); }
 .ficha-hero__media--round{ border-radius:50%; }
+/* ⚠️ La clase va SIEMPRE en el propio <img>, nunca en un <div> que lo envuelva: el
+   `object-fit` no hace nada sobre un contenedor, así que la foto se quedaba a su tamaño
+   natural dentro del marco gris de 96 px (bug real, sep 2026, con captura: la cabecera de
+   una gira comprada). LOGO = se ve entero sobre blanco; FOTO = rellena el marco. */
+.ficha-hero__media--logo{ object-fit:contain; background:#fff; padding:6px; }
+
+/* ══════════ EL MAPA DE LA RUTA de una gira / ciclo (fechas NUMERADAS) ══════════
+   ⚠️ Lo pidió Dani (sep 2026): el listado como está y debajo el mapa, con una chincheta con el
+   número de cada fecha. El número es el MISMO en la lista y en el mapa. */
+.tour-num{
+  flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
+  width:30px; height:30px; border-radius:50%; font-weight:800; font-size:.86rem; color:#fff;
+  background:linear-gradient(135deg, #ff7a80, var(--brand-primary, #E33D48));
+  box-shadow:0 3px 8px rgba(227,61,72,.35);
+}
+.tour-num.is-done{ background:linear-gradient(135deg, #5cc9a7, #198754); box-shadow:0 3px 8px rgba(25,135,84,.32); }
+.list-group-item.is-on{ background:#fff6f6; }
+.tour-map-card{ overflow:hidden; }
+.tour-map-card__head{
+  display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;
+  padding:.6rem .9rem; border-bottom:1px solid var(--line-2); background:#fff; font-weight:700; font-size:.92rem;
+}
+.tour-map-card__head i{ color:var(--brand-primary, #E33D48); }
+.tour-map{ height:min(58vh, 460px); width:100%; background:#eef1f5; }
+/* ⚠️ Los tiles de Leaflet NO pueden heredar el `img{max-width:100%}` de la app: el mapa sale
+   descuadrado (la trampa de siempre de lo que tiene tamaño fijo). */
+.tour-map .leaflet-container img,
+.tour-map img{ max-width:none !important; }
+/* LA CHINCHETA: una lágrima con el número dentro. */
+.tour-pin-wrap{ background:none; border:0; }
+.tour-pin{
+  width:34px; height:34px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
+  background:linear-gradient(135deg, #ff7a80, var(--brand-primary, #E33D48));
+  border:2.5px solid #fff; box-shadow:0 6px 14px rgba(15,23,42,.35);
+  display:flex; align-items:center; justify-content:center;
+  transition:transform .18s ease, box-shadow .18s ease;
+}
+.tour-pin span{ transform:rotate(45deg); color:#fff; font-weight:800; font-size:.86rem; line-height:1; }
+.tour-pin.is-done{ background:linear-gradient(135deg, #5cc9a7, #198754); }
+.tour-pin.is-on, .tour-pin:hover{ transform:rotate(-45deg) scale(1.22); box-shadow:0 10px 20px rgba(15,23,42,.45); z-index:1000; }
+/* EL GLOBO de una chincheta: la fecha, dónde y el enlace a su ficha. */
+.tour-pop{ display:flex; gap:.6rem; align-items:flex-start; min-width:190px; }
+.tour-pop__n{
+  flex:0 0 auto; width:28px; height:28px; border-radius:50%; color:#fff; font-weight:800; font-size:.82rem;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:linear-gradient(135deg, #ff7a80, var(--brand-primary, #E33D48));
+}
+.tour-pop__d{ font-weight:700; }
+.tour-pop__v{ color:#6b7280; font-size:.85rem; }
+.tour-pop__a{ color:#6b7280; font-size:.8rem; }
+.tour-pop__s{ display:inline-block; margin:.25rem .35rem .1rem 0; padding:.1rem .45rem; border-radius:999px;
+  background:#f1f3f8; color:#4b5563; font-size:.72rem; font-weight:700; }
+.tour-pop__go{ display:block; margin-top:.2rem; font-weight:600; }
+@media (max-width: 575.98px){ .tour-map{ height:320px; } }
 .ficha-hero__body{ flex:1 1 280px; min-width:0; }
 .ficha-hero__eyebrow{ text-transform:uppercase; letter-spacing:.4px; font-size:.72rem; font-weight:700; color:var(--muted-2); }
 .ficha-hero__title{ font-size:1.55rem; font-weight:800; letter-spacing:-.4px; margin:.1rem 0 .35rem; color:var(--ink); }

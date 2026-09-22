@@ -46,11 +46,12 @@ os.environ.setdefault("PGCONNECT_TIMEOUT", "5")
 import app as A                                       # noqa: E402
 import models                                         # noqa: E402
 from models import (Artist, CamerinosNotice, CamerinosScreen, Concert, ConcertArtistNotification,   # noqa: E402
-                    GroupCompany, User, UserProfile, Venue)
+                    GroupCompany, RepertoireTemplate, RepertoireTemplateItem, User, UserProfile, Venue)
 
 # ⚠️ Las tablas nuevas de los avisos las crea `create_all` al arrancar la app de verdad; en la BD de
 # PRUEBA (con el cerrojo puesto, el bootstrap no corre) se crean aquí, que es idempotente y tarda nada.
 models.Base.metadata.create_all(models.engine)
+models.ensure_camerinos_schema()      # y la columna `minutes`, que llegó después de la tabla
 
 A.app.config["WTF_CSRF_ENABLED"] = False
 OK = FALLOS = 0
@@ -74,12 +75,15 @@ HABITACION = "HAB777SECRETA"       # el número de habitación: tampoco
 EMPRESA = "Grupo Camerinos Prueba"  # la empresa del grupo que promueve: SU logo va en la barra
 LOGO_EMPRESA = "https://x/logo-camerinos-prueba.png"
 PANTALLA = "pantallaprueba01"          # el identificador de una pantalla de prueba
-AVISOS = ["Salida al escenario en 5 minutos (prueba)", "Segundo aviso (prueba)", "Caduca ya (prueba)"]
+AVISOS = ["Salida al escenario en 5 minutos (prueba)", "Segundo aviso (prueba)", "Caduca ya (prueba)",
+          "Mientras se lee (prueba)", "Tope de minutos (prueba)", "Sin voz (prueba)"]
 
 
 def limpia(s):
     for c in s.query(Concert).filter(Concert.festival_name.in_(NOMBRES)).all():
         s.query(ConcertArtistNotification).filter(ConcertArtistNotification.concert_id == c.id).delete()
+        for t in s.query(RepertoireTemplate).filter(RepertoireTemplate.owner_type == "CONCERT", RepertoireTemplate.owner_id == c.id).all():
+            s.delete(t)
         s.delete(c)
     s.commit()
     s.query(GroupCompany).filter(GroupCompany.name == EMPRESA).delete(synchronize_session=False)
@@ -145,8 +149,14 @@ def datos():
                 punto("a5", "OTROS", "Firma de discos cancelada", "19:00", cancelled=True),
                 punto("a6", "OTROS", "Rueda de prensa TBC", "", tbc=True),
                 punto("a7", "APERTURA_PUERTAS", "Apertura de puertas", "20:00"),
+                # Un punto que CANTA con su propio repertorio: en la pantalla se abre al tocarlo.
+                punto("a9", "OTROS", "Acústico en la radio", "12:30", sings=True, songs=[{"song_id": "", "title": "Canción Prueba Radio"}]),
             ],
         }
+        # EL SET LIST de la ficha (la actuación lo abre en la pantalla al tocarla).
+        t = RepertoireTemplate(owner_type="CONCERT", owner_id=c.id, name=""); s.add(t); s.flush()
+        for i, (kind, titulo, dur) in enumerate([("SONG", "Canción Set Uno", 200), ("BREAK", "Parón", 0), ("SONG", "Canción Set Dos", 185), ("THANKS", "Gracias a todos", 0)]):
+            s.add(RepertoireTemplateItem(template_id=t.id, kind=kind, title=titulo, duration_seconds=(dur or None), sort_order=i))
         c2 = Concert(artist_id=art.id, festival_name=NOMBRES[1], activity_type="CONCIERTO",
                      sale_type="VENDIDO", capacity=300, date=HOY + timedelta(days=3), status="CONFIRMADO",
                      venue_id=ven.id, production_owner_user_id=prod.id, created_by_user_id=prod.id)
@@ -232,6 +242,10 @@ def main():
     orden = [html.find(x) for x in ("Comida del equipo", "Transfer al recinto", "Firma de discos cancelada", "Apertura de puertas", ">Concierto<", "Rueda de prensa TBC")]
     check("en orden de hora (y lo TBC al final)", all(a < b for a, b in zip(orden, orden[1:])) and orden[0] > 0, orden)
     check("cada punto lleva su momento para la línea de la hora", f'data-start="{DIA}T21:00"' in html and f'data-end="{DIA}T22:30"' in html)
+    check("la actuación con set list se puede tocar y lleva su plantilla", 'data-setlist="act"' in html and '<template data-cam-setlist="act">' in html and "Set list · toca para verlo" in html)
+    check("la plantilla trae las canciones, el parón y los agradecimientos", "Canción Set Uno" in html and "Canción Set Dos" in html and "rm-setlist__brk" in html and "Gracias a todos" in html and "2 temas" in html)
+    check("un punto que canta abre su propio repertorio", 'data-setlist="item:a9"' in html and '<template data-cam-setlist="item:a9">' in html and "Canción Prueba Radio" in html)
+    check("la pantalla lleva el pop-up del set list", 'id="camPop"' in html and "abrirSetlist" in html)
     check("NO sale ningún teléfono", TELEFONO not in html)
     check("NO sale la nota del punto", NOTA not in html)
     check("NO sale el localizador del pasajero", LOCALIZADOR not in html)
@@ -343,6 +357,16 @@ def main():
     check("mandar un aviso", r.status_code == 200 and j.get("ok") and (j.get("active") or {}).get("text") == AVISOS[0], (r.status_code, j.get("error")))
     check("el mensaje dice a cuántas pantallas conectadas", "pantalla" in (j.get("message") or ""), j.get("message"))
     check("con su hora y quién lo manda", (j.get("active") or {}).get("sent_at_label") and (j.get("active") or {}).get("sent_by") == "dircam", j.get("active"))
+    check("con sus minutos en pantalla (10)", (j.get("active") or {}).get("minutes") == 10, (j.get("active") or {}).get("minutes"))
+    voz_url = (j.get("active") or {}).get("audio_url") or ""
+    check("el aviso que se lee lleva la URL de su voz", "/camerinos/aviso/" in voz_url and voz_url.endswith("/voz.mp3"), voz_url)
+    rv = anon.get(voz_url)
+    if rv.status_code == 200:
+        check("la voz se sirve como MP3 (generada en el servidor)", (rv.headers.get("Content-Type") or "").startswith("audio/mpeg") and len(rv.data) > 1000, rv.headers.get("Content-Type"))
+    else:
+        check("sin red para generar la voz, el servidor responde 404 (la pantalla usa la del navegador)", rv.status_code == 404, rv.status_code)
+        print("    (aviso: la voz no se pudo generar aquí; en producción hay red)")
+    check("la voz de un aviso que no existe es 404", anon.get("/camerinos/aviso/00000000-0000-0000-0000-000000000000/voz.mp3").status_code == 404)
     aviso_id = (j.get("active") or {}).get("id") or ""
     j = anon.get("/camerinos/avisos?d=" + PANTALLA).get_json() or {}
     check("la pantalla lo recibe (texto y voz)", (j.get("notice") or {}).get("id") == aviso_id and j["notice"]["speak"] is True and j["notice"]["text"] == AVISOS[0])
@@ -357,6 +381,14 @@ def main():
     check("el historial lleva los dos, el nuevo delante", [h["text"] for h in (j.get("history") or [])][:2] == [AVISOS[1], AVISOS[0]])
     j2 = anon.get("/camerinos/avisos?d=" + PANTALLA + "&n=" + aviso_id).get_json() or {}
     check("la pantalla recibe el nuevo aunque enseñe el viejo", (j2.get("notice") or {}).get("text") == AVISOS[1])
+    r = prod.post(url_set + "/aviso", json={"text": AVISOS[3], "speak": True}); j = r.get_json() or {}
+    a = j.get("active") or {}
+    check("sin minutos, el aviso es «solo mientras se lee» (0) y el servidor lo da por vivo un rato corto",
+          a.get("minutes") == 0 and a.get("expires_at") and (A.datetime.fromisoformat(a["expires_at"]) - A._now_madrid()).total_seconds() < 120, a)
+    r = prod.post(url_set + "/aviso", json={"text": AVISOS[4], "speak": True, "minutes": 999}); j = r.get_json() or {}
+    check("los minutos tienen tope (240)", (j.get("active") or {}).get("minutes") == 240, (j.get("active") or {}).get("minutes"))
+    r = prod.post(url_set + "/aviso", json={"text": AVISOS[5], "speak": False, "minutes": 3}); j = r.get_json() or {}
+    check("un aviso sin voz no lleva URL de voz", (j.get("active") or {}).get("audio_url") == "" and (j.get("active") or {}).get("minutes") == 3, j.get("active"))
     r = prod.post(url_set + "/avisos-rapidos", json={"presets": ["Uno", "Dos", "Uno", "   "]}); j = r.get_json() or {}
     check("la lista de avisos rápidos se guarda limpia", j.get("ok") and j.get("presets") == ["Uno", "Dos"], j.get("presets"))
     r = prod.post(url_set + "/aviso/retirar", json={}); j = r.get_json() or {}

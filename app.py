@@ -375,6 +375,7 @@ from models import (
     CorporateInvite,
     CorporateInviteRecipient,
     ensure_corporate_invites_schema,
+    ensure_camerinos_schema,
     ensure_expense_split_schema,
     ensure_song_demos_schema,
     ensure_song_genres_schema,
@@ -88616,6 +88617,7 @@ def _bootstrap_schema_bg():
         (ensure_syncros_schema, "ensure_syncros_schema"),
         (ensure_afavor_schema, "ensure_afavor_schema"),
         (ensure_corporate_invites_schema, "ensure_corporate_invites_schema"),
+        (ensure_camerinos_schema, "ensure_camerinos_schema"),
         (ensure_expense_split_schema, "ensure_expense_split_schema"),
         (ensure_song_genres_schema, "ensure_song_genres_schema"),
         (ensure_media_tags_schema, "ensure_media_tags_schema"),
@@ -99638,7 +99640,7 @@ def _camerinos_place(it: dict, venue_name: str) -> str:
 
 
 def _camerinos_item(it: dict, day: str, catalog: dict, venue_name: str, personnel: dict, artistas: dict,
-                    companies: dict) -> dict:
+                    companies: dict, act_setlist: bool = False) -> dict:
     """UN PUNTO de los horarios tal como sale en la pantalla de los camerinos.
 
     ⚠️⚠️ LISTA BLANCA: la pantalla es pública (sin token), así que aquí entra SOLO lo que puede verse
@@ -99686,8 +99688,19 @@ def _camerinos_item(it: dict, day: str, catalog: dict, venue_name: str, personne
             sub = linea
     if kind == "MG" and str(it.get("mg_count") or "").strip():
         tags.append({"cls": "", "icon": "fa-users", "text": str(it.get("mg_count")).strip()})
-    if _roadmap_item_sings(it):
-        tags.append({"cls": "sing", "icon": "fa-music", "text": "Canta"})
+    # EL SET LIST QUE SE PUEDE ABRIR EN LA PANTALLA (lo pidió Dani): en la ACTUACIÓN, el set list de la
+    # ficha (si está configurado); en un punto que canta con su propio repertorio, el suyo.
+    setlist_ref, canciones = "", []
+    if kind == "ACTUACION" and act_setlist and not it.get("cancelled"):
+        setlist_ref = "act"
+        tags.append({"cls": "sing", "icon": "fa-music", "text": "Set list · toca para verlo"})
+    elif _roadmap_item_sings(it):
+        canciones = [str(sg.get("title") or "").strip() for sg in _roadmap_item_song_rows(it) if isinstance(sg, dict) and str(sg.get("title") or "").strip()]
+        if canciones and not it.get("cancelled"):
+            setlist_ref = "item:" + str(it.get("id") or "")
+            tags.append({"cls": "sing", "icon": "fa-music", "text": f"Canta · {len(canciones)} tema{'' if len(canciones) == 1 else 's'} · toca para verlo"})
+        else:
+            tags.append({"cls": "sing", "icon": "fa-music", "text": "Canta"})
     linea_transporte = None
     if transport:
         comp = companies.get(str(transport.get("company_id") or "")) or {}
@@ -99744,6 +99757,9 @@ def _camerinos_item(it: dict, day: str, catalog: dict, venue_name: str, personne
         "transport": linea_transporte,
         "roles": roles,
         "people": personas,
+        # Qué set list abre esta fila al tocarla («act» = el de la actividad; «item:<id>» = el suyo).
+        "setlist": setlist_ref,
+        "songs": canciones,
     }
 
 
@@ -99772,12 +99788,33 @@ def _camerinos_brand(session_db, entity_type: str, row) -> dict:
     return {"url": url_for("static", filename="img/logo_33_producciones.png"), "name": "33 Producciones"}
 
 
+def _camerinos_setlist(session_db, entity_type: str, row) -> dict | None:
+    """EL SET LIST de la actividad para la pantalla: sus líneas (canción · parón · nota · hablar ·
+    agradecimientos) tal como están en la ficha (`_roadmap_setlist_context`, el punto único). None si
+    no está configurado. ⚠️ La clave se llama `lines`, no `items` (la trampa de los dicts en Jinja)."""
+    try:
+        sl = _roadmap_setlist_context(session_db, entity_type, row)
+    except Exception:
+        app.logger.exception("[camerinos] no se pudo leer el set list")
+        return None
+    if not sl or not sl.get("exists"):
+        return None
+    lineas = []
+    for it in (sl.get("items") or []):
+        if not isinstance(it, dict):
+            continue
+        segundos = int(it.get("duration_seconds") or 0)
+        lineas.append({"kind": str(it.get("kind") or "SONG").upper(), "title": str(it.get("title") or ""),
+                       "note": str(it.get("note") or ""), "duration": (_fmt_duration(segundos) if segundos else "")})
+    return {"lines": lineas, "count": int(sl.get("count") or 0), "total_label": str(sl.get("total_label") or "")}
+
+
 def _camerinos_context(session_db) -> dict:
     """TODO lo que pinta la pantalla de los camerinos. Con nada elegido (o una actividad que ya no
     existe), `active=False` y la pantalla lo dice."""
     base = {"active": False, "poll": CAMERINOS_POLL_SECONDS, "kind": "", "kind_label": "", "title": "",
             "subtitle": "", "when": "", "venue": "", "photo": "", "word": "", "days": [], "sub": "", "version": "",
-            "notice_poll": CAMERINOS_NOTICE_POLL_SECONDS}
+            "notice_poll": CAMERINOS_NOTICE_POLL_SECONDS, "setlist": None}
     base["logo"] = _camerinos_brand(session_db, "", None)
     sel = _camerinos_setting()
     if not sel:
@@ -99801,15 +99838,18 @@ def _camerinos_context(session_db) -> dict:
     artistas = {_roadmap_artist_audience_key(a.id): a for a in _artists_from_ids(session_db, _roadmap_artist_ids(row))}
     companies = {str(c.get("id")): c for c in _transport_company_rows(session_db) if isinstance(c, dict)}
     agenda = [it for it in (payload.get("agenda") or []) if isinstance(it, dict)]
+    setlist = _camerinos_setlist(session_db, entity_type, row)
     dias = []
     for d in days:
         del_dia = sorted([it for it in agenda if str(it.get("day") or "")[:10] == d.get("date")], key=_camerinos_sort_key)
-        dias.append(dict(d, items=[_camerinos_item(it, d["date"], catalog, venue_name, personnel, artistas, companies)
+        dias.append(dict(d, items=[_camerinos_item(it, d["date"], catalog, venue_name, personnel, artistas, companies,
+                                                   act_setlist=bool(setlist))
                                    for it in del_dia]))
     sub = " · ".join(x for x in [card["title"], card["subtitle"], card["venue_short"], card["date"]] if x)
     return dict(base, active=True, kind=kind, kind_label=card["kind_label"], title=card["title"],
                 subtitle=card["subtitle"], when=card["date"], venue=card["venue_short"], photo=card["photo"],
-                word=card["word"], days=dias, sub=sub, logo=_camerinos_brand(session_db, entity_type, row))
+                word=card["word"], days=dias, sub=sub, logo=_camerinos_brand(session_db, entity_type, row),
+                setlist=setlist)
 
 
 def _camerinos_version(cam: dict, panel_html: str) -> str:
@@ -99993,9 +100033,17 @@ def camerinos_set(entity_type, entity_id):
 #  · Prueba de regresión: `tools/check_camerinos.py`, apartado 9.
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 CAMERINOS_NOTICE_MAX_CHARS = 240
-CAMERINOS_NOTICE_MINUTES = (5, 10, 30, 0)          # 0 = hasta que se retire (con tope de 12 h)
-CAMERINOS_NOTICE_DEFAULT_MINUTES = 10
-CAMERINOS_NOTICE_MAX_HOURS = 12
+# CUÁNTO SE QUEDA el aviso en pantalla: 0 = SOLO mientras se lee en voz alta (lo pidió Dani), o un
+# número de minutos libre (de minuto en minuto), con tope. Con 0 el servidor lo da por vivo 90 s: lo
+# justo para que todas las pantallas (que sondean cada 5 s) lo reciban y lo lean.
+CAMERINOS_NOTICE_DEFAULT_MINUTES = 0
+CAMERINOS_NOTICE_MAX_MINUTES = 240
+CAMERINOS_NOTICE_READ_SECONDS = 90
+# LA VOZ: se genera en el servidor (OpenAI si hay `OPENAI_API_KEY`; si no, gTTS, la voz de Google
+# sin clave) y la pantalla la reproduce como un MP3, igual en todos los aparatos. La voz del
+# navegador (`speechSynthesis`) queda solo de respaldo: Silk no tiene por qué traer voces.
+_CAMERINOS_TTS_CACHE: dict[str, bytes] = {}
+CAMERINOS_TTS_CACHE_MAX = 60
 CAMERINOS_NOTICE_POLL_SECONDS = 5
 CAMERINOS_SCREEN_ONLINE_SECONDS = 45              # tres sondeos sin señal = desconectada
 CAMERINOS_SCREEN_FORGET_DAYS = 30
@@ -100074,10 +100122,11 @@ def _camerinos_notice_dict(n, *, seen=None, total=None) -> dict:
         "expires_at": (n.expires_at.isoformat() if n.expires_at else ""),
         "expires_label": _camerinos_hora(n.expires_at),
         "withdrawn": bool(n.withdrawn_at),
+        "minutes": int(getattr(n, "minutes", 0) or 0),
         "seen": seen,
         "screens": total,
-        # Hueco para una voz generada en el servidor (hoy la pone el navegador de la pantalla).
-        "audio_url": "",
+        # La VOZ generada en el servidor (MP3); vacío si el aviso no se lee.
+        "audio_url": _camerinos_notice_audio_url(n),
     }
 
 
@@ -100122,8 +100171,8 @@ def _camerinos_notices_payload(session_db) -> dict:
         "presets": _camerinos_presets(),
         "history": [_camerinos_notice_dict(n) for n in ultimos],
         "max_chars": CAMERINOS_NOTICE_MAX_CHARS,
-        "minutes_options": list(CAMERINOS_NOTICE_MINUTES),
         "default_minutes": CAMERINOS_NOTICE_DEFAULT_MINUTES,
+        "max_minutes": CAMERINOS_NOTICE_MAX_MINUTES,
     }
 
 
@@ -100135,13 +100184,12 @@ def _camerinos_notice_create(session_db, et: str, row, data: dict):
     if len(texto) > CAMERINOS_NOTICE_MAX_CHARS:
         return None, f"El aviso no puede pasar de {CAMERINOS_NOTICE_MAX_CHARS} caracteres.", 400
     try:
-        minutos = int(data.get("minutes", CAMERINOS_NOTICE_DEFAULT_MINUTES))
+        minutos = int(data.get("minutes", CAMERINOS_NOTICE_DEFAULT_MINUTES) or 0)
     except (TypeError, ValueError):
         minutos = CAMERINOS_NOTICE_DEFAULT_MINUTES
-    if minutos not in CAMERINOS_NOTICE_MINUTES:
-        minutos = CAMERINOS_NOTICE_DEFAULT_MINUTES
+    minutos = max(0, min(minutos, CAMERINOS_NOTICE_MAX_MINUTES))
     ahora = _now_madrid()
-    caduca = ahora + (timedelta(minutes=minutos) if minutos else timedelta(hours=CAMERINOS_NOTICE_MAX_HOURS))
+    caduca = ahora + (timedelta(minutes=minutos) if minutos else timedelta(seconds=CAMERINOS_NOTICE_READ_SECONDS))
     estado = _current_user_state() or {}
     quien = str(estado.get("nick") or "").strip() or _email_to_nick(_current_user_email() or "")
     # UNO A LA VEZ: el que hubiera vivo se retira (la pantalla lo cambia por el nuevo).
@@ -100153,6 +100201,7 @@ def _camerinos_notice_create(session_db, et: str, row, data: dict):
     aviso = CamerinosNotice(
         text=texto,
         speak=bool(data.get("speak", True)),
+        minutes=minutos,
         entity_type=et,
         entity_id=getattr(row, "id", None),
         sent_by_user_id=_safe_uuid(str(estado.get("user_id") or "")),
@@ -100164,7 +100213,115 @@ def _camerinos_notice_create(session_db, et: str, row, data: dict):
     session_db.commit()
     if data.get("save_preset"):
         _camerinos_presets_store(_camerinos_presets() + [texto])
+    # La VOZ se genera YA (best-effort): así la primera pantalla que sondee la tiene lista.
+    if aviso.speak:
+        try:
+            _camerinos_tts_bytes(str(aviso.id), aviso.text)
+        except Exception:
+            app.logger.exception("[camerinos] no se pudo preparar la voz del aviso")
     return aviso, "", 200
+
+
+def _camerinos_tts_path(nid: str) -> str:
+    """Dónde se guarda el MP3 de un aviso (el tempdir lo comparten los workers de la instancia)."""
+    return os.path.join(tempfile.gettempdir(), f"app33_camerinos_voz_{nid}.mp3")
+
+
+def _tts_openai(texto: str) -> bytes:
+    """La voz de OpenAI (solo si hay `OPENAI_API_KEY`): la mejor y oficial. b'' si no hay clave o falla.
+    Modelo y voz se cambian con `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE`."""
+    clave = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not clave:
+        return b""
+    try:
+        cuerpo = json.dumps({"model": (os.getenv("OPENAI_TTS_MODEL") or "gpt-4o-mini-tts").strip(),
+                             "input": texto, "voice": (os.getenv("OPENAI_TTS_VOICE") or "nova").strip(),
+                             "response_format": "mp3"}).encode("utf-8")
+        req = Request("https://api.openai.com/v1/audio/speech", data=cuerpo, method="POST",
+                      headers={"Authorization": f"Bearer {clave}", "Content-Type": "application/json"})
+        with urlopen(req, timeout=25) as resp:
+            return resp.read() or b""
+    except Exception:
+        app.logger.exception("[camerinos] la voz de OpenAI falló")
+        return b""
+
+
+def _tts_gtts(texto: str) -> bytes:
+    """La voz de serie (gTTS: la de Google Translate, en español de España, sin clave). b'' si falla."""
+    try:
+        import io
+        from gtts import gTTS
+        buf = io.BytesIO()
+        gTTS(texto, lang="es", tld="es").write_to_fp(buf)
+        return buf.getvalue()
+    except Exception:
+        app.logger.exception("[camerinos] la voz de gTTS falló")
+        return b""
+
+
+def _camerinos_tts_bytes(nid: str, texto: str) -> bytes:
+    """El MP3 de un aviso: de memoria, del disco o GENERADO (OpenAI si hay clave; si no, gTTS). b'' si no
+    se pudo: entonces la pantalla lee el texto con la voz de su navegador."""
+    nid = str(nid or "").strip()
+    texto = (texto or "").strip()
+    if not nid or not texto:
+        return b""
+    datos = _CAMERINOS_TTS_CACHE.get(nid)
+    if datos:
+        return datos
+    ruta = _camerinos_tts_path(nid)
+    try:
+        if os.path.exists(ruta) and os.path.getsize(ruta) > 0:
+            with open(ruta, "rb") as fh:
+                datos = fh.read()
+    except Exception:
+        datos = b""
+    if not datos:
+        datos = _tts_openai(texto) or _tts_gtts(texto)
+        if datos:
+            try:
+                with open(ruta + ".tmp", "wb") as fh:
+                    fh.write(datos)
+                os.replace(ruta + ".tmp", ruta)
+            except Exception:
+                pass
+    if datos:
+        if len(_CAMERINOS_TTS_CACHE) >= CAMERINOS_TTS_CACHE_MAX:
+            _CAMERINOS_TTS_CACHE.pop(next(iter(_CAMERINOS_TTS_CACHE)))
+        _CAMERINOS_TTS_CACHE[nid] = datos
+    return datos or b""
+
+
+def _camerinos_notice_audio_url(n) -> str:
+    """La URL del MP3 de un aviso que se lee; vacío si no se lee (o fuera de una petición)."""
+    if not getattr(n, "speak", False):
+        return ""
+    try:
+        return url_for("public_camerinos_notice_audio", nid=str(n.id))
+    except Exception:
+        return ""
+
+
+@app.get('/camerinos/aviso/<nid>/voz.mp3', endpoint='public_camerinos_notice_audio')
+def public_camerinos_notice_audio(nid):
+    """LA VOZ de un aviso (MP3), para que todas las pantallas lo lean igual (Silk no tiene por qué traer
+    voces). Si no se puede generar → 404, y la pantalla lee el texto con la voz de su navegador."""
+    session_db = db()
+    try:
+        uid = _safe_uuid(str(nid or ""))
+        n = session_db.get(CamerinosNotice, uid) if uid is not None else None
+        if n is None or not n.speak:
+            abort(404)
+        datos = _camerinos_tts_bytes(str(n.id), n.text)
+        if not datos:
+            abort(404)
+        resp = make_response(datos)
+        resp.headers["Content-Type"] = "audio/mpeg"
+        resp.headers["Content-Length"] = str(len(datos))
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+    finally:
+        session_db.close()
 
 
 def _camerinos_notice_gate(session_db, entity_type, entity_id):
@@ -101915,7 +102072,8 @@ PUBLIC_ENDPOINTS_EXTRA = {"onesheet_public_view", "onesheet_roster_public", "one
                           # El vídeo de YouTube de un correo: la miniatura y el pop-up que lo reproduce.
                           "public_youtube_thumb", "public_youtube_play"}
 # HOJA DE RUTA EN CAMERINOS: la pantalla de los Echo Show y su sondeo (públicos, sin token).
-PUBLIC_ENDPOINTS_EXTRA |= {"public_camerinos_view", "public_camerinos_panel", "public_camerinos_notices"}
+PUBLIC_ENDPOINTS_EXTRA |= {"public_camerinos_view", "public_camerinos_panel", "public_camerinos_notices",
+                           "public_camerinos_notice_audio"}
 
 
 def _resource_label_from_key(key: str) -> str:

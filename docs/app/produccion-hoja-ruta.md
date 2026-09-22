@@ -898,15 +898,37 @@ transporte): ahí se quita y deja de salir.
   «Camerinos», el botón **Avisos** (la campanita, con el nº de pantallas conectadas) abre la vista de
   avisos: los **AVISOS RÁPIDOS** preguardados —**un toque y se manda**, sin escribir nada; la lista se
   edita ahí mismo («Editar la lista», `camerinos_presets_save`, en `AppSetting['camerinos_notice_presets']`,
-  y nace con seis de la casa)—, o se **escribe** uno (240 caracteres), con «Leer en voz alta», cuánto
-  se queda (5 · 10 · 30 min · hasta que se retire, con tope de 12 h) y «Guardar como aviso rápido».
+  y nace con seis de la casa)—, o se **escribe** uno (240 caracteres), con «Leer en voz alta», **cuánto
+  se queda** —**solo mientras se lee** (lo normal, `minutes` 0) o **un número de minutos**, de minuto en
+  minuto, con tope de 240 (`CAMERINOS_NOTICE_MAX_MINUTES`)— y «Guardar como aviso rápido».
   · **En la pantalla** (`camerinos.html`): sale una **NOTA grande en medio** sobre los horarios (la
   campanita, «Aviso», la hora y quién lo manda), suena la **campana** (tres notas generadas con
-  WebAudio, sin ningún archivo) y se **lee en voz alta** con la voz del navegador (`speechSynthesis`,
-  la primera voz `es-ES` que tenga el aparato). Se cierra con un toque o se va sola al caducar o al
-  retirarlo. ⚠️ Las dos cosas necesitan el toque de arranque (el velo): ahí se crea el `AudioContext`.
+  WebAudio, sin ningún archivo) y se **lee en voz alta**. Con `minutes` 0 la nota **se va sola al
+  acabar la voz** (el servidor la da por viva 90 s, `CAMERINOS_NOTICE_READ_SECONDS`, lo justo para que
+  todas las pantallas la reciban); con minutos, hasta que el servidor deje de mandarla o alguien la
+  toque. ⚠️ Las dos cosas necesitan el toque de arranque (el velo): ahí se crea el `AudioContext`.
   Tras una recarga, un aviso que sigue vivo y ya se anunció se enseña **sin volver a sonar**
   (`localStorage.cam_last_notice`).
+  · ⚠️⚠️ **LA VOZ SE GENERA EN EL SERVIDOR** (sep 2026: la del navegador NO sonaba en el aparato de
+  Dani). `public_camerinos_notice_audio` (`/camerinos/aviso/<id>/voz.mp3`) sirve el MP3 del aviso:
+  **OpenAI** si hay `OPENAI_API_KEY` (`_tts_openai`; modelo y voz con `OPENAI_TTS_MODEL` /
+  `OPENAI_TTS_VOICE`) y, si no, **gTTS** (`_tts_gtts`, la voz de Google Translate en español, sin
+  clave: es la de serie, `gTTS` en `requirements.txt`). Se genera **al mandar el aviso** (best-effort,
+  así la primera pantalla ya la tiene), se guarda en memoria y en el tempdir de la instancia
+  (`_camerinos_tts_bytes`) y va con `Cache-Control` largo (un aviso no cambia). La pantalla lo
+  reproduce (`reproducirVoz`) y **solo si no llega o no suena** lee el texto con `speechSynthesis`
+  (`hablar`, ⚠️ con una pausa entre `cancel()` y `speak()`: en el mismo tick Chromium se traga la frase).
+  · **EL SET LIST EN LA PANTALLA** (lo pidió Dani): la ACTUACIÓN con set list configurado en la ficha
+  (`_camerinos_setlist` ← `_roadmap_setlist_context`, el punto único) y un punto que canta con su
+  repertorio llevan `data-setlist` («act» · «item:<id>») y la etiqueta «toca para verlo»; el
+  contenido viaja en `<template data-cam-setlist>` dentro del trozo que se repinta (así se actualiza
+  con la hoja) y al tocar la fila se abre en un **pop-up de la propia página** (`abrirSetlist`), que se
+  cierra con un toque o **vuelve solo a los 2 minutos** al sitio de ahora (`cerrarPop` → `marcarAhora`).
+  ⚠️ La clave de sus líneas es `lines`, no `items` (la trampa de los dicts en Jinja).
+  · ⚠️⚠️ **EN NINGÚN MOMENTO SE SALE DE PANTALLA COMPLETA** (lo pidió Dani): nada navega ni abre otra
+  página (la nota y el set list son capas de la propia página), y la **recarga** por una versión nueva
+  de la app o por el repaso de madrugada **solo se hace cuando la pantalla NO está a pantalla
+  completa** (`pendienteRecarga` / `recargarSiSePuede`): una recarga la pierde y haría falta otro toque.
   · **UNO VIVO A LA VEZ** (`CamerinosNotice`: el nuevo retira al anterior con `withdrawn_at`;
   `_camerinos_notice_active`). Las pantallas **sondean cada 5 s** `public_camerinos_notices` con
   `?d=` su identificador (lo genera cada pantalla y lo guarda en su navegador: `CamerinosScreen`) y
@@ -919,6 +941,9 @@ transporte): ahí se quita y deja de salir.
   ⚠️⚠️ **La columna `text` de `CamerinosNotice` PISA la función `text()` de SQLAlchemy dentro del
   cuerpo de la clase** («'Column' object is not callable», bug real de este lote): el `server_default`
   de las columnas que van detrás va como CADENA (`"true"`), no con `text("true")`.
+  ⚠️ La columna `minutes` llegó DESPUÉS de que la tabla existiera en producción: va en
+  `ensure_camerinos_schema` (models.py, en su propia sentencia) y en la lista del arranque
+  (`_bootstrap_schema_bg`); en una BD de prueba la aplica `check_camerinos.py`.
   · Endpoints: `camerinos_notice_send` · `camerinos_notice_withdraw` · `camerinos_presets_save`
   (`SUPPORT_ACTION_ENDPOINTS`, y `_production_can_edit` dentro: la puerta común `_camerinos_notice_gate`)
   · `camerinos_notices_state` (`SUPPORT_READ_ENDPOINTS`) · `public_camerinos_notices`
@@ -926,9 +951,10 @@ transporte): ahí se quita y deja de salir.
   · **Lo que NO se pudo probar aquí**: la voz y la campana en el Echo Show real (Silk); en el
   navegador de pruebas hay voces `es-ES` y el flujo entero funciona. Si algún día se quiere una voz
   mejor e igual en todas, se genera aquí un audio por aviso y la pantalla lo reproduce (`audio_url`).
-  · Prueba de regresión: `tools/check_camerinos.py`, apartado 9 (31 comprobaciones; idempotente y deja la
-  lista de rápidos como estaba). Probado además en el navegador: el pop-up, el envío de un rápido, la
-  nota en la pantalla con su hora y quién, la confirmación «visto en 1 de 1» y el retirar.
+  · Prueba de regresión: `tools/check_camerinos.py`, apartados 3 y 9 (idempotente y deja la lista de
+  rápidos como estaba). Probado además en el navegador: el pop-up, el envío de un rápido, la nota en la
+  pantalla con su hora y quién, **el MP3 de la voz sonando y la nota yéndose al acabar**, la confirmación
+  «visto en 1 de 1», el retirar y el set list abriéndose y cerrándose.
 
 - ⚠️⚠️ **HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos** (sep 2026, lo pidió
   Dani). El editor de un punto de los horarios era un formulario largo de un tirón; ahora es el

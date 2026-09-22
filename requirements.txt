@@ -28,3 +28,5 @@ pywebpush>=1.14.0
 segno>=1.6.0
 # ffmpeg estático (sin apt/Docker) para generar el póster/miniatura de los vídeos en el servidor.
 imageio-ffmpeg>=0.5.1
+# La VOZ de los avisos de camerinos (Google Translate, sin clave); con OPENAI_API_KEY se usa OpenAI.
+gTTS==2.5.4

@@ -6,7 +6,11 @@
    ⚠️ Es el MISMO aspecto que los horarios de la hoja de ruta (las clases `.rm-*` de la casa): la hoja
    de calendario de cada día sobre la línea, y cada punto con su icono, su hora, su título y su sitio.
    ⚠️ Es una URL PÚBLICA sin token: lo que llega aquí ya está filtrado por `_camerinos_item` (lista
-   blanca: nada de teléfonos, notas, adjuntos, localizadores ni habitaciones). #}
+   blanca: nada de teléfonos, notas, adjuntos, localizadores ni habitaciones).
+   · EL SET LIST (lo pidió Dani): la actuación con set list configurado (y un punto que canta con su
+     repertorio) lleva `data-setlist`, y al tocarla la pantalla abre un pop-up DENTRO de la página con el
+     contenido de su `<template data-cam-setlist>` de aquí abajo (así viaja con el trozo y se actualiza
+     con la hoja). Nunca se navega: la pantalla no sale de pantalla completa. #}
 {% if not cam.active %}
   <div class="cam-empty">
     <div class="cam-empty__ico"><i class="fa fa-tv"></i></div>
@@ -28,8 +32,9 @@
             <div class="text-muted cam-sinnada">Sin horarios este día</div>
           {% endif %}
           {% for it in d['items'] %}
-            <div class="rm-item cam-item{% if it.provisional %} provisional{% endif %}{% if it.cancelled %} cancelled{% endif %}"
+            <div class="rm-item cam-item{% if it.provisional %} provisional{% endif %}{% if it.cancelled %} cancelled{% endif %}{% if it.setlist %} cam-item--tap{% endif %}"
                  data-item="{{ it.id }}" data-start="{{ it.when }}" data-end="{{ it.when_end }}"
+                 {% if it.setlist %}data-setlist="{{ it.setlist }}"{% endif %}
                  style="--rm-line:{{ it.color }}">
               <div class="rm-ico" style="background:{{ it.color }}"><i class="fa {{ it.icon }}"></i></div>
               <div class="min-w-0">
@@ -70,4 +75,34 @@
       </div>
     {% endfor %}
   </div>
+
+  {# ── LOS SET LIST que se pueden abrir (plantillas: no se pintan hasta que se tocan) ── #}
+  {% if cam.setlist %}
+    <template data-cam-setlist="act">
+      <div class="cam-pop__title"><i class="fa fa-music"></i> Set list · {{ cam.title }}</div>
+      <div class="cam-pop__sub">{{ cam.setlist.count }} tema{{ '' if cam.setlist.count == 1 else 's' }}{% if cam.setlist.total_label and cam.setlist.total_label != '0:00' %} · {{ cam.setlist.total_label }}{% endif %}</div>
+      <ol class="rm-setlist cam-setlist">
+        {% set n = namespace(i=0) %}
+        {% for ln in cam.setlist.lines %}
+          {% if ln.kind == 'BREAK' %}
+            <li class="rm-setlist__brk">{% if ln.title %}<span>{{ ln.title }}</span>{% else %}&nbsp;{% endif %}</li>
+          {% elif ln.kind != 'SONG' %}
+            <li class="rm-setlist__{{ ln.kind|lower }}"><span class="k"><i class="fa {{ {'NOTE': 'fa-note-sticky', 'SPEECH': 'fa-comment-dots', 'THANKS': 'fa-hands-clapping'}.get(ln.kind, 'fa-note-sticky') }}"></i></span><span class="t">{{ ln.title }}</span></li>
+          {% else %}
+            {% set n.i = n.i + 1 %}
+            <li><span class="n">{{ n.i }}</span><span class="t">{{ ln.title }}{% if ln.note %} <span class="rm-sub">{{ ln.note }}</span>{% endif %}</span>{% if ln.duration %}<span class="d">{{ ln.duration }}</span>{% endif %}</li>
+          {% endif %}
+        {% endfor %}
+      </ol>
+    </template>
+  {% endif %}
+  {% for d in cam.days %}{% for it in d['items'] %}{% if it.setlist and it.setlist != 'act' %}
+    <template data-cam-setlist="{{ it.setlist }}">
+      <div class="cam-pop__title"><i class="fa fa-music"></i> {{ it.title }}</div>
+      <div class="cam-pop__sub">{{ it.songs|length }} tema{{ '' if it.songs|length == 1 else 's' }}{% if it.time_label and it.time_label != 'TBC' %} · {{ it.time_label }}{% endif %}</div>
+      <ol class="rm-setlist cam-setlist">
+        {% for sg in it.songs %}<li><span class="n">{{ loop.index }}</span><span class="t">{{ sg }}</span></li>{% endfor %}
+      </ol>
+    </template>
+  {% endif %}{% endfor %}{% endfor %}
 {% endif %}

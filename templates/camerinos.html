@@ -113,6 +113,23 @@
     .cam-note__hint{color:#adb5bd;font-size:.9rem;}
     @keyframes camNoteIn{from{transform:translateY(24px) scale(.97);opacity:0}to{transform:none;opacity:1}}
     @keyframes camRing{0%,100%{transform:rotate(0)}20%{transform:rotate(18deg)}40%{transform:rotate(-14deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-6deg)}}
+    /* ── EL SET LIST: el pop-up DENTRO de la página (nunca se navega, no se sale de pantalla completa) ── */
+    .cam-item--tap{cursor:pointer;}
+    .cam-pop{position:fixed;inset:0;z-index:38;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:rgba(17,24,39,.6);}
+    .cam-pop[hidden]{display:none;}
+    .cam-pop__card{background:#fff;border-radius:22px;box-shadow:0 30px 80px rgba(0,0,0,.35);width:100%;max-width:900px;max-height:calc(100vh - 3rem);
+      display:flex;flex-direction:column;overflow:hidden;animation:camNoteIn .3s ease-out;}
+    .cam-pop__head{display:flex;align-items:flex-start;gap:1rem;padding:1rem 1.4rem .6rem;border-bottom:1px solid #eef1f4;}
+    .cam-pop__title{font-size:clamp(1.3rem,2.4vw,1.8rem);font-weight:800;line-height:1.15;color:#212529;}
+    .cam-pop__title i{color:var(--cam-red);margin-right:.4rem;}
+    .cam-pop__sub{color:#6c757d;font-size:1rem;margin-top:.15rem;}
+    .cam-pop__close{margin-left:auto;flex:0 0 auto;width:46px;height:46px;border-radius:50%;border:0;background:#f1f3f5;color:#495057;font-size:1.5rem;line-height:1;}
+    .cam-pop__body{overflow:auto;padding:.4rem 1.4rem 1rem;-webkit-overflow-scrolling:touch;}
+    .cam-pop__hint{padding:.6rem 1.4rem .9rem;color:#adb5bd;font-size:.9rem;border-top:1px solid #eef1f4;}
+    .cam-setlist li{font-size:clamp(1.05rem,2vw,1.4rem);padding:.45rem 0;}
+    .cam-setlist li .n{width:2.2rem;font-size:1.05em;}
+    .cam-setlist li .d{font-size:.85em;}
+    .cam-setlist li.rm-setlist__brk{font-size:.85rem;}
     /* La tira para VOLVER a pantalla completa (sale cuando el aparato ha salido de ella). */
     .cam-fs{position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);z-index:30;background:#212529;color:#fff;
       padding:.5rem 1rem;border-radius:999px;font-size:.95rem;display:none;align-items:center;gap:.5rem;box-shadow:0 6px 18px rgba(0,0,0,.25);white-space:nowrap;}
@@ -157,6 +174,19 @@
       <div class="cam-note__head"><i class="fa fa-bell"></i> Aviso <span class="cam-note__meta" id="camNoteMeta"></span></div>
       <div class="cam-note__text" id="camNoteText"></div>
       <div class="cam-note__hint">Toca para cerrar</div>
+    </div>
+  </div>
+  {# LA VOZ del aviso: el MP3 que genera el servidor (la voz del navegador queda de respaldo). #}
+  <audio id="camVoz" preload="none"></audio>
+
+  {# EL SET LIST de una actuación (o el repertorio de un punto que canta), al tocar su fila. Es un
+     pop-up de la propia página: al cerrarlo se vuelve a los horarios, y si nadie lo cierra se vuelve
+     solo a los 2 minutos, al sitio que toca. #}
+  <div class="cam-pop" id="camPop" hidden>
+    <div class="cam-pop__card">
+      <div class="cam-pop__head"><div class="min-w-0" id="camPopHead"></div><button type="button" class="cam-pop__close" id="camPopClose" aria-label="Cerrar">&times;</button></div>
+      <div class="cam-pop__body" id="camPopBody"></div>
+      <div class="cam-pop__hint">Toca fuera para volver a los horarios · vuelve solo a los 2 minutos</div>
     </div>
   </div>
 
@@ -274,8 +304,9 @@
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (d) {
           fallos = 0; status.classList.remove('is-on');
-          // Hay una versión nueva de la app desplegada: la página entera se recarga (JS y CSS nuevos).
-          if (d.asset_v && String(d.asset_v) !== String(ASSET_V)) { location.reload(); return; }
+          // Hay una versión nueva de la app desplegada: la página se recarga… pero NUNCA mientras esté a
+          // pantalla completa (recargar la pierde y haría falta otro toque). Se recarga cuando no lo esté.
+          if (d.asset_v && String(d.asset_v) !== String(ASSET_V)) { pendienteRecarga = true; recargarSiSePuede(); }
           // El logo es el de la empresa de la actividad que se ve: si cambia la actividad, cambia él.
           if (d.logo && logo && logo.getAttribute('src') !== d.logo) { logo.setAttribute('src', d.logo); logo.setAttribute('alt', d.logo_name || ''); }
           if (d.v && d.v !== version) {
@@ -292,8 +323,12 @@
         .then(function () { setTimeout(sondear, POLL_MS); });
     }
     setTimeout(sondear, POLL_MS);
-    // Y una vez al día, de madrugada, la página se recarga entera (por si acaso).
-    setInterval(function () { var d = new Date(); if (d.getHours() === 5 && d.getMinutes() === 0) location.reload(); }, 60000);
+    /* ⚠️⚠️ EN NINGÚN MOMENTO SE SALE DE PANTALLA COMPLETA (lo pidió Dani): una recarga la pierde, así que
+       la página solo se recarga (por una versión nueva o por el repaso de madrugada) cuando NO está a
+       pantalla completa. Mientras lo esté, los horarios y los avisos se siguen actualizando igual. */
+    var pendienteRecarga = false;
+    function recargarSiSePuede() { if (pendienteRecarga && !document.fullscreenElement) location.reload(); }
+    setInterval(function () { var d = new Date(); if (d.getHours() === 5 && d.getMinutes() === 0) pendienteRecarga = true; recargarSiSePuede(); }, 60000);
 
     /* ── NO SE APAGA: el audio silencioso en bucle (recargado cada minuto) y el wake lock. ── */
     function pedirWake() {
@@ -399,30 +434,93 @@
         return vs.filter(function (v) { return /^es[-_]ES/i.test(v.lang); })[0] || vs.filter(function (v) { return /^es/i.test(v.lang); })[0] || null;
       } catch (e) { return null; }
     }
-    function hablar(texto) {
-      if (!('speechSynthesis' in window) || !texto) return;
+    /* LA VOZ DE RESPALDO (la del navegador): solo si el MP3 del servidor no llega. ⚠️ `cancel()` seguido
+       de `speak()` en el mismo tick se traga la frase en Chromium: se espera un poco entre los dos. */
+    function hablar(texto, alTerminar) {
+      var fin = function () { if (alTerminar) { var f = alTerminar; alTerminar = null; f(); } };
+      if (!('speechSynthesis' in window) || !texto) { setTimeout(fin, 6000); return; }
       try {
-        speechSynthesis.cancel();
+        if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
         var u = new SpeechSynthesisUtterance(texto);
         u.lang = 'es-ES'; u.rate = 0.95; u.pitch = 1; u.volume = 1;
         var v = vozEs(); if (v) u.voice = v;
-        speechSynthesis.speak(u);
-      } catch (e) {}
+        u.onend = fin; u.onerror = fin;
+        setTimeout(function () { try { speechSynthesis.speak(u); } catch (e) { fin(); } }, 80);
+        // Red de seguridad: si el navegador no avisa del final, se da por leído a los 20 s.
+        setTimeout(fin, 20000);
+      } catch (e) { fin(); }
     }
     if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.addEventListener('voiceschanged', function () { speechSynthesis.getVoices(); }); } catch (e) {} }
+    /* LA VOZ: el MP3 que genera el servidor (igual en todas las pantallas); si no llega o no suena, la
+       voz del navegador. `alTerminar` se llama UNA vez cuando acaba de leerse (o de intentarlo). */
+    var voz = document.getElementById('camVoz');
+    function reproducirVoz(n, alTerminar) {
+      var hecho = false;
+      var fin = function () { if (!hecho) { hecho = true; alTerminar(); } };
+      if (!n.audio_url) { hablar(n.text, fin); return; }
+      try {
+        voz.onended = fin;
+        voz.onerror = function () { hablar(n.text, fin); };
+        voz.src = n.audio_url + (n.audio_url.indexOf('?') >= 0 ? '&' : '?') + '_=' + encodeURIComponent(n.id);
+        var p = voz.play();
+        if (p && p.catch) p.catch(function () { hablar(n.text, fin); });
+      } catch (e) { hablar(n.text, fin); }
+    }
+    /* CUÁNTO SE QUEDA la nota: con `minutes` 0, SOLO mientras se lee (se va sola al acabar la voz); con
+       minutos fijados, hasta que el servidor deje de mandarla (o alguien la toque). */
+    var avisoTemporizador = null;
     function ensenarAviso(n, enSilencio) {
       noteText.textContent = n.text || '';
       noteMeta.textContent = [n.sent_at_label, n.sent_by].filter(Boolean).join(' · ');
       note.hidden = false;
-      if (enSilencio) return;
+      if (avisoTemporizador) { clearTimeout(avisoTemporizador); avisoTemporizador = null; }
+      var soloMientrasSeLee = !(n.minutes > 0);
+      var cerrar = function (ms) {
+        if (!soloMientrasSeLee) return;
+        avisoTemporizador = setTimeout(function () { if (avisoActual === n.id) { note.hidden = true; note.__cerrado = true; } }, ms);
+      };
+      if (enSilencio) { cerrar(1500); return; }
       campana();
-      if (n.speak) setTimeout(function () { hablar(n.text); }, 900);
+      setTimeout(function () {
+        if (n.speak) reproducirVoz(n, function () { cerrar(1500); });
+        else cerrar(8000);
+      }, 800);
     }
     note.addEventListener('click', function () {
       note.hidden = true;
+      try { voz.pause(); } catch (e) {}
       try { speechSynthesis.cancel(); } catch (e) {}
       pantallaCompleta();
     });
+
+    /* ── EL SET LIST: tocar una actuación (o un punto que canta) abre su repertorio en un pop-up ── */
+    var pop = document.getElementById('camPop'), popHead = document.getElementById('camPopHead'), popBody = document.getElementById('camPopBody');
+    var popTimer = null;
+    function cerrarPop() {
+      if (popTimer) { clearTimeout(popTimer); popTimer = null; }
+      pop.hidden = true;
+      // De vuelta a los horarios, en el sitio que toca (lo de ahora).
+      ultimoToque = 0; ultimoAncla = null; marcarAhora(true);
+      pantallaCompleta();
+    }
+    function abrirSetlist(ref) {
+      var tpl = panel.querySelector('template[data-cam-setlist="' + ref + '"]');
+      if (!tpl) return;
+      var clon = document.importNode(tpl.content, true);
+      popHead.innerHTML = ''; popBody.innerHTML = '';
+      var t = clon.querySelector('.cam-pop__title'), s = clon.querySelector('.cam-pop__sub');
+      if (t) popHead.appendChild(t); if (s) popHead.appendChild(s);
+      popBody.appendChild(clon);
+      popBody.scrollTop = 0;
+      pop.hidden = false;
+      if (popTimer) clearTimeout(popTimer);
+      popTimer = setTimeout(cerrarPop, 120000);    // si nadie lo cierra, vuelve solo a los 2 minutos
+    }
+    panel.addEventListener('click', function (ev) {
+      var fila = ev.target.closest('.cam-item[data-setlist]');
+      if (fila) abrirSetlist(fila.getAttribute('data-setlist'));
+    });
+    pop.addEventListener('click', function (ev) { if (!ev.target.closest('.cam-pop__card') || ev.target.closest('#camPopClose')) cerrarPop(); });
     function sondearAvisos() {
       var url = AVISOS_URL + '?d=' + encodeURIComponent(deviceId) + '&n=' + encodeURIComponent(avisoActual) + '&_=' + Date.now();
       fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } })

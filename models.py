@@ -16028,6 +16028,8 @@ class CamerinosNotice(Base):
     # ⚠️ La columna de arriba se llama `text` y PISA la función `text()` de SQLAlchemy dentro del cuerpo de
     # la clase ('Column' object is not callable): el valor por defecto va como cadena.
     speak = Column(Boolean, nullable=False, server_default="true")
+    # Cuánto se queda en pantalla, en minutos: 0 = SOLO mientras se lee en voz alta (lo pidió Dani).
+    minutes = Column(Integer, nullable=False, server_default="0")
     # Desde qué actividad se mandó (la que se estaba viendo), para el historial.
     entity_type = Column(Text)
     entity_id = Column(PGUUID(as_uuid=True))
@@ -16053,3 +16055,13 @@ class CamerinosScreen(Base):
     last_seen_at = Column(DateTime(timezone=True))
     last_notice_id = Column(PGUUID(as_uuid=True))
     last_notice_at = Column(DateTime(timezone=True))
+
+
+def ensure_camerinos_schema():
+    """Las tablas de los camerinos las crea `create_all`; aquí van las columnas añadidas DESPUÉS de
+    que existieran en producción (cada una en su propia sentencia, la regla de la casa)."""
+    _create_all_once()
+    _exec_ddl_statements([
+        # Cuánto se queda el aviso en pantalla (0 = solo mientras se lee en voz alta).
+        "ALTER TABLE camerinos_notices ADD COLUMN IF NOT EXISTS minutes integer NOT NULL DEFAULT 0;",
+    ], "camerinos_schema")

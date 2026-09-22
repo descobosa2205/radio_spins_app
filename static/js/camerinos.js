@@ -211,7 +211,7 @@
     var vistos = (a.seen == null) ? '' : ('Visto en ' + a.seen + ' de ' + (a.screens || 0) + ' pantalla' + (a.screens === 1 ? '' : 's'));
     return '<div class="cam-av-active" data-av-active><i class="fa fa-bell text-danger mt-1"></i><div class="min-w-0 flex-grow-1">'
       + '<div class="cam-av-active__t">' + esc(a.text) + '</div>'
-      + '<div class="cam-av-active__s">' + esc([a.sent_at_label ? 'Mandado a las ' + a.sent_at_label : '', a.sent_by, a.expires_label ? 'hasta las ' + a.expires_label : '', a.speak ? 'se lee en voz alta' : 'sin voz', vistos].filter(Boolean).join(' · ')) + '</div>'
+      + '<div class="cam-av-active__s">' + esc([a.sent_at_label ? 'Mandado a las ' + a.sent_at_label : '', a.sent_by, (a.minutes > 0 ? ('en pantalla hasta las ' + a.expires_label) : 'solo mientras se lee'), a.speak ? 'se lee en voz alta' : 'sin voz', vistos].filter(Boolean).join(' · ')) + '</div>'
       + '</div><button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" data-av-withdraw="' + esc(a.id) + '"><i class="fa fa-eye-slash me-1"></i>Retirar</button></div>';
   }
   function presetsHtml(av, editando) {
@@ -236,9 +236,15 @@
       + lista.map(function (n) { return '<li>' + esc(n.sent_at_label || '') + ' · <span class="cam-av-hist__t">' + esc(n.text) + '</span>' + (n.sent_by ? ' · ' + esc(n.sent_by) : '') + (n.withdrawn ? ' · retirado' : '') + '</li>'; }).join('')
       + '</ul></div>';
   }
-  function minutosHtml(av) {
-    var ops = av.minutes_options || [5, 10, 30, 0], def = av.default_minutes || 10;
-    return ops.map(function (m) { return '<option value="' + m + '"' + (m === def ? ' selected' : '') + '>' + (m ? m + ' min' : 'hasta que se retire') + '</option>'; }).join('');
+  /* CUÁNTO SE QUEDA en pantalla: SOLO mientras se lee (lo normal, lo pidió Dani) o un número de minutos
+     libre, de minuto en minuto. */
+  function duracionHtml(av) {
+    var max = av.max_minutes || 240;
+    return '<span class="d-inline-flex align-items-center gap-3 flex-wrap">'
+      + '<label class="form-check mb-0 d-flex align-items-center gap-1"><input type="radio" class="form-check-input mt-0" name="cam_dur" value="LEE" data-av-dur checked> Solo mientras se lee</label>'
+      + '<label class="d-flex align-items-center gap-1 mb-0"><input type="radio" class="form-check-input mt-0" name="cam_dur" value="MIN" data-av-dur> Durante'
+      + ' <input type="number" class="form-control form-control-sm" style="width:5.2rem" min="1" max="' + max + '" step="1" value="5" data-av-minutes aria-label="Minutos"> min</label>'
+      + '</span>';
   }
 
   function pintarAvisos(form, btn, st) {
@@ -268,7 +274,7 @@
     h += '<div class="d-flex flex-wrap gap-3 align-items-center mt-2 small">'
       + '<span class="text-muted"><span data-av-count>0</span>/' + max + '</span>'
       + '<label class="form-check mb-0 d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" data-av-speak checked> Leer en voz alta</label>'
-      + '<label class="d-flex align-items-center gap-1 mb-0">Se queda <select class="form-select form-select-sm w-auto" data-av-minutes>' + minutosHtml(av) + '</select></label>'
+      + duracionHtml(av)
       + '<label class="form-check mb-0 d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" data-av-save> Guardar como aviso rápido</label>'
       + '</div>';
     h += '<div class="mt-2"><button type="button" class="btn btn-danger" data-av-send><i class="fa fa-bell me-1"></i>Mandar a las pantallas</button></div>';
@@ -282,12 +288,17 @@
     form.addEventListener('submit', function (ev) { ev.preventDefault(); ev.stopImmediatePropagation(); });
     var ta = form.querySelector('[data-av-text]'), cnt = form.querySelector('[data-av-count]');
     ta.addEventListener('input', function () { cnt.textContent = ta.value.length; });
+    var mn = form.querySelector('[data-av-minutes]');
+    if (mn) mn.addEventListener('focus', function () { var r = form.querySelector('input[name="cam_dur"][value="MIN"]'); if (r) r.checked = true; });
     form.addEventListener('click', function (ev) { clicAvisos(ev, form, btn, st); });
   }
 
   function opciones(form) {
     var sp = form.querySelector('[data-av-speak]'), mn = form.querySelector('[data-av-minutes]');
-    return { speak: sp ? sp.checked : true, minutes: mn ? parseInt(mn.value, 10) : 10 };
+    var fijo = form.querySelector('input[name="cam_dur"]:checked');
+    var minutos = 0;
+    if (fijo && fijo.value === 'MIN') { minutos = parseInt(mn && mn.value, 10); if (!(minutos > 0)) minutos = 5; }
+    return { speak: sp ? sp.checked : true, minutes: minutos };
   }
   function flash(form, texto, ok) {
     var f = form.querySelector('[data-av-flash]'); if (!f) return;

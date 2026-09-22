@@ -125,7 +125,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_permisos.py` | enlaces y formularios pintados que acaban en 403 (usuario por recurso) | al tocar permisos, barras de pestañas o botones |
 | `check_access_coverage.py` | escrituras sin recurso en el catálogo de permisos | al añadir endpoints |
 | `check_money.py` | los dos parsers de importes y su espejo en JS | al tocar dinero |
-| `check_plan_pagos.py` | lo que se cobra de una actividad: los equipos que se le facturan al promotor (se cobran, pero no son caché ni se reparten con el artista) | al tocar el plan de pagos o el equipamiento |
+| `check_plan_pagos.py` | lo que se cobra de una actividad: los equipos que se le facturan al promotor y la parte del caché de cada socio (lo nuestro no se cobra a nadie) | al tocar el plan de pagos, el equipamiento o los socios |
 | `check_resultado.py` | la barra de simular el resultado: el 100% es el AFORO, y marca dónde estamos | al tocar el resultado de una actividad o `sim_calc` |
 | `check_ofertas.py` | simular sobre una actividad y las ofertas (descuentos y packs) del ticketing | al tocar las simulaciones o `sim_calc` |
 | `check_contactos.py` | los contactos de una actividad: los del promotor ya puestos, la «x» y el alta | al tocar contactos |

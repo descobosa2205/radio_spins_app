@@ -3250,6 +3250,10 @@ class Concert(Base):
     # Extra de contratación / comunicación
     invitations_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     payment_terms_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # ⚠️⚠️ ¿EL CACHÉ LO CUBREN LOS SOCIOS, cada uno su parte? (sep 2026, lo pidió Dani). Con esto
+    # puesto, a cada socio se le cobra lo suyo —una línea por socio en el plan de pagos— y lo que
+    # cubre una empresa NUESTRA no aparece: es propio, no se le cobra a nadie.
+    cache_partner_split = Column(Boolean, nullable=False, server_default=text("false"))
     announcement_date = Column(Date)
     # ⚠️ LA HORA del anuncio («HH:MM», opcional): hay actividades que se publican a una hora pactada
     # y otras que solo tienen día. La confirma el promotor desde su enlace y es la que se dice en el
@@ -3626,6 +3630,12 @@ class ConcertPromoterShare(Base):
     amount = Column(Numeric)
     amount_base = Column(Text)  # GROSS | NET | PROFIT
 
+    # ⚠️⚠️ CUÁNTO DEL CACHÉ CUBRE ESTE SOCIO (sep 2026, lo pidió Dani). De entrada es su misma
+    # participación (`pct`), pero se puede cambiar: o un % del caché o un importe fijo. A cada socio
+    # se le cobra SU parte, y esa es la línea que aparece en el plan de pagos.
+    cache_pct = Column(Numeric)
+    cache_amount = Column(Numeric)
+
     promoter = relationship("Promoter")
     promoter_company = relationship("PromoterCompany")
 
@@ -3649,6 +3659,11 @@ class ConcertCompanyShare(Base):
     # fijo opcional
     amount = Column(Numeric)
     amount_base = Column(Text)  # GROSS | NET
+
+    # Cuánto del caché cubre esta empresa del grupo. ⚠️ Lo suyo **no se cobra a nadie** (es propio),
+    # así que NO genera línea en el plan de pagos: solo se enseña para que el reparto cuadre.
+    cache_pct = Column(Numeric)
+    cache_amount = Column(Numeric)
 
     company = relationship("GroupCompany")
 
@@ -10506,6 +10521,13 @@ def ensure_concerts_schema_enhancements():
         # existiera podría no ejecutarse nunca y la app reventaría al leerla (la regla de oro).
         'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_to_promoter boolean NOT NULL DEFAULT false;',
         'ALTER TABLE IF EXISTS concert_equipments ADD COLUMN IF NOT EXISTS billed_amount numeric;',
+
+        # ¿El CACHÉ lo cubren los SOCIOS? (y cuánto cubre cada uno). Una por sentencia, igual.
+        'ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS cache_partner_split boolean NOT NULL DEFAULT false;',
+        'ALTER TABLE IF EXISTS concert_promoter_shares ADD COLUMN IF NOT EXISTS cache_pct numeric;',
+        'ALTER TABLE IF EXISTS concert_promoter_shares ADD COLUMN IF NOT EXISTS cache_amount numeric;',
+        'ALTER TABLE IF EXISTS concert_company_shares ADD COLUMN IF NOT EXISTS cache_pct numeric;',
+        'ALTER TABLE IF EXISTS concert_company_shares ADD COLUMN IF NOT EXISTS cache_amount numeric;',
 
         """
         UPDATE concerts

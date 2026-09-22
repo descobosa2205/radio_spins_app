@@ -70,6 +70,7 @@
 - QUIEN CREA UNA ACTIVIDAD LA SIGUE VIENDO HASTA QUE SE CONFIRMA: alguien que no es
 - LOS FILTROS Y LA FILA DE UN LISTADO DE ACTIVIDADES SON UN SOLO SITIO. Los
 - LA AGRUPACIÓN POR «GRATUITOS» DESAPARECE, Y LA FILA DICE QUÉ ES CADA ACTIVIDAD.
+- EL CACHÉ LO PUEDEN CUBRIR LOS SOCIOS, CADA UNO SU PARTE
 - LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR: SE COBRAN, PERO NO SON CACHÉ
 - LA FORMA DE PAGO DEL CACHÉ SE CONFIGURA EN LA FICHA, Y SE AVISA SI FALTA.
 - MARKETING · LA EMPRESA LA DICTA LA ACTIVIDAD: en una campaña vinculada a una
@@ -1489,6 +1490,32 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   ANTIGUAS guardadas así y un enlace con `?type=GRATUITO` tiene que seguir valiendo.
   · El lugar de la fila va en el formato ÚNICO de la casa (`_place_label`: «Recinto · Municipio,
   Provincia», con el país solo si es de fuera).
+
+- ⚠️⚠️ **EL CACHÉ LO PUEDEN CUBRIR LOS SOCIOS, CADA UNO SU PARTE** (sep 2026, lo pidió Dani).
+  Cuando la actividad tiene **socios** (Colaboradores) y tiene **caché**, en la sección «Cachés» se
+  pregunta **«¿El caché lo cubren los socios?»**. Con eso puesto:
+  · cada uno cubre de entrada **lo mismo que participa** (su `pct`) y, si nadie tiene participación
+  puesta, **a partes iguales** — que es lo que se espera cuando todos van al mismo porcentaje—;
+  · se puede cambiar por otro **%** o por un **importe fijo** (el importe manda sobre el %, y dejarlo
+  vacío vuelve al reparto automático). Punto único **`_concert_cache_partner_rows`**, que **calcula
+  al vuelo**: no se guarda ningún total (se desparejaría del caché en cuanto cambiara).
+  · **A cada socio se le cobra lo suyo**: una línea en el plan de pagos («Caché · <socio>»,
+  `kind=PARTNER` + `partner_kind`/`partner_id`), que se crea, se actualiza y se retira sola
+  (`_concert_cache_partner_payment_sync`) conservando su factura y su cobro.
+  ⚠️⚠️ **LO QUE PONE UNA EMPRESA NUESTRA NO GENERA LÍNEA**: es propio y **no se le cobra a nadie**
+  (lo pidió Dani así). Se calcula y se enseña —para que el reparto cuadre— pero no sale en el plan
+  de pagos ni, por tanto, en «pendiente de cobrar».
+  ⚠️⚠️ Y POR ESO **el aviso de «la forma de pago no cuadra» descuenta lo propio**
+  (`_concert_cache_payment_state`, que además no cuenta los EQUIPOS como caché configurado): si no,
+  una actividad con socios avisaría siempre y su tarea no se iría nunca (se vio en pantalla).
+  ⚠️ **El reparto sobrevive a guardar «Colaboradores»**: esas filas se borran y se recrean, así que
+  `cache_pct`/`cache_amount` se guardan por id y se reponen (la trampa que duplicaba las comisiones).
+  ⚠️⚠️ **EL CACHÉ SE ACABA DE GUARDAR EN LA MISMA PETICIÓN**: antes de repartir hay que
+  `flush()` + `expire(concert, ["caches", …])`, o el reparto sale sobre el caché viejo (o sobre 0 €,
+  que es lo que pasó en la prueba).
+  ⚠️ Con el artista **no cambia nada**: lo que se le reparte sigue siendo su caché
+  (`_artist_cash_concert_settled` deja fuera las líneas de socios, igual que las de equipos).
+  · Cubierto por **`tools/check_plan_pagos.py`** (33 comprobaciones).
 
 - ⚠️⚠️ **LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR: SE COBRAN, PERO NO SON CACHÉ** (sep 2026, lo
   pidió Dani). Cuando en Equipamiento se marca **«Promotor cubre equipos»**, se pregunta **«¿Hay que

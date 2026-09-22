@@ -146,6 +146,7 @@ with A.app.test_request_context("/"):
 
 print("\n── 5. Guardar «Cachés» desde la ficha NO se la lleva por delante ──────")
 cli.post("/conciertos/%s/seccion/caches" % CID, data={
+    "cache_kind[]": "FIXED", "cache_amount[]": "9.000", "cache_concept[]": "",
     "payment_terms_present": "1",
     "payment_concept[]": "Caché", "payment_amount[]": "9.000", "payment_due_date[]": "", "payment_idx[]": "0",
     "promoter_costs_present": "1",
@@ -187,6 +188,121 @@ check("la ficha abre (200)", "Equipamiento" in html)
 check("el plan de pagos marca la línea como «no es caché»", "No es caché" in html, )
 check("y el módulo de equipamiento pregunta si se le factura",
       "¿Hay que facturarle los equipos al promotor?" in html)
+
+print("\n── 8. LOS SOCIOS: cada uno cubre su parte del caché ───────────────────")
+# La actividad pasa a PARTICIPADOS: nuestra empresa (60%) y dos socios (30% y 10%).
+s = models.SessionLocal()
+try:
+    c = s.get(models.Concert, A.to_uuid(CID))
+    c.sale_type = "PARTICIPADOS"
+    emp = s.query(models.GroupCompany).first()
+    socio1 = models.Promoter(nick="Socio Uno")
+    socio2 = models.Promoter(nick="Socio Dos")
+    s.add_all([socio1, socio2]); s.flush()
+    S1, S2, EMP = str(socio1.id), str(socio2.id), str(emp.id)
+    s.add(models.ConcertCompanyShare(concert_id=c.id, company_id=emp.id, pct=60, pct_base="PROFIT"))
+    s.add(models.ConcertPromoterShare(concert_id=c.id, promoter_id=socio1.id, pct=30, pct_base="PROFIT"))
+    s.add(models.ConcertPromoterShare(concert_id=c.id, promoter_id=socio2.id, pct=10, pct_base="PROFIT"))
+    s.commit()
+finally:
+    s.close()
+
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        c = s.get(models.Concert, A.to_uuid(CID))
+        filas = A._concert_cache_partner_rows(s, c)
+        check("se reparte entre los tres socios", len(filas) == 3, [f["name"] for f in filas])
+        por_nombre = {f["name"]: f for f in filas}
+        check("de entrada, cada uno cubre lo que participa (60/30/10 de 9.000)",
+              por_nombre["33 Producciones"]["amount"] == D("5400.00")
+              and por_nombre["Socio Uno"]["amount"] == D("2700.00")
+              and por_nombre["Socio Dos"]["amount"] == D("900.00"),
+              {k: str(v["amount"]) for k, v in por_nombre.items()})
+        check("y lo de NUESTRA empresa está marcado como propio",
+              por_nombre["33 Producciones"]["own"] is True)
+    finally:
+        s.close()
+
+# Se activa desde la ficha (sección Cachés), con el centinela.
+cli.post("/conciertos/%s/seccion/caches" % CID, data={
+    "cache_partner_present": "1", "cache_partner_split": "1",
+    "cache_kind[]": "FIXED", "cache_amount[]": "9.000", "cache_concept[]": "",
+    "payment_terms_present": "1",
+    "payment_concept[]": "Caché", "payment_amount[]": "9.000", "payment_due_date[]": "", "payment_idx[]": "0",
+}, follow_redirects=True)
+filas = plan()
+socios = [f for f in filas if (f.get("kind") or "") == "PARTNER"]
+check("se crea una línea por SOCIO (no por nuestra empresa)", len(socios) == 2,
+      [(f.get("concept"), f.get("amount")) for f in filas])
+check("con su parte del caché (2.700 y 900)",
+      sorted(A._money_value(f["amount"]) for f in socios) == [D("900.00"), D("2700.00")],
+      [f.get("amount") for f in socios])
+check("⚠️ lo de nuestra empresa NO aparece como pendiente de cobro",
+      not any("33 Producciones" in (f.get("concept") or "") for f in filas),
+      [f.get("concept") for f in filas])
+
+# Se cambia lo que cubre un socio: a mano, 3.000 €.
+cli.post("/conciertos/%s/seccion/caches" % CID, data={
+    "cache_partner_present": "1", "cache_partner_split": "1",
+    "partner_cache_amount_PROMOTER_%s" % S1: "3.000",
+    "cache_kind[]": "FIXED", "cache_amount[]": "9.000", "cache_concept[]": "",
+    "payment_terms_present": "1",
+    "payment_concept[]": "Caché", "payment_amount[]": "9.000", "payment_due_date[]": "", "payment_idx[]": "0",
+}, follow_redirects=True)
+filas = plan()
+socios = [f for f in filas if (f.get("kind") or "") == "PARTNER"]
+check("cambiar lo que cubre un socio ACTUALIZA su línea (no crea otra)", len(socios) == 2,
+      [(f.get("concept"), f.get("amount")) for f in socios])
+check("con el importe escrito a mano (3.000)",
+      any(A._money_value(f["amount"]) == D("3000") for f in socios), [f.get("amount") for f in socios])
+
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        c = s.get(models.Concert, A.to_uuid(CID))
+        importe, de_donde, _cob = A._artist_cash_concert_settled(c)
+        check("⚠️ lo que se reparte con el ARTISTA sigue siendo el caché (9.000), no las partes",
+              importe == D("9000"), (importe, de_donde))
+    finally:
+        s.close()
+
+# Y al desmarcarlo, las líneas se retiran.
+cli.post("/conciertos/%s/seccion/caches" % CID, data={
+    "cache_partner_present": "1",
+    "cache_kind[]": "FIXED", "cache_amount[]": "9.000", "cache_concept[]": "",
+    "payment_terms_present": "1",
+    "payment_concept[]": "Caché", "payment_amount[]": "9.000", "payment_due_date[]": "", "payment_idx[]": "0",
+}, follow_redirects=True)
+filas = plan()
+check("al desmarcarlo, las líneas de los socios se retiran",
+      not [f for f in filas if (f.get("kind") or "") == "PARTNER"], filas)
+check("y el caché y los equipos siguen ahí", len(filas) == 2, filas)
+
+html = cli.get("/conciertos/%s?tab=general" % CID).get_data(as_text=True)
+check("la ficha pregunta si el caché lo cubren los socios", "El caché lo cubren los socios" in html)
+check("y dice que lo nuestro no se cobra", "Nuestra: no se cobra" in html)
+
+print("\n── 9. El aviso de «forma de pago» no reclama lo que es NUESTRO ────────")
+# Con el reparto puesto: solo hay que cobrar la parte de los socios (3.000 + 900 de 9.000).
+cli.post("/conciertos/%s/seccion/caches" % CID, data={
+    "cache_partner_present": "1", "cache_partner_split": "1",
+    "partner_cache_amount_PROMOTER_%s" % S1: "3.000",
+    "cache_kind[]": "FIXED", "cache_amount[]": "9.000", "cache_concept[]": "",
+    "payment_terms_present": "1",
+}, follow_redirects=True)
+with A.app.test_request_context("/"):
+    s = models.SessionLocal()
+    try:
+        c = s.get(models.Concert, A.to_uuid(CID))
+        est = A._concert_cache_payment_state(s, c)
+        check("lo que hay que repartir es solo la parte de los socios (9.000 − 5.400)",
+              est["cache_total"] == D("3600.00"), (est["cache_total"], est.get("own_total")))
+        check("y lo nuestro se cuenta aparte", est.get("own_total") == D("5400.00"), est.get("own_total"))
+        check("⚠️ los EQUIPOS no cuentan como caché configurado",
+              est["configured_total"] == D("3900.00"), est["configured_total"])
+    finally:
+        s.close()
 
 print("\n════════════════════════════════════════════════════════════")
 print("  %d comprobaciones OK · %d FALLAN" % (len(OK), len(KO)))

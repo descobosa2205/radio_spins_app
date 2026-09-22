@@ -2799,3 +2799,30 @@ document.addEventListener('change', function (ev) {
   else document.addEventListener('DOMContentLoaded', function () { pinta(); });
   window.app33EquipmentBilled = pinta;
 })();
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   EL CACHÉ LO CUBREN LOS SOCIOS · el panel del reparto
+   Se enseña solo cuando está marcado, y lo que se esconde se DESHABILITA (un campo oculto se
+   envía igual y volvería a repartir el caché al guardar cualquier otra cosa).
+   Va por DELEGACIÓN: la sección se reemplaza por AJAX al guardar.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  function pinta(raiz) {
+    (raiz || document).querySelectorAll('[data-cp-panel]').forEach(function (panel) {
+      var form = panel.closest('form') || document;
+      var sw = form.querySelector('[data-cp-toggle]');
+      var on = !!sw && sw.checked;
+      panel.classList.toggle('d-none', !on);
+      panel.querySelectorAll('input').forEach(function (el) { el.disabled = !on; });
+    });
+  }
+  document.addEventListener('change', function (ev) {
+    if (ev.target && ev.target.matches && ev.target.matches('[data-cp-toggle]')) pinta();
+  });
+  document.addEventListener('ficha:shown', function () { pinta(); });
+  document.addEventListener('inline:updated', function () { pinta(); });
+  if (document.readyState !== 'loading') pinta();
+  else document.addEventListener('DOMContentLoaded', function () { pinta(); });
+  window.app33CachePartners = pinta;
+})();

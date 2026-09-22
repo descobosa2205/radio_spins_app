@@ -2699,7 +2699,11 @@ def _artist_cash_concert_settled(concert) -> tuple:
     # ⚠️⚠️ LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR NO SON UN INGRESO QUE SE REPARTA (sep 2026,
     # lo pidió Dani): se cobran con la actividad, pero vienen a CUBRIR UN GASTO, así que no entran
     # ni en lo del artista ni en lo de la oficina.
-    filas = [x for x in _concert_payment_rows(concert) if not x.get("is_equipment")]
+    # ⚠️ Y LAS PARTES DE LOS SOCIOS TAMPOCO: son la misma caché vista por quién la cubre (si se
+    # sumaran, se repartiría con el artista lo que ya está en su caché, y de menos: lo que pone
+    # nuestra empresa no genera línea). Sin líneas de caché se cae al caché pactado, que es lo justo.
+    filas = [x for x in _concert_payment_rows(concert)
+             if not x.get("is_equipment") and not x.get("is_partner")]
     if filas:
         total = sum((_money_or_zero(x.get("amount")) for x in filas), Decimal("0"))
         cobrado = sum((_money_or_zero(x.get("amount")) for x in filas
@@ -7569,6 +7573,9 @@ def _normalize_payment_term(row: dict | None, idx: int = 0) -> dict:
         # promotor, que se cobran igual pero NO se reparten con el artista.
         'kind': (str(data.get('kind') or '').strip().upper() or ''),
         'is_equipment': _payment_row_is_equipment(data),
+        'is_partner': _payment_row_is_partner(data),
+        'partner_kind': (str(data.get('partner_kind') or '').strip().upper() or ''),
+        'partner_id': (str(data.get('partner_id') or '').strip() or ''),
         'concept': (data.get('concept') or 'Pago').strip() if isinstance(data.get('concept'), str) else 'Pago',
         'amount': amount,
         'due_date': due_date or None,
@@ -7854,8 +7861,17 @@ def _merge_payment_terms_rows(concert, form) -> list[dict]:
     # que es la misma pérdida de datos que ya evitaba el `payment_idx[]` de arriba.
     ya = {id(f) for f in filas}
     for vieja in viejas:
-        if isinstance(vieja, dict) and _payment_row_is_equipment(vieja) and id(vieja) not in ya:
-            if not any(_payment_row_is_equipment(f) for f in filas):
+        if not isinstance(vieja, dict) or id(vieja) in ya:
+            continue
+        if _payment_row_is_equipment(vieja) and not any(_payment_row_is_equipment(f) for f in filas):
+            filas.append(dict(vieja))
+        elif _payment_row_is_partner(vieja):
+            # La parte de cada socio la manda el reparto del caché (`_concert_cache_partner_sync`),
+            # no este formulario: se repone tal cual, con su factura y su cobro.
+            clave = (str(vieja.get("partner_kind") or ""), str(vieja.get("partner_id") or ""))
+            if not any(_payment_row_is_partner(f)
+                       and (str(f.get("partner_kind") or ""), str(f.get("partner_id") or "")) == clave
+                       for f in filas):
                 filas.append(dict(vieja))
     return filas
 
@@ -7869,6 +7885,7 @@ def _concert_cache_payment_state(session_db, concert) -> dict:
     El estado VACÍO trae las MISMAS claves que el lleno (leer algo que no aplica no puede reventar)."""
     estado = {"applies": False, "rows": 0, "cache_total": Decimal("0"),
               "configured_total": Decimal("0"), "pending": Decimal("0"),
+              "own_total": Decimal("0"),
               "unset": False, "mismatch": False, "silent": False}
     if concert is None:
         return estado
@@ -7889,11 +7906,28 @@ def _concert_cache_payment_state(session_db, concert) -> dict:
             continue                                      # un % no se puede repartir en pagos fijos
         total += _money_or_zero(getattr(ch, "amount", None))
     filas = list(getattr(concert, "payment_terms_json", None) or [])
-    configurado = sum((_money_or_zero(x.get("amount")) for x in filas), Decimal("0"))
+    # ⚠️⚠️ LO QUE HAY QUE REPARTIR EN PAGOS NO SIEMPRE ES EL CACHÉ ENTERO (sep 2026):
+    # · si **lo cubren los socios**, lo que se COBRA es solo la parte de los socios — lo que pone
+    #   una empresa NUESTRA es propio y no se le cobra a nadie, así que no puede salir como
+    #   «pendiente de repartir» (si no, la ficha avisa siempre y la tarea no se va nunca);
+    # · y los EQUIPOS que se le facturan al promotor no son caché, así que no cuentan como
+    #   caché configurado.
+    propio = Decimal("0")
+    if bool(getattr(concert, "cache_partner_split", False)):
+        for fila in _concert_cache_partner_rows(session_db, concert):
+            if fila.get("own"):
+                propio += _money_or_zero(fila.get("amount"))
+    total_a_repartir = total - propio
+    if total_a_repartir < 0:
+        total_a_repartir = Decimal("0")
+    configurado = sum((_money_or_zero(x.get("amount")) for x in filas
+                       if not _payment_row_is_equipment(x)), Decimal("0"))
+    total = total_a_repartir
     estado.update({
         "applies": True,
         "rows": len(filas),
         "cache_total": total,
+        "own_total": propio,
         "configured_total": configurado,
         "pending": (total - configurado),
         # ⚠️ `unset`/`mismatch` son LO QUE SE AVISA (y la tarea del tablero): en lo cancelado y en
@@ -56696,6 +56730,11 @@ def _parse_share_rows(ids, pct_list, pct_base_list, amount_list, amount_base_lis
 
 
 def _replace_concert_promoter_shares(session, concert_id, rows):
+    # ⚠️⚠️ ESTO BORRA Y RECREA, así que lo que cuelga de cada socio se perdería: su REPARTO DEL
+    # CACHÉ (`cache_pct`/`cache_amount`) se guarda por id y se repone en el que vuelve a estar. Es
+    # la misma trampa que duplicaba el gasto de las comisiones en la bolsa.
+    previo = {str(s.promoter_id): (s.cache_pct, s.cache_amount)
+              for s in session.query(ConcertPromoterShare).filter_by(concert_id=concert_id).all()}
     session.query(ConcertPromoterShare).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session.flush()
     for r in rows:
@@ -56711,23 +56750,32 @@ def _replace_concert_promoter_shares(session, concert_id, rows):
                 amount=r["amount"],
                 amount_base=r["amount_base"],
                 bears_losses=bool(r.get("bears_losses", True)),
+                cache_pct=previo.get(str(promoter_id), (None, None))[0],
+                cache_amount=previo.get(str(promoter_id), (None, None))[1],
             )
         )
 
 
 def _replace_concert_company_shares(session, concert_id, rows):
+    # ⚠️ Igual que arriba: el reparto del caché de cada empresa se conserva (borrar y recrear se lo
+    # llevaría por delante).
+    previo = {str(s.company_id): (s.cache_pct, s.cache_amount)
+              for s in session.query(ConcertCompanyShare).filter_by(concert_id=concert_id).all()}
     session.query(ConcertCompanyShare).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session.flush()
     for r in rows:
+        _cid = to_uuid(r["id"])
         session.add(
             ConcertCompanyShare(
                 concert_id=concert_id,
-                company_id=to_uuid(r["id"]),
+                company_id=_cid,
                 pct=r["pct"],
                 pct_base=r["pct_base"],
                 amount=r["amount"],
                 amount_base=r["amount_base"],
                 bears_losses=bool(r.get("bears_losses", True)),
+                cache_pct=previo.get(str(_cid), (None, None))[0],
+                cache_amount=previo.get(str(_cid), (None, None))[1],
             )
         )
 
@@ -57241,6 +57289,163 @@ def _add_concert_notes_from_request(session, concert_id):
         title = (titles[i] if i < len(titles) else "")
         title = (title or "").strip()
         session.add(ConcertNote(concert_id=concert_id, title=title, body=body))
+
+
+# Marca de la línea que cobra a un SOCIO su parte del caché (ver `_concert_cache_partner_rows`).
+PAYMENT_KIND_PARTNER = "PARTNER"
+
+
+def _payment_row_is_partner(row) -> bool:
+    """¿Esta línea del plan de pagos es la parte del caché de un socio?"""
+    return str((row or {}).get("kind") or "").strip().upper() == PAYMENT_KIND_PARTNER
+
+
+def _concert_cache_partner_rows(session, concert) -> list[dict]:
+    """CUÁNTO DEL CACHÉ CUBRE CADA SOCIO. **Punto único** del reparto.
+
+    ⚠️⚠️ Lo pidió Dani (sep 2026): «cuando hay socios en una actividad con caché, se pregunta si el
+    caché lo cubre proporcionalmente cada socio, pudiendo marcar el importe o el porcentaje que
+    cubre cada uno; si se marca el mismo porcentaje se calcula solo, pero se puede modificar».
+
+    · De entrada cada uno cubre **lo mismo que participa** (`pct` de Colaboradores). Si ninguno
+      tiene participación puesta, se reparte **a partes iguales** — que es lo que se espera cuando
+      todos van al mismo porcentaje.
+    · Lo escrito MANDA sobre lo calculado: `cache_amount` (un importe fijo) antes que `cache_pct`
+      (un % del caché) y, solo si no hay ninguno de los dos, el reparto de arriba.
+    · **LO DE UNA EMPRESA NUESTRA ES PROPIO**: se calcula y se enseña para que el reparto cuadre,
+      pero **no se le cobra a nadie** (`own=True`), así que no genera línea en el plan de pagos.
+    """
+    if concert is None:
+        return []
+    total = _artist_cash_concert_cache(concert)
+    socios = []
+    for s in (getattr(concert, "company_shares", None) or []):
+        socios.append({
+            "kind": "COMPANY", "id": str(getattr(s, "company_id", "") or ""), "share": s, "own": True,
+            "name": (getattr(getattr(s, "company", None), "name", None) or "Empresa del grupo"),
+            "logo": (getattr(getattr(s, "company", None), "logo_url", None) or ""),
+        })
+    for s in (getattr(concert, "promoter_shares", None) or []):
+        socios.append({
+            "kind": "PROMOTER", "id": str(getattr(s, "promoter_id", "") or ""), "share": s, "own": False,
+            "name": (getattr(getattr(s, "promoter", None), "nick", None) or "Socio"),
+            "logo": (getattr(getattr(s, "promoter", None), "logo_url", None) or ""),
+        })
+    if not socios:
+        return []
+    # El reparto de partida: su participación y, si nadie la tiene puesta, a partes iguales.
+    participaciones = [_money_value(getattr(x["share"], "pct", None) or 0) for x in socios]
+    suma_part = sum(participaciones, Decimal("0"))
+    for i, fila in enumerate(socios):
+        share = fila["share"]
+        importe = _money_or_zero(getattr(share, "cache_amount", None))
+        pct = _money_or_zero(getattr(share, "cache_pct", None))
+        if importe > 0:
+            fila["pct"], fila["amount"], fila["source"] = None, importe, "amount"
+        elif pct > 0:
+            fila["pct"] = pct
+            fila["amount"] = (total * pct / Decimal("100")).quantize(Decimal("0.01"))
+            fila["source"] = "pct"
+        else:
+            base = (participaciones[i] if suma_part > 0
+                    else (Decimal("100") / Decimal(len(socios))))
+            fila["pct"] = base
+            fila["amount"] = (total * base / Decimal("100")).quantize(Decimal("0.01"))
+            fila["source"] = "auto"
+    return socios
+
+
+def _concert_cache_partner_payment_sync(session, concert) -> None:
+    """LAS LÍNEAS DEL PLAN DE PAGOS DE CADA SOCIO. **Punto único**.
+
+    Una línea por socio con **su** parte del caché («Caché · <socio>»), que es lo que hay que
+    cobrarle. ⚠️⚠️ **La parte de una empresa NUESTRA no genera línea**: es propio y no se le cobra a
+    nadie (lo pidió Dani así), y una línea a cobrar contra nosotros mismos saldría en «pendiente de
+    cobrar» y en la caja como si alguien nos debiera algo.
+
+    · Cada línea lleva su marca (`kind=PARTNER` + `partner_kind`/`partner_id`), así que al cambiar
+      el reparto se **ACTUALIZA la suya** en vez de crear otra y **se conserva su factura y su
+      cobro**. Si el socio deja de cubrir, su línea se retira… salvo que ya tenga factura o cobro.
+    ⚠️ `payment_terms_json` es JSONB: hay que marcarlo con `flag_modified`.
+    """
+    if concert is None:
+        return
+    activo = bool(getattr(concert, "cache_partner_split", False))
+    quiere = {}
+    if activo:
+        for fila in _concert_cache_partner_rows(session, concert):
+            if fila["own"] or not fila["id"] or _money_or_zero(fila.get("amount")) <= 0:
+                continue
+            quiere[(fila["kind"], fila["id"])] = fila
+    filas = list(getattr(concert, "payment_terms_json", None) or [])
+    nuevas, vistas, cambio = [], set(), False
+    for row in filas:
+        if not isinstance(row, dict) or not _payment_row_is_partner(row):
+            nuevas.append(row)
+            continue
+        clave = (str(row.get("partner_kind") or "").upper(), str(row.get("partner_id") or ""))
+        fila = quiere.get(clave)
+        tiene_rastro = bool(row.get("invoice_url") or row.get("invoiced_at") or row.get("collected_at"))
+        if fila is not None:
+            vistas.add(clave)
+            if _money_or_zero(row.get("amount")) != fila["amount"]:
+                row = dict(row, amount=float(fila["amount"]))
+                cambio = True
+            nuevas.append(row)
+        elif tiene_rastro:
+            nuevas.append(row)          # ya se facturó o se cobró: no se borra
+        else:
+            cambio = True               # se retira
+    for clave, fila in quiere.items():
+        if clave in vistas:
+            continue
+        nuevas.append({
+            "concept": "Caché · %s" % fila["name"],
+            "amount": float(fila["amount"]),
+            "due_date": None,
+            "cache_ref": None,
+            "kind": PAYMENT_KIND_PARTNER,
+            "partner_kind": fila["kind"],
+            "partner_id": fila["id"],
+            "invoice_url": None,
+            "invoice_name": None,
+            "invoiced_at": None,
+            "collected_at": None,
+        })
+        cambio = True
+    if cambio:
+        from sqlalchemy.orm.attributes import flag_modified
+        concert.payment_terms_json = nuevas
+        flag_modified(concert, "payment_terms_json")
+
+
+def _apply_cache_partner_form(session, concert, form) -> None:
+    """Guarda «¿el caché lo cubren los socios?» y lo que cubre cada uno. Punto único del formulario.
+
+    Los campos llegan por socio: `partner_cache_pct_<COMPANY|PROMOTER>_<id>` y su
+    `partner_cache_amount_...`. ⚠️ Un importe MANDA sobre un porcentaje (es lo que se ha escrito a
+    mano), y lo que se deja vacío vuelve al reparto automático —su participación—, que es lo que
+    hace que «si todos van al mismo porcentaje» salga solo.
+    ⚠️ Los importes los escribe una PERSONA: `_parse_optional_money` («40.000» son cuarenta mil) y
+    los porcentajes con `_parse_optional_pct` (ahí el punto es decimal).
+    """
+    if concert is None:
+        return
+    concert.cache_partner_split = _truthy(form.get("cache_partner_split"))
+    # ⚠️⚠️ EL CACHÉ SE ACABA DE GUARDAR EN ESTA MISMA PETICIÓN (`_replace_concert_caches` borra y
+    # recrea sus filas), así que la relación en memoria está vieja: sin esto el reparto se calcula
+    # sobre el caché ANTERIOR —o sobre 0 €— y las partes salen mal o no se crean (pasó en la prueba).
+    session.flush()
+    session.expire(concert, ["caches", "company_shares", "promoter_shares"])
+    for fila in _concert_cache_partner_rows(session, concert):
+        share = fila["share"]
+        sufijo = "%s_%s" % (fila["kind"], fila["id"])
+        importe = _parse_optional_money(form.get("partner_cache_amount_%s" % sufijo))
+        pct = _parse_optional_pct(form.get("partner_cache_pct_%s" % sufijo))
+        share.cache_amount = importe if (importe or 0) > 0 else None
+        share.cache_pct = pct if (share.cache_amount is None and (pct or 0) > 0) else None
+    session.flush()
+    _concert_cache_partner_payment_sync(session, concert)
 
 
 # Marca de la línea del plan de pagos que NO es caché: los EQUIPOS que se le facturan al promotor.
@@ -72342,6 +72547,9 @@ def concert_detail_view(cid):
         sale_channel_request = session.query(ConcertSaleChannelRequest).filter_by(concert_id=c.id).first()
         sale_seller = _concert_sale_seller(c)
         payment_terms = _concert_payment_rows(c, pending_only=False)
+        # EL REPARTO DEL CACHÉ ENTRE LOS SOCIOS (lo que cubre cada uno): se calcula al pintar, no se
+        # guarda un total aparte — si se guardara, se desparejaría del caché en cuanto cambiara.
+        cache_partners = _concert_cache_partner_rows(session, c)
         # ¿Está configurada la FORMA DE PAGO del caché? (aviso de la ficha + tarea del tablero)
         cache_payment = _concert_cache_payment_state(session, c)
         payment_pending = _concert_payment_total(c, pending_only=True)
@@ -72553,6 +72761,7 @@ def concert_detail_view(cid):
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             payment_terms=payment_terms,
+            cache_partners=cache_partners,
             cache_payment=cache_payment,
             payment_pending=payment_pending,
             payment_total_configured=payment_total_configured,
@@ -75904,6 +76113,9 @@ def concert_section_update_handler(cid, section):
             # dejaría el plan de pagos vacío (la misma regla que `promoter_costs_present`).
             if request.form.get("payment_terms_present"):
                 c.payment_terms_json = _merge_payment_terms_rows(c, request.form)
+            # ¿EL CACHÉ LO CUBREN LOS SOCIOS? (y cuánto cada uno). También con CENTINELA.
+            if request.form.get("cache_partner_present"):
+                _apply_cache_partner_form(session, c, request.form)
             session.commit()
             flash("Cachés actualizados.", "success")
         elif section == "actividad":

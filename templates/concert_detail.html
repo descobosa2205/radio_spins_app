@@ -1242,6 +1242,48 @@
            ⚠️ Cada fila lleva su `payment_idx[]`: al guardar se CONSERVAN la factura subida y la marca
            de cobrado de ese pago (`_merge_payment_terms_rows`). Un pago que ya tiene factura o cobro
            se enseña bloqueado y no se puede borrar desde aquí (para eso están sus tres puntitos). #}
+        {# ⚠️⚠️ ¿EL CACHÉ LO CUBREN LOS SOCIOS? (sep 2026, lo pidió Dani). Solo se pregunta cuando
+           HAY socios: cada uno cubre de entrada lo mismo que participa —si todos van al mismo
+           porcentaje, sale solo— y se puede cambiar por otro % o por un importe fijo. A cada socio
+           se le cobra SU parte (una línea en el plan de pagos); lo que pone una empresa NUESTRA no
+           aparece: es propio y no se le cobra a nadie. #}
+        {% if cache_partners %}
+        <div class="border rounded p-3 mb-3">
+          <input type="hidden" name="cache_partner_present" value="1">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" name="cache_partner_split" id="concertCachePartner"
+                   value="1" data-cp-toggle {% if concert.cache_partner_split %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="concertCachePartner">
+              <i class="fa fa-handshake me-1 text-danger"></i>El caché lo cubren los socios</label>
+          </div>
+          <div class="form-text mb-2">Cada uno cubre lo que participa; se puede cambiar el % o poner un importe.</div>
+          <div class="{% if not concert.cache_partner_split %}d-none{% endif %}" data-cp-panel>
+            {% for p in cache_partners %}
+              <div class="d-flex align-items-center gap-2 flex-wrap border-top py-2">
+                <img class="simp-avatar" style="width:26px;height:26px;" src="{{ p.logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+                <span class="fw-semibold small" style="min-width:140px;">{{ p.name }}</span>
+                {% if p.own %}<span class="badge text-bg-light border"><i class="fa fa-building me-1"></i>Nuestra: no se cobra</span>{% endif %}
+                <div class="d-flex align-items-center gap-1">
+                  <input class="form-control form-control-sm" style="width:92px;" inputmode="decimal"
+                         name="partner_cache_pct_{{ p.kind }}_{{ p.id }}"
+                         value="{{ ('%g'|format(p.pct|float)) if (p.pct is not none and p.source != 'amount') else '' }}"
+                         placeholder="{{ '%g'|format(p.pct|float) if p.pct is not none else '' }}">
+                  <span class="small text-muted">%</span>
+                </div>
+                <div class="d-flex align-items-center gap-1">
+                  <span class="small text-muted">o</span>
+                  <input class="form-control form-control-sm" style="width:120px;" data-money="1"
+                         name="partner_cache_amount_{{ p.kind }}_{{ p.id }}"
+                         value="{{ p.share.cache_amount if p.share.cache_amount is not none else '' }}"
+                         placeholder="{{ p.amount|eur }}">
+                </div>
+                <span class="small text-muted">Le toca <strong>{{ p.amount|eur }}</strong></span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
         <div class="border rounded p-3 mb-3" id="forma-pago-cache">
           <div class="fw-semibold mb-2"><i class="fa fa-money-bill-transfer me-1 text-danger"></i>Forma de pago del caché</div>
           <div class="form-text mb-2">Reparte el caché en pagos: concepto, importe y fecha límite de cada uno.</div>
@@ -1250,7 +1292,7 @@
             {# ⚠️⚠️ LA LÍNEA DE LOS EQUIPOS NO SE EDITA AQUÍ: su importe lo manda el módulo de
                Equipamiento (es el que se le factura al promotor), así que se salta del formulario
                —para no tener dos verdades— y `_merge_payment_terms_rows` la REPONE al guardar. #}
-            {% for row in payment_terms if not row.is_equipment %}
+            {% for row in payment_terms if not row.is_equipment and not row.is_partner %}
               <script type="application/json" data-row-type="payment">{{ {
                 'payment_idx': (row.idx|string),
                 'payment_concept': (row.concept or ''),
@@ -1262,6 +1304,14 @@
             {% endfor %}
           </div>
           <button type="button" class="btn btn-sm btn-outline-primary" data-add-row="payment"><i class="fa fa-plus me-1"></i>Añadir pago</button>
+          {% set socio_rows = (payment_terms|selectattr('is_partner')|list) %}
+          {% if socio_rows %}
+            <div class="form-text mt-2"><i class="fa fa-handshake me-1 text-danger"></i>Además,
+              <strong>{{ socio_rows|length }}</strong> pago{{ '' if socio_rows|length == 1 else 's' }}
+              de socios por su parte del caché ({{ socio_rows|sum(attribute='amount')|eur }}), que se
+              editan arriba en <strong>«El caché lo cubren los socios»</strong>. Lo que pone una
+              empresa nuestra no se cobra, así que no sale aquí.</div>
+          {% endif %}
           {% set eq_row = (payment_terms|selectattr('is_equipment')|list|first) %}
           {% if eq_row %}
             <div class="form-text mt-2"><i class="fa fa-toolbox me-1 text-danger"></i>Además se le cobran
@@ -1405,6 +1455,7 @@
                        igual y no se reparten con el artista (cubren un gasto). Se dice aquí para
                        que el número no parezca parte del caché. #}
                     {% if row.is_equipment %}<span class="badge text-bg-light border"><i class="fa fa-toolbox me-1 text-danger"></i>No es caché · se edita en Equipamiento</span>{% endif %}
+                    {% if row.is_partner %}<span class="badge text-bg-light border"><i class="fa fa-handshake me-1 text-danger"></i>Parte de un socio · se edita en el reparto del caché</span>{% endif %}
                     {% if row.invoice_url %}<a href="{{ row.invoice_url }}" target="_blank" class="small">{{ row.invoice_name or 'Factura' }}</a>{% endif %}
                   </td>
                   <td class="text-end">{{ row.amount|eur }}</td>

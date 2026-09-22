@@ -33,7 +33,8 @@
        la transparencia), así no necesita pastilla blanca y se integra en la barra de color.
        ⚠️ Lo de tamaño fijo dice que no se encoge (la regla de la casa): el `img{max-width:100%}` de
        la app dejaba el logo a 0 px dentro de un hueco flexible. */
-    .cam-bar__brand{flex:0 0 auto;display:flex;align-items:center;}
+    /* Un poco más de aire entre el logo y «Horarios» (lo pidió Dani): el hueco de la barra más este margen. */
+    .cam-bar__brand{flex:0 0 auto;display:flex;align-items:center;margin-right:1.6rem;}
     .cam-bar__logo{display:block;height:52px;width:auto;max-width:230px;max-height:52px;object-fit:contain;object-position:left center;
       filter:brightness(0) invert(1);}
     .cam-bar__title{flex:1 1 auto;min-width:0;}
@@ -104,7 +105,7 @@
     .cam-status.is-on{display:inline-flex;align-items:center;gap:.45rem;}
     @media (max-width:640px){
       .cam-bar{gap:.7rem;padding:.5rem .8rem;min-height:70px;}
-      .cam-bar__logo{height:34px;max-height:34px;max-width:140px;}
+      .cam-bar__logo{height:34px;max-height:34px;max-width:140px;} .cam-bar__brand{margin-right:.6rem;}
       .cam-bar__sub{white-space:normal;font-size:.8rem;}
       main.cam-main{padding:.8rem .8rem 4rem;}
       .cam-main .rm-item{grid-template-columns:40px 1fr auto;padding:.6rem .7rem;}

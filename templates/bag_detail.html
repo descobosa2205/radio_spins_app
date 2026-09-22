@@ -1,8 +1,14 @@
 {% extends "layout.html" %}
 {% block content %}
+{# ⚠️ LA FLECHA SOLO A QUIEN PUEDE ABRIR EL LISTADO: en una bolsa entran también producción,
+   administración y contabilidad (`BAG_ACCESS_KEYS`), pero el listado de Bases de datos → Bolsas
+   sigue siendo de «Bolsas», así que a los demás esta flecha les daba un 403 (lo cazó la
+   comprobación de permisos dentro de las subpestañas de «Pendiente»). #}
+{% if has_access_key('databases.bags', include_descendants=True) %}
 <div class="mb-2">
   <a href="{{ url_for('bags_view', tab='archived' if bag.is_archived else 'active') }}" class="btn btn-outline-secondary btn-volver" title="Volver a bolsas" aria-label="Volver a bolsas"><i class="fa fa-arrow-left"></i></a>
 </div>
+{% endif %}
 {% set bag_embed = False %}
 {# Es SU página: aquí sí se pinta su cabecera (y sus datos y notas). Embebida en otra ficha, no. #}
 {% set bag_standalone = True %}

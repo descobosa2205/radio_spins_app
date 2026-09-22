@@ -101698,6 +101698,11 @@ ACCOUNTING_ACTION_ACCESS_KEYS = ("contabilidad.pendiente", "contabilidad.contabi
 # una bolsa sin tener que concederles además «Bolsas» (bug real: 403 al abrirla desde su
 # propia pantalla). El listado de Bases de datos → Bolsas sigue siendo de «Bolsas».
 BAG_ACCESS_KEYS = ("databases.bags", "produccion", "administracion", "contabilidad")
+# Marcar COBRADA una liquidación «a favor» se hace desde las DOS pantallas en las que se ve: la
+# bandeja de ADMINISTRACIÓN (Pendiente → De facturación), que es quien lo marca cuando entra el
+# dinero, y Discográfica → Royalties. Sin esto, a administración se le pintaba el botón «Cobrada» y
+# le daba un 403 (lo cazó la comprobación de permisos DENTRO de las subpestañas de «Pendiente»).
+AFAVOR_COLLECT_ACCESS_KEYS = ("administracion.pendiente", "discografica.royalties")
 
 
 def _first_access_key(claves, default_key: str, *, edit: bool = False) -> str:
@@ -101956,6 +101961,13 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.distributors"
     if endpoint.startswith("discografica_advance"):
         return "discografica.adelantos"
+    # ⚠️ ANTES de la regla de `afavor_`, o sería CÓDIGO MUERTO: marcar COBRADA una liquidación «a
+    # favor» se pincha también en la bandeja de ADMINISTRACIÓN (Pendiente → De facturación), que es
+    # quien lo marca cuando entra el dinero. La primera clave que tenga, para que el 403 —si llegara
+    # a darse— diga lo que de verdad le falta.
+    if endpoint == "afavor_mark_collected":
+        return _first_access_key(AFAVOR_COLLECT_ACCESS_KEYS, "discografica.royalties",
+                                 edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     # Royalties: acciones en bloque y liquidaciones «a favor» (sus endpoints no llevan el prefijo
     # discografica_, así que hay que mapearlos a mano: si no, solo dirección podría usarlos).
     if endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_"):

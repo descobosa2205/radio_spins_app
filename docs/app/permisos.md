@@ -23,6 +23,7 @@
 - EL CATÁLOGO DE PERMISOS SE PONE AL DÍA AL ABRIR ACCESOS (ago 2026,
 - DISEÑO NO PODÍA ABRIR NI ENTREGAR LO QUE LE PEDÍAN
 - include_descendants=True SOBRE UNA SECCIÓN ABRE LA PUERTA A MEDIA OFICINA
+- LA COMPROBACIÓN NO ENTRA EN LAS SUBPESTAÑAS, Y AHÍ HABÍA DOS 403
 - NADIE SE COME UN 403 EN UNA FUNCIÓN QUE TIENE ASIGNADA.
 
 ---
@@ -361,6 +362,24 @@ con la clave y otro sin ella; `tools/check_permisos.py` cubre lo demás.
   leyendo la sesión) para cuando lo que decide es el departamento y no un permiso.
   ⚠️ Comprobado con cuatro usuarios: diseño y producción **no** ven el dinero; contratación y
   dirección **sí**.
+
+- ⚠️⚠️ **LA COMPROBACIÓN NO ENTRA EN LAS SUBPESTAÑAS, Y AHÍ HABÍA DOS 403** (sep 2026, salieron al
+  rehacer «Pendiente → De facturación»). `tools/check_permisos.py` entra por las **puertas** (rutas
+  GET sin parámetros) y sigue los enlaces que pintan: comprueba que `/administracion` enseña el
+  enlace de cada subpestaña, pero **no mira lo que cada una pinta por dentro**. Abriendo las seis
+  subpestañas de «Pendiente» con un usuario por recurso (y siguiendo además las pantallas a las que
+  llevan) aparecieron dos botones muertos, los dos por lo mismo — la acción se hace desde DOS
+  pantallas y el gate la mandaba a una sola sección:
+  · **«Cobrada»** de una liquidación a favor (`afavor_mark_collected`, ruta `/discografica/...`):
+  quien lo marca cuando entra el dinero es **administración**, desde su bandeja. Punto único
+  **`AFAVOR_COLLECT_ACCESS_KEYS`** + `_first_access_key` (el patrón de `BAG_ACCESS_KEYS`), y la
+  regla va **ANTES** de la de prefijo `afavor_` o sería código muerto. ⚠️ Solo en el gate: el mapeo
+  GRUESO (`_coarse_endpoint_resource`) **no puede mirar al usuario**.
+  · La **flecha de «volver a bolsas»** de la ficha de una bolsa: en una bolsa entran producción,
+  administración y contabilidad (`BAG_ACCESS_KEYS`), pero el **listado** sigue siendo de «Bolsas»
+  —eso es deliberado—, así que la flecha ahora solo se pinta a quien puede abrirlo.
+  ⚠️ Al tocar una bandeja con subpestañas, la comprobación de la casa **no basta**: hay que abrirlas
+  una a una con un usuario por recurso (240 pantallas en este caso).
 
 - ⚠️⚠️⚠️ **NADIE SE COME UN 403 EN UNA FUNCIÓN QUE TIENE ASIGNADA** (sep 2026, regla de la casa).
   Era el error más molesto de la app y salía «todo el rato»: **las barras de pestañas se pintaban

@@ -16,6 +16,7 @@
 - IMPORTAR TERCEROS DESDE UN FICHERO. Botón «Añadir desde fichero» en
 - EL BUSCADOR DE TERCEROS BUSCA POR CUALQUIER DATO Y POR PALABRAS. El listado de
 - ETIQUETAS «MÚSICOS» y «TÉCNICOS / OPERADORES» en Terceros
+- LOS TIPOS DE UN TERCERO SON LOS MISMOS SE CREE DONDE SE CREE (falta «Institución» en el «+»)
 - CREAR UN TERCERO · «RELLENAR MÁS CAMPOS», desde cualquier parte de la app
 - FICHA DEL TERCERO · el formulario por VIÑETAS y los datos de contacto CRUZADOS
 - Migraciones en local
@@ -251,6 +252,20 @@ debajo y «Crear igualmente» funciona, y editar la ficha con un nick ya usado g
   esa pantalla. La ficha y la importación ya iteraban el catálogo.
   ⚠️ Lo que mira una clave CONCRETA se queda como estaba: los destinatarios «Promotores» de una nota
   de prensa siguen exigiendo `"PROMOTER" in manual` (si no, un músico saldría ahí).
+
+- ⚠️ **LOS TIPOS DE UN TERCERO SON LOS MISMOS SE CREE DONDE SE CREE** (sep 2026, lo vio Dani: «en
+  nuevo tercero desde el formulario de nueva actividad no aparece Institución»). Son tres —**vacío
+  (persona) · `empresa` · `institucion`**— y estaban en la ficha (`promoter_detail.html`) y en el
+  alta de Terceros (`promoters.html`), pero el **modal de alta rápida** (`_quick_create_modals.html`,
+  el que sale con el «+» de cualquier formulario, entre ellos el asistente de actividad) solo
+  ofrecía Empresa y Particular.
+  · **El servidor ya los aceptaba** (`api_create_promoter`: `kind in ("empresa", "institucion")`),
+  así que solo faltaba ofrecerlo: una **institución se rellena como una empresa** (nombre oficial,
+  CIF, dirección fiscal y representante) y lo que la distingue es su `kind`.
+  ⚠️ En `quick_create.js`, el panel de datos se elige con **`empresa` O `institucion`**: mirando
+  solo `=== 'empresa'` se habría enseñado el panel de PERSONA a una institución (y sus campos van
+  **deshabilitados** al esconderse, que es la regla de la casa).
+  ⚠️ Al añadir un tipo nuevo hay que tocar **los tres sitios** y el `kind` del servidor.
 
 - ⚠️⚠️ **CREAR UN TERCERO · «RELLENAR MÁS CAMPOS», desde cualquier parte de la app** (sep 2026). Al
   dar de alta un tercero se pedía lo justo, así que había que **entrar después en su ficha** para

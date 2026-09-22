@@ -72,10 +72,19 @@
             <div class="demo-card">
               <div class="demo-card__head"><i class="fa fa-id-card"></i>¿Qué es?</div>
               <div class="demo-card__body">
+                {# ⚠️ LOS MISMOS TIPOS QUE EN SU FICHA Y EN EL ALTA DE TERCEROS (sep 2026, lo vio
+                   Dani: «no aparece Institución»). Los tres son `Promoter.kind`: vacío (persona),
+                   `empresa` e `institucion` — y una INSTITUCIÓN se rellena como una empresa (su
+                   nombre social, su CIF y su representante), que es justo lo que ya hace el
+                   servidor (`api_create_promoter` acepta los dos igual). #}
                 <div class="d-flex flex-wrap gap-2">
                   <label class="invitation-radio-option">
                     <input type="radio" name="kind" value="empresa" checked>
                     <i class="fa fa-building"></i><span>Empresa</span>
+                  </label>
+                  <label class="invitation-radio-option">
+                    <input type="radio" name="kind" value="institucion">
+                    <i class="fa fa-landmark"></i><span>Institución</span>
                   </label>
                   <label class="invitation-radio-option">
                     <input type="radio" name="kind" value="">
@@ -85,9 +94,9 @@
               </div>
             </div>
 
-            {# ---------- EMPRESA ---------- #}
+            {# ---------- EMPRESA o INSTITUCIÓN (los mismos datos) ---------- #}
             <div class="demo-card" data-qc-when="empresa">
-              <div class="demo-card__head"><i class="fa fa-building"></i>Datos de la empresa</div>
+              <div class="demo-card__head"><i class="fa fa-building"></i>Datos de la empresa o institución</div>
               <div class="demo-card__body">
                 <div class="row g-2">
                   <div class="col-12 col-md-5">
@@ -95,7 +104,7 @@
                     <input class="form-control" name="nick" data-qc-nick>
                   </div>
                   <div class="col-12 col-md-7">
-                    <label class="form-label">Nombre de la empresa</label>
+                    <label class="form-label">Nombre oficial <span class="text-muted small fw-normal">(razón social)</span></label>
                     <input class="form-control" name="legal_name" placeholder="Razón social">
                   </div>
                   <div class="col-12 col-md-5">

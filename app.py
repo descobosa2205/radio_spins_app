@@ -99745,11 +99745,37 @@ def _camerinos_item(it: dict, day: str, catalog: dict, venue_name: str, personne
     }
 
 
+def _camerinos_brand(session_db, entity_type: str, row) -> dict:
+    """EL LOGO de la barra de la pantalla: el de la empresa del grupo que PROMUEVE la actividad o, si
+    no, el de la que FACTURA (lo pidió Dani). En un concierto es el punto único de siempre
+    (`_buyer_source_company`: `group_company_id` → `billing_company_id` → el socio); en una promoción,
+    su empresa. Sin ninguna (una acción, un promotor de fuera), el de 33 Producciones.
+    ⚠️ La URL pasa por `_logo_clean_url` (fuera el fondo blanco horneado) y en la pantalla el logo se
+    pinta CALADO EN BLANCO por CSS (`filter: brightness(0) invert(1)`, el mismo truco de la banda roja
+    del pase de personal): así se integra en la barra de color sin necesitar una pastilla blanca."""
+    co = None
+    try:
+        if isinstance(row, Concert):
+            co = _buyer_source_company(session_db, {"concert_id": str(row.id)})
+        elif isinstance(row, Promotion):
+            co = getattr(row, "company", None)
+            if co is None and getattr(row, "company_id", None):
+                co = session_db.get(GroupCompany, row.company_id)
+    except Exception:
+        app.logger.exception("[camerinos] no se pudo resolver la empresa del grupo de la actividad")
+        co = None
+    logo = (getattr(co, "logo_url", None) or "").strip() if co is not None else ""
+    if logo:
+        return {"url": _logo_clean_url(logo), "name": (getattr(co, "name", "") or "").strip() or "Empresa del grupo"}
+    return {"url": url_for("static", filename="img/logo_33_producciones.png"), "name": "33 Producciones"}
+
+
 def _camerinos_context(session_db) -> dict:
     """TODO lo que pinta la pantalla de los camerinos. Con nada elegido (o una actividad que ya no
     existe), `active=False` y la pantalla lo dice."""
     base = {"active": False, "poll": CAMERINOS_POLL_SECONDS, "kind": "", "kind_label": "", "title": "",
             "subtitle": "", "when": "", "venue": "", "photo": "", "word": "", "days": [], "sub": "", "version": ""}
+    base["logo"] = _camerinos_brand(session_db, "", None)
     sel = _camerinos_setting()
     if not sel:
         return base
@@ -99780,13 +99806,14 @@ def _camerinos_context(session_db) -> dict:
     sub = " · ".join(x for x in [card["title"], card["subtitle"], card["venue_short"], card["date"]] if x)
     return dict(base, active=True, kind=kind, kind_label=card["kind_label"], title=card["title"],
                 subtitle=card["subtitle"], when=card["date"], venue=card["venue_short"], photo=card["photo"],
-                word=card["word"], days=dias, sub=sub)
+                word=card["word"], days=dias, sub=sub, logo=_camerinos_brand(session_db, entity_type, row))
 
 
 def _camerinos_version(cam: dict, panel_html: str) -> str:
     """La VERSIÓN de lo que se ve: cambia si cambia el trozo pintado o la cabecera. La pantalla la
     compara en cada sondeo y solo repinta cuando es distinta."""
-    cabecera = json.dumps({"active": cam.get("active"), "kind": cam.get("kind"), "sub": cam.get("sub")},
+    cabecera = json.dumps({"active": cam.get("active"), "kind": cam.get("kind"), "sub": cam.get("sub"),
+                           "logo": cam.get("logo")},
                           sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha1((cabecera + "\n" + (panel_html or "")).encode("utf-8")).hexdigest()[:12]
 
@@ -99875,6 +99902,8 @@ def public_camerinos_panel():
         resp = jsonify({"ok": True, "v": v, "changed": cambiado, "html": (panel_html if cambiado else ""),
                         "sub": cam.get("sub") or "", "kind": cam.get("kind") or "",
                         "active": bool(cam.get("active")), "asset_v": str(_ASSET_VERSION),
+                        "logo": ((cam.get("logo") or {}).get("url") or ""),
+                        "logo_name": ((cam.get("logo") or {}).get("name") or ""),
                         "poll": CAMERINOS_POLL_SECONDS})
         resp.headers["Cache-Control"] = "no-store"
         return resp

@@ -41,7 +41,8 @@ os.environ.setdefault("FLASK_SECRET_KEY", "check-camerinos")
 os.environ.setdefault("PGCONNECT_TIMEOUT", "5")
 
 import app as A                                       # noqa: E402
-from models import (Artist, Concert, ConcertArtistNotification, User, UserProfile, Venue)   # noqa: E402
+from models import (Artist, Concert, ConcertArtistNotification, GroupCompany, User, UserProfile,   # noqa: E402
+                    Venue)
 
 A.app.config["WTF_CSRF_ENABLED"] = False
 OK = FALLOS = 0
@@ -62,12 +63,16 @@ TELEFONO = "+34611222333"          # de una persona de contacto: NO puede salir 
 LOCALIZADOR = "LOCALIZADORSECRETO"  # de un pasajero: tampoco
 NOTA = "NOTASECRETACAMERINO"       # la nota de un punto: tampoco
 HABITACION = "HAB777SECRETA"       # el número de habitación: tampoco
+EMPRESA = "Grupo Camerinos Prueba"  # la empresa del grupo que promueve: SU logo va en la barra
+LOGO_EMPRESA = "https://x/logo-camerinos-prueba.png"
 
 
 def limpia(s):
     for c in s.query(Concert).filter(Concert.festival_name.in_(NOMBRES)).all():
         s.query(ConcertArtistNotification).filter(ConcertArtistNotification.concert_id == c.id).delete()
         s.delete(c)
+    s.commit()
+    s.query(GroupCompany).filter(GroupCompany.name == EMPRESA).delete(synchronize_session=False)
     s.commit()
     A._camerinos_store({})
 
@@ -93,6 +98,7 @@ def datos():
             u.role = role
             return u
         prod = usuario("dir.camerinos@prueba.local", "dircam", 10)
+        gc = GroupCompany(name=EMPRESA, logo_url=LOGO_EMPRESA); s.add(gc); s.flush()
         nadie = usuario("nadie.camerinos@prueba.local", "nadiecam", 1)
 
         def punto(i, kind, titulo, hora, **extra):
@@ -103,7 +109,7 @@ def datos():
         c = Concert(artist_id=art.id, festival_name=NOMBRES[0], activity_type="CONCIERTO",
                     sale_type="VENDIDO", capacity=500, date=HOY, status="CONFIRMADO",
                     venue_id=ven.id, production_owner_user_id=prod.id, created_by_user_id=prod.id,
-                    ticketing_payload={"entry_mode": "SALE"})
+                    group_company_id=gc.id, ticketing_payload={"entry_mode": "SALE"})
         s.add(c); s.flush()
         c.roadmap_payload = {
             "version": 2,
@@ -141,6 +147,12 @@ def datos():
         s.close()
 
 
+def logo_barra(html):
+    """El `src` del logo de la BARRA (no el del velo de arranque, que es el de la casa sobre blanco)."""
+    m = re.search(r'<img id="camLogo" class="cam-bar__logo" src="([^"]*)"', html)
+    return m.group(1) if m else ""
+
+
 def cliente(uid=None):
     c = A.app.test_client()
     if uid:
@@ -163,7 +175,8 @@ def main():
     html = r.get_data(as_text=True)
     check("/camerinos responde sin sesión", r.status_code == 200, r.status_code)
     check("dice que no hay ninguna hoja de ruta", "No hay ninguna hoja de ruta en camerinos" in html)
-    check("lleva la barra con «Horarios» y los dos logos", "Horarios" in html and "logo_33_producciones.png" in html and "img/logo.png" in html)
+    check("lleva la barra con «Horarios» y, sin actividad, el logo de la casa calado", "Horarios" in html and "logo_33_producciones.png" in logo_barra(html) and "cam-bar__logo" in html)
+    check("la hora va sin segundos", "camSec" not in html and 'id="camClock"' in html)
     check("no se cachea", "no-store" in (r.headers.get("Cache-Control") or ""))
     r2 = anon.get("/Camerinos")
     check("/Camerinos (con mayúscula) también vale", r2.status_code == 200, r2.status_code)
@@ -195,6 +208,8 @@ def main():
     html = r.get_data(as_text=True)
     check("la pantalla responde", r.status_code == 200, r.status_code)
     check("la cabecera dice de quién es y dónde", NOMBRES[0] in html and "Sala Camerinos" in html)
+    check("la barra lleva el logo de la EMPRESA DEL GRUPO que promueve (por el limpiador de fondos)",
+          "logo-camerinos-prueba.png" in logo_barra(html) and "logo-limpio.png" in logo_barra(html), logo_barra(html))
     check("sale el concierto con su hora", "Concierto" in html and "21:00–22:30" in html)
     check("sale la comida en su espacio del recinto", "Sala Camerinos · Camerino 2" in html)
     check("sale la apertura de puertas", "Apertura de puertas" in html)
@@ -220,6 +235,7 @@ def main():
     rp = anon.get("/camerinos/panel?v=otra")
     j = rp.get_json() or {}
     check("con otra versión el sondeo manda el trozo pintado", j.get("changed") is True and "Concierto" in (j.get("html") or "") and NOMBRES[0] in (j.get("sub") or ""))
+    check("y dice qué logo toca", "logo-camerinos-prueba.png" in (j.get("logo") or "") and j.get("logo_name") == EMPRESA, j.get("logo"))
 
     print("4 · La técnica, y que la versión sigue a la hoja de ruta")
     r = prod.post(url_set, json={"action": "show", "kind": "TECNICA"})
@@ -259,6 +275,7 @@ def main():
     check("la primera ya no es la que se ve", (st1.get("active") or {}).get("is_this") is False and (st1.get("active") or {}).get("title") == NOMBRES[1])
     html = anon.get("/camerinos").get_data(as_text=True)
     check("la pantalla enseña la segunda", NOMBRES[1] in html and "Concierto 2" in html and "Comida del equipo" not in html)
+    check("sin empresa del grupo, la barra vuelve al logo de la casa", "logo_33_producciones.png" in logo_barra(html))
     r = prod.post(url_set, json={"action": "stop"})
     check("quitar desde la que NO se ve no la quita (409)", r.status_code == 409, r.status_code)
     r = prod.post(url_set2, json={"action": "stop"})

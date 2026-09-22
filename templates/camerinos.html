@@ -28,10 +28,14 @@
     .cam-bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:1.2rem;padding:.6rem 1.4rem;
       min-height:86px;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.18);
       background:linear-gradient(100deg,var(--cam-red) 0%,var(--cam-red) 42%,var(--cam-blue) 100%);}
-    .cam-bar__logos{display:flex;align-items:center;gap:1rem;background:#fff;border-radius:14px;padding:.45rem .9rem;flex:0 0 auto;}
-    /* ⚠️ Lo de tamaño fijo dice que no se encoge (la regla de la casa): sin esto el `img{max-width:100%}`
-       de la app dejaba el logo a 0 px dentro de la pastilla. */
-    .cam-bar__logos img{height:44px;width:auto;max-width:none;flex:0 0 auto;display:block;object-fit:contain;}
+    /* EL LOGO de la empresa del grupo que promueve (o factura), CALADO EN BLANCO: el mismo truco de la
+       banda roja del pase de personal (`brightness(0) invert(1)` deja lo dibujado en blanco y respeta
+       la transparencia), así no necesita pastilla blanca y se integra en la barra de color.
+       ⚠️ Lo de tamaño fijo dice que no se encoge (la regla de la casa): el `img{max-width:100%}` de
+       la app dejaba el logo a 0 px dentro de un hueco flexible. */
+    .cam-bar__brand{flex:0 0 auto;display:flex;align-items:center;}
+    .cam-bar__logo{display:block;height:52px;width:auto;max-width:230px;max-height:52px;object-fit:contain;object-position:left center;
+      filter:brightness(0) invert(1);}
     .cam-bar__title{flex:1 1 auto;min-width:0;}
     .cam-bar__h{font-size:clamp(1.5rem,3vw,2.3rem);font-weight:800;line-height:1.05;letter-spacing:.01em;}
     /* De quién es, dónde y qué día: cabe en dos líneas (la fecha va entera, con su día de la semana). */
@@ -39,9 +43,9 @@
       display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
     .cam-bar__kind{display:inline-block;margin-left:.5rem;padding:.05rem .55rem;border-radius:999px;background:rgba(255,255,255,.22);
       font-size:.72em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:middle;}
+    /* La hora, sin segundos (lo pidió Dani). */
     .cam-bar__clock{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:800;font-size:clamp(2.2rem,5vw,3.5rem);line-height:1;
-      display:flex;align-items:baseline;gap:.25rem;text-shadow:0 2px 10px rgba(0,0,0,.18);}
-    .cam-bar__clock small{font-size:.4em;font-weight:700;opacity:.85;}
+      text-shadow:0 2px 10px rgba(0,0,0,.18);}
     main.cam-main{padding:1.1rem 1.4rem 5rem;max-width:1400px;margin:0 auto;}
     /* ── LOS HORARIOS: la agenda de la casa, a tamaño de pantalla de camerino ── */
     .cam-main .rm-item{cursor:default;padding:.85rem 1rem;grid-template-columns:52px 1fr auto;border-radius:16px;transition:box-shadow .3s,opacity .3s,transform .3s;}
@@ -100,7 +104,7 @@
     .cam-status.is-on{display:inline-flex;align-items:center;gap:.45rem;}
     @media (max-width:640px){
       .cam-bar{gap:.7rem;padding:.5rem .8rem;min-height:70px;}
-      .cam-bar__logos img{height:30px;} .cam-bar__logos{gap:.5rem;padding:.35rem .6rem;}
+      .cam-bar__logo{height:34px;max-height:34px;max-width:140px;}
       .cam-bar__sub{white-space:normal;font-size:.8rem;}
       main.cam-main{padding:.8rem .8rem 4rem;}
       .cam-main .rm-item{grid-template-columns:40px 1fr auto;padding:.6rem .7rem;}
@@ -113,15 +117,14 @@
 </head>
 <body class="cam">
   <header class="cam-bar">
-    <div class="cam-bar__logos">
-      <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
-      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records">
-    </div>
+    {# El logo de la empresa del grupo que promueve (o factura) la actividad, calado en blanco
+       (`_camerinos_brand`); sin actividad o sin empresa del grupo, el de 33 Producciones. #}
+    <div class="cam-bar__brand"><img id="camLogo" class="cam-bar__logo" src="{{ cam.logo.url }}" alt="{{ cam.logo.name }}"></div>
     <div class="cam-bar__title">
       <div class="cam-bar__h">Horarios</div>
       <div class="cam-bar__sub" id="camSub">{{ cam.sub }}{% if cam.active and cam.kind == 'TECNICA' %}<span class="cam-bar__kind">Hoja técnica</span>{% endif %}</div>
     </div>
-    <div class="cam-bar__clock" aria-live="off"><span id="camClock">--:--</span><small id="camSec">--</small></div>
+    <div class="cam-bar__clock" aria-live="off"><span id="camClock">--:--</span></div>
   </header>
 
   <main class="cam-main" id="camPanel" data-v="{{ cam.version }}">{{ panel_html }}</main>
@@ -149,7 +152,8 @@
     var PANEL_URL = {{ url_for('public_camerinos_panel')|tojson }};
     var panel = document.getElementById('camPanel');
     var sub = document.getElementById('camSub');
-    var clock = document.getElementById('camClock'), sec = document.getElementById('camSec');
+    var clock = document.getElementById('camClock');
+    var logo = document.getElementById('camLogo');
     var status = document.getElementById('camStatus');
     var gate = document.getElementById('camGate');
     var audio = document.getElementById('camKeep');
@@ -167,8 +171,8 @@
       return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0).getTime();
     }
 
-    /* ── EL RELOJ ── */
-    function tick() { var d = new Date(); clock.textContent = hhmm(d); sec.textContent = pad(d.getSeconds()); }
+    /* ── EL RELOJ (sin segundos) ── */
+    function tick() { clock.textContent = hhmm(new Date()); }
     tick(); setInterval(tick, 1000);
 
     /* ── DÓNDE ESTAMOS: lo pasado se apaga, lo de ahora se remarca, lo siguiente se anuncia y la
@@ -243,6 +247,8 @@
           fallos = 0; status.classList.remove('is-on');
           // Hay una versión nueva de la app desplegada: la página entera se recarga (JS y CSS nuevos).
           if (d.asset_v && String(d.asset_v) !== String(ASSET_V)) { location.reload(); return; }
+          // El logo es el de la empresa de la actividad que se ve: si cambia la actividad, cambia él.
+          if (d.logo && logo && logo.getAttribute('src') !== d.logo) { logo.setAttribute('src', d.logo); logo.setAttribute('alt', d.logo_name || ''); }
           if (d.v && d.v !== version) {
             version = d.v; panel.setAttribute('data-v', version);
             panel.innerHTML = d.html || '';

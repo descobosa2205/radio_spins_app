@@ -839,8 +839,11 @@ transporte): ahí se quita y deja de salir.
 
 - ⚠️⚠️ **HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show** (sep 2026, lo pidió Dani). En
   cada camerino hay un Alexa Echo Show 8 con el navegador abierto en **`app.33producciones.es/camerinos`**
-  (`/Camerinos` con mayúscula también vale): la barra de la casa arriba —los dos logos, «Horarios» y la
-  hora en grande— y debajo **los horarios de la hoja de ruta que producción haya elegido**, con el
+  (`/Camerinos` con mayúscula también vale): la barra de la casa arriba —**el logo de la empresa del
+  grupo que PROMUEVE la actividad o, si no, de la que FACTURA** (`_camerinos_brand` ← el punto único
+  `_buyer_source_company`; sin ninguna, el de 33 Producciones), **calado en blanco** por CSS
+  (`brightness(0) invert(1)`, el truco de la banda del pase de personal, tras pasar por
+  `_logo_clean_url`), «Horarios» y la hora en grande **sin segundos**— y debajo **los horarios de la hoja de ruta que producción haya elegido**, con el
   aspecto de la app (las clases `.rm-*` de la agenda, a tamaño de pantalla), **lo pasado apagado, el
   punto de AHORA remarcado, el SIGUIENTE anunciado y una línea roja en la hora actual**. Se coloca sola
   para que se vea lo de ahora (si nadie la está tocando). Plantillas `camerinos.html` (la página, con su

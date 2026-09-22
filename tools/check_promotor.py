@@ -302,7 +302,9 @@ def main() -> int:
     ficha = cli.get("/conciertos/%s?tab=general" % cid).get_data(as_text=True)
     comprueba("el botón DESAPARECE de la barra al confirmarse",
               "Notificar al promotor" not in ficha)
-    comprueba("y queda la etiqueta verde", "Promotor confirmado" in ficha)
+    # ⚠️ La etiqueta se llama «Promotor OK» (sep 2026, lo pidió Dani así para las tres: Artista OK,
+    # Promotor OK y la amarilla de lo que está pedido).
+    comprueba("y queda la etiqueta verde «Promotor OK»", "Promotor OK" in ficha)
 
     # ── 6 · LA FICHA DEL PROMOTOR ──────────────────────────────────────────────────────────
     print("\n6 · Su ficha (enlace público)")

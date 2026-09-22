@@ -71,6 +71,7 @@
 - LOS FILTROS Y LA FILA DE UN LISTADO DE ACTIVIDADES SON UN SOLO SITIO. Los
 - LA AGRUPACIÓN POR «GRATUITOS» DESAPARECE, Y LA FILA DICE QUÉ ES CADA ACTIVIDAD.
 - EL CACHÉ LO PUEDEN CUBRIR LOS SOCIOS, CADA UNO SU PARTE
+- LA BARRA DE LA FICHA: LO QUE YA ESTÁ HECHO ES UNA ETIQUETA, NO UN BOTÓN
 - LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR: SE COBRAN, PERO NO SON CACHÉ
 - LA FORMA DE PAGO DEL CACHÉ SE CONFIGURA EN LA FICHA, Y SE AVISA SI FALTA.
 - MARKETING · LA EMPRESA LA DICTA LA ACTIVIDAD: en una campaña vinculada a una
@@ -1516,6 +1517,24 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   ⚠️ Con el artista **no cambia nada**: lo que se le reparte sigue siendo su caché
   (`_artist_cash_concert_settled` deja fuera las líneas de socios, igual que las de equipos).
   · Cubierto por **`tools/check_plan_pagos.py`** (33 comprobaciones).
+
+- ⚠️⚠️ **LA BARRA DE LA FICHA: LO QUE YA ESTÁ HECHO ES UNA ETIQUETA, NO UN BOTÓN** (sep 2026, lo
+  pidió Dani). La regla ya estaba en el aviso al artista y en el del promotor, pero tres sitios se
+  habían quedado fuera y seguían ofreciendo pedir algo que ya estaba dado:
+  · **ARTISTA** — si ya ha dicho que sí, **«Artista OK»** en verde y **fuera el botón** de pedirle la
+  confirmación (y el de marcarlo a mano). ⚠️ El sí del artista llega por **DOS sitios** —la fase de
+  la petición (`pf.artist_ok.done`) y su respuesta al aviso (`artist_confirmation`)— y solo se
+  miraba el primero: con el segundo, la etiqueta verde salía arriba **y debajo seguía el botón**.
+  · **FECHA DE ANUNCIO Y CARTELERÍA** — en cuanto se le ha pedido (`announce_ask.asked_label`), la
+  pelota es suya: queda la etiqueta **AMARILLA** («Cartelería y fecha de anuncio pendientes» /
+  «Cartelería pendiente» / «Fecha de anuncio pendiente») y **no el botón**. Como la del artista,
+  **se pincha** para volver a pedírselo, así no se pierde la acción.
+  · **PROMOTOR** — la etiqueta verde pasa a llamarse **«Promotor OK»** (el botón ya desaparecía).
+  ⚠️ Los tres rótulos van en el mismo idioma: **Artista OK · Promotor OK** en verde y lo pedido en
+  amarillo. Si se cambia uno, se cambian los tres.
+  ⚠️ Comprobado con la app real en los cuatro escenarios, y amarrado en `tools/check_anuncio_carteleria.py`
+  (que además comprueba que lo que queda es la ETIQUETA y no el botón: buscar el texto no basta,
+  porque el rótulo también está dentro del pop-up).
 
 - ⚠️⚠️ **LOS EQUIPOS QUE SE LE FACTURAN AL PROMOTOR: SE COBRAN, PERO NO SON CACHÉ** (sep 2026, lo
   pidió Dani). Cuando en Equipamiento se marca **«Promotor cubre equipos»**, se pregunta **«¿Hay que

@@ -157,6 +157,19 @@ def main() -> int:
               bool(c.announce_ask_at) and c.announce_ask_kind == "BOTH"
               and c.announce_ask_recipients == [prom.contact_email],
               (c.announce_ask_at, c.announce_ask_kind, c.announce_ask_recipients))
+    # ⚠️⚠️ YA PEDIDO = ETIQUETA, NO BOTÓN (sep 2026, lo pidió Dani: «cuando ya está solicitado
+    # aparece etiqueta en amarillo como pendiente, pero no el botón»). Lo que queda por hacer es de
+    # ellos, así que aquí no puede seguir habiendo un botón de pedirlo — la etiqueta se pincha para
+    # volver a mandárselo, que es el patrón de la barra.
+    import re as _re
+    _html = cli.get("/conciertos/%s?tab=general" % cid).get_data(as_text=True)
+    comprueba("ya pedido: NO queda el botón de pedirlo",
+              not _re.search(r'<button[^>]*btn-outline-primary[^>]*announceAskModal', _html))
+    comprueba("…y sí la etiqueta AMARILLA de pendiente",
+              bool(_re.search(r'badge text-bg-warning[^>]*announceAskModal', _html)))
+    comprueba("que dice qué se pidió", "Cartelería y fecha de anuncio pendientes" in _html)
+    comprueba("y se pincha para volver a pedírselo", "pincha para volver a pedírselo" in _html)
+
     comprueba("la cartelería queda pedida al promotor",
               req is not None and req.handled_by == "PROMOTER" and req.status == "REQUESTED")
     cuerpo = correos[0][2] if correos else ""

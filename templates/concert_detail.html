@@ -159,7 +159,7 @@
   {% elif artist_confirmation and artist_confirmation.answered and artist_confirmation.ok %}
     <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
           title="El artista la confirmó el {{ artist_confirmation.at_label }}">
-      <i class="fa fa-user-check me-1"></i>Confirmada por el artista
+      <i class="fa fa-user-check me-1"></i>Artista OK
     </span>
   {% elif artist_confirmation and artist_confirmation.answered %}
     <span class="badge text-bg-danger align-self-center" data-bs-toggle="tooltip"
@@ -172,10 +172,16 @@
      ⚠️ Mientras la anterior no esté, la siguiente sale con candado y se dice por qué. #}
   {% if peticion_phases %}
     {% set pf = peticion_phases %}
-    {% if pf.artist_ok.done %}
+    {# ⚠️⚠️ YA HA DICHO QUE SÍ: SOLO LA ETIQUETA (sep 2026, lo pidió Dani: «el botón de pedir
+       confirmación tiene que desaparecer si ya está aprobado por el artista y notificado»). Vale
+       tanto si se apuntó en la fase (`pf.artist_ok.done`) como si contestó que sí al aviso
+       (`artist_confirmation`): son la MISMA respuesta vista desde dos sitios, y mientras solo se
+       miraba la primera se le seguía ofreciendo pedirle algo que ya había dado. #}
+    {% set artista_ok = pf.artist_ok.done or (artist_confirmation and artist_confirmation.answered and artist_confirmation.ok) %}
+    {% if artista_ok %}
       <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
-            title="El artista confirmó la fecha{% if pf.artist_ok.at_label %} el {{ pf.artist_ok.at_label }}{% endif %}{% if pf.artist_ok.by %} · lo apuntó {{ pf.artist_ok.by }}{% endif %}">
-        <i class="fa fa-user-check me-1"></i>Artista confirmado
+            title="El artista confirmó la fecha{% if pf.artist_ok.at_label %} el {{ pf.artist_ok.at_label }}{% elif artist_confirmation and artist_confirmation.at_label %} el {{ artist_confirmation.at_label }}{% endif %}{% if pf.artist_ok.by %} · lo apuntó {{ pf.artist_ok.by }}{% endif %}">
+        <i class="fa fa-user-check me-1"></i>Artista OK
       </span>
     {% elif pf.artist_ok.mine %}
       {# ⚠️ Se le PIDE al artista con el aviso de siempre (kind CONFIRMAR): el correo y la landing
@@ -221,7 +227,7 @@
     {% if promoter_state.notified %}
       <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
             title="{{ 'Se marcó a mano' if promoter_state.manual else 'Se le comunicó' }}{% if promoter_state.at_label %} el {{ promoter_state.at_label }}{% endif %}{% if promoter_state.by %} por {{ promoter_state.by }}{% endif %}{% if promoter_state.to_label %} · a {{ promoter_state.to_label }}{% endif %}">
-        <i class="fa fa-handshake me-1"></i>Promotor confirmado
+        <i class="fa fa-handshake me-1"></i>Promotor OK
       </span>
     {% elif CAN_EDIT_CONCERTS %}
       <a class="btn btn-outline-warning btn-sm" href="{{ url_for('concert_promoter_notice_view', cid=concert.id) }}">
@@ -280,12 +286,22 @@
      servidor (`_announce_ask_state`), que es el mismo que compone el correo. Con la fecha ya
      puesta solo se le piden los carteles, y si los carteles los hacemos nosotros, solo la fecha. #}
   {% if announce_ask and announce_ask.applies and CAN_EDIT_CONCERTS %}
-    <button class="btn btn-outline-primary btn-sm" type="button"
-            data-bs-toggle="modal" data-bs-target="#announceAskModal"
-            title="Se le manda un correo al promotor con la cabecera de la actividad y sus botones">
-      <i class="fa fa-calendar-check me-1"></i>{{ announce_ask.label }}
-      {% if announce_ask.asked_label %}<span class="badge text-bg-light border ms-1" title="Se le pidió el {{ announce_ask.asked_label }}">pedido</span>{% endif %}
-    </button>
+    {% if announce_ask.asked_label %}
+      {# ⚠️⚠️ YA SE LE PIDIÓ: la pelota está en su tejado, así que aquí no hay nada que hacer y el
+         botón sale de los destacados (sep 2026, lo pidió Dani). Queda la etiqueta AMARILLA de que
+         está pendiente y —como la del artista— SE PINCHA para volver a pedírselo. #}
+      <a class="badge text-bg-warning text-dark align-self-center text-decoration-none" role="button"
+         data-bs-toggle="modal" data-bs-target="#announceAskModal"
+         title="{{ announce_ask.label }} · se le pidió el {{ announce_ask.asked_label }} · pincha para volver a pedírselo">
+        <i class="fa fa-hourglass-half me-1"></i>{{ 'Cartelería y fecha de anuncio pendientes' if announce_ask.kind == 'BOTH' else ('Cartelería pendiente' if announce_ask.kind == 'ARTWORK' else 'Fecha de anuncio pendiente') }}
+      </a>
+    {% else %}
+      <button class="btn btn-outline-primary btn-sm" type="button"
+              data-bs-toggle="modal" data-bs-target="#announceAskModal"
+              title="Se le manda un correo al promotor con la cabecera de la actividad y sus botones">
+        <i class="fa fa-calendar-check me-1"></i>{{ announce_ask.label }}
+      </button>
+    {% endif %}
   {% elif announce_ask and announce_ask.confirmed_label and concert.announcement_date %}
     <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
           title="{{ announce_ask.confirmed_label }} · lo confirmó el promotor desde el enlace que se le mandó">

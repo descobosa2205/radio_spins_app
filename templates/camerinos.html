@@ -273,11 +273,28 @@
       try { navigator.wakeLock.request('screen').then(function (l) { wake = l; }).catch(function () {}); } catch (e) {}
     }
     var intervaloKeep = null;
+    /* ⚠️ PANTALLA COMPLETA: ningún navegador deja que una página se ponga a pantalla completa SOLA
+       (hace falta un toque, es una regla de seguridad de Chromium y Silk es Chromium). Así que el
+       velo de arranque sale siempre que no estemos ya a pantalla completa, y su toque la pide; y si
+       alguien sale de ella, el SIGUIENTE toque en cualquier sitio vuelve a entrar. Lo pidió Dani
+       («que siempre se abra sola a pantalla completa»): esto es lo más cerca que puede estar una web. */
+    function pantallaCompleta() {
+      try {
+        var de = document.documentElement;
+        if (!document.fullscreenElement && de.requestFullscreen) { var p = de.requestFullscreen({ navigationUI: 'hide' }); if (p && p.catch) p.catch(function () {}); }
+      } catch (e) {}
+    }
+    /* ⚠️ El velo se pide UNA vez: tras el toque desaparece aunque el navegador haya negado la pantalla
+       completa (si no, en un aparato que la niegue se quedaría puesto para siempre tapando los horarios,
+       visto en la prueba). Si el aparato sale de pantalla completa más tarde, el siguiente toque vuelve. */
+    var tocado = false;
     function mantenerDespierto() {
       var p;
       try { audio.volume = 1; p = audio.play(); } catch (e) { p = null; }
       if (p && p.then) {
-        p.then(function () { gate.hidden = true; }).catch(function () { gate.hidden = false; });
+        // Aunque el audio arranque solo, sin pantalla completa el velo se queda para pedir el toque.
+        p.then(function () { gate.hidden = tocado || !!document.fullscreenElement || !document.fullscreenEnabled; })
+         .catch(function () { gate.hidden = tocado; });
       }
       if (!intervaloKeep) {
         intervaloKeep = setInterval(function () {
@@ -287,10 +304,12 @@
       pedirWake();
     }
     gate.addEventListener('click', function () {
+      tocado = true;
       gate.hidden = true;
       mantenerDespierto();
-      try { var de = document.documentElement; if (de.requestFullscreen) de.requestFullscreen().catch(function () {}); } catch (e) {}
+      pantallaCompleta();
     });
+    document.addEventListener('pointerdown', function () { if (gate.hidden) pantallaCompleta(); }, { passive: true });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') { pedirWake(); tick(); marcarAhora(false); }
     });

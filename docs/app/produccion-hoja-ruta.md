@@ -875,8 +875,11 @@ transporte): ahí se quita y deja de salir.
   · **NO SE APAGA**: Silk (el navegador del Echo Show) vuelve a la pantalla de inicio a los ~10 min si
   «no pasa nada», y Amazon no deja desactivarlo; el truco conocido (`keep-silk-open`) es un **audio
   SILENCIOSO en bucle** que se recarga cada minuto (`static/audio/silencio.wav`, un WAV de un segundo)
-  más el **wake lock** de pantalla. ⚠️ El navegador solo deja sonar tras un TOQUE: si el autoplay
-  falla sale el velo **«Toca la pantalla para empezar»**, y ese toque pide además la pantalla completa.
+  más el **wake lock** de pantalla. ⚠️ El navegador solo deja sonar —y ponerse a PANTALLA COMPLETA—
+  tras un TOQUE (regla de Chromium, y Silk es Chromium): el velo **«Toca la pantalla para empezar»**
+  sale siempre que no se esté ya a pantalla completa, su toque la pide (`pantallaCompleta`) y, si
+  alguien sale de ella, el siguiente toque en cualquier sitio vuelve a entrar. Una web no puede
+  hacerlo sola: eso solo lo da una skill (ver la nota de camerinos en la memoria del proyecto).
   · Permisos: elegir es MONTAR producción (`_production_can_edit`); `camerinos_set` va en
   `SUPPORT_ACTION_ENDPOINTS` y `camerinos_state` en `SUPPORT_READ_ENDPOINTS`; los dos públicos llevan
   el prefijo `public_` y están en `PUBLIC_ENDPOINTS_EXTRA`. ⚠️ Los de la casa NO llevan el prefijo

@@ -1,0 +1,109 @@
+{% extends "layout.html" %}
+{# CONTROL DE CAMERINOS (sep 2026, lo pidió Dani): la página para un Alexa (o cualquier pantalla táctil)
+   en la oficina de producción o en un camerino. Con un toque: mandar un aviso rápido a las pantallas,
+   escribir uno nuevo, cambiar qué hoja de ruta se ve y AÑADIR O MODIFICAR la propia hoja de ruta (es
+   el panel de la hoja de ruta de la actividad que se está viendo, con todo lo que se puede hacer en él).
+   Exige sesión de la casa y poder editar Producción (`controlcamerinos_view`). #}
+{% block content %}
+<div class="ctl-bar">
+  <img class="ctl-bar__logo" src="{{ ctl.logo.url }}" alt="{{ ctl.logo.name }}">
+  <div class="ctl-bar__title">
+    <div class="ctl-bar__h"><i class="fa fa-tv me-2"></i>Control de camerinos</div>
+    <div class="ctl-bar__sub">
+      <span class="rm-tag {% if ctl.online %}ok{% else %}warn{% endif %}"><i class="fa fa-tv"></i> {% if ctl.online %}{{ ctl.online }} pantalla{{ '' if ctl.online == 1 else 's' }} conectada{{ '' if ctl.online == 1 else 's' }}{% else %}Ninguna pantalla conectada{% endif %}</span>
+      {% if ctl.active %}<span class="ms-2">Se ve ahora: <b>{{ ctl.active.word }} · {{ ctl.active.title }}</b> · {{ ctl.active.kind_label }}</span>{% else %}<span class="ms-2">Ahora no se ve ninguna hoja de ruta.</span>{% endif %}
+    </div>
+  </div>
+  <div class="ctl-bar__clock" id="ctlClock">--:--</div>
+  <button type="button" class="btn btn-outline-light btn-sm ctl-bar__fs" id="ctlFs" title="Pantalla completa"><i class="fa fa-expand"></i></button>
+</div>
+
+{% if ctl.active %}
+  {% set a = ctl.active %}
+  <div class="ctl-card" data-cam-set-url="{{ a.set_url }}" data-cam-state-url="{{ a.state_url }}" data-cam-screen-url="{{ ctl.screen_url }}">
+    <div class="ctl-card__head">
+      <div class="cam-card">
+        {% if a.photo %}<img src="{{ a.photo }}" alt="">{% else %}<span class="cam-card__ico"><i class="fa fa-star"></i></span>{% endif %}
+        <div class="min-w-0">
+          <div class="cam-card__lbl">Se ve ahora en camerinos · {{ a.kind_label }}</div>
+          <div class="cam-card__t">{{ a.word }} · {{ a.title }}</div>
+          {% if a.subtitle or a.venue_short %}<div class="cam-card__s">{{ [a.subtitle, a.venue_short]|select|join(' · ') }}</div>{% endif %}
+          {% if a.date %}<div class="cam-card__s"><i class="fa fa-calendar-day me-1"></i>{{ a.date }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="ctl-actions">
+        <button type="button" class="btn btn-outline-secondary btn-lg" data-cam-open data-cam-reload="1"
+                data-cam-set-url="{{ a.set_url }}" data-cam-state-url="{{ a.state_url }}" data-cam-screen-url="{{ ctl.screen_url }}">
+          <i class="fa fa-tv me-1"></i>Cambiar lo que se ve</button>
+        <button type="button" class="btn btn-danger btn-lg" data-cam-open="avisos"
+                data-cam-set-url="{{ a.set_url }}" data-cam-state-url="{{ a.state_url }}" data-cam-screen-url="{{ ctl.screen_url }}">
+          <i class="fa fa-bell me-1"></i>Nuevo aviso</button>
+      </div>
+    </div>
+
+    {# LOS AVISOS RÁPIDOS: un toque y se manda a las pantallas (con la campana y leído en voz alta). #}
+    <div class="ctl-card__t mt-3"><i class="fa fa-bolt me-2"></i>Avisos rápidos <span class="text-muted fw-normal fs-6">· un toque y se manda</span></div>
+    {% if ctl.notice %}
+      <div class="cam-av-active mb-2"><i class="fa fa-bell text-danger mt-1"></i><div class="min-w-0"><div class="cam-av-active__t">{{ ctl.notice.text }}</div>
+        <div class="cam-av-active__s">En las pantallas ahora · {{ ctl.notice.sent_at_label }}{% if ctl.notice.sent_by %} · {{ ctl.notice.sent_by }}{% endif %}</div></div></div>
+    {% endif %}
+    <div class="cam-av-presets ctl-quick">
+      {% for t in ctl.presets %}
+        <button type="button" class="cam-av-preset ctl-quick__btn" data-cam-quick="{{ t }}"><i class="fa fa-bell"></i><span>{{ t }}</span></button>
+      {% endfor %}
+      {% if not ctl.presets %}<div class="text-muted small">No hay avisos rápidos guardados: se crean desde «Nuevo aviso».</div>{% endif %}
+    </div>
+    <div class="alert py-2 d-none mt-2" data-cam-quick-flash></div>
+  </div>
+
+  <div class="d-flex align-items-center gap-2 mt-4 mb-2">
+    <h5 class="mb-0"><i class="fa fa-route me-2 text-danger"></i>La hoja de ruta que se ve</h5>
+    <span class="text-muted small">Lo que se cambie aquí sale en las pantallas en unos segundos.</span>
+  </div>
+  <div class="card"><div class="card-body">
+    {% set roadmap_ctx = ctl.rm %}
+    {% include '_roadmap_panel.html' %}
+  </div></div>
+{% else %}
+  <div class="ctl-card">
+    <div class="ctl-card__t"><i class="fa fa-tv me-2"></i>¿Qué hoja de ruta se ve en camerinos?</div>
+    <div class="text-muted mb-3">Ahora mismo no se ve ninguna. Elige una actividad de estos días (o entra en la actividad, Producción → Hoja de ruta → Camerinos).</div>
+    {% if not ctl.candidates %}<div class="text-muted">No hay actividades en los próximos días.</div>{% endif %}
+    <div class="ctl-cands">
+      {% for c in ctl.candidates %}
+        <div class="ctl-cand" data-cam-set-url="{{ c.set_url }}" data-cam-state-url="{{ c.state_url }}" data-cam-screen-url="{{ ctl.screen_url }}">
+          <div class="cam-card">
+            {% if c.photo %}<img src="{{ c.photo }}" alt="">{% else %}<span class="cam-card__ico"><i class="fa fa-star"></i></span>{% endif %}
+            <div class="min-w-0">
+              <div class="cam-card__t">{{ c.word }} · {{ c.title }}</div>
+              {% if c.subtitle or c.venue_short %}<div class="cam-card__s">{{ [c.subtitle, c.venue_short]|select|join(' · ') }}</div>{% endif %}
+              {% if c.date %}<div class="cam-card__s"><i class="fa fa-calendar-day me-1"></i>{{ c.date }}</div>{% endif %}
+            </div>
+          </div>
+          <button type="button" class="btn btn-danger" data-cam-open data-cam-reload="1"
+                  data-cam-set-url="{{ c.set_url }}" data-cam-state-url="{{ c.state_url }}" data-cam-screen-url="{{ ctl.screen_url }}">
+            <i class="fa fa-tv me-1"></i>Mostrar en camerinos</button>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<div class="text-muted small mt-4"><i class="fa fa-link me-1"></i>Las pantallas de los camerinos abren <b>{{ ctl.screen_url }}</b> · <a href="{{ url_for('roadmap_sheet_kinds_view') }}"><i class="fa fa-layer-group me-1"></i>Hojas de ruta de la casa</a></div>
+{% endblock %}
+
+{% block scripts %}
+{# El pop-up de camerinos (qué se ve · avisos) y los avisos rápidos de un toque. Si el panel de la hoja de
+   ruta ya lo cargó, el propio script se protege de cargarse dos veces. #}
+<script src="{{ url_for('static', filename='js/camerinos.js', v=ASSET_V) }}"></script>
+<script>
+(function () {
+  var c = document.getElementById('ctlClock');
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function tick() { var d = new Date(); c.textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  tick(); setInterval(tick, 1000);
+  var fs = document.getElementById('ctlFs');
+  if (fs) fs.addEventListener('click', function () { try { var de = document.documentElement; if (document.fullscreenElement) document.exitFullscreen(); else if (de.requestFullscreen) de.requestFullscreen(); } catch (e) {} });
+})();
+</script>
+{% endblock %}

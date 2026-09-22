@@ -15,6 +15,10 @@
  */
 (function () {
   'use strict';
+  // ⚠️ Puede cargarse desde el panel de la hoja de ruta Y desde una página que lo incluye aparte (el
+  // control de camerinos): la segunda vez no hace nada, o los clics se atenderían dos veces.
+  if (window.__app33CamerinosJs) return;
+  window.__app33CamerinosJs = true;
   var ID = 'rmCamModal';
 
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -116,6 +120,8 @@
     var esEsta = !!(activo && activo.is_this);
     btn.classList.toggle('is-on', esEsta);
     btn.setAttribute('title', esEsta ? ('Se está mostrando en camerinos (' + String(activo.kind_label || '').toLowerCase() + ')') : 'Mostrar en camerinos');
+    // En el control de camerinos la página entera depende de lo que se ve: se recarga con lo nuevo.
+    if (btn.hasAttribute('data-cam-reload')) setTimeout(function () { location.reload(); }, 900);
   }
 
   /* ═══════════════════════════════ QUÉ SE VE (el asistente) ═══════════════════════════════ */
@@ -390,8 +396,25 @@
     cargando(form);
     var inst = bs(m); if (inst) inst.show();
     getJson(urls(btn).state)
-      .then(function (st) { if (!st || !st.ok) { fallo(form, st && st.error); return; } pintar(form, btn, st); })
+      .then(function (st) {
+        if (!st || !st.ok) { fallo(form, st && st.error); return; }
+        // `data-cam-open="avisos"` abre directamente la vista de AVISOS (el control de camerinos).
+        if ((btn.getAttribute('data-cam-open') || '') === 'avisos') pintarAvisos(form, btn, st); else pintar(form, btn, st);
+      })
       .catch(function () { fallo(form); });
+  }
+
+  /* LOS AVISOS RÁPIDOS DE UN TOQUE fuera del pop-up (el control de camerinos): el botón lleva el texto
+     y su contenedor las URLs; se manda con voz y «solo mientras se lee». */
+  function avisoRapido(qb) {
+    var ctx = qb.closest('[data-cam-set-url]');
+    if (!ctx) return;
+    var flash = ctx.querySelector('[data-cam-quick-flash]');
+    function di(texto, ok) { if (!flash) return; flash.className = 'alert py-2 mt-2 ' + (ok ? 'alert-success' : 'alert-danger'); flash.innerHTML = '<i class="fa ' + (ok ? 'fa-circle-check' : 'fa-triangle-exclamation') + ' me-1"></i>' + esc(texto); }
+    qb.disabled = true;
+    postJson(ctx.getAttribute('data-cam-set-url') + '/aviso', { text: qb.getAttribute('data-cam-quick'), speak: true, minutes: 0 })
+      .then(function (resp) { qb.disabled = false; if (!resp || !resp.ok) { di((resp && resp.error) || 'No se pudo mandar el aviso.', false); return; } di(resp.message || 'Aviso enviado.', true); })
+      .catch(function () { qb.disabled = false; di('No hay conexión con el servidor.', false); });
   }
 
   document.addEventListener('click', function (e) {
@@ -403,6 +426,8 @@
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(listo, listo); else { try { window.prompt('Copia el enlace', txt); } catch (_) {} }
       return;
     }
+    var qb = e.target.closest('[data-cam-quick]');
+    if (qb) { e.preventDefault(); avisoRapido(qb); return; }
     var b = e.target.closest('[data-cam-open]');
     if (!b) return;
     e.preventDefault();

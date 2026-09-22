@@ -8661,3 +8661,22 @@ label.ci-imp__row{ cursor:pointer; }
 .rsk-icon-opt{border:1px solid rgba(0,0,0,.08);border-radius:12px;background:#fff;padding:.6rem .3rem;display:flex;flex-direction:column;align-items:center;gap:.3rem;font-size:.72rem;color:#495057;}
 .rsk-icon-opt i{font-size:1.3rem;color:var(--brand-accent,#007ca2);}
 .rsk-icon-opt:hover{border-color:var(--brand-primary,#e33d48);}
+/* ── CONTROL DE CAMERINOS (/controlcamerinos): la barra, la tarjeta de lo que se ve y los avisos de un toque ── */
+.ctl-bar{display:flex;align-items:center;gap:1rem;padding:.7rem 1.1rem;border-radius:16px;color:#fff;margin-bottom:1rem;
+  background:linear-gradient(100deg,#E33D48 0%,#E33D48 42%,#007CA2 100%);box-shadow:0 6px 18px rgba(0,0,0,.15);}
+.ctl-bar__logo{height:40px;width:auto;max-width:170px;max-height:40px;object-fit:contain;flex:0 0 auto;filter:brightness(0) invert(1);margin-right:.6rem;}
+.ctl-bar__title{flex:1 1 auto;min-width:0;}
+.ctl-bar__h{font-size:1.35rem;font-weight:800;line-height:1.1;}
+.ctl-bar__sub{font-size:.9rem;opacity:.95;margin-top:.2rem;display:flex;align-items:center;flex-wrap:wrap;gap:.2rem;}
+.ctl-bar__sub .rm-tag{background:rgba(255,255,255,.9);}
+.ctl-bar__clock{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:800;font-size:2rem;line-height:1;}
+.ctl-bar__fs{flex:0 0 auto;}
+.ctl-card{border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:1rem 1.1rem;}
+.ctl-card__head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;}
+.ctl-card__t{font-weight:800;font-size:1.1rem;}
+.ctl-actions{display:flex;gap:.6rem;flex-wrap:wrap;}
+.ctl-quick .cam-av-preset{font-size:1.1rem;padding:.7rem 1.1rem;}
+.ctl-cands{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.8rem;}
+.ctl-cand{border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:.8rem;display:flex;flex-direction:column;gap:.7rem;background:#fff;}
+.ctl-cand .btn{align-self:flex-start;}
+@media (max-width:640px){.ctl-bar{gap:.6rem;padding:.6rem .8rem;} .ctl-bar__logo{height:28px;} .ctl-bar__clock{font-size:1.4rem;} .ctl-bar__h{font-size:1.05rem;}}

@@ -38,6 +38,7 @@
 - HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show: una sola hoja elegida, sus horarios con
 - CAMERINOS · AVISOS A LAS PANTALLAS: la campanita del pop-up, los avisos rápidos de un toque, la nota
 - LAS HOJAS DE RUTA DE LA CASA: las dos de serie y las que se creen con su nombre y su icono (el catálogo,
+- EL CONTROL DE CAMERINOS (/controlcamerinos): la página del Alexa de la oficina: lo que se ve, avisos de
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 - TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
@@ -978,6 +979,27 @@ transporte): ahí se quita y deja de salir.
   rápidos como estaba). Probado además en el navegador: el pop-up, el envío de un rápido, la nota en la
   pantalla con su hora y quién, **el MP3 de la voz sonando y la nota yéndose al acabar**, la confirmación
   «visto en 1 de 1», el retirar y el set list abriéndose y cerrándose.
+
+- **EL CONTROL DE CAMERINOS · `/controlcamerinos`** (sep 2026, lo pidió Dani: «un enlace que permita
+  pinchar para enviar mensajes predefinidos a los camerinos conectados o crear un nuevo aviso, y añadir
+  o modificar cosas de la hoja de ruta», pensado para un Alexa en la oficina o en un camerino). También
+  `/control-camerinos`. Es una página DE LA CASA (sesión + poder editar Producción, `controlcamerinos_view`,
+  en `SUPPORT_READ_ENDPOINTS` con la puerta en la propia vista): desde aquí se cambia lo que ven los
+  camerinos y la hoja de ruta, así que no puede ser pública. Plantilla `controlcamerinos.html`.
+  · Arriba, la barra de la casa con el logo de la empresa (calado), cuántas pantallas hay conectadas,
+  qué se ve ahora, la hora y un botón de pantalla completa (un toque, la regla de Chromium).
+  · **Con una actividad en camerinos**: su tarjeta, «Cambiar lo que se ve» (el pop-up de siempre) y
+  «Nuevo aviso» (el pop-up abierto DIRECTAMENTE en la vista de avisos: `data-cam-open="avisos"`), los
+  **avisos rápidos de un toque** (`data-cam-quick`: se mandan con voz y «solo mientras se lee», y el
+  resultado se dice al lado), el aviso que está ahora en las pantallas y, debajo, **la hoja de ruta
+  ENTERA y EDITABLE** (el mismo `_roadmap_panel.html` de la ficha con `_roadmap_context`: no hay una
+  segunda forma de editarla). Elegir otra cosa que ver recarga la página (`data-cam-reload`).
+  · **Sin nada en camerinos**: las actividades de estos días (`_controlcamerinos_candidates`: de ayer a
+  tres semanas, sin canceladas ni aplazadas) con su tarjeta y «Mostrar en camerinos».
+  ⚠️ `camerinos.js` puede cargarse desde el panel Y desde esta página: se protege de cargarse dos veces
+  (`window.__app33CamerinosJs`), o los clics se atenderían dos veces.
+  · Prueba: `check_camerinos.py`, apartado 11. Probado además en el navegador: elegir una actividad,
+  la recarga con su hoja editable, el aviso de un toque y su llegada a la pantalla.
 
 - ⚠️⚠️ **HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos** (sep 2026, lo pidió
   Dani). El editor de un punto de los horarios era un formulario largo de un tirón; ahora es el

@@ -14,6 +14,8 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
   · los permisos: sin sesión no se cambia nada; sin poder editar producción, tampoco
   · el botón «Camerinos» del panel de la hoja de ruta, con su estado pintado por el servidor, y que no
     asoma en la hoja compartida
+  · el CONTROL DE CAMERINOS (/controlcamerinos): lo que se ve con su hoja de ruta editable, los avisos
+    rápidos de un toque, las actividades para elegir cuando no se ve nada, y sus permisos
   · las HOJAS DE RUTA con nombre e icono: crear una, que sale en las etiquetas de los puntos, en el
     pop-up de camerinos y con su propio enlace compartido (que filtra), y quitarla
   · los AVISOS a las pantallas: mandar (y los rápidos preguardados), que la pantalla lo recibe con su
@@ -488,6 +490,22 @@ def main():
         A._set_app_setting(A.ROADMAP_SHEET_KINDS_KEY, hojas_antes)
     A._ROADMAP_SHEET_KINDS_CACHE["v"] = None
     check("el catálogo de hojas queda como estaba", A._get_app_setting(A.ROADMAP_SHEET_KINDS_KEY, None) == hojas_antes)
+
+    print("11 · El control de camerinos")
+    r = prod.get("/controlcamerinos"); html = r.get_data(as_text=True)
+    check("sin nada en camerinos, ofrece las actividades de estos días", r.status_code == 200 and NOMBRES[0] in html and "Mostrar en camerinos" in html and 'data-cam-open' in html, r.status_code)
+    check("con la ruta alternativa también", prod.get("/control-camerinos").status_code == 200)
+    prod.post(url_set, json={"action": "show", "kind": "GENERAL"})
+    prod.post(url_set + "/aviso", json={"text": AVISOS[0], "speak": True, "minutes": 5})
+    r = prod.get("/controlcamerinos"); html = r.get_data(as_text=True)
+    check("con una actividad en camerinos, la enseña con su hoja de ruta editable", r.status_code == 200 and "Se ve ahora en camerinos" in html and NOMBRES[0] in html and 'id="roadmapPanel"' in html and 'data-readonly' not in html)
+    check("con los avisos rápidos de un toque y el botón de nuevo aviso", 'data-cam-quick="' in html and 'data-cam-open="avisos"' in html and "camerinos.js" in html)
+    check("y el aviso que está ahora en las pantallas", AVISOS[0] in html and "En las pantallas ahora" in html)
+    check("dice cuántas pantallas hay conectadas", "pantalla" in html and 'id="ctlClock"' in html)
+    prod.post(url_set + "/aviso/retirar", json={})
+    prod.post(url_set, json={"action": "stop"})
+    check("sin poder editar producción, 403", nadie.get("/controlcamerinos").status_code == 403)
+    check("sin sesión, al login", anon.get("/controlcamerinos").status_code in (302, 401))
 
     print("8 · Limpieza")
     s = A.db()

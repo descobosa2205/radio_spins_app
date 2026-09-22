@@ -100668,6 +100668,96 @@ def camerinos_presets_save(entity_type, entity_id):
         session_db.close()
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  CONTROL DE CAMERINOS · /controlcamerinos (sep 2026, lo pidió Dani)
+#  ---------------------------------------------------------------------------------------------
+#  La página para un Alexa (o cualquier pantalla táctil) en la oficina de producción o en un camerino:
+#  con un toque manda un aviso rápido a las pantallas, escribe uno nuevo, cambia qué hoja de ruta se
+#  ve y AÑADE O MODIFICA la propia hoja de ruta (es el panel de la hoja de ruta de la actividad que se
+#  está viendo, con todo lo que se puede hacer en él, así no hay una segunda forma de editarla).
+#  · Exige sesión de la casa y poder editar Producción (`_production_can_edit`): desde aquí se cambia
+#    lo que ven los camerinos y la hoja de ruta. Va en `SUPPORT_READ_ENDPOINTS` (la puerta la pone la
+#    propia vista) y en el modo trabajo se comporta como cualquier pantalla de la casa.
+#  · Sin nada en camerinos, ofrece las actividades de estos días para elegir una (el mismo pop-up).
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+CONTROLCAMERINOS_DAYS_BACK = 1
+CONTROLCAMERINOS_DAYS_AHEAD = 21
+CONTROLCAMERINOS_MAX_CANDIDATES = 12
+
+
+def _controlcamerinos_urls(entity_type: str, entity_id: str) -> dict:
+    return {"state_url": url_for("camerinos_state", entity_type=entity_type, entity_id=entity_id),
+            "set_url": url_for("camerinos_set", entity_type=entity_type, entity_id=entity_id)}
+
+
+def _controlcamerinos_candidates(session_db) -> list[dict]:
+    """Las actividades de estos días (de ayer a tres semanas) que se pueden poner en camerinos, con su
+    tarjeta. Las canceladas y aplazadas no."""
+    hoy = today_local()
+    try:
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(Concert.date >= hoy - timedelta(days=CONTROLCAMERINOS_DAYS_BACK),
+                         Concert.date <= hoy + timedelta(days=CONTROLCAMERINOS_DAYS_AHEAD))
+                 .order_by(Concert.date.asc(), Concert.created_at.asc())
+                 .limit(CONTROLCAMERINOS_MAX_CANDIDATES * 2).all())
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[controlcamerinos] no se pudieron leer las actividades de estos días")
+        return []
+    salida = []
+    for c in filas:
+        if (getattr(c, "status", "") or "").upper() in ("CANCELADO", "APLAZADO"):
+            continue
+        try:
+            tarjeta = _camerinos_card(session_db, "concert", c, "GENERAL")
+        except Exception:
+            app.logger.exception("[controlcamerinos] no se pudo componer la tarjeta de una actividad")
+            continue
+        tarjeta.update(_controlcamerinos_urls("concert", str(c.id)))
+        salida.append(tarjeta)
+        if len(salida) >= CONTROLCAMERINOS_MAX_CANDIDATES:
+            break
+    return salida
+
+
+@app.get('/controlcamerinos', endpoint='controlcamerinos_view')
+@app.get('/control-camerinos', endpoint='controlcamerinos_view')
+@admin_required
+def controlcamerinos_view():
+    """EL CONTROL DE CAMERINOS: lo que se ve, los avisos de un toque y la hoja de ruta editable."""
+    if not _production_can_edit():
+        return forbid("El control de camerinos es de producción (hace falta poder editar Producción).")
+    session_db = db()
+    try:
+        sel = _camerinos_setting()
+        pantallas = _camerinos_screens(session_db)
+        avisos = _camerinos_notices_payload(session_db)
+        ctl = {
+            "active": None, "rm": None, "candidates": [],
+            "presets": avisos.get("presets") or [],
+            "notice": avisos.get("active"),
+            "screens": pantallas,
+            "online": sum(1 for p in pantallas if p.get("online")),
+            "screen_url": _external_url_for("public_camerinos_view"),
+            "logo": _camerinos_brand(session_db, "", None),
+        }
+        if sel:
+            et, row = _roadmap_entity(session_db, sel["entity_type"], sel["entity_id"])
+            if row is not None:
+                activo = _camerinos_card(session_db, et, row, sel["kind"])
+                activo.update(_controlcamerinos_urls(et, str(row.id)))
+                ctl["active"] = activo
+                ctl["logo"] = _camerinos_brand(session_db, et, row)
+                # La hoja de ruta ENTERA y EDITABLE (el mismo panel de la ficha).
+                ctl["rm"] = _roadmap_context(session_db, et, row)
+        if ctl["active"] is None:
+            ctl["candidates"] = _controlcamerinos_candidates(session_db)
+        return render_template("controlcamerinos.html", ctl=ctl)
+    finally:
+        session_db.close()
+
+
 def _tour_concerts_by_slug(session_db, slug: str) -> list[Concert]:
     rows = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(or_(func.upper(func.coalesce(Concert.sale_type, '')) == 'GIRAS_COMPRADAS', func.upper(func.coalesce(Concert.activity_type, '')) == 'GIRA')).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc()).all()
     return [row for row in rows if _tour_group_key(row)[0] == slug]
@@ -107381,6 +107471,8 @@ SUPPORT_READ_ENDPOINTS = {
     "camerinos_state", "camerinos_notices_state",
     # Las HOJAS DE RUTA de la casa (nombre + icono): la pantalla la abre producción (lo comprueba ella).
     "roadmap_sheet_kinds_view",
+    # El CONTROL DE CAMERINOS (la página del Alexa de la oficina): producción (lo comprueba la vista).
+    "controlcamerinos_view",
     # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
     "api_publisher_change",
     # ¿Ya existe una canción con ese nombre de ese artista? Es una BÚSQUEDA, y la hacen el alta de

@@ -1,0 +1,426 @@
+{# =================================================================================================
+   + RESERVA RÁPIDA · el pop-up (sep 2026, lo pidió Dani)
+   -------------------------------------------------------------------------------------------------
+   «Al lado del botón + Actividad, otro de + Reserva rápida: solo pide el tipo de actividad, el
+   artista, la fecha, el recinto o el municipio, el promotor y la nota de contratación. Se crea como
+   RESERVA y, si se quiere convertir en algo más avanzado, pide que se cumplimente el resto.»
+
+   · CADA CAMPO ES EL MISMO QUE EN EL ASISTENTE «+ Actividad» (el selector de artista o evento con su
+     «+» y su «★», las tarjetas del tipo con la de Discográficas, el recinto con su Select2 o el sitio
+     a mano con la barra de direcciones, el buscador de promotor con su «+»): solo que aquí no se
+     pregunta nada más. Lo que falte lo pide el asistente de siempre al COMPLETARLA
+     (`_quick_reservation_wizard_prefill`, `docs/app/actividades.md`).
+   · El motor es el de la casa (`step_wizard.js`, `data-step-wizard`): cabecera roja con un icono por
+     paso, pastillas, pregunta grande y pie Atrás · Siguiente · Crear.
+   · Se incluye en las pantallas de Contratación que tienen «+ Actividad» (las que pasan por
+     `_with_concert_wizard`, que es quien trae `artists`, `wizard_events` y `disc_activity_choices`).
+   ⚠️ Los ids van con `qr_` y el JS busca DENTRO de su formulario: en la misma pantalla está el
+     asistente de actividad con los MISMOS `name` (la trampa que ya costó un bug en el asistente).
+   ⚠️ Un campo oculto SE ENVÍA igual: el panel del recinto que no toca se DESHABILITA.
+   ================================================================================================= #}
+<div class="modal fade" id="quickReservationModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-lg-down">
+    <div class="modal-content">
+      <div class="modal-header sw-head">
+        <h5 class="modal-title"><i class="fa fa-bolt me-2"></i>Reserva rápida</h5>
+        <ol class="sw-head__steps" data-sw-steps></ol>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form autocomplete="off" method="post" action="{{ url_for('concert_quick_reservation_create') }}"
+            id="quickReservationForm" data-step-wizard
+            data-autosave="reserva-rapida" data-autosave-title="Reserva rápida">
+        <div class="modal-body">
+          {# A dónde volver si el envío se rechaza: a ESTA pantalla, con el pop-up reabierto y lo tecleado. #}
+          <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+          <div data-sw-progress></div>
+
+          {# ============================ PASO 1 · De quién es ============================ #}
+          <section class="sw-step" data-step="1" data-title="Artista">
+            <div class="sw-step__q"><i class="fa fa-microphone-lines me-2 text-danger"></i>¿De quién es la reserva?</div>
+            <div class="sw-step__h">El artista (o el evento). Puedes elegir varios; busca sin distinguir
+              tildes ni mayúsculas. Con el <i class="fa fa-plus"></i> creas un artista y con la
+              <i class="fa fa-star"></i> un evento.</div>
+            <div class="input-group">
+              <select id="qr_subject_ids" name="subject_ids[]" class="form-select select-artists" multiple required data-no-loader>
+                {% if artists %}
+                <optgroup label="Artistas">
+                  {% for a in artists %}
+                    <option value="artist:{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}">{{ a.name }}</option>
+                  {% endfor %}
+                </optgroup>
+                {% endif %}
+                {% if wizard_events %}
+                <optgroup label="Eventos">
+                  {% for e in wizard_events %}
+                    <option value="event:{{ e.id }}" data-photo="{{ e.logo_url or DEFAULT_AVATAR_URL }}">{{ e.name }}</option>
+                  {% endfor %}
+                </optgroup>
+                {% endif %}
+              </select>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="artist"
+                      data-target="qr_subject_ids" data-target-prefix="artist:" data-target-group="Artistas"
+                      title="Crear un artista nuevo"><i class="fa fa-plus"></i></button>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="event"
+                      data-target="qr_subject_ids" data-target-prefix="event:" data-target-group="Eventos"
+                      title="Crear un evento nuevo"><i class="fa fa-star"></i></button>
+            </div>
+          </section>
+
+          {# ============================ PASO 2 · Tipo de actividad ============================ #}
+          <section class="sw-step" data-step="2" data-title="Tipo">
+            <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué tipo de actividad es?</div>
+            <div class="sw-step__h">Las mismas tarjetas que al crear una actividad. Al pinchar una se pasa al siguiente paso.</div>
+            <div class="row g-3">
+              {% set qr_activity_options = [
+                ('CONCIERTO','fa-music','Concierto'),
+                ('FESTIVAL','fa-people-group','Festival'),
+                ('CICLO','fa-calendar-week','Ciclo'),
+                ('EVENTO_PROMOCIONAL','fa-bullhorn','Evento promocional'),
+                ('TV','fa-tv','Programa de TV'),
+                ('MARCA','fa-handshake','Acción con marca'),
+                ('ENSAYO','fa-drum','Ensayos'),
+                ('OTROS','fa-star','Otros')
+              ] %}
+              {% for value, icon, label in qr_activity_options %}
+                <div class="col-md-4 col-lg-2 col-6">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if loop.first %} is-selected{% endif %}">
+                    <input class="form-check-input visually-hidden" type="radio" name="activity_type" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">{{ label }}</span>
+                  </label>
+                </div>
+              {% endfor %}
+              {# DISCOGRÁFICAS: al elegirla se despliegan sus tipos (como en el asistente). #}
+              <div class="col-md-4 col-lg-2 col-6">
+                <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white" id="qr_disc_card">
+                  <input class="form-check-input visually-hidden" type="radio" name="activity_group" value="DISC">
+                  <i class="fa fa-compact-disc d-block fs-3 mb-2 text-dark"></i>
+                  <span class="fw-semibold small">Discográficas</span>
+                </label>
+              </div>
+            </div>
+            <div class="row g-2 mt-2 d-none" id="qr_disc_types">
+              {% for value, label, icon in (disc_activity_choices or []) %}
+                <div class="col-6 col-md-4 col-lg-3">
+                  <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                    <input class="form-check-input" type="radio" name="activity_type" value="{{ value }}">
+                    <i class="fa {{ icon }} text-dark"></i>
+                    <span class="fw-semibold small">{{ label }}</span>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+
+          {# ============================ PASO 3 · Fecha y lugar ============================ #}
+          <section class="sw-step" data-step="3" data-title="Fecha y lugar">
+            <div class="sw-step__q"><i class="fa fa-calendar-day me-2 text-danger"></i>¿Cuándo y dónde?</div>
+            <div class="sw-step__h">La fecha y el recinto. Si el recinto aún no se sabe, al menos el municipio y la provincia.</div>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-calendar-day"></i>Fecha</div>
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label">Fecha de la actividad</label>
+                  <input type="date" class="form-control" name="date" id="qr_date" required>
+                </div>
+              </div>
+              <div class="alert alert-warning mt-3 mb-0 d-none" id="qr_conflict"></div>
+            </div>
+            <div class="wizard-card">
+              <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                <div class="wizard-card__title mb-0"><i class="fa fa-location-dot"></i>Recinto y localización</div>
+                <div class="form-check form-switch m-0">
+                  <input class="form-check-input" type="checkbox" id="qr_knows_venue" checked>
+                  <label class="form-check-label small" for="qr_knows_venue">Conozco el recinto</label>
+                </div>
+              </div>
+              <div class="wizard-card__hint">Si conoces el recinto, selecciónalo (o créalo con el botón +). Si no, indica al menos municipio y provincia.</div>
+              <div class="row g-3" id="qr_venue_known">
+                <div class="col-12">
+                  <label class="form-label">Buscar recinto</label>
+                  <div class="input-group">
+                    <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="qr_venue_id" title="Añadir un recinto nuevo sobre la marcha"><i class="fa fa-plus"></i></button>
+                    <select id="qr_venue_id" name="venue_id" class="form-select" data-no-loader>
+                      <option value=""></option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              {# SIN RECINTO: primero solo la barra y, al elegir una sugerencia, los campos ya rellenos
+                 (`data-addr-reveal`, el mecanismo global de `address_autocomplete.js`). #}
+              <div class="row g-3 mt-0 d-none" id="qr_venue_manual" data-address-autocomplete data-addr-reveal>
+                <div class="col-lg-6">
+                  <label class="form-label">Nombre del recinto <span class="text-muted">(si se conoce)</span></label>
+                  <input class="form-control" name="manual_venue_name" placeholder="Nombre provisional del recinto">
+                </div>
+                <div class="col-lg-6 position-relative">
+                  <label class="form-label">¿Dónde es?</label>
+                  <input class="form-control" data-addr="search" autocomplete="off"
+                         placeholder="Escribe dirección, municipio, provincia…">
+                  <div class="form-text">Elige una de las sugerencias y se rellenan la dirección, el
+                    municipio, el código postal y la provincia.
+                    <a href="#" data-addr-manual>Escribirla a mano</a>.</div>
+                </div>
+                <div class="col-12 d-none" data-addr-parts>
+                  <div class="row g-3">
+                    <div class="col-lg-5">
+                      <label class="form-label">Dirección</label>
+                      <input class="form-control" name="manual_venue_address" data-addr="address" placeholder="Calle y número" autocomplete="off">
+                    </div>
+                    <div class="col-lg-4">
+                      <label class="form-label">Municipio</label>
+                      <input class="form-control" name="manual_municipality" data-addr="city" placeholder="Municipio" autocomplete="off">
+                    </div>
+                    <div class="col-lg-3">
+                      <label class="form-label">Código postal</label>
+                      <input class="form-control" name="manual_postal_code" data-addr="postal_code" placeholder="CP" inputmode="numeric" maxlength="10" autocomplete="off">
+                    </div>
+                    <div class="col-lg-5">
+                      <label class="form-label">Provincia</label>
+                      <input class="form-control" name="manual_province" data-addr="province" placeholder="Provincia" autocomplete="off">
+                    </div>
+                    <div class="col-lg-4">
+                      <label class="form-label">País</label>
+                      <input class="form-control" name="manual_country" data-addr="country" placeholder="España" autocomplete="off">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {# ============================ PASO 4 · Promotor ============================ #}
+          <section class="sw-step" data-step="4" data-title="Promotor">
+            <div class="sw-step__q"><i class="fa fa-user-tie me-2 text-danger"></i>¿Quién promueve?</div>
+            <div class="sw-step__h">Busca el tercero o el medio de comunicación que organiza, o créalo con el
+              <i class="fa fa-plus"></i>. Si aún no se sabe, déjalo vacío.</div>
+            {# El MISMO buscador que el asistente (`initTypeahead` con la lista propia): se escribe y
+               salen las coincidencias con su foto o su logo. #}
+            <div class="input-group">
+              <input type="text" id="qr_promoter_search" class="form-control" autocomplete="off"
+                     placeholder="Escribe el nombre del promotor (tercero o medio)…"
+                     data-ta-hidden="qr_promoter_pick" data-no-loader>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                      data-target="qr_promoter_search" data-target-hidden="qr_promoter_pick"
+                      title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+            </div>
+            {# Lo elegido: el id y de qué es (un tercero o un medio), que los pone el buscador. #}
+            <input type="hidden" name="promoter_pick" id="qr_promoter_pick" value="">
+            <input type="hidden" name="promoter_pick_kind" id="qr_promoter_pick_kind" value="">
+            <input type="hidden" id="qr_promoter_pick_logo" value="">
+            <div class="d-flex align-items-center gap-2 mt-2 d-none" id="qr_promoter_chip">
+              <img src="{{ DEFAULT_AVATAR_URL }}" alt="" id="qr_promoter_chip_img" data-avatar="1"
+                   style="width:34px;height:34px;object-fit:cover;border-radius:50%;border:1px solid #eee;flex:0 0 auto;">
+              <span class="fw-semibold" id="qr_promoter_chip_name"></span>
+              <span class="badge text-bg-light border d-none" id="qr_promoter_chip_media"><i class="fa fa-bullhorn me-1"></i>Medio</span>
+              <button type="button" class="btn btn-sm btn-link text-danger" id="qr_promoter_clear"><i class="fa fa-xmark me-1"></i>Quitar</button>
+            </div>
+          </section>
+
+          {# ============================ PASO 5 · Nota de contratación ============================ #}
+          <section class="sw-step" data-step="5" data-title="Nota">
+            <div class="sw-step__q"><i class="fa fa-note-sticky me-2 text-danger"></i>Nota de contratación</div>
+            <div class="sw-step__h">Lo que se habló, lo que queda pendiente, el caché orientativo… Queda en
+              «Notas de contratación» de la actividad. Opcional.</div>
+            <textarea class="form-control" name="note" rows="4"
+                      placeholder="Hablado con el promotor el… · pendiente de cerrar el caché · …"></textarea>
+            <div class="alert alert-light border small mt-3 mb-0">
+              <i class="fa fa-circle-info me-1 text-danger"></i>La actividad nace como <strong>RESERVA</strong>
+              con lo justo. Para pasarla a hablada o confirmada habrá que <strong>completarla</strong> con el
+              asistente de siempre (empresa del grupo, entradas, caché, contactos…), que se abre con lo de la
+              reserva ya puesto.
+            </div>
+          </section>
+        </div>
+        <div class="modal-footer sw-foot">
+          <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+          <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button class="btn btn-danger" type="submit" data-sw-submit><i class="fa fa-check me-1"></i>Crear la reserva</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* El JS de la RESERVA RÁPIDA. Todo se busca DENTRO de su formulario (`q`): en la misma pantalla
+     está el asistente de actividad con los mismos `name`. Los motores son los globales de la casa
+     (Select2 con foto, el buscador `initTypeahead`, el alta rápida, la barra de direcciones y el
+     motor de pasos), así que aquí solo se cablea lo propio. Reintenta hasta que existan jQuery,
+     Select2 e `initTypeahead`: este script corre ANTES que los del final del layout. */
+  (function () {
+    var modalEl = document.getElementById('quickReservationModal');
+    var form = document.getElementById('quickReservationForm');
+    if (!modalEl || !form || form.__qrInit) return;
+    form.__qrInit = true;
+    function q(sel) { return form.querySelector(sel); }
+    function qa(sel) { return Array.prototype.slice.call(form.querySelectorAll(sel)); }
+    function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+    /* ---- TIPO: la tarjeta «Discográficas» despliega sus tipos, como en el asistente ---- */
+    var DISC = {{ (disc_activity_choices|map(attribute=0)|list if disc_activity_choices else [])|tojson }};
+    var discCard = q('#qr_disc_card'), discTypes = q('#qr_disc_types');
+    function syncDisc() {
+      var t = q('input[name="activity_type"]:checked'); var v = t ? t.value : '';
+      var esDisc = DISC.indexOf(v) >= 0;
+      if (discCard) {
+        var r = discCard.querySelector('input'); if (r) r.checked = esDisc;
+        discCard.classList.toggle('is-selected', esDisc);
+      }
+      if (discTypes) discTypes.classList.toggle('d-none', !esDisc);
+    }
+    if (discCard) discCard.addEventListener('click', function () {
+      if (!discTypes) return;
+      discTypes.classList.remove('d-none');
+      // Sin ninguna discográfica marcada, la primera: si no, el tipo seguiría siendo «Concierto».
+      if (!discTypes.querySelector('input[name="activity_type"]:checked')) {
+        var primera = discTypes.querySelector('input[name="activity_type"]');
+        if (primera) { primera.checked = true; primera.dispatchEvent(new Event('change', { bubbles: true })); }
+      }
+    });
+    qa('input[name="activity_type"]').forEach(function (r) { r.addEventListener('change', syncDisc); });
+    syncDisc();
+    /* AUTO-AVANCE al elegir una de las tarjetas grandes (un paso de UNA elección, la regla de la
+       casa). ⚠️ No con `data-sw-advance` del motor: la tarjeta (`initVisualChoiceCards`) dispara un
+       `change` propio ADEMÁS del nativo, así que el motor avanzaba DOS veces y la segunda validaba ya
+       el paso de la fecha y lo pintaba en rojo (bug visto en el navegador). Aquí los dos `change`
+       se juntan en uno (`setTimeout`) y se va al paso 3 con `swGo`, sin validar nada (siempre hay un
+       tipo marcado). Las discográficas no avanzan solas: hay que elegir cuál.
+       ⚠️ `swGo` recibe el ÍNDICE del paso en el orden de `data-step`: el 3 («Fecha y lugar») es el 2. */
+    var avanceT = null;
+    qa('input[name="activity_type"]').forEach(function (r) {
+      if (r.closest('#qr_disc_types')) return;
+      r.addEventListener('change', function () {
+        if (!r.checked) return;
+        clearTimeout(avanceT);
+        avanceT = setTimeout(function () { if (typeof form.swGo === 'function') form.swGo(2); }, 160);
+      });
+    });
+
+    /* ---- RECINTO: se conoce (Select2 AJAX con foto) o se escribe el sitio a mano ---- */
+    var knows = q('#qr_knows_venue'), knownWrap = q('#qr_venue_known'), manualWrap = q('#qr_venue_manual');
+    function toggleVenue() {
+      var sabe = !knows || knows.checked;
+      if (knownWrap) knownWrap.classList.toggle('d-none', !sabe);
+      if (manualWrap) manualWrap.classList.toggle('d-none', sabe);
+      // ⚠️ Un campo oculto SE ENVÍA igual: lo del panel que no toca se deshabilita.
+      if (manualWrap) manualWrap.querySelectorAll('input').forEach(function (i) { i.disabled = sabe; });
+      var sel = q('#qr_venue_id');
+      if (sel) sel.disabled = !sabe;
+    }
+    if (knows) knows.addEventListener('change', toggleVenue);
+    toggleVenue();
+    function initVenue(intentos) {
+      var el = q('#qr_venue_id');
+      if (!el || el.__vsInit) return;
+      if (!window.jQuery || !jQuery.fn.select2) {
+        if ((intentos || 0) < 40) setTimeout(function () { initVenue((intentos || 0) + 1); }, 100);
+        return;
+      }
+      el.__vsInit = true;
+      function fmt(d) {
+        if (!d.id) return d.text;
+        var photo = d.photo || (d.element && jQuery(d.element).data('photo')) || '';
+        var img = photo ? '<img class="thumb" src="' + esc(photo) + '">' : '<span class="me-2"><i class="fa fa-location-dot"></i></span>';
+        return jQuery('<span>' + img + esc(d.text || '') + '</span>');
+      }
+      jQuery(el).select2({
+        width: '100%', dropdownParent: jQuery(modalEl), placeholder: 'Escribe para buscar el recinto…',
+        allowClear: true, minimumInputLength: 1,
+        ajax: {
+          url: '{{ url_for("api_search_venues") }}', dataType: 'json', delay: 200,
+          data: function (p) { return { q: p.term || '' }; },
+          processResults: function (data) {
+            return { results: (data || []).map(function (it) {
+              return { id: it.id, text: it.label || it.name || '', photo: it.photo_url || it.logo_url || '' };
+            }) };
+          }
+        },
+        templateResult: fmt, templateSelection: fmt, escapeMarkup: function (m) { return m; }
+      });
+    }
+    initVenue();
+
+    /* ---- PROMOTOR: el buscador de la casa (tercero o medio, con su foto) y su galleta ---- */
+    function pintaChip() {
+      var chip = q('#qr_promoter_chip'); if (!chip) return;
+      var id = (q('#qr_promoter_pick') || {}).value || '';
+      if (!id) { chip.classList.add('d-none'); return; }
+      var kind = (q('#qr_promoter_pick_kind') || {}).value || 'promoter';
+      var busq = q('#qr_promoter_search');
+      var logo = (q('#qr_promoter_pick_logo') || {}).value || (busq && busq.getAttribute('data-photo')) || '';
+      chip.classList.remove('d-none');
+      q('#qr_promoter_chip_img').src = logo || '{{ DEFAULT_AVATAR_URL }}';
+      q('#qr_promoter_chip_name').textContent = ((busq && busq.value) || '').replace(' · medio', '');
+      q('#qr_promoter_chip_media').classList.toggle('d-none', kind !== 'media');
+    }
+    function limpiaPromotor(mantenerTexto) {
+      ['#qr_promoter_pick', '#qr_promoter_pick_kind', '#qr_promoter_pick_logo'].forEach(function (s) { var h = q(s); if (h) h.value = ''; });
+      var busq = q('#qr_promoter_search');
+      if (busq && !mantenerTexto) { busq.value = ''; busq.removeAttribute('data-photo'); }
+      pintaChip();
+    }
+    function initPromoter(intentos) {
+      var el = q('#qr_promoter_search');
+      if (!el || el.__psInit) return;
+      if (typeof initTypeahead !== 'function') {
+        if ((intentos || 0) < 40) setTimeout(function () { initPromoter((intentos || 0) + 1); }, 100);
+        return;
+      }
+      el.__psInit = true;
+      initTypeahead('qr_promoter_search', 'qr_promoter_pick', '{{ url_for("api_search_commission_entities") }}',
+                    { alwaysList: true, extra: { kind: 'qr_promoter_pick_kind', logo_url: 'qr_promoter_pick_logo' } });
+      // Al TECLEAR, lo elegido antes ya no vale (el buscador vuelve a poner el id y su tipo al elegir).
+      el.addEventListener('input', function () {
+        var k = q('#qr_promoter_pick_kind'); if (k) k.value = '';
+        var l = q('#qr_promoter_pick_logo'); if (l) l.value = '';
+      });
+      el.addEventListener('change', pintaChip);
+    }
+    initPromoter();
+    var qcPromotor = q('[data-quick-create="promoter"][data-target="qr_promoter_search"]');
+    // Lo que se crea con el «+» es un TERCERO: que no arrastre el «medio» de una búsqueda anterior.
+    if (qcPromotor) qcPromotor.addEventListener('click', function () {
+      var k = q('#qr_promoter_pick_kind'); if (k) k.value = '';
+      var l = q('#qr_promoter_pick_logo'); if (l) l.value = '';
+    });
+    var quitar = q('#qr_promoter_clear');
+    if (quitar) quitar.addEventListener('click', function () { limpiaPromotor(false); });
+
+    /* ---- ¿ESE DÍA EL ARTISTA YA TIENE ALGO? Se dice, sin bloquear (una reserva es justo eso) ---- */
+    var conflict = q('#qr_conflict');
+    function artistasElegidos() {
+      var sel = q('#qr_subject_ids'); if (!sel) return [];
+      return Array.prototype.map.call(sel.selectedOptions || [], function (o) { return o.value || ''; })
+        .filter(function (v) { return v.indexOf('artist:') === 0; })
+        .map(function (v) { return v.slice('artist:'.length); });
+    }
+    function checkConflict() {
+      if (!conflict) return;
+      conflict.classList.add('d-none'); conflict.innerHTML = '';
+      var fecha = (q('#qr_date') || {}).value || '';
+      var arts = artistasElegidos();
+      if (!fecha || !arts.length) return;
+      Promise.all(arts.map(function (a) {
+        return fetch('{{ url_for("api_concert_artist_conflicts") }}?artist_id=' + encodeURIComponent(a) + '&date=' + encodeURIComponent(fecha))
+          .then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
+      })).then(function (listas) {
+        var rows = [].concat.apply([], listas || []);
+        if (!rows.length) return;
+        conflict.innerHTML = '<strong>Ese día el artista ya tiene actividades, bloqueos o peticiones:</strong><br>' +
+          rows.map(function (r) { return esc((r && r.summary) || 'Evento'); }).join('<br>');
+        conflict.classList.remove('d-none');
+      });
+    }
+    var fechaEl = q('#qr_date');
+    if (fechaEl) fechaEl.addEventListener('change', checkConflict);
+    function wireSubject(intentos) {
+      var sel = q('#qr_subject_ids'); if (!sel) return;
+      // ⚠️ Un Select2 avisa con `jQuery.trigger('change')`, que NO llega a un listener nativo.
+      if (window.jQuery) jQuery(sel).on('change', checkConflict);
+      else if ((intentos || 0) < 40) return setTimeout(function () { wireSubject((intentos || 0) + 1); }, 100);
+      sel.addEventListener('change', checkConflict);
+    }
+    wireSubject();
+  })();
+</script>

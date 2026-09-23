@@ -1085,6 +1085,23 @@
       </div>
     {% endif %}
 
+    {# RESERVA RÁPIDA a medias (sep 2026): se apuntó con lo justo. Para pasarla a hablada o confirmada
+       hay que completarla con el asistente de siempre, que se abre con lo de la reserva ya puesto y
+       escribe sobre ESTA actividad (`_quick_reservation_state`, punto único). #}
+    {% if quick_reservation and quick_reservation.pending and CAN_EDIT_CONCERTS %}
+      <div class="alert alert-warning d-flex align-items-center gap-3 flex-wrap">
+        <div class="flex-grow-1">
+          <i class="fa fa-bolt me-1"></i>
+          <strong>Reserva rápida.</strong>
+          Se apuntó con lo justo{% if quick_reservation.at_label %} el {{ quick_reservation.at_label }}{% endif %}{% if quick_reservation.by %} ({{ quick_reservation.by }}){% endif %}:
+          el artista, el tipo, la fecha, el sitio y el promotor. Para convertirla en una actividad
+          completa hay que cumplimentar el resto de datos (empresa del grupo, entradas, caché, contactos…).
+        </div>
+        <a class="btn btn-sm btn-dark" href="{{ quick_reservation.complete_url }}">
+          <i class="fa fa-wand-magic-sparkles me-1"></i>Completar la actividad</a>
+      </div>
+    {% endif %}
+
     {# ⚠️ FORMA DE PAGO DEL CACHÉ: si no está configurada se dice al entrar, y se pincha para
        configurarla (abre el formulario de «Cachés», que es donde se rellena). #}
     {% if cache_payment and (cache_payment.unset or cache_payment.mismatch) and CAN_EDIT_CONCERTS %}

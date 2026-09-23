@@ -49,6 +49,8 @@
   {# ⚠️ «No anunciar» solo mientras NO se pueda anunciar: en cuanto se le pone fecha de anuncio (o se
      anuncia) la etiqueta desaparece sola. #}
   {% if r.no_announce %}<span class="badge text-bg-danger flex-shrink-0" title="Todavía no se puede anunciar"><i class="fa fa-eye-slash me-1"></i>No anunciar</span>{% endif %}
+  {# Una RESERVA RÁPIDA a medias: se apuntó con lo justo y hay que completarla (lo dice su ficha). #}
+  {% if r.quick_reservation %}<span class="badge text-bg-warning text-dark flex-shrink-0" title="Reserva rápida: le faltan datos. Se completa desde su ficha."><i class="fa fa-bolt me-1"></i>Reserva rápida</span>{% endif %}
   {% if r.kind == 'concert' %}
     {% with cs_id=r.id, cs_status=r.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
   {% elif r.status_label %}

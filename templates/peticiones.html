@@ -11,6 +11,12 @@
     {# Pedir PROMOCIÓN (prensa) lo puede hacer cualquiera de la empresa, y es un asistente corto
        aparte: no tiene nada que ver con una petición de contratación. #}
     <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#promoPeticionModal"><i class="fa fa-microphone-lines me-1"></i> Pedir promoción</button>
+    {# «+ Actividad» y «+ Reserva rápida» (sep 2026): los MISMOS pop-ups que el resto de Contratación
+       (el asistente único y la reserva con lo justo), solo a quien puede crear una actividad. #}
+    {% if wizard_available %}
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#quickReservationModal" title="Una actividad con lo justo: artista, tipo, fecha, sitio y promotor. Nace como reserva."><i class="fa fa-plus me-1"></i> Reserva rápida</button>
+    {% endif %}
     {% if CAN_EDIT_CONCERTS %}
     <button class="btn btn-primary" type="button" data-peticion-new><i class="fa fa-plus me-1"></i> Nueva petición</button>
     {% endif %}
@@ -18,6 +24,7 @@
 </div>
 {% include '_promo_peticion_modal.html' %}
 {% include '_marketing_peticion_modal.html' %}
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% include "_quick_reservation_modal.html" %}{% endif %}
 
 {# ⚠️ LAS TAREAS PENDIENTES DE CONTRATACIÓN VIVEN AQUÍ (lo pidió Dani): en el INICIO del
    departamento y TODAS juntas (el cajón «inicio» de `_contracting_tasks_data`), no repartidas por

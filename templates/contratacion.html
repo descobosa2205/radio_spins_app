@@ -8,7 +8,12 @@
     <div class="text-muted">{{ subtitle }}</div>
   </div>
   {% if section != 'simulaciones' %}
-    <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista') }}" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus"></i> Actividad</a>
+    <div class="d-flex gap-2 flex-wrap">
+      <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista') }}" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus"></i> Actividad</a>
+      {# + RESERVA RÁPIDA (sep 2026): una actividad con lo justo que nace como reserva. Solo a quien
+         puede crear una actividad (el pop-up se incluye con la misma condición que el asistente). #}
+      {% if wizard_available %}<button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#quickReservationModal" title="Una actividad con lo justo: artista, tipo, fecha, sitio y promotor. Nace como reserva."><i class="fa fa-plus me-1"></i> Reserva rápida</button>{% endif %}
+    </div>
   {% endif %}
 </div>
 
@@ -145,5 +150,5 @@
   </div>
 {% endif %}
 
-{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% include "_quick_reservation_modal.html" %}{% endif %}
 {% endblock %}

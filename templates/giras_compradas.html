@@ -13,6 +13,7 @@
        aquí mismo (antes esta pestaña era la única sin él y había que irse a otra pantalla). #}
     {% if wizard_available %}
       <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#quickReservationModal" title="Una actividad con lo justo: artista, tipo, fecha, sitio y promotor. Nace como reserva."><i class="fa fa-plus me-1"></i> Reserva rápida</button>
     {% endif %}
     <button class="btn btn-primary" type="button" data-tour-new><i class="fa fa-plus me-1"></i> Nueva gira</button>
   </div>
@@ -144,7 +145,7 @@
   </div>
 </div>
 
-{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% include "_quick_reservation_modal.html" %}{% endif %}
 {% include "_quick_create_modals.html" %}
 <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script>

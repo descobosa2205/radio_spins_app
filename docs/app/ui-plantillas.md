@@ -65,6 +65,7 @@
 - UN BLOQUE DE DIRECCIÓN CON CAMPOS SUELTOS AL LADO VA SIEMPRE EN PIEZAS (bug real, sep
 - UN data-edit-toggle SIN VALOR SOLO ABRE EL FORMULARIO DE SU .ficha-section (bug real,
 - INICIO · UN SOLO MÓDULO DE TAREAS. Inicio llegó a tener CUARENTA módulos
+- UNA TARJETA DE ELECCIÓN DISPARA DOS `change`: `data-sw-advance` en sus radios AVANZA DOS PASOS (sep 2026)
 
 ---
 
@@ -1055,3 +1056,15 @@
   igual que antes. Si algún día se cambia la estructura, medir `#navMain` y no el padre directo.
   · Comprobado con la app real: móvil 375 px (abre, baja hasta el final, acordeones, cierra),
   tablet 800 px (cerrado al cargar) y escritorio 1280 px (barra idéntica, 16 en «más»).
+
+- ⚠️⚠️ **UNA TARJETA DE ELECCIÓN DISPARA DOS `change`: `data-sw-advance` EN SUS RADIOS AVANZA DOS
+  PASOS** (sep 2026, visto en el navegador al montar la reserva rápida). `initVisualChoiceCards`
+  (scripts.js) marca el radio de la tarjeta **y dispara un `change` propio**, ADEMÁS del que ya
+  reenvía el navegador por ser un `<label>`: dos eventos por un clic. El auto-avance del motor
+  (`step_wizard.js`, `data-sw-advance`) hace `setTimeout(next)` por cada uno, así que el segundo
+  `next()` **validaba ya el paso siguiente** y lo pintaba en rojo («falta 1 dato obligatorio») sin
+  que nadie hubiera llegado a él. En un `<select>` (las giras, los ciclos) no pasa: un solo `change`.
+  · En una tarjeta de radios el auto-avance va **a mano y debounced**: un `change` → `setTimeout(() =>
+  root.swGo(índice), 160)`, cancelando el anterior (`_quick_reservation_modal.html`). ⚠️ `swGo` recibe el
+  **ÍNDICE** del paso en el orden de `data-step`, no el número.
+

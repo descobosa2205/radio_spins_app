@@ -2491,6 +2491,35 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     modal.show();
   }
 
+  /* Una RESERVA RÁPIDA no pasa a HABLADO ni a CONFIRMADO sin completarse (sep 2026): el servidor
+     manda `needs_completion` con el enlace al asistente, que se abre con lo de la reserva ya puesto.
+     Se pregunta con un pop-up propio (sin Bootstrap, el confirm de siempre). */
+  function pedirCompletar(d, onIr) {
+    if (!window.bootstrap) {
+      if (confirm((d.error || 'Es una reserva rápida: hay que completar sus datos.') + '\n\n¿Completarla ahora?')) onIr();
+      return;
+    }
+    var caja = document.createElement('div');
+    caja.className = 'modal fade';
+    caja.innerHTML =
+      '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
+        '<div class="modal-header sw-head"><h5 class="modal-title"><i class="fa fa-bolt me-2"></i>Reserva rápida</h5>' +
+        '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+        '<div class="modal-body"><p class="mb-2" data-qr-note></p>' +
+        '<p class="small text-muted m-0">El asistente se abre con lo de la reserva ya puesto: solo hay que rellenar lo que falta.</p></div>' +
+        '<div class="modal-footer flex-wrap gap-2">' +
+          '<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Dejarla como está</button>' +
+          '<button type="button" class="btn btn-danger" data-qr-go><i class="fa fa-wand-magic-sparkles me-1"></i>Completar la actividad</button>' +
+        '</div>' +
+      '</div></div>';
+    caja.querySelector('[data-qr-note]').textContent = d.error || 'Es una reserva rápida: hay que completar sus datos.';
+    document.body.appendChild(caja);
+    var modal = bootstrap.Modal.getOrCreateInstance(caja);
+    caja.addEventListener('hidden.bs.modal', function () { caja.remove(); });
+    caja.querySelector('[data-qr-go]').addEventListener('click', function () { modal.hide(); onIr(); });
+    modal.show();
+  }
+
   // ⚠️ «Aplazar» y «Cancelar» del menú de estado son BOTONES (no `<a>`: dentro de una fila que ya es
   // un enlace, un `<a>` anidado parte el HTML y el menú se queda fuera del desplegable), así que la
   // navegación se hace aquí.
@@ -2533,6 +2562,11 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
         var d = res.d || {};
         if (!res.r.ok) {
           opt.classList.remove('disabled');
+          // Una RESERVA RÁPIDA a medias: se ofrece completarla ahora (el asistente, precumplimentado).
+          if (d.needs_completion && d.complete_url) {
+            pedirCompletar(d, function () { window.location.href = d.complete_url; });
+            return;
+          }
           // El artista no está avisado: se ofrece avisarle ahora (y al enviar se confirma solo) y,
           // cuando no hace falta mandar nada (ya ha pasado, o se creó antes del corte), confirmarla
           // dejando el aviso apuntado.

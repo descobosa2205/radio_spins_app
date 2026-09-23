@@ -8,7 +8,11 @@
     <h4 class="mb-1">Contratación · Conciertos</h4>
     <div class="text-muted">{% if vista_mode == 'grid' %}Elige un artista o un evento para ver sus conciertos, o míralos todos juntos.{% else %}Conciertos por fecha.{% endif %}</div>
   </div>
-  <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
+    {# + RESERVA RÁPIDA (sep 2026): una actividad con lo justo que nace como reserva. #}
+    {% if wizard_available %}<button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#quickReservationModal" title="Una actividad con lo justo: artista, tipo, fecha, sitio y promotor. Nace como reserva."><i class="fa fa-plus me-1"></i> Reserva rápida</button>{% endif %}
+  </div>
 </div>
 
 
@@ -67,5 +71,5 @@
   {% endif %}
 {% endif %}
 
-{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% include "_quick_reservation_modal.html" %}{% endif %}
 {% endblock %}

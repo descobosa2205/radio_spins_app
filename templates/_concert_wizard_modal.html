@@ -2933,7 +2933,12 @@
       conflictBox.classList.add('d-none');
       conflictBox.innerHTML = '';
       if(!artistId || !dateVal || modeInput.value !== 'direct') return;
-      const res = await fetch(`/api/concerts/check-artist-conflict?artist_id=${encodeURIComponent(artistId)}&date=${encodeURIComponent(dateVal)}`);
+      // ⚠️ COMPLETANDO UNA RESERVA RÁPIDA, la propia reserva ocupa ese día: se excluye del aviso de
+      // solape (`exclude_id`), o saltaba contra sí misma y con «Cancelar» BORRABA la fecha que se
+      // acababa de volcar (bug visto en el navegador).
+      const exclEl = form.querySelector('input[name="complete_concert_id"]');
+      const exclQ = (exclEl && exclEl.value) ? `&exclude_id=${encodeURIComponent(exclEl.value)}` : '';
+      const res = await fetch(`/api/concerts/check-artist-conflict?artist_id=${encodeURIComponent(artistId)}&date=${encodeURIComponent(dateVal)}${exclQ}`);
       if(!res.ok) return;
       const rows = await res.json();
       if(!rows.length) return;
@@ -3212,6 +3217,13 @@
     syncAnnounce();
   })();
 </script>
+{# COMPLETAR UNA RESERVA RÁPIDA: la pantalla llega con `?complete_concert=<id>` y `_with_concert_wizard`
+   deja en `wizard_complete` lo que la reserva ya sabe, en el MISMO formato que una petición aprobada
+   (`_quick_reservation_wizard_prefill`). El bloque de abajo lo vuelca igual, y al terminar el asistente
+   escribe SOBRE esa actividad (`complete_concert_id`) en vez de crear otra. #}
+{% if wizard_complete and not wizard_prefill %}
+<script>window.CONCERT_WIZARD_PREFILL = {{ wizard_complete|tojson }};</script>
+{% endif %}
 <script>
   /* ============ PRECUMPLIMENTAR el asistente (una PETICIÓN APROBADA que se configura) ============
      La página deja el payload en `window.CONCERT_WIZARD_PREFILL` y aquí se vuelca en los pasos, así
@@ -3264,8 +3276,32 @@
         h.type = 'hidden'; h.name = 'peticion_id'; h.value = pre.peticion_id;
         form.appendChild(h);
       }
+      // COMPLETAR UNA RESERVA RÁPIDA: el asistente escribe sobre ESA actividad, no crea otra.
+      if (form && pre.complete_concert_id && !form.querySelector('input[name="complete_concert_id"]')) {
+        var hc = document.createElement('input');
+        hc.type = 'hidden'; hc.name = 'complete_concert_id'; hc.value = pre.complete_concert_id;
+        form.appendChild(hc);
+      }
       // 1 · Artista y tipo de actividad.
-      if (pre.artist_id) {
+      // VARIOS artistas, o un EVENTO (una reserva rápida puede traerlos): se marcan todos en el
+      // selector visible («artist:<id>» / «event:<id>»), que es lo que reparte `syncSubjectPick`.
+      var _multi = [];
+      (pre.artist_ids || []).forEach(function (a) { if (a && _multi.indexOf('artist:' + a) < 0) _multi.push('artist:' + a); });
+      if (pre.event_id) _multi.push('event:' + pre.event_id);
+      if (_multi.length && (_multi.length > 1 || pre.event_id)) {
+        var selM = document.getElementById('wizard_subject_ids');
+        if (selM) {
+          _multi.forEach(function (v) {
+            if (!selM.querySelector('option[value="' + v + '"]')) {
+              var om = document.createElement('option'); om.value = v;
+              om.textContent = (v.indexOf('event:') === 0 ? 'Evento' : 'Artista'); selM.appendChild(om);
+            }
+          });
+          if (window.jQuery && jQuery(selM).data('select2')) jQuery(selM).val(_multi).trigger('change');
+          else { Array.prototype.forEach.call(selM.options, function (o) { o.selected = _multi.indexOf(o.value) >= 0; });
+                 selM.dispatchEvent(new Event('change', { bubbles: true })); }
+        }
+      } else if (pre.artist_id) {
         /* ⚠️ Se marca en el selector VISIBLE («artist:<id>», el mismo camino que la auto-apertura
            desde la agenda): el oculto `wizard_artist_id` lo rellena `syncSubjectPick` A PARTIR de lo
            visible, así que marcarlo solo en el oculto lo dejaba sin seleccionar a la vista y al
@@ -3287,6 +3323,7 @@
       setRadio('activity_type', pre.activity_type);
       // 2 · Fecha y sitio.
       setVal('#wizard_date', pre.date);
+      setVal('#wizard_end_date', pre.end_date);
       if (pre.venue_id) {
         pickSelect2('#wizard_venue_id', pre.venue_id, pre.venue_label || '');
       } else if (pre.municipality || pre.province) {
@@ -3295,6 +3332,17 @@
         if (knows && knows.checked) { knows.checked = false; knows.dispatchEvent(new Event('change', { bubbles: true })); }
         setVal('#wizard_manual_municipality', pre.municipality);
         setVal('#wizard_manual_province', pre.province);
+        // …y el resto del sitio a mano que ya se sabía (una reserva rápida lo trae): con datos, las
+        // piezas se enseñan desde el principio (lo mismo que hace `address_autocomplete.js` al editar).
+        setVal('#wizardVenueManualWrap [name="manual_venue_name"]', pre.manual_venue_name);
+        setVal('#wizardVenueManualWrap [name="manual_venue_address"]', pre.manual_venue_address);
+        setVal('#wizardVenueManualWrap [name="manual_postal_code"]', pre.manual_postal_code);
+        setVal('#wizardVenueManualWrap [name="manual_country"]', pre.manual_country);
+        var partesM = document.querySelector('#wizardVenueManualWrap [data-addr-parts]');
+        if (partesM) partesM.classList.remove('d-none');
+        document.querySelectorAll('#wizardVenueManualWrap [data-addr-manual]').forEach(function (a) {
+          var linea = a.closest('.form-text'); (linea || a).classList.add('d-none');
+        });
       }
       // 3 · Qué es: el NOMBRE del evento y la descripción que se escribieron al pedirlo.
       setVal('#wizard_festival_name', pre.festival_name);
@@ -3365,6 +3413,10 @@
       }
       // 7 · La EMPRESA DEL GRUPO que dijo contratación al aprobar la petición.
       if (pre.company_id) setRadio('billing_company_id', pre.company_id);
+      // El ESTADO que ya tiene (completando una reserva rápida: RESERVADO, salvo que se cambie).
+      if (pre.status) setRadio('status', pre.status);
+      var sbC = document.getElementById('wizardSubmitBtn');
+      if (sbC && pre.complete_concert_id) sbC.innerHTML = '<i class="fa fa-check me-1"></i>Completar la actividad';
 
       /* 8 · Las PERSONAS DE CONTACTO que se pusieron al pedirlo: van ya puestas en su función del
             módulo de contactos, así no hay que volver a buscarlas.
@@ -3385,10 +3437,23 @@
         var av = document.createElement('div');
         av.className = 'alert alert-info py-2 px-3 small';
         av.setAttribute('data-wz-prefill-note', '1');
-        av.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Viene de la petición' +
-          (pre.subject ? ' <b>«' + String(pre.subject).replace(/[<>&]/g, '') + '»</b>' : '') +
-          ': lo que ya se sabe está puesto (y la empresa del grupo, la que dijo contratación). ' +
-          'Solo hay que completar lo que falta.';
+        var _lim = function (t) { return String(t == null ? '' : t).replace(/[<>&]/g, ''); };
+        if (pre.complete_concert_id) {
+          // Se está COMPLETANDO una reserva rápida: se dice, con cuándo se apuntó y su nota.
+          av.innerHTML = '<i class="fa fa-bolt me-1"></i>Se está <b>completando una reserva rápida</b>' +
+            (pre.subject ? ' de <b>«' + _lim(pre.subject) + '»</b>' : '') +
+            (pre.quick_at_label ? ' (apuntada el ' + _lim(pre.quick_at_label) +
+              (pre.quick_by ? ' por ' + _lim(pre.quick_by) : '') + ')' : '') +
+            ': lo que ya se apuntó está puesto y solo hay que completar lo que falta. Al terminar, la ' +
+            'actividad queda con todos sus datos (no se crea otra).' +
+            (pre.quick_note ? '<div class="mt-1"><i class="fa fa-note-sticky me-1"></i>Nota de la reserva: <i>' +
+              _lim(pre.quick_note) + '</i></div>' : '');
+        } else {
+          av.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Viene de la petición' +
+            (pre.subject ? ' <b>«' + _lim(pre.subject) + '»</b>' : '') +
+            ': lo que ya se sabe está puesto (y la empresa del grupo, la que dijo contratación). ' +
+            'Solo hay que completar lo que falta.';
+        }
         body.insertBefore(av, body.firstChild);
       }
 
@@ -3527,6 +3592,7 @@
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
       // Limpia los parámetros para que un refresco no reabra el asistente.
       params.delete('open_wizard'); params.delete('wizard_artist'); params.delete('wizard_event'); params.delete('wizard_event_name'); params.delete('wizard_activity_type'); params.delete('wizard_group'); params.delete('wizard_sim'); params.delete('wizard_date');
+      params.delete('complete_concert');   // completar una reserva rápida: un refresco no lo repite
       var qs = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
     }

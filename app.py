@@ -58110,9 +58110,15 @@ def _render_booking_requests():
         else:
             rows = pending
         payload = [_booking_request_row(r) for r in rows]
-        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        # ⚠️ Sin los ESPEJOS de evento (`Artist.event_id`): una petición es de un artista de verdad,
+        # y el asistente de actividad —que también se incluye aquí— tampoco debe enseñarlos.
+        artists = s.query(Artist).filter(Artist.event_id.is_(None)).order_by(Artist.name.asc()).all()
+        # ⚠️ El INICIO de Contratación lleva también «+ Actividad» y «+ Reserva rápida» (sep 2026):
+        # es la primera pantalla del departamento y la regla de la casa es que el botón esté en todas
+        # sus pestañas. Lo que necesitan los dos pop-ups lo pone el punto único `_with_concert_wizard`.
         return render_template(
             "peticiones.html",
+            **_with_concert_wizard(s, dict(
             section="peticiones",
             # «Pedir promoción» sale también aquí: lo puede hacer cualquiera de la empresa.
             promo_creator_datasets=_promo_creator_datasets(s),
@@ -58129,6 +58135,7 @@ def _render_booking_requests():
             # Al APROBAR se pregunta con qué empresa del grupo se hace: es lo único que se pide ahí.
             companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
             CAN_EDIT_CONCERTS=can_edit_concerts(),
+            )),
         )
     finally:
         s.close()
@@ -59485,6 +59492,16 @@ def _concert_task_board(session_db, concert) -> dict:
         # sacarla a la venta. Lo único que queda son las tareas de la propia cancelación.
         if _estado_actual == "CANCELADO":
             raise _CancelledActivity
+        # RESERVA RÁPIDA sin completar: va la primera (es el paso de «configurar»), porque lo demás
+        # —confirmar, contrato, anuncio— no se sostiene con lo justo apuntado. Lleva al asistente
+        # con lo de la reserva ya puesto.
+        _qr_board = _quick_reservation_state(concert)
+        if _qr_board["pending"]:
+            suelta("completar_reserva", 2, "Completar los datos de la reserva rápida", "fa-bolt",
+                   url=_qr_board["complete_url"], action_label="Completar",
+                   hint=("Se apuntó con lo justo (artista, tipo, fecha, sitio y promotor%s): el "
+                         "asistente pide el resto y la deja como una actividad completa."
+                         % ((", %s" % _qr_board["at_label"]) if _qr_board["at_label"] else "")))
         # ⚠️⚠️ «EL ARTISTA HA CONFIRMADO LA ACTIVIDAD» SALE EN TODAS, no solo en las que vienen de
         # una petición (sep 2026, lo pidió Dani). Es el paso que va antes que nada: si el artista no
         # ha dicho que sí, lo demás no se sostiene.
@@ -66984,8 +67001,190 @@ def _with_concert_wizard(session_db, ctx: dict) -> dict:
     # contrario de lo que se quería arreglar — **podía guardar la actividad pero el asistente ni se
     # pintaba**: en `/actividades` salía un botón que no hacía nada y en Giras o Festivales el botón
     # desaparecía. Bug real (sep 2026).
+    # COMPLETAR UNA RESERVA RÁPIDA: si la URL trae `complete_concert`, el asistente se abre
+    # precumplimentado con lo que ya se apuntó y, al terminarlo, escribe SOBRE esa actividad en vez
+    # de crear otra (`_quick_reservation_wizard_prefill` → `CONCERT_WIZARD_PREFILL`).
+    _cc = (request.args.get("complete_concert") or "").strip() if has_request_context() else ""
+    if _cc and datos:
+        try:
+            _c_qr = session_db.get(Concert, to_uuid(_cc) or uuid.uuid4())
+            if _c_qr is not None and (is_master() or can_edit_concerts()):
+                ctx.setdefault("wizard_complete", _quick_reservation_wizard_prefill(session_db, _c_qr))
+        except Exception:
+            app.logger.exception("[asistente] no se pudo precumplimentar la reserva rápida")
     ctx.setdefault("wizard_available", bool(datos) and (is_master() or can_edit_concerts()))
     return ctx
+
+
+# ═══════════════════════════ RESERVA RÁPIDA (sep 2026, lo pidió Dani) ═══════════════════════════
+# «Al lado del botón + Actividad, en Contratación, otro de + Reserva rápida: solo pide el tipo de
+# actividad, el artista, la fecha, el recinto o el municipio, el promotor y la nota de contratación.
+# Se crea como RESERVA y, si se quiere convertir en algo más avanzado, pide que se cumplimente el
+# resto de campos.»
+# · La marca vive en `contracting_payload['quick_reservation']` —se mira el DATO, no una columna—:
+#   `pending` mientras no se haya completado. De `_quick_reservation_state` viven el aviso de la
+#   ficha, la tarea del tablero, la etiqueta del listado, las tareas de Contratación y las DOS
+#   compuertas del estado (la etiqueta y la sección «Datos»), así que no pueden decir cosas distintas.
+# · COMPLETARLA = el asistente «+ Actividad» de siempre (los MISMOS pasos y campos que al crear una
+#   actividad), precumplimentado con lo que ya se apuntó y escribiendo SOBRE la misma actividad
+#   (`complete_concert_id` → `_wizard_concert_target`), para que no se pierda ni el id ni la nota.
+QUICK_RESERVATION_KEY = "quick_reservation"
+# Los estados a los que una reserva rápida puede pasar SIN completarse (los de «todavía no es nada»).
+# Cancelarla o aplazarla también se puede: van por su proceso, antes de esta compuerta.
+QUICK_RESERVATION_FREE_STATUSES = {"RESERVADO", "BORRADOR"}
+# El título de la nota que deja la reserva en «Notas de contratación»: dice de dónde salió.
+QUICK_RESERVATION_NOTE_TITLE = "Reserva rápida"
+
+
+def _quick_reservation_state(concert) -> dict:
+    """¿Es una reserva rápida y le faltan datos? Punto único (ver el bloque de arriba)."""
+    vacio = {"is_quick": False, "pending": False, "at": None, "at_label": "", "by": "",
+             "complete_url": "", "completed_at_label": ""}
+    if concert is None:
+        return vacio
+    pay = getattr(concert, "contracting_payload", None)
+    qr = pay.get(QUICK_RESERVATION_KEY) if isinstance(pay, dict) else None
+    if not isinstance(qr, dict):
+        return vacio
+
+    def _lbl(v):
+        try:
+            return (datetime.fromisoformat(str(v)).astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                    if v else "")
+        except Exception:
+            return ""
+
+    pendiente = bool(qr.get("pending", True)) and not qr.get("completed_at")
+    url = ""
+    if pendiente:
+        # ⚠️ Fuera de una petición (un cron, un hilo) `url_for` revienta: ahí no hay enlace.
+        try:
+            url = url_for("concerts_view", tab="vista", open_wizard=1, complete_concert=str(concert.id))
+        except Exception:
+            url = ""
+    return {"is_quick": True, "pending": pendiente, "at": qr.get("at"), "at_label": _lbl(qr.get("at")),
+            "by": (qr.get("by") or ""), "complete_url": url,
+            "completed_at_label": _lbl(qr.get("completed_at"))}
+
+
+def _quick_reservation_gate_text(estado: str) -> str:
+    """Lo que se le dice a quien intenta pasar una reserva rápida a un estado que exige más datos."""
+    etiqueta = _concert_status_meta(estado)[0]
+    return ("Esta actividad es una RESERVA RÁPIDA (se apuntó con lo justo). Para pasarla a %s hay "
+            "que cumplimentar el resto de datos: la empresa del grupo, las entradas, el caché, los "
+            "contactos…" % etiqueta.upper())
+
+
+def _quick_reservation_wizard_prefill(session_db, concert) -> dict:
+    """Lo que la reserva rápida ya sabe, en el formato del PRECUMPLIMENTADO del asistente (el mismo
+    que usa una petición aprobada, `_peticion_wizard_prefill`): «Completar la actividad» abre el
+    asistente de siempre con el sujeto, el tipo, la fecha, el sitio, el promotor y el estado ya
+    puestos, entra en el primer paso que falta y, al terminar, escribe sobre ESTA actividad."""
+    venue = getattr(concert, "venue", None)
+    etiqueta_recinto = ""
+    if venue is not None:
+        etiqueta_recinto = " · ".join([x for x in [
+            (venue.name or ""),
+            ", ".join([y for y in [(venue.municipality or ""), (venue.province or "")] if y]),
+        ] if x])
+    promotor, promotor_nombre, promotor_logo = "", "", ""
+    p = getattr(concert, "promoter", None)
+    if p is not None:
+        promotor = str(p.id)
+        promotor_nombre = (p.nick or getattr(p, "legal_name", "") or "").strip()
+        promotor_logo = (p.logo_url or "").strip()
+    # El SUJETO: un EVENTO (su `artist_id` es el espejo, que no debe salir) o sus artistas.
+    evento_id = str(concert.event_id) if getattr(concert, "event_id", None) else ""
+    artistas = []
+    if not evento_id:
+        artistas = [str(x) for x in (getattr(concert, "artist_ids", None) or []) if x]
+        if not artistas and getattr(concert, "artist_id", None):
+            artistas = [str(concert.artist_id)]
+    # La nota con la que se reservó, para recordarla en el aviso del asistente.
+    nota = ""
+    try:
+        for n in (getattr(concert, "notes", None) or []):
+            if (n.title or "") == QUICK_RESERVATION_NOTE_TITLE and (n.body or "").strip():
+                nota = (n.body or "").strip()
+                break
+    except Exception:
+        nota = ""
+    qr = _quick_reservation_state(concert)
+    return {
+        "enabled": True,
+        "complete_concert_id": str(concert.id),
+        "artist_id": (artistas[0] if artistas else ""),
+        "artist_ids": artistas,
+        "event_id": evento_id,
+        "activity_type": (getattr(concert, "activity_type", None) or "CONCIERTO").strip().upper(),
+        "date": (concert.date.strftime("%Y-%m-%d") if getattr(concert, "date", None) else ""),
+        "end_date": (concert.end_date.strftime("%Y-%m-%d") if getattr(concert, "end_date", None) else ""),
+        "venue_id": (str(concert.venue_id) if getattr(concert, "venue_id", None) else ""),
+        "venue_label": etiqueta_recinto,
+        "manual_venue_name": (getattr(concert, "manual_venue_name", None) or ""),
+        "manual_venue_address": (getattr(concert, "manual_venue_address", None) or ""),
+        "municipality": (getattr(concert, "manual_municipality", None) or ""),
+        "province": (getattr(concert, "manual_province", None) or ""),
+        "manual_postal_code": (getattr(concert, "manual_postal_code", None) or ""),
+        "manual_country": (getattr(concert, "manual_country", None) or ""),
+        "festival_name": (getattr(concert, "festival_name", None) or ""),
+        "promoter_id": promotor,
+        "promoter_name": promotor_nombre,
+        "promoter_logo": promotor_logo,
+        "status": (getattr(concert, "status", None) or "RESERVADO").upper(),
+        "quick_note": nota,
+        "quick_at_label": qr.get("at_label") or "",
+        "quick_by": qr.get("by") or "",
+        # Lo que la reserva SÍ sabe (de quién es, el tipo, cuándo y dónde, y el promotor si lo hay):
+        # el asistente entra en el primer paso que no está aquí, con estos por detrás para repasar.
+        "sabidos": [12, 1, 3] + ([5] if promotor else []),
+        "faltan": [],
+        "subject": (getattr(getattr(concert, "artist", None), "name", None) or ""),
+    }
+
+
+def _quick_reservation_subjects(session_db, form):
+    """De quién es la reserva: `subject_ids[]` con `artist:<id>` / `event:<id>` (el MISMO selector
+    que el asistente, artistas y eventos juntos). Devuelve (artist_ids, event_uuid, subject_kind).
+    Un evento sin más se espeja como artista (`_ensure_artist_for_event`), igual que en el alta."""
+    artistas, evento = [], None
+    for raw in form.getlist("subject_ids[]") + form.getlist("subject_ids"):
+        raw = (raw or "").strip()
+        if raw.startswith("artist:"):
+            uid = _id_vivo(session_db, Artist, raw[len("artist:"):])
+            if uid and uid not in artistas:
+                artistas.append(uid)
+        elif raw.startswith("event:") and evento is None:
+            eid = _id_vivo(session_db, AppEvent, raw[len("event:"):])
+            if eid:
+                evento = session_db.get(AppEvent, eid)
+    if not artistas and evento is None:
+        raise ValueError("Debes elegir el artista (o el evento) de la reserva.")
+    if not artistas and evento is not None:
+        espejo = _ensure_artist_for_event(session_db, evento)
+        session_db.flush()
+        return [espejo.id], evento.id, "EVENT"
+    return artistas, (evento.id if evento is not None else None), "ARTIST"
+
+
+# Qué campos de la reserva rápida se marcan en rojo según el texto del `ValueError` (los mensajes
+# los escribe el propio endpoint, así que son estables). El mismo patrón que `WIZARD_ERROR_FIELDS`.
+QUICK_RESERVATION_ERROR_FIELDS = [
+    ("artista", ["subject_ids[]"]),
+    ("evento", ["subject_ids[]"]),
+    ("fecha", ["date"]),
+    ("recinto", ["venue_id", "manual_municipality", "manual_province"]),
+    ("municipio", ["manual_municipality", "manual_province"]),
+    ("promotor", ["promoter_pick"]),
+]
+
+
+def _quick_reservation_error_fields(exc) -> list:
+    texto = _norm_text_key(str(exc or ""))
+    for trozo, campos in QUICK_RESERVATION_ERROR_FIELDS:
+        if texto and _norm_text_key(trozo) in texto:
+            return list(campos)
+    return []
 
 
 def _group_general_roadmap(concerts):
@@ -68156,10 +68355,14 @@ def _concert_row(c, *, show_subject=True, today=None, event_map=None):
         subject_photo = (getattr(artist, "photo_url", None) or "")
         subject_id = str(getattr(c, "artist_id", "") or "")
     fecha = getattr(c, "date", None)
+    # Una RESERVA RÁPIDA a medias lleva su etiqueta y NO enseña el tipo de venta: ese dato es solo
+    # el apunte de lo que se sabía al reservar y se pregunta de verdad al completarla.
+    _qr_row = _quick_reservation_state(c)
     return {
         "kind": "concert",
         "id": str(c.id),
         "url": url_for("concert_detail_view", cid=c.id),
+        "quick_reservation": bool(_qr_row["pending"]),
         "date": fecha,
         "date_label": fecha.strftime("%d/%m/%Y") if fecha else "Sin fecha",
         "day": fecha.strftime("%d") if fecha else "",
@@ -68169,8 +68372,9 @@ def _concert_row(c, *, show_subject=True, today=None, event_map=None):
         "type_icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
         "type_label": _activity_kind_label(kind),
         # ⚠️ «Gratuito» NO es un tipo: el tipo es el que corresponda y lo de gratis va en su etiqueta.
-        "sale_label": (_concert_type_label(c) if kind in CONCERT_LIKE_ACTIVITY_TYPES
-                       else _activity_cache_label(getattr(c, "sale_type", None), getattr(c, "activity_type", None))),
+        "sale_label": ("" if _qr_row["pending"] else
+                       (_concert_type_label(c) if kind in CONCERT_LIKE_ACTIVITY_TYPES
+                        else _activity_cache_label(getattr(c, "sale_type", None), getattr(c, "activity_type", None)))),
         "is_free": _concert_is_free(c),
         # ⚠️ «No anunciar»: solo mientras NO se pueda anunciar. En cuanto se le pone fecha de anuncio
         # (o se anuncia) la etiqueta desaparece sola — lo decide `_announcement_state`.
@@ -73020,6 +73224,8 @@ def concert_detail_view(cid):
             payment_terms=payment_terms,
             cache_partners=cache_partners,
             cache_payment=cache_payment,
+            # ¿Es una RESERVA RÁPIDA a medias? Entonces sale el aviso con «Completar la actividad».
+            quick_reservation=_quick_reservation_state(c),
             payment_pending=payment_pending,
             payment_total_configured=payment_total_configured,
             concert_contacts=_concert_contact_rows(c),
@@ -76311,8 +76517,19 @@ def concert_section_update_handler(cid, section):
             # el guardado: se queda el resto de cambios y el estado se deja como estaba, con el
             # enlace para avisar en ese momento.
             _nuevo_estado = _norm_status(request.form.get("status"))
-            _puerta = _concert_notice_gate(session, c, _nuevo_estado)
-            if _puerta:
+            # ⚠️ Una RESERVA RÁPIDA no pasa a HABLADO ni a CONFIRMADO sin completarse: se guarda el
+            # resto de la sección y el estado se deja como estaba, con el enlace para completarla
+            # (la misma compuerta que la etiqueta de estado).
+            _qr_datos = _quick_reservation_state(c)
+            _reserva_a_medias = bool(_qr_datos["pending"]
+                                     and _nuevo_estado not in QUICK_RESERVATION_FREE_STATUSES)
+            _puerta = None if _reserva_a_medias else _concert_notice_gate(session, c, _nuevo_estado)
+            if _reserva_a_medias:
+                flash(Markup(
+                    '%s <a class="alert-link" href="%s">Completar la actividad</a>.'
+                    % (escape(_quick_reservation_gate_text(_nuevo_estado)), _qr_datos["complete_url"])),
+                    "warning")
+            elif _puerta:
                 flash(Markup(
                     '%s <a class="alert-link" href="%s">%s</a>.'
                     % (escape(_puerta["reason"]), _puerta["notify_url"],
@@ -77200,6 +77417,17 @@ def concert_quick_status(cid):
                                       "Aplazar una actividad no es solo cambiar el estado: hay que "
                                       "decir el motivo y la nueva fecha."),
                             "redirect": url_for("concert_cancel_view", cid=cid, kind=_k)}), 409
+
+        # ⚠️ UNA RESERVA RÁPIDA NO AVANZA SIN COMPLETARSE (sep 2026, lo pidió Dani): se apuntó con
+        # lo justo, así que para pasarla a HABLADO o CONFIRMADO hay que cumplimentar el resto de
+        # datos. El cliente ofrece ir al asistente, que se abre con lo de la reserva ya puesto.
+        # Cancelarla o aplazarla sí se puede (arriba): una reserva puede caerse.
+        _qr = _quick_reservation_state(c)
+        if _qr["pending"] and _norm_status(new_status) not in QUICK_RESERVATION_FREE_STATUSES:
+            return jsonify({"ok": False, "needs_completion": True,
+                            "error": _quick_reservation_gate_text(_norm_status(new_status)),
+                            "complete_url": _qr["complete_url"],
+                            "status": _norm_status(new_status)}), 409
 
         # COMPUERTA: no se confirma una actividad sin habérsela comunicado al artista.
         puerta = _concert_notice_gate(session, c, _norm_status(new_status))
@@ -84762,14 +84990,56 @@ def _wizard_link_peticion(session_db, concert) -> bool:
     return True
 
 
+def _wizard_concert_target(session_db, existente, campos: dict):
+    """La actividad sobre la que escribe el asistente: una NUEVA o —si se está COMPLETANDO una
+    RESERVA RÁPIDA (`complete_concert_id`)— la que ya existe, con los mismos campos encima.
+
+    ⚠️ Así completar una reserva no crea una segunda actividad ni pierde su id (sus enlaces, su
+    nota, quién la reservó): quien la reservó sigue constando como quien la creó, y la marca
+    `quick_reservation` queda como COMPLETADA (con cuándo y quién) en vez de borrarse."""
+    if existente is None:
+        c = Concert(**campos)
+        session_db.add(c)
+        return c
+    viejo = dict(getattr(existente, "contracting_payload", None) or {})
+    nuevo = dict(campos.get("contracting_payload") or {})
+    # Lo que la reserva ya llevaba en su payload y el asistente no pisa (p. ej. `caldav_uid`).
+    for k, v in viejo.items():
+        nuevo.setdefault(k, v)
+    qr = dict(viejo.get(QUICK_RESERVATION_KEY) or {})
+    if qr or nuevo.get(QUICK_RESERVATION_KEY):
+        qr.update({"pending": False, "completed_at": _now_madrid().isoformat(),
+                   "completed_by": ((_current_user_state() or {}).get("nick") or "")})
+        nuevo[QUICK_RESERVATION_KEY] = qr
+    campos = dict(campos)
+    campos["contracting_payload"] = nuevo
+    for k, v in campos.items():
+        if k in ("created_by_user_id", "created_by_nick"):
+            continue
+        setattr(existente, k, v)
+    # ⚠️ JSONB: leer-copiar-reasignar no siempre se escribe (regla de la casa) → se marca.
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(existente, "contracting_payload")
+    existente.updated_at = _now_madrid()
+    return existente
+
+
 @app.post('/conciertos/wizard/create', endpoint='concert_wizard_create')
 @admin_required
 def concert_wizard_create():
     if not (is_master() or can_edit_concerts()):
         return forbid('Tu usuario no tiene permisos para crear conciertos.')
+    # ¿Se está COMPLETANDO una reserva rápida? Entonces se escribe sobre ESA actividad (y si el
+    # envío se rechaza, el asistente se reabre en el mismo modo, o el reintento crearía otra).
+    _complete_raw = (request.form.get('complete_concert_id') or '').strip()
     session = db()
     try:
         mode = (request.form.get('wizard_mode') or 'direct').strip().lower()
+        _completar = None
+        if _complete_raw:
+            _completar = session.get(Concert, to_uuid(_complete_raw) or uuid.uuid4())
+            if _completar is None:
+                raise ValueError('La reserva que se estaba completando ya no existe: crea la actividad de nuevo.')
         # EL SUJETO puede ser un ARTISTA o un EVENTO (un evento funciona igual que un artista: las
         # actividades son las mismas, solo que cuelgan del evento). Si el evento no existe todavía se
         # crea aquí mismo con el nombre que se escriba. El artista de la actividad es el ESPEJO del
@@ -84937,7 +85207,7 @@ def concert_wizard_create():
             saltar_email = _truthy(request.form.get('sheet_skip_email'))
             if not promoter_email and not saltar_email:
                 raise ValueError('Debes indicar el email del promotor.')
-            concert = Concert(
+            concert = _wizard_concert_target(session, _completar, dict(
                 # QUIÉN la crea: es quien tiene que activar la producción.
                 created_by_user_id=to_uuid((_current_user_state() or {}).get('user_id') or '') or None,
                 created_by_nick=((_current_user_state() or {}).get('nick') or None),
@@ -84970,8 +85240,7 @@ def concert_wizard_create():
                 manual_province=manual_province,
                 manual_postal_code=manual_postal_code,
                 manual_country=manual_country,
-            )
-            session.add(concert)
+            ))
             session.flush()
             _wizard_link_peticion(session, concert)
             # Las canciones elegidas en el asistente SON el repertorio de la actividad.
@@ -85124,7 +85393,7 @@ def concert_wizard_create():
         # Estado inicial elegido de forma visual en el asistente (por defecto BORRADOR).
         initial_status = _norm_status(request.form.get('status'))
 
-        concert = Concert(
+        concert = _wizard_concert_target(session, _completar, dict(
             # QUIÉN la crea: es quien tiene que activar la producción.
             created_by_user_id=to_uuid((_current_user_state() or {}).get('user_id') or '') or None,
             created_by_nick=((_current_user_state() or {}).get('nick') or None),
@@ -85169,8 +85438,7 @@ def concert_wizard_create():
             payment_terms_json=_parse_payment_terms_rows(request.form),
             announcement_date=announcement_date,
             do_not_announce=do_not_announce,
-        )
-        session.add(concert)
+        ))
         session.flush()
         # ¿Venía de configurar una PETICIÓN APROBADA? Se enlaza con ella (cierra la fase 1).
         _de_peticion = _wizard_link_peticion(session, concert)
@@ -85350,6 +85618,8 @@ def concert_wizard_create():
                 flash('Actividad creada y solicitud de cartelería enviada a diseño.', 'success')
             else:
                 flash(f'Actividad creada. La solicitud de cartelería quedó registrada pero el correo no se pudo enviar: {error}', 'warning')
+        elif _completar is not None:
+            flash('Reserva completada: la actividad ya tiene todos sus datos.', 'success')
         else:
             flash('Actividad creada correctamente.', 'success')
         # ⚠️ LO QUE SE HA CAÍDO POR NO EXISTIR YA, SE DICE. La actividad se crea igual (es lo
@@ -85386,7 +85656,150 @@ def concert_wizard_create():
             # el servidor. Se traduce a lo que le sirve a una persona.
             aviso = _wizard_error_message(exc)
         _flash_form_error(aviso, campos=_wizard_error_fields(exc), abrir='concertWizardModal')
+        # ⚠️ Completando una reserva, el asistente se reabre EN ESE MODO: si no, el reintento
+        # crearía una segunda actividad en vez de escribir sobre la reserva.
+        if _complete_raw:
+            return redirect(url_for('concerts_view', tab='vista', open_wizard=1,
+                                    complete_concert=_complete_raw))
         return redirect(url_for('concerts_view', tab='vista', open_wizard=1))
+    finally:
+        session.close()
+
+
+@app.post('/conciertos/reserva-rapida', endpoint='concert_quick_reservation_create')
+@admin_required
+def concert_quick_reservation_create():
+    """+ RESERVA RÁPIDA (sep 2026, lo pidió Dani): una actividad con LO JUSTO —de quién es, qué
+    tipo es, cuándo, dónde (recinto o municipio), el promotor y una nota de contratación— que nace
+    RESERVADA. Cada campo es el MISMO que en el asistente de actividad (el mismo selector de artista
+    o evento, las mismas tarjetas de tipo, el mismo recinto o municipio a mano, el mismo buscador de
+    promotor), solo que no se pregunta nada más. Para pasarla a HABLADO o CONFIRMADO hay que
+    completarla con el asistente de siempre (`_quick_reservation_state`).
+    ⚠️ El MISMO permiso que el asistente (`can_edit_concerts`), y el gate lo resuelve con la misma
+    regla (`ACTIVITY_CREATE_ACCESS_KEYS`): el botón, el gate y el guardado miran lo mismo."""
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para crear actividades.')
+    # A dónde se vuelve si el envío se rechaza: la pantalla en la que estaba el pop-up (el
+    # formulario trae `next`), para que `_flash_form_error` lo reabra ahí con lo tecleado.
+    volver = safe_next_or(request.form.get('next') or url_for('concerts_view', tab='vista'))
+    session = db()
+    try:
+        artist_ids, event_uuid, subject_kind = _quick_reservation_subjects(session, request.form)
+        artist_id = artist_ids[0]
+        try:
+            event_date = parse_date(request.form.get('date') or '')
+        except ValueError:
+            raise ValueError('Falta la fecha de la reserva.')
+        # El TIPO se normaliza con el punto único del catálogo, como en el asistente.
+        activity_type = _activity_kind_key((request.form.get('activity_type') or 'CONCIERTO').strip().upper()) or 'CONCIERTO'
+        if activity_type not in QUAD_ACTIVITY_LABELS:
+            activity_type = 'CONCIERTO'
+        # DÓNDE: el recinto, o al menos el municipio y la provincia (la regla del asistente).
+        _perdidos = []
+        _raw_venue = (request.form.get('venue_id') or '').strip()
+        venue_id = _id_vivo(session, Venue, _raw_venue)
+        if _raw_venue and not venue_id:
+            _perdidos.append('el recinto')
+        manual_venue_name = (request.form.get('manual_venue_name') or '').strip() or None
+        manual_venue_address = (request.form.get('manual_venue_address') or '').strip() or None
+        manual_municipality = (request.form.get('manual_municipality') or '').strip() or None
+        manual_province = (request.form.get('manual_province') or '').strip() or None
+        manual_postal_code = (request.form.get('manual_postal_code') or '').strip() or None
+        manual_country = (request.form.get('manual_country') or '').strip() or None
+        if not (venue_id or manual_municipality or manual_province):
+            raise ValueError('Debes indicar recinto o al menos municipio y provincia.')
+        # QUIÉN PROMUEVE: el buscador de la casa deja el id y de qué es (un tercero o un MEDIO, que
+        # se espeja a tercero como en el asistente). Es opcional: una reserva puede no tenerlo aún.
+        promoter_id = None
+        _pick = (request.form.get('promoter_pick') or request.form.get('promoter_id') or '').strip()
+        _pick_kind = (request.form.get('promoter_pick_kind') or 'promoter').strip().lower()
+        if _pick:
+            if _pick_kind == 'media':
+                _mid = _id_vivo(session, MediaOutlet, _pick)
+                if _mid:
+                    _mp = _ensure_promoter_for_media(session, _mid)
+                    promoter_id = _mp.id if _mp else None
+            else:
+                promoter_id = _id_vivo(session, Promoter, _pick)
+            if not promoter_id:
+                _perdidos.append('el promotor')
+        # El tipo de venta es el APUNTE de lo que se sabe: con promotor, se le vende (VENDIDO); sin
+        # él, lo organiza la casa (EMPRESA, sin empresa del grupo todavía: es un dato que falta, y
+        # se pide al completarla). Las cortas (ensayos, discográficas) van como en el asistente.
+        if activity_type in SIMPLE_ACTIVITY_TYPES:
+            sale_type = 'GRATUITO'
+        else:
+            sale_type = 'VENDIDO' if promoter_id else 'EMPRESA'
+        yo = _current_user_state() or {}
+        nota = (request.form.get('note') or '').strip()
+        concert = Concert(
+            created_by_user_id=to_uuid(yo.get('user_id') or '') or None,
+            created_by_nick=(yo.get('nick') or None),
+            date=event_date,
+            venue_id=venue_id,
+            sale_type=sale_type,
+            event_id=event_uuid,
+            promoter_id=promoter_id,
+            artist_id=artist_id,
+            artist_ids=[str(x) for x in artist_ids],
+            activity_type=activity_type,
+            contracting_payload={
+                'activity_type': activity_type,
+                'artist_ids': [str(x) for x in artist_ids],
+                QUICK_RESERVATION_KEY: {
+                    'pending': True,
+                    'at': _now_madrid().isoformat(),
+                    'by': (yo.get('nick') or ''),
+                    'by_user_id': str(yo.get('user_id') or ''),
+                },
+            },
+            ticketing_payload={},
+            equipment_payload={},
+            promoter_costs_payload=_parse_promoter_costs_form(request.form),
+            capacity=0,
+            no_capacity=True,
+            sale_start_date=None,
+            sale_start_tbc=True,
+            break_even_ticket=None,
+            sold_out=False,
+            hashtags=[],
+            status='RESERVADO',
+            manual_venue_name=manual_venue_name,
+            manual_venue_address=manual_venue_address,
+            manual_municipality=manual_municipality,
+            manual_province=manual_province,
+            manual_postal_code=manual_postal_code,
+            manual_country=manual_country,
+        )
+        session.add(concert)
+        session.flush()
+        # LA NOTA DE CONTRATACIÓN: una nota más de la actividad (sale en «Notas de contratación»
+        # de su ficha), con el título que dice de dónde salió.
+        if nota:
+            session.add(ConcertNote(concert_id=concert.id, title=QUICK_RESERVATION_NOTE_TITLE, body=nota))
+        session.commit()
+        flash(Markup(
+            'Reserva creada. Cuando quieras convertirla en una actividad completa, pulsa '
+            '<a class="alert-link" href="%s">Completar la actividad</a>: el asistente pide el resto '
+            'de datos con lo de la reserva ya puesto.'
+            % url_for('concerts_view', tab='vista', open_wizard=1, complete_concert=str(concert.id))),
+            'success')
+        if _perdidos:
+            flash('La reserva se ha creado, pero esto ya no existe en la base de datos y se ha '
+                  'quedado sin poner: %s. Ponlo en su ficha.' % _join_es(_perdidos), 'warning')
+        return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
+    except Exception as exc:
+        session.rollback()
+        if isinstance(exc, ValueError):
+            aviso = 'No se ha creado la reserva: %s' % str(exc)
+        else:
+            app.logger.exception('[reserva rápida] no se pudo crear la reserva')
+            aviso = ('No se ha creado la reserva. Repasa los datos marcados; si sigue sin '
+                     'guardarse, avisa a dirección.')
+        # El motor repone lo tecleado, REABRE el pop-up en la pantalla de la que se vino y marca
+        # en rojo lo que falta (el mismo camino que el asistente de actividad).
+        _flash_form_error(aviso, campos=_quick_reservation_error_fields(exc), abrir='quickReservationModal')
+        return redirect(volver)
     finally:
         session.close()
 
@@ -104129,7 +104542,8 @@ def _resolve_request_resource_key() -> str | None:
                                  edit=(request.method in ("POST", "PUT", "PATCH", "DELETE")))
     # ⚠️ El ALTA con el asistente: la primera pestaña de Contratación que tenga, para que el gate
     # deje pasar exactamente a quien la vista deja guardar (y a quien se le pinta el botón).
-    if endpoint == "concert_wizard_create":
+    # (Y la RESERVA RÁPIDA va con la misma regla: es el mismo alta, con menos campos.)
+    if endpoint in ("concert_wizard_create", "concert_quick_reservation_create"):
         return _first_access_key(ACTIVITY_CREATE_ACCESS_KEYS, "contratacion.conciertos",
                                  edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     if endpoint == "concerts_view":
@@ -105464,6 +105878,8 @@ CONTRACTING_TASK_META = {
     # la tarea desaparece sola al revisarla.
     "PROMOTER_DATA": ("Datos del promotor por revisar", "fa-clipboard-check",
                       "text-bg-warning text-dark", 1),
+    # Una RESERVA RÁPIDA se apuntó con lo justo: hasta que se complete es trabajo de contratación.
+    "QUICK_RESERVATION": ("Reserva rápida por completar", "fa-bolt", "text-bg-warning text-dark", 1),
     # ⚠️ SOLD OUT: se ha agotado y el artista todavía no lo sabe. Va la PRIMERA porque el Sold Out
     # se publica cuando pasa, no una semana después.
     "SOLDOUT_NOTICE": ("Sold Out sin comunicar al artista", "fa-fire", "text-bg-danger", 0),
@@ -105670,6 +106086,9 @@ def _contracting_tasks_data() -> dict:
             # o no, si mandó datos hay que mirarlos igual.
             if _promoter_sheet_pending(session_db, c)["pending"]:
                 kinds.append("PROMOTER_DATA")
+            # Una RESERVA RÁPIDA sin completar: hay que cumplimentar el resto de sus datos.
+            if _quick_reservation_state(c)["pending"]:
+                kinds.append("QUICK_RESERVATION")
             # ⚠️ El SOLD OUT sin comunicar es trabajo de contratación (lo pidió Dani). Solo cuando
             # ya hay cartel: bloqueada no es una tarea que se pueda hacer, y en esta lista no hay
             # forma de decir «bloqueada» — se reclama cuando de verdad se puede hacer.

@@ -92,6 +92,7 @@
 - EL CUADRANTE · EL CACHÉ FIJO Y EL VARIABLE, EN DOS COLUMNAS (sep 2026)
 - EL PROCESO DE UNA ACTIVIDAD · los pasos, en orden, y lo bloqueado RAYADO (sep 2026)
 - CONFIRMARLE LA ACTIVIDAD AL PROMOTOR, Y PEDIRLE DE PASO LO QUE FALTA (sep 2026)
+- «+ RESERVA RÁPIDA» · una actividad con lo justo que nace RESERVADA, y se COMPLETA con el asistente (sep 2026)
 
 ---
 
@@ -2377,3 +2378,59 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   **`missing_roles`**. Es la regla de siempre —una cosa, un nombre— dentro de un diccionario.
   · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_promotor.py`** (112 comprobaciones con
     la app real, de punta a punta). Es **idempotente**. Al tocar esto, en verde.
+
+- ⚠️⚠️ **«+ RESERVA RÁPIDA» · UNA ACTIVIDAD CON LO JUSTO QUE NACE RESERVADA, Y SE COMPLETA CON EL
+  ASISTENTE** (sep 2026, lo pidió Dani: «al lado del botón + Actividad en Contratación, otro de
+  + Reserva rápida: solo pide el tipo de actividad, el artista, la fecha, el recinto o el municipio, el
+  promotor y la nota de contratación; se crea como reserva y, si se quiere convertir en algo más
+  avanzado, pide que se cumplimente el resto de campos; los campos son los mismos que en los
+  formularios de creación, solo que solo se muestran los mencionados»).
+  · **EL BOTÓN** va al lado de «+ Actividad» en TODAS las pestañas de Contratación (Inicio, Conciertos,
+  Giras compradas, Festivales/Ciclos, Eventos y Otras actividades), solo a quien puede crear una
+  actividad (`wizard_available`, el mismo criterio que el asistente). ⚠️ El **Inicio** (`peticiones.html`)
+  no tenía «+ Actividad» —era la única pestaña sin él— y ahora lleva los dos: su vista pasa por
+  **`_with_concert_wizard`** como las demás, y su lista de artistas deja fuera los ESPEJOS de evento.
+  · **EL POP-UP** es `templates/_quick_reservation_modal.html` (motor `step_wizard.js`, la estética de
+  la casa: cabecera roja con un icono por paso, pastillas, pregunta grande, pie Atrás · Siguiente ·
+  Crear). Cinco pasos y **cada campo es EL MISMO que en el asistente**: el selector de artista o
+  evento (varios, con su «+» y su «★»), las tarjetas del tipo (con la de Discográficas que se
+  despliega), la fecha con el aviso de «ese día ya tiene algo», el recinto (Select2 AJAX con foto y su
+  «+») o el sitio a mano con la barra de direcciones, el buscador de promotor (tercero o medio, con su
+  «+») y la nota. El promotor y la nota son opcionales. ⚠️ Sus ids van con `qr_` y su JS busca DENTRO
+  de su formulario: en la misma pantalla está el asistente con los MISMOS `name` (la trampa de `wzQ`).
+  ⚠️ El panel del recinto que no toca se **deshabilita** (un campo oculto se envía igual).
+  · **EL ENDPOINT** `concert_quick_reservation_create` (`POST /conciertos/reserva-rapida`) crea el
+  `Concert` **RESERVADO** con lo justo, la nota como **`ConcertNote`** (título «Reserva rápida», sale
+  en «Notas de contratación») y la marca **`contracting_payload['quick_reservation']`** =
+  `{pending, at, by}`. El tipo de venta es solo el apunte de lo que se sabe: con promotor **VENDIDO**,
+  sin él **EMPRESA** (sin empresa del grupo: es un dato que falta), y GRATUITO en las cortas. Mismo
+  permiso que el asistente y **la misma regla del gate** (`ACTIVITY_CREATE_ACCESS_KEYS`). Un rechazo
+  vuelve a la pantalla del pop-up (`next`) con `_flash_form_error(..., abrir='quickReservationModal')`.
+  · **PUNTO ÚNICO `_quick_reservation_state(concert)`** (`pending` mientras no se complete): de él
+  viven el **aviso amarillo** de la ficha con «Completar la actividad», la **tarea** «Completar los
+  datos de la reserva rápida» del tablero (paso 2, el de «configurar»), la etiqueta **«Reserva rápida»**
+  de la fila del listado (que mientras tanto **no enseña el tipo de venta**), la tarea de Contratación
+  (`QUICK_RESERVATION`) y las DOS compuertas del estado.
+  · ⚠️⚠️ **NO AVANZA SIN COMPLETARSE**: pasarla a HABLADO o CONFIRMADO (`QUICK_RESERVATION_FREE_STATUSES`
+  = lo que sí puede) desde la **etiqueta** (`concert_quick_status` → **409 `needs_completion`** con
+  `complete_url`; en `scripts.js`, `pedirCompletar` ofrece ir al asistente) o desde la **sección
+  «Datos»** (se guarda lo demás y el estado se deja, con el enlace) pide completarla. **Cancelarla o
+  aplazarla sí se puede** (van por su proceso, antes): una reserva puede caerse.
+  · **COMPLETARLA = EL ASISTENTE DE SIEMPRE, PRECUMPLIMENTADO Y SOBRE LA MISMA ACTIVIDAD.** El enlace es
+  `/conciertos?tab=vista&open_wizard=1&complete_concert=<id>`: `_with_concert_wizard` lo ve y deja
+  **`wizard_complete`** (`_quick_reservation_wizard_prefill`, el MISMO formato que
+  `_peticion_wizard_prefill`), que el parcial emite como `CONCERT_WIZARD_PREFILL`; el volcado de
+  siempre pone el sujeto (varios artistas o el evento), el tipo, la fecha, el sitio (recinto o las
+  piezas a mano, ya reveladas), el promotor y el **estado**, añade el oculto **`complete_concert_id`**,
+  dice que se está completando una reserva (con cuándo, quién y su nota) y entra en el primer paso que
+  falta. En `concert_wizard_create`, **`_wizard_concert_target`** escribe los MISMOS campos sobre la
+  actividad existente en vez de crear otra —quien la reservó sigue siendo quien la creó, la nota se
+  queda y la marca pasa a `completed_at`/`completed_by`—; el resto (cachés, entradas, contactos,
+  cartelería…) se cuelga igual que en un alta. ⚠️ Si el envío se rechaza, el asistente se reabre **en
+  ese mismo modo** (`complete_concert` en el redirect): si no, el reintento crearía una segunda actividad.
+  ⚠️ El parámetro `complete_concert` se limpia de la URL al abrirse (un refresco no lo repite).
+  ⚠️ Probado con la app real (dos baterías, 80 comprobaciones): las seis pantallas con el botón y el
+  pop-up una sola vez, la reserva con sitio a mano y con recinto, de un artista y de un EVENTO, la nota,
+  todas las pestañas de la ficha, las dos compuertas (etiqueta y sección Datos con el formulario real),
+  el precumplimentado, el guardado sobre la misma actividad sin crear otra, los rechazos y el gate.
+

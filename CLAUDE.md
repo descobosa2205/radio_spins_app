@@ -147,7 +147,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_mapa_fechas.py` | el mapa de la ruta de una gira o un ciclo (listado numerado + chinchetas con el número) y el pop-up para vincular varias fechas a la vez | al tocar la ficha de una gira, un ciclo o un festival |
 | `check_plano_recinto.py` | el diseñador del plano: marcar las butacas de un bloque y que un plano nuevo no tape lo que ya hay | al tocar `venue_map.js` |
 | `check_hoja_ruta.py` · `check_externos.py` · `check_invitaciones_generadas.py` | esas épicas de punta a punta con la app real | al tocarlas |
-| `check_invitaciones_corporativas.py` | la lista de invitados de cada uno y su envío (el módulo de la actividad, el fichero, que sale desde su correo y que nadie ve lo de nadie) | al tocar las invitaciones corporativas o el editor de diseños |
+| `check_invitaciones_corporativas.py` | las COMUNICACIONES CORPORATIVAS (antes «invitaciones corporativas»): las listas de contactos de cada uno y las comunes, qué se comparte (una actividad u otra cosa) y su envío (el módulo de la actividad, el fichero, que sale desde su correo y que nadie ve lo de nadie) | al tocar las comunicaciones corporativas o el editor de diseños |
 | `check_anuncio_carteleria.py` | pedirle al promotor la fecha de anuncio y los carteles, los dos vistos buenos y el recordatorio del día | al tocar el anuncio o la cartelería |
 | `check_promotor.py` | confirmarle la actividad al promotor y la ficha donde rellena lo que falta (y que nada se carga sin revisarlo) | al tocar el aviso al promotor o la ficha de contratación |
 | `check_syncro_repertorio.py` | el repertorio de Syncros: quitar una canción la quita de verdad (también si es one-stop, que entra sola), devolverla la devuelve, y lo que todavía no ha salido no se presenta | al tocar el repertorio de Syncros o el one-stop |
@@ -577,7 +577,8 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
 - **`ventas-ticketing.md`** — actualizar ventas, el reporte, salida a la venta, Enterticket, aforo.
   ⚠️ *La recaudación solo es nuestra si la promueve o participa una empresa del grupo.*
 - **`invitaciones.md`** — gestión, invitaciones generadas con QR y control de acceso, y las
-  **invitaciones corporativas** (la lista de invitados de cada uno y el envío desde SU correo).
+  **comunicaciones corporativas** (antes «invitaciones corporativas»: las listas de contactos de cada
+  uno y las comunes, y el envío desde SU correo de una actividad u otra cosa).
   ⚠️ *Son cosas distintas: las de un evento son entradas; una corporativa la manda una persona.*
 - **`produccion-hoja-ruta.md`** — hoja de ruta (horarios, logística, hoteles, rooming, personal,
   repertorio), riders y plantillas, mensajes al personal. ⚠️ *Lo que ve cada uno se filtra en el

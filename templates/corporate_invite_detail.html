@@ -1,11 +1,11 @@
 {% extends "layout.html" %}
 {% from '_recipient_row.html' import recip_face with context %}
 {% block content %}
-{# LA FICHA DE UNA INVITACIÓN CORPORATIVA: a quién se le mandó, QUIÉN LA HA ABIERTO y a quién no le
+{# LA FICHA DE UNA COMUNICACIÓN CORPORATIVA: a quién se le mandó, QUIÉN LA HA ABIERTO y a quién no le
    llegó (y por qué). Lo que no salió no puede ser invisible. #}
 <div class="mb-2">
   <a class="btn btn-sm btn-outline-secondary btn-volver" href="{{ url_for('corporate_invites_view') }}"
-     title="Volver a las invitaciones" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+     title="Volver a las comunicaciones" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
 </div>
 
 <h1 class="h4 mb-1"><i class="fa fa-envelope-circle-check me-2"></i>{{ invite.subject }}</h1>
@@ -17,6 +17,38 @@
 
 <div class="row g-3">
   <div class="col-12 col-lg-5">
+    {# ⚠️⚠️ EL CORREO QUE SE MANDÓ, A LA IZQUIERDA, Y DEBAJO EL NÚMERO DE ENVÍOS (sep 2026, lo pidió
+       Dani: «a la izquierda se vea el correo enviado, debajo el número de envíos; cabe
+       perfectamente, que se vea todo bien cuadrado»). Antes iba abajo del todo, a lo ancho.
+       Es el MISMO HTML que salió (`corporate_invite_preview`, con el token de prueba: abrirlo aquí
+       no cuenta como una apertura). El correo mide {{ email_width }} px y la columna no: el JS de
+       abajo lo ESCALA para que quepa entero, sin barra horizontal, y ajusta el alto al contenido
+       (se vuelve a medir cuando terminan de cargar las imágenes). #}
+    <div class="card mb-3 ci-mail">
+      <div class="card-header bg-white fw-semibold"><i class="fa fa-envelope-open-text me-2"></i>El correo que se mandó</div>
+      <div class="ci-mail__wrap" data-ci-mail-wrap data-ci-mail-width="{{ email_width }}">
+        <iframe src="{{ preview_url }}" title="El correo que se mandó" class="ci-mail__frame" data-ci-mail-frame></iframe>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="ci-card__stats">
+          <span class="ci-stat"><i class="fa fa-users fa-fw"></i><b>{{ invite.sent_ok }}</b> enviada{{ '' if invite.sent_ok == 1 else 's' }}</span>
+          <span class="ci-stat ci-stat--open"><i class="fa fa-envelope-open fa-fw"></i><b>{{ invite.opened }}</b> la {{ 'ha' if invite.opened == 1 else 'han' }} abierto{% if invite.total %} <span class="text-muted">({{ invite.opened_pct }}%)</span>{% endif %}</span>
+          {% if invite.forwarded %}<span class="ci-stat text-primary"><i class="fa fa-share-from-square fa-fw"></i><b>{{ invite.forwarded }}</b> la {{ 'ha' if invite.forwarded == 1 else 'han' }} reenviado</span>{% endif %}
+          {% if invite.sent_fail %}<span class="ci-stat text-danger"><i class="fa fa-circle-exclamation fa-fw"></i><b>{{ invite.sent_fail }}</b> sin entregar</span>{% endif %}
+        </div>
+        <div class="form-text mt-2">
+          «Abierta» se sabe porque el correo carga una imagen nuestra: quien tenga las imágenes
+          bloqueadas puede haberla leído sin que aparezca aquí. Y <strong>«la ha reenviado»</strong>
+          quiere decir que esa misma comunicación se ha abierto <strong>desde otro sitio</strong>: es
+          una buena pista de que la ha pasado a alguien, aunque también puede ser esa persona
+          abriéndola en otro dispositivo.
+        </div>
+      </div>
+    </div>
+
     {% if invite.activity %}
       {# La misma viñeta que va en el correo: el cartel a la izquierda y los datos a la derecha. #}
       <div class="card mb-3">
@@ -40,25 +72,17 @@
           </div>
         </div>
       </div>
-    {% endif %}
-
-    <div class="card mb-3">
-      <div class="card-body">
-        <div class="ci-card__stats">
-          <span class="ci-stat"><i class="fa fa-users fa-fw"></i><b>{{ invite.sent_ok }}</b> enviada{{ '' if invite.sent_ok == 1 else 's' }}</span>
-          <span class="ci-stat ci-stat--open"><i class="fa fa-envelope-open fa-fw"></i><b>{{ invite.opened }}</b> la {{ 'ha' if invite.opened == 1 else 'han' }} abierto{% if invite.total %} <span class="text-muted">({{ invite.opened_pct }}%)</span>{% endif %}</span>
-          {% if invite.forwarded %}<span class="ci-stat text-primary"><i class="fa fa-share-from-square fa-fw"></i><b>{{ invite.forwarded }}</b> la {{ 'ha' if invite.forwarded == 1 else 'han' }} reenviado</span>{% endif %}
-          {% if invite.sent_fail %}<span class="ci-stat text-danger"><i class="fa fa-circle-exclamation fa-fw"></i><b>{{ invite.sent_fail }}</b> sin entregar</span>{% endif %}
-        </div>
-        <div class="form-text mt-2">
-          «Abierta» se sabe porque el correo carga una imagen nuestra: quien tenga las imágenes
-          bloqueadas puede haberla leído sin que aparezca aquí. Y <strong>«la ha reenviado»</strong>
-          quiere decir que esa misma invitación se ha abierto <strong>desde otro sitio</strong>: es
-          una buena pista de que la ha pasado a alguien, aunque también puede ser esa persona
-          abriéndola en otro dispositivo.
+    {% elif invite.topic %}
+      {# QUÉ SE COMPARTE cuando no es una actividad: su nombre, con el altavoz de la casa. #}
+      <div class="card mb-3">
+        <div class="card-body ci-card ci-card--flat">
+          <span class="ci-card__poster ci-card__poster--ph"><i class="fa fa-bullhorn"></i></span>
+          <div class="ci-card__body">
+            <div class="ci-card__act"><div><i class="fa fa-bullhorn fa-fw ci-ico--brand"></i>{{ invite.topic }}</div></div>
+          </div>
         </div>
       </div>
-    </div>
+    {% endif %}
   </div>
 
   <div class="col-12 col-lg-7">
@@ -70,7 +94,7 @@
            quien ya la tiene NO se le manda otra vez. Sin nadie nuevo, el botón no se pinta. #}
         {% if nuevos %}
           <form method="post" action="{{ send_new_url }}" class="d-inline"
-                data-confirm="¿Mandar la invitación a {{ nuevos }} persona{{ '' if nuevos == 1 else 's' }} que se {{ 'ha' if nuevos == 1 else 'han' }} añadido a las listas después? A quien ya la tiene no se le vuelve a mandar.">
+                data-confirm="¿Mandar la comunicación a {{ nuevos }} persona{{ '' if nuevos == 1 else 's' }} que se {{ 'ha' if nuevos == 1 else 'han' }} añadido a las listas después? A quien ya la tiene no se le vuelve a mandar.">
             <button class="btn btn-sm btn-danger fw-normal" type="submit">
               <i class="fa fa-user-plus me-1"></i>Mandar a {{ nuevos }} nuevo{{ '' if nuevos == 1 else 's' }} de la lista</button>
           </form>
@@ -131,9 +155,9 @@
                       <li><hr class="dropdown-divider"></li>
                       <li>
                         <form method="post" action="{{ r.resend_url }}"
-                              data-confirm="¿Volver a mandarle la invitación a {{ r.nick }}? Se le manda a {{ r.email_hoy or r.email }}.">
+                              data-confirm="¿Volver a mandarle la comunicación a {{ r.nick }}? Se le manda a {{ r.email_hoy or r.email }}.">
                           <button class="dropdown-item" type="submit">
-                            <i class="fa fa-paper-plane fa-fw me-1"></i>Reenviar la invitación</button>
+                            <i class="fa fa-paper-plane fa-fw me-1"></i>Reenviar la comunicación</button>
                         </form>
                       </li>
                       {% if r.promoter_url %}
@@ -155,12 +179,34 @@
   </div>
 </div>
 
-{% if web_html %}
-  <div class="card mt-3">
-    <div class="card-header bg-white fw-semibold"><i class="fa fa-envelope-open-text me-2"></i>El correo que se mandó</div>
-    <div class="card-body" style="background:#f3f4f6;">
-      <div class="pr-canvas-wrap">{{ web_html|safe }}</div>
-    </div>
-  </div>
-{% endif %}
+<script>
+/* EL CORREO ENCAJADO EN SU COLUMNA: el iframe se pinta al ancho real del correo y se escala para
+   que quepa entero; el alto se toma del contenido (mismo origen, así que se puede medir) y se vuelve
+   a medir cuando cargan las imágenes y al cambiar el tamaño de la ventana. Sin Bootstrap por medio:
+   corre en cuanto existe el nodo. */
+(function () {
+  var wrap = document.querySelector('[data-ci-mail-wrap]');
+  var frame = document.querySelector('[data-ci-mail-frame]');
+  if (!wrap || !frame) return;
+  var ancho = parseInt(wrap.getAttribute('data-ci-mail-width'), 10) || 600;
+  function ajusta() {
+    var disponible = wrap.clientWidth || ancho;
+    var escala = Math.min(1, disponible / ancho);
+    frame.style.width = ancho + 'px';
+    frame.style.transform = 'scale(' + escala + ')';
+    var alto = Math.round(ancho * 0.9);
+    try {
+      var d = frame.contentDocument;
+      if (d && d.documentElement) {
+        alto = Math.max(d.documentElement.scrollHeight || 0, d.body ? (d.body.scrollHeight || 0) : 0) || alto;
+      }
+    } catch (e) {}
+    frame.style.height = alto + 'px';
+    wrap.style.height = Math.ceil(alto * escala) + 'px';
+  }
+  frame.addEventListener('load', function () { ajusta(); setTimeout(ajusta, 400); setTimeout(ajusta, 1500); });
+  window.addEventListener('resize', ajusta);
+  ajusta();
+})();
+</script>
 {% endblock %}

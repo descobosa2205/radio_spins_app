@@ -29,7 +29,7 @@
     {% elif campaign %}
       <a href="{{ campaign.return_url }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver al envío (el correo se guarda)" aria-label="Volver al envío"><i class="fa fa-arrow-left"></i></a>
     {% elif invite %}
-      <a href="{{ invite.return_url }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la invitación (el correo se guarda)" aria-label="Volver a la invitación"><i class="fa fa-arrow-left"></i></a>
+      <a href="{{ invite.return_url }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la comunicación (el correo se guarda)" aria-label="Volver a la comunicación"><i class="fa fa-arrow-left"></i></a>
     {% else %}
       <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la nota (se guarda como borrador)" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
     {% endif %}
@@ -42,7 +42,7 @@
         <span class="small text-muted">Los módulos que pongas saldrán en blanco en cada nota.</span>
       {% else %}
         {% if campaign %}<span class="badge text-bg-danger"><i class="fa fa-envelope me-1"></i>Envío a compradores</span>{% endif %}
-        {% if invite %}<span class="badge text-bg-danger"><i class="fa fa-envelope-circle-check me-1"></i>Invitación corporativa</span>{% endif %}
+        {% if invite %}<span class="badge text-bg-danger"><i class="fa fa-envelope-circle-check me-1"></i>Comunicación corporativa</span>{% if invite.topic %}<span class="badge text-bg-light border"><i class="fa fa-bullhorn me-1"></i>{{ invite.topic }}</span>{% endif %}{% endif %}
         {% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}
         <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
         {% if not campaign and not invite %}<span class="badge text-bg-light border">{{ row.status_label }}</span>{% endif %}

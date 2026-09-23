@@ -7,7 +7,7 @@
    solo motor (`static/js/press_send.js`) y una sola plantilla.
    · `scope` dice DESDE DÓNDE se está mandando y solo cambia el paso de «a quién» (y de quién sale):
        press  — una NOTA DE PRENSA: a los medios, promotores y asociaciones.
-       invite — una INVITACIÓN CORPORATIVA: a MIS listas de invitados, desde MI correo.
+       invite — una COMUNICACIÓN CORPORATIVA: a mis listas de contactos (y las comunes), desde MI correo.
      Todo lo demás —la previsualización, la prueba, el pie, el contador y el envío— es común.
    · `mode` (solo en las notas): send (la primera vez) · resend (otra tanda) · share (por email). #}
 {% from '_recipient_row.html' import recip_face with context %}
@@ -15,14 +15,16 @@
 {% set es_invite = scope == 'invite' %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   {% if es_invite %}
-    <a href="{{ url_for('corporate_invites_view') }}" class="btn btn-outline-secondary btn-volver" data-no-smart-back title="Volver a las invitaciones corporativas" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+    <a href="{{ url_for('corporate_invites_view') }}" class="btn btn-outline-secondary btn-volver" data-no-smart-back title="Volver a las comunicaciones corporativas" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
     <div class="d-flex align-items-center gap-2 flex-wrap">
       {% if invite_activity %}
         <span class="badge text-bg-light border"><i class="fa fa-guitar me-1"></i>{{ invite_activity.artist_name }}</span>
         {% if invite_activity.date_label %}<span class="badge text-bg-light border"><i class="fa fa-calendar-days me-1"></i>{{ invite_activity.date_label }}</span>{% endif %}
         {% if invite_activity.venue_label %}<span class="badge text-bg-light border"><i class="fa fa-location-dot me-1"></i>{{ invite_activity.venue_label }}</span>{% endif %}
       {% endif %}
-      <span class="badge text-bg-light border"><i class="fa fa-envelope-circle-check me-1"></i>Invitación corporativa</span>
+      {# QUÉ SE COMPARTE cuando no es una actividad: su nombre, con el altavoz. #}
+      {% if invite_topic %}<span class="badge text-bg-light border"><i class="fa fa-bullhorn me-1"></i>{{ invite_topic }}</span>{% endif %}
+      <span class="badge text-bg-light border"><i class="fa fa-envelope-circle-check me-1"></i>Comunicación corporativa</span>
     </div>
   {% else %}
     {# Atrás = el LISTADO de notas de ese artista (el diseño ya está terminado; no se vuelve a editar). #}
@@ -38,7 +40,7 @@
      data-mode="{{ mode }}" data-my-email="{{ my_email }}" data-sender="{{ pr.sender_kind or 'BACKOFFICE' }}"
      data-avatar-fallback="{{ DEFAULT_AVATAR_URL }}">
   <div class="pr-send__steps">
-    <h4 class="mb-1">{% if es_invite %}Enviar la invitación{% else %}{{ 'Compartir por email' if mode == 'share' else ('Reenviar la nota de prensa' if mode == 'resend' else 'Enviar la nota de prensa') }}{% endif %}</h4>
+    <h4 class="mb-1">{% if es_invite %}Enviar la comunicación{% else %}{{ 'Compartir por email' if mode == 'share' else ('Reenviar la nota de prensa' if mode == 'resend' else 'Enviar la nota de prensa') }}{% endif %}</h4>
     <div class="text-muted small mb-3">Asunto: <b>{{ email_subject }}</b></div>
 
     {# ── 1 · QUIÉN LA MANDA ── #}
@@ -46,7 +48,7 @@
       <div class="demo-card__head"><i class="fa fa-at"></i>1 · ¿Quién la manda?</div>
       <div class="demo-card__body">
       {% if es_invite %}
-        {# ⚠️⚠️ UNA INVITACIÓN CORPORATIVA SALE DESDE EL CORREO DE QUIEN LA MANDA, siempre: quien la
+        {# ⚠️⚠️ UNA COMUNICACIÓN CORPORATIVA SALE DESDE EL CORREO DE QUIEN LA MANDA, siempre: quien la
            recibe te contesta A TI, no a un buzón de la app. Por eso aquí no hay nada que elegir — y
            si esa cuenta no está dada de alta, NO se puede mandar y se dice qué hacer. #}
         {% if sender.ok %}
@@ -86,7 +88,7 @@
 
     {# ── 2 · CUÁNDO ──
        ⚠️ Solo en las NOTAS DE PRENSA: una nota se programa para su fecha de embargo, y una
-       invitación se manda cuando se manda (no hay nada que esperar). #}
+       comunicación corporativa se manda cuando se manda (no hay nada que esperar). #}
     {% if not es_invite %}
     <div class="demo-card mb-3">
       <div class="demo-card__head"><i class="fa fa-clock"></i>2 · ¿Cuándo se envía?</div>
@@ -109,13 +111,13 @@
       <div class="demo-card__head"><i class="fa fa-users"></i>{{ '2' if es_invite else '3' }} · ¿A quién se envía?</div>
       <div class="demo-card__body">
         {% if es_invite %}
-          {# ⚠️ MIS LISTAS DE INVITADOS, cada una con su gente **por orden alfabético de nick** y con
-             las MISMAS marcas que en «Mi lista de invitados» (el triángulo = le rebotó el último
+          {# ⚠️ LAS LISTAS DE CONTACTOS (las mías y las comunes), cada una con su gente **por orden
+             alfabético de nick** y con las MISMAS marcas que en «Listas de contactos» (el triángulo = le rebotó el último
              correo · el sobre tachado = no abre lo que se le manda). Aquí se puede QUITAR a quien
              no toque y AÑADIR a quien haga falta antes de mandar.
              ⚠️ Quien esté en varias listas se manda UNA sola vez: el motor deduplica por correo. #}
           <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-            <label class="form-check m-0"><input type="checkbox" class="form-check-input me-2" data-pr-all-active checked>Todos los de mis listas <span class="badge text-bg-light border" data-pr-active-count></span></label>
+            <label class="form-check m-0"><input type="checkbox" class="form-check-input me-2" data-pr-all-active checked>Todos los de las listas <span class="badge text-bg-light border" data-pr-active-count></span></label>
             <input type="search" class="form-control form-control-sm" style="max-width:14rem" placeholder="Filtrar…" data-pr-filter>
           </div>
           <div class="pr-recip-groups" data-pr-groups>
@@ -124,6 +126,7 @@
                 <div class="pr-recip-group__head">
                   <i class="fa fa-address-book fa-fw text-danger"></i>
                   <b>{{ l.name }}</b><span class="text-muted small">· {{ l.with_email }} con correo</span>
+                  {% if l.shared %}<span class="badge text-bg-light border"><i class="fa fa-people-group me-1 text-accent"></i>Común</span>{% endif %}
                   <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none" data-pr-group-toggle>quitar todos</button>
                 </div>
                 {% for gst in l.rows %}
@@ -141,11 +144,11 @@
                   {% endif %}
                 {% endfor %}
                 {% if not l.with_email %}
-                  <div class="alert alert-light border mb-0 small">Nadie de esta lista tiene correo todavía. Se arregla en <a href="{{ url_for('corporate_invites_view', tab='listas') }}">Mi lista de invitados</a>.</div>
+                  <div class="alert alert-light border mb-0 small">Nadie de esta lista tiene correo todavía. Se arregla en <a href="{{ url_for('corporate_invites_view', tab='listas') }}">Listas de contactos</a>.</div>
                 {% endif %}
               </div>
             {% else %}
-              <div class="alert alert-light border mb-0 small">Esta invitación no tiene ninguna lista marcada.</div>
+              <div class="alert alert-light border mb-0 small">Esta comunicación no tiene ninguna lista marcada.</div>
             {% endfor %}
           </div>
           <hr>

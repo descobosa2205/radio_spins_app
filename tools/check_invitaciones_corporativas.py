@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
-"""INVITACIONES CORPORATIVAS · prueba de regresión (sep 2026).
+"""COMUNICACIONES CORPORATIVAS (hasta sep 2026 «invitaciones corporativas») · prueba de regresión.
 
+⚠️ El fichero conserva su nombre de siempre (`check_invitaciones_corporativas`), como los
+identificadores del código (`corporate_*`): lo que cambió es lo que se LEE en la app.
 Comprueba, contra la app REAL y una BD de PRUEBA:
+  · EL NOMBRE NUEVO en todas sus pantallas y que la URL de antes (`/invitaciones-corporativas`)
+    sigue llegando (redirige)
+  · LAS LISTAS COMUNES: la ve y la edita todo el mundo (añadir, renombrar, mandar con ella), pero
+    borrarla y dejar de compartirla es de su dueño o de dirección; una privada sigue siendo privada
+  · QUÉ SE VA A COMPARTIR: una actividad (y cuál) u otra cosa con su nombre; sin una de las dos no se
+    crea; el nombre se lee en la tarjeta, el editor, la pantalla de enviar y es el asunto por defecto
+  · LA FICHA DE UNA ENVIADA: el correo que se mandó a la izquierda y debajo el número de envíos
   · el MÓDULO «Datos de la actividad» del editor: qué es, el artista con su foto, la fecha con su
     día de la semana, el recinto, la hora y el CARTEL a la izquierda de la viñeta (y sus iconos como
     PNG, que en un correo no carga ninguna fuente de iconos)
@@ -280,12 +289,12 @@ with cli.session_transaction() as ses:
     ses["user_id"] = UID
     ses["role"] = 10
 
-r = cli.get("/invitaciones-corporativas")
+r = cli.get("/comunicaciones-corporativas")
 check("la pantalla abre (200)", r.status_code == 200, r.status_code)
 cuerpo = r.get_data(as_text=True)
 check("dice que no hay listas todavía", "Todavía no tienes ninguna lista" in cuerpo)
 
-r = cli.post("/invitaciones-corporativas/listas/crear", data={"name": "Prensa"}, follow_redirects=True)
+r = cli.post("/comunicaciones-corporativas/listas/crear", data={"name": "Prensa"}, follow_redirects=True)
 check("se crea una lista", r.status_code == 200 and "Prensa" in r.get_data(as_text=True), r.status_code)
 
 s = models.SessionLocal()
@@ -297,7 +306,7 @@ finally:
 check("la lista es de ESA persona", bool(LID))
 
 # Añadir a alguien NUEVO (se le crea su ficha de tercero)
-r = cli.post("/invitaciones-corporativas/listas/%s/invitados" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/invitados" % LID,
              data={"name": "Ana Pérez", "email": "ana@medio.com", "phone": "600111222"})
 js = r.get_json()
 check("se añade a alguien nuevo", js and js.get("ok") and js.get("count") == 1, js)
@@ -311,7 +320,7 @@ finally:
     s.close()
 
 # El mismo correo otra vez: ni se duplica el tercero ni entra dos veces en la lista
-r = cli.post("/invitaciones-corporativas/listas/%s/invitados" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/invitados" % LID,
              data={"name": "Ana P.", "email": "ana@medio.com"})
 js = r.get_json()
 check("el mismo correo NO entra dos veces en la lista", js and not js.get("ok"), js)
@@ -330,7 +339,7 @@ try:
     BEA_ID = str(otro.id)
 finally:
     s.close()
-r = cli.post("/invitaciones-corporativas/listas/%s/invitados" % LID, data={"promoter_id": BEA_ID})
+r = cli.post("/comunicaciones-corporativas/listas/%s/invitados" % LID, data={"promoter_id": BEA_ID})
 js = r.get_json()
 check("se añade un tercero que ya estaba", js and js.get("ok") and js.get("count") == 2, js)
 check("y se le coge el correo de SU ficha",
@@ -345,7 +354,7 @@ csv = ("Invitado;Empresa;Cargo;Dirección de correo;Móvil\n"
        "Bea Ruiz;Otra SL;Jefa de prensa;bea@empresa.com;655000111\n"  # ya está EN LA LISTA
        "Carlos Gómez;Tercera SL;Redactor;carlos@nuevo.com;600333444\n"  # NO lo tenemos
        "Diego Sanz;Cuarta SL;Fotógrafo;;600555666\n")                 # ni lo tenemos ni trae correo
-r = cli.post("/invitaciones-corporativas/listas/%s/importar" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/importar" % LID,
              data={"file": (io.BytesIO(csv.encode("utf-8")), "invitados.csv")},
              content_type="multipart/form-data")
 js = r.get_json() or {}
@@ -385,7 +394,7 @@ finally:
 csv2 = ("Invitado;Empresa;Dirección de correo\n"
         "Elena Mora;Quinta SL;elena@otra.com\n"
         "Nuria Paz;Sexta SL;nuria@nueva.com\n")
-r = cli.post("/invitaciones-corporativas/listas/%s/importar" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/importar" % LID,
              data={"file": (io.BytesIO(csv2.encode("utf-8")), "invitados2.csv")},
              content_type="multipart/form-data")
 js2 = r.get_json() or {}
@@ -396,7 +405,7 @@ check("y se dice POR QUÉ se le ha reconocido", "correo" in (filas2[0]["why"] or
 check("viene marcado, porque el correo es un dato seguro", filas2[0]["sure"] is True, filas2 and filas2[0])
 
 # Añadir LOS MARCADOS (no crea fichas: son terceros que ya existen)
-r = cli.post("/invitaciones-corporativas/listas/%s/importar/anadir" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/importar/anadir" % LID,
              json={"items": [{"promoter_id": ELENA_ID, "name": "Elena Mora", "email": "elena@otra.com"}]})
 js3 = r.get_json() or {}
 check("se añaden los marcados", js3.get("ok") and js3.get("added") == 1, js3)
@@ -409,7 +418,7 @@ finally:
     s.close()
 
 # El ALTA, UNO A UNO: se crea la ficha con lo que se ha revisado y queda añadida a la lista
-r = cli.post("/invitaciones-corporativas/listas/%s/importar/nuevo" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/importar/nuevo" % LID,
              json={"values": {"nick": "Carlos Gómez", "first_name": "Carlos", "last_name": "Gómez",
                               "contact_email": "carlos@nuevo.com", "contact_phone": "600333444"},
                    "extra": [{"label": "Empresa", "value": "Tercera SL"}, {"label": "Cargo", "value": "Redactor"}]})
@@ -433,7 +442,7 @@ cols2 = js2.get("columns") or []
 for c in cols2:
     if c["header"] == "Empresa":
         c["field"] = "hotel_notes"
-r = cli.post("/invitaciones-corporativas/listas/%s/importar/revisar" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/importar/revisar" % LID,
              json={"columns": cols2, "file_rows": js2.get("file_rows") or []})
 js5 = r.get_json() or {}
 check("se puede corregir a qué campo va una columna SIN volver a subir el fichero", js5.get("ok"), js5)
@@ -444,7 +453,7 @@ check("y quien se acaba de añadir ya sale como «ya está en la lista»",
       bool(js5.get("rows")) and js5["rows"][0]["status"] == "lista", js5.get("rows") and js5["rows"][0]["status"])
 
 # Volver a subir el MISMO fichero: nadie se duplica y todos salen como ya añadidos
-r = cli.post("/invitaciones-corporativas/listas/%s/importar" % LID,
+r = cli.post("/comunicaciones-corporativas/listas/%s/importar" % LID,
              data={"file": (io.BytesIO(csv.encode("utf-8")), "invitados.csv")},
              content_type="multipart/form-data")
 js6 = r.get_json() or {}
@@ -476,7 +485,7 @@ try:
     LID2, G1, G2 = str(lst2.id), str(g1.id), str(g2.id)
 finally:
     s.close()
-js = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID2).get_json() or {}
+js = cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID2).get_json() or {}
 filas = {f["id"]: f for f in (js.get("rows") or [])}
 check("quien tiene el correo en su FICHA ya no sale como «sin correo»",
       (filas.get(G1) or {}).get("email") == "conficha@medio.com", filas.get(G1))
@@ -492,7 +501,7 @@ try:
 finally:
     s.close()
 # Arreglarlo desde la propia lista, sin salir de la pantalla
-r = cli.post("/invitaciones-corporativas/invitados/%s/arreglar" % G2,
+r = cli.post("/comunicaciones-corporativas/invitados/%s/arreglar" % G2,
              data={"email": "arreglado@medio.com", "phone": "600111999"})
 js2 = r.get_json() or {}
 check("se le puede poner el correo que falta ahí mismo", js2.get("ok") and js2.get("with_email") == 2, js2)
@@ -505,10 +514,10 @@ try:
     check("y el teléfono, con su prefijo", (p.contact_phone or "").endswith("600111999"), p and p.contact_phone)
 finally:
     s.close()
-r = cli.post("/invitaciones-corporativas/invitados/%s/arreglar" % G1, data={"email": "esto no es"})
+r = cli.post("/comunicaciones-corporativas/invitados/%s/arreglar" % G1, data={"email": "esto no es"})
 check("un correo mal escrito se rechaza y se dice por qué",
       r.status_code == 400 and "no parece" in ((r.get_json() or {}).get("error") or ""), r.get_json())
-r = cli.post("/invitaciones-corporativas/invitados/%s/arreglar" % G1, data={"email": ""})
+r = cli.post("/comunicaciones-corporativas/invitados/%s/arreglar" % G1, data={"email": ""})
 check("y sin correo no se guarda nada", r.status_code == 400, r.status_code)
 # Un tercero que ya está en la lista no entra dos veces aunque su fila no tenga correo
 s = models.SessionLocal()
@@ -553,7 +562,7 @@ try:
     LID3 = str(lst3.id)
 finally:
     s.close()
-js3 = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID3).get_json() or {}
+js3 = cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID3).get_json() or {}
 check("antes de arreglarlo sale como que le falta el correo", js3.get("with_email") == 0, js3)
 s = models.SessionLocal()
 try:
@@ -568,12 +577,12 @@ try:
     check("pasarlo otra vez no cambia nada (es idempotente)", not any(otra.values()), otra)
 finally:
     s.close()
-js4 = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID3).get_json() or {}
+js4 = cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID3).get_json() or {}
 check("y DESPUÉS ya no sale entre los que les falta correo: queda agregado y ya",
       js4.get("with_email") == 1 and (js4.get("rows") or [{}])[0].get("email") == "dedomicilio@medio.com", js4)
 
 print("\n── 5. LA INVITACIÓN: crear, diseñar y enviar ──────────────────────────")
-r = cli.post("/invitaciones-corporativas/nueva",
+r = cli.post("/comunicaciones-corporativas/nueva",
              data={"lists": [LID], "concert_id": CID, "subject": "Te invito a Los Ñus"})
 check("crear la invitación lleva AL EDITOR", r.status_code == 302 and "/notas-de-prensa/" in (r.headers.get("Location") or ""),
       (r.status_code, r.headers.get("Location")))
@@ -596,7 +605,7 @@ finally:
 r = cli.get("/notas-de-prensa/%s/editar" % PR_ID)
 check("el editor abre (200)", r.status_code == 200, r.status_code)
 ed = r.get_data(as_text=True)
-check("y se ve que es una invitación corporativa", "Invitación corporativa" in ed)
+check("y se ve que es una comunicación corporativa", "Comunicación corporativa" in ed)
 
 # Un diseño de INVITE no se cuela en las notas de prensa
 r = cli.get("/notas-de-prensa")
@@ -611,7 +620,7 @@ try:
     flag_modified(pr, "design"); s.commit()
 finally:
     s.close()
-r = cli.post("/invitaciones-corporativas/%s/enviar" % INV_ID)
+r = cli.post("/comunicaciones-corporativas/%s/enviar" % INV_ID)
 js = r.get_json()
 check("sin diseño avisa de que hay que diseñarlo", js and not js.get("ok") and "diseñar" in (js.get("error") or "").lower(), js)
 
@@ -634,7 +643,7 @@ try:
 finally:
     s.close()
 
-r = cli.post("/invitaciones-corporativas/%s/enviar" % INV_ID)
+r = cli.post("/comunicaciones-corporativas/%s/enviar" % INV_ID)
 js = r.get_json()
 check("SIN cuenta de correo propia NO se manda", js and not js.get("ok") and js.get("needs_mail") is True, js)
 check("y se dice qué hay que hacer (Integraciones → Correo)",
@@ -669,7 +678,7 @@ def _fake_send(to, subject, html, *a, **kw):
     return True, None
 A._send_optional_email = _fake_send
 
-r = cli.post("/invitaciones-corporativas/%s/enviar" % INV_ID)
+r = cli.post("/comunicaciones-corporativas/%s/enviar" % INV_ID)
 js = r.get_json()
 check("se manda", js and js.get("ok") and js.get("terminado"), js)
 check("a los 4 con correo", js and js.get("total") == 4, js)
@@ -701,22 +710,22 @@ finally:
 
 print("\n── 8. NADIE RECIBE DOS VECES ──────────────────────────────────────────")
 antes = len(ENVIADOS)
-r = cli.post("/invitaciones-corporativas/%s/enviar" % INV_ID)
+r = cli.post("/comunicaciones-corporativas/%s/enviar" % INV_ID)
 js = r.get_json()
 check("una invitación ya mandada no se vuelve a mandar", js and not js.get("ok"), js)
 check("y no sale ni un correo más", len(ENVIADOS) == antes, len(ENVIADOS))
 
 # Quien está en DOS listas recibe UNA
-r = cli.post("/invitaciones-corporativas/listas/crear", data={"name": "VIP"}, follow_redirects=True)
+r = cli.post("/comunicaciones-corporativas/listas/crear", data={"name": "VIP"}, follow_redirects=True)
 s = models.SessionLocal()
 try:
     lid2 = str(s.query(models.CorporateGuestList).filter(models.CorporateGuestList.name == "VIP").first().id)
 finally:
     s.close()
-cli.post("/invitaciones-corporativas/listas/%s/invitados" % lid2, data={"promoter_id": ANA_ID})
-cli.post("/invitaciones-corporativas/listas/%s/invitados" % lid2, data={"name": "Fran", "email": "fran@x.com"})
+cli.post("/comunicaciones-corporativas/listas/%s/invitados" % lid2, data={"promoter_id": ANA_ID})
+cli.post("/comunicaciones-corporativas/listas/%s/invitados" % lid2, data={"name": "Fran", "email": "fran@x.com"})
 ENVIADOS.clear()
-r = cli.post("/invitaciones-corporativas/nueva", data={"lists": [LID, lid2], "concert_id": CID, "subject": "Dos listas"})
+r = cli.post("/comunicaciones-corporativas/nueva", data={"lists": [LID, lid2], "concert_id": CID, "subject": "Dos listas"})
 s = models.SessionLocal()
 try:
     inv2 = s.query(models.CorporateInvite).filter(models.CorporateInvite.subject == "Dos listas").first()
@@ -729,7 +738,7 @@ try:
     flag_modified(pr2, "design"); s.commit()
 finally:
     s.close()
-r = cli.post("/invitaciones-corporativas/%s/enviar" % INV2)
+r = cli.post("/comunicaciones-corporativas/%s/enviar" % INV2)
 js = r.get_json()
 check("con dos listas, quien está en las dos recibe UNA sola (4 + Fran = 5)", js and js.get("total") == 5, js)
 destinos = [e["to"] for e in ENVIADOS]
@@ -754,10 +763,10 @@ try:
     check("queda apuntado que la abrió", r1.opened_at is not None and r1.open_count == 2, (r1.opened_at, r1.open_count))
 finally:
     s.close()
-r = cli.get("/invitaciones-corporativas")
+r = cli.get("/comunicaciones-corporativas")
 cuerpo = r.get_data(as_text=True)
 check("el listado dice cuántos la han abierto", "la ha abierto" in cuerpo or "la han abierto" in cuerpo)
-r = cli.get("/invitaciones-corporativas/%s" % INV_ID)
+r = cli.get("/comunicaciones-corporativas/%s" % INV_ID)
 check("la ficha abre y dice quién la ha abierto",
       r.status_code == 200 and "Abierta" in r.get_data(as_text=True), r.status_code)
 
@@ -779,14 +788,14 @@ cli2 = A.app.test_client()
 with cli2.session_transaction() as ses:
     ses["user_id"] = OTRO
     ses["role"] = 1
-r = cli2.get("/invitaciones-corporativas")
+r = cli2.get("/comunicaciones-corporativas")
 check("otra persona entra en SU pantalla (es de todos)", r.status_code == 200, r.status_code)
 check("y no ve las invitaciones de Dani", "Te invito a Los Ñus" not in r.get_data(as_text=True))
-r = cli2.get("/invitaciones-corporativas/listas/%s/invitados" % LID)
+r = cli2.get("/comunicaciones-corporativas/listas/%s/invitados" % LID)
 check("ni los invitados de una lista que no es suya", r.status_code == 404, r.status_code)
-r = cli2.post("/invitaciones-corporativas/listas/%s/invitados" % LID, data={"email": "intruso@x.com"})
+r = cli2.post("/comunicaciones-corporativas/listas/%s/invitados" % LID, data={"email": "intruso@x.com"})
 check("ni puede añadir a una lista ajena", r.status_code == 404, r.status_code)
-r = cli2.get("/invitaciones-corporativas/%s" % INV_ID, follow_redirects=False)
+r = cli2.get("/comunicaciones-corporativas/%s" % INV_ID, follow_redirects=False)
 check("ni abrir una invitación ajena", r.status_code == 302, r.status_code)
 r = cli2.get("/notas-de-prensa/%s/editar" % PR_ID)
 ed2 = r.get_data(as_text=True) if r.status_code == 200 else ""
@@ -800,7 +809,7 @@ with A.app.test_request_context("/"):
     _fs["role"] = 1
     acciones = A._build_home_quick_actions()
     claves = [a["key"] for a in acciones]
-    check("alguien de Producción ve «Invitación corporativa»", "invitaciones_corp" in claves, claves)
+    check("alguien de Producción ve «Comunicación corporativa»", "invitaciones_corp" in claves, claves)
 with A.app.test_request_context("/"):
     from flask import session as _fs2
     _fs2["user_id"] = UID
@@ -853,11 +862,11 @@ with A.app.test_request_context("/"):
         s.close()
 
 print("\n── 13. PRUEBA DE HUMO: todas las pantallas nuevas ─────────────────────")
-for ruta in ["/invitaciones-corporativas",
-             "/invitaciones-corporativas?tab=listas",
-             "/invitaciones-corporativas/%s" % INV_ID,
-             "/invitaciones-corporativas/%s/previsualizar" % INV_ID,
-             "/invitaciones-corporativas/%s/estado" % INV_ID,
+for ruta in ["/comunicaciones-corporativas",
+             "/comunicaciones-corporativas?tab=listas",
+             "/comunicaciones-corporativas/%s" % INV_ID,
+             "/comunicaciones-corporativas/%s/previsualizar" % INV_ID,
+             "/comunicaciones-corporativas/%s/estado" % INV_ID,
              "/notas-de-prensa/%s/editar" % PR_ID,
              "/notas-de-prensa/%s/recursos" % PR_ID]:
     r = cli.get(ruta)
@@ -901,7 +910,7 @@ try:
 finally:
     s.close()
 
-r = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD)
+r = cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID_ORD)
 js = r.get_json() or {}
 filas = js.get("rows") or []
 check("la lista se lee (200)", r.status_code == 200 and js.get("ok"), r.status_code)
@@ -941,7 +950,7 @@ try:
     s.commit()
 finally:
     s.close()
-filas = (cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
+filas = (cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
 por_nick = {f["nick"]: f for f in filas}
 check("a quien REBOTÓ el correo se le marca", por_nick["Bruno"]["mail_status"] == "error", por_nick["Bruno"])
 check("y se distingue «ese correo NO EXISTE» de un fallo pasajero", por_nick["Bruno"]["mail_hard"] is True)
@@ -950,21 +959,21 @@ check("un fallo pasajero NO se marca como inexistente",
 check("quien no abre los últimos correos se marca", por_nick["Zoe"]["mail_status"] == "unopened", por_nick["Zoe"])
 check("con UN solo correo sin abrir todavía NO se marca (son «los últimos», en plural)",
       por_nick["Álvaro"]["mail_status"] == "", por_nick["Álvaro"])
-js = cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}
+js = cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}
 check("la cabecera de la lista dice cuántos no le llegan", js.get("bounced") == 1, js.get("bounced"))
 check("y cuántos no abren", js.get("quiet") == 1, js.get("quiet"))
 # ⚠️ El mismo dato en la pantalla entera (la galleta sale del MISMO sitio que la marca de la fila).
-html = cli.get("/invitaciones-corporativas?tab=listas").get_data(as_text=True)
+html = cli.get("/comunicaciones-corporativas?tab=listas").get_data(as_text=True)
 check("la pantalla pinta la galleta de «no le llega»", "no le llega" in html)
 check("y la de «sin abrir»", "sin abrir" in html)
 # Se puede AGREGAR y QUITAR gente.
-r = cli.post("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD, data={"name": "Nuevo", "email": "nuevo@x.com"})
+r = cli.post("/comunicaciones-corporativas/listas/%s/invitados" % LID_ORD, data={"name": "Nuevo", "email": "nuevo@x.com"})
 check("se puede AÑADIR a alguien", (r.get_json() or {}).get("ok") is True, r.get_json())
-filas = (cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
+filas = (cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
 gid = [f["id"] for f in filas if f["email"] == "nuevo@x.com"][0]
-r = cli.post("/invitaciones-corporativas/invitados/%s/quitar" % gid)
+r = cli.post("/comunicaciones-corporativas/invitados/%s/quitar" % gid)
 check("y QUITARLO", (r.get_json() or {}).get("ok") is True, r.get_json())
-filas = (cli.get("/invitaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
+filas = (cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LID_ORD).get_json() or {}).get("rows") or []
 check("se ha quitado de verdad", "nuevo@x.com" not in [f["email"] for f in filas])
 
 print("\n── 15. LA PANTALLA PREVIA AL ENVÍO (la MISMA de toda la app) ──────────")
@@ -972,18 +981,18 @@ print("\n── 15. LA PANTALLA PREVIA AL ENVÍO (la MISMA de toda la app) ─�
 # que es LITERALMENTE la misma plantilla y el mismo motor que la de una nota de prensa.
 # ⚠️ SIN DISEÑO no hay nada que enviar ni que previsualizar: se lleva al editor. Hace falta una
 # invitación SIN actividad, porque con actividad el módulo de sus datos nace YA PUESTO.
-cli.post("/invitaciones-corporativas/nueva", data={"lists": [LID_ORD], "subject": "Sin diseño"})
+cli.post("/comunicaciones-corporativas/nueva", data={"lists": [LID_ORD], "subject": "Sin diseño"})
 s = models.SessionLocal()
 try:
     inv0 = s.query(models.CorporateInvite).filter(models.CorporateInvite.subject == "Sin diseño").first()
     INV0 = str(inv0.id)
 finally:
     s.close()
-r = cli.get("/invitaciones-corporativas/%s/enviar" % INV0)
+r = cli.get("/comunicaciones-corporativas/%s/enviar" % INV0)
 check("sin diseño, «Enviar» lleva al editor", r.status_code == 302 and "/editar" in r.headers.get("Location", ""),
       r.headers.get("Location"))
 
-r = cli.post("/invitaciones-corporativas/nueva", data={"lists": [LID_ORD], "concert_id": CID, "subject": "Con pantalla"})
+r = cli.post("/comunicaciones-corporativas/nueva", data={"lists": [LID_ORD], "concert_id": CID, "subject": "Con pantalla"})
 check("crear lleva al editor", r.status_code == 302 and "/editar" in r.headers.get("Location", ""), r.headers.get("Location"))
 s = models.SessionLocal()
 try:
@@ -996,7 +1005,7 @@ try:
     s.commit()
 finally:
     s.close()
-r = cli.get("/invitaciones-corporativas/%s/enviar" % INV2)
+r = cli.get("/comunicaciones-corporativas/%s/enviar" % INV2)
 html = r.get_data(as_text=True)
 check("la pantalla previa al envío abre (200)", r.status_code == 200, r.status_code)
 check("lleva LA VISTA PREVIA del correo", 'class="pr-send__frame"' in html and "/previsualizar" in html)
@@ -1010,7 +1019,7 @@ check("se puede añadir a alguien más antes de mandar", "data-pr-search" in htm
 check("un envío NO se programa (eso es de las notas de prensa)", 'name="when"' not in html)
 # El correo de PRUEBA sale, y NO cuenta como que alguien la ha abierto.
 ENVIADOS.clear()
-r = cli.post("/invitaciones-corporativas/%s/prueba" % INV2, json={"email": "dani@33producciones.es"})
+r = cli.post("/comunicaciones-corporativas/%s/prueba" % INV2, json={"email": "dani@33producciones.es"})
 js = r.get_json() or {}
 check("el email de PRUEBA se manda", js.get("ok") is True, js)
 check("al correo de quien la está preparando", js.get("email") == "dani@33producciones.es", js)
@@ -1024,7 +1033,7 @@ finally:
     s.close()
 # Enviar SOLO a los marcados: se quita a uno y se añade a alguien de fuera.
 ENVIADOS.clear()
-r = cli.post("/invitaciones-corporativas/%s/enviar" % INV2, json={"recipients": [
+r = cli.post("/comunicaciones-corporativas/%s/enviar" % INV2, json={"recipients": [
     {"email": "alvaro@x.com", "name": "Álvaro Pérez", "group_label": "Orden"},
     {"email": "invitado@fuera.com", "name": "De fuera", "group_label": "Añadidos"}]})
 js = r.get_json() or {}
@@ -1032,7 +1041,7 @@ check("se manda a los MARCADOS", js.get("ok") is True and js.get("total") == 2, 
 destinos = sorted(e["to"] for e in ENVIADOS)
 check("al que se quitó NO le llega", "zoe@x.com" not in destinos, destinos)
 check("y al añadido a mano SÍ", "invitado@fuera.com" in destinos, destinos)
-check("al terminar lleva a la ficha de la invitación", "/invitaciones-corporativas/%s" % INV2 in (js.get("url") or ""),
+check("al terminar lleva a la ficha de la invitación", "/comunicaciones-corporativas/%s" % INV2 in (js.get("url") or ""),
       js.get("url"))
 
 print("\n── 16. LA FICHA DE UNA ENVIADA: abierta · reenviada · no le llegó ─────")
@@ -1076,7 +1085,7 @@ try:
     s.commit()
 finally:
     s.close()
-r = cli.get("/invitaciones-corporativas/%s" % INV2)
+r = cli.get("/comunicaciones-corporativas/%s" % INV2)
 html = r.get_data(as_text=True)
 check("la ficha abre (200)", r.status_code == 200, r.status_code)
 check("enseña el LISTADO de a quién se le mandó", "A quién se le mandó" in html)
@@ -1088,22 +1097,22 @@ check("cada uno con su NICK", ">Álvaro<" in html)
 check("y con su vinculación", "Radio Ñ" in html)
 check("hay leyenda de qué es cada icono", "reenviada" in html and "no le llega" in html or "no existe" in html)
 # La tarjeta del listado lleva a la ficha, y NO es un `<a>` (dentro ya hay enlaces y un formulario).
-html = cli.get("/invitaciones-corporativas").get_data(as_text=True)
-check("una invitación ENVIADA se pincha entera", 'data-ci-open="/invitaciones-corporativas/%s"' % INV2 in html)
+html = cli.get("/comunicaciones-corporativas").get_data(as_text=True)
+check("una invitación ENVIADA se pincha entera", 'data-ci-open="/comunicaciones-corporativas/%s"' % INV2 in html)
 check("y un BORRADOR no (todavía no hay nada que ver)",
-      'data-ci-open="/invitaciones-corporativas/%s"' % INV0 not in html and ('data-ci-invite="%s"' % INV0) in html)
+      'data-ci-open="/comunicaciones-corporativas/%s"' % INV0 not in html and ('data-ci-invite="%s"' % INV0) in html)
 check("el listado dice cuántas se han reenviado", "reenviado" in html)
 
 print("\n── 16 bis. REENVIAR: a uno (tres puntitos) y a los NUEVOS de la lista ─")
 # ⚠️ Lo pidió Dani: «tres puntitos al final de cada nombre para reenviar —porque diga que no le ha
 # llegado o porque se hayan actualizado los datos—, y SIEMPRE a la dirección actual de correo».
 check("la ficha ofrece los tres puntitos", "fa-ellipsis-vertical" in html or True)  # se mira abajo con el HTML de la ficha
-html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+html = cli.get("/comunicaciones-corporativas/%s" % INV2).get_data(as_text=True)
 check("cada fila tiene sus TRES PUNTITOS", html.count("fa-ellipsis-vertical") >= 2, html.count("fa-ellipsis-vertical"))
-check("con la opción de reenviar", "Reenviar la invitación" in html)
+check("con la opción de reenviar", "Reenviar la comunicación" in html)
 check("y dice a qué dirección se le va a mandar", "Se le reenvía a" in html)
 check("los items del menú son <button> o <a>, nunca un <a> dentro de otro",
-      "<form method=\"post\" action=\"/invitaciones-corporativas/%s/reenviar/" % INV2 in html)
+      "<form method=\"post\" action=\"/comunicaciones-corporativas/%s/reenviar/" % INV2 in html)
 
 # EL CORREO DE HOY: se le cambia la dirección en su FICHA de tercero y el reenvío va a la nueva.
 s = models.SessionLocal()
@@ -1118,10 +1127,10 @@ try:
     s.commit()
 finally:
     s.close()
-html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+html = cli.get("/comunicaciones-corporativas/%s" % INV2).get_data(as_text=True)
 check("la ficha avisa de que ha cambiado de correo", "Ha cambiado de correo" in html)
 ENVIADOS.clear()
-r = cli.post("/invitaciones-corporativas/%s/reenviar/%s" % (INV2, REC_ALV), follow_redirects=True)
+r = cli.post("/comunicaciones-corporativas/%s/reenviar/%s" % (INV2, REC_ALV), follow_redirects=True)
 check("el reenvío responde y vuelve a la ficha", r.status_code == 200, r.status_code)
 check("se ha mandado UN correo", len(ENVIADOS) == 1, [e["to"] for e in ENVIADOS])
 check("⚠️ y a la dirección de HOY, no a la de aquel día",
@@ -1143,7 +1152,7 @@ finally:
     s.close()
 
 # LOS NUEVOS DE LA LISTA: alguien que se añade DESPUÉS del envío.
-html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+html = cli.get("/comunicaciones-corporativas/%s" % INV2).get_data(as_text=True)
 # ⚠️ «Nuevos» son los que se AÑADIERON DESPUÉS de mandarla, no «todo el que no la tiene»: a quien
 #    se desmarcó a propósito en la pantalla previa NO se le cuela ahora.
 check("a quien se desmarcó a propósito NO se le ofrece como «nuevo»",
@@ -1157,15 +1166,15 @@ try:
     s.commit()
 finally:
     s.close()
-html = cli.get("/invitaciones-corporativas/%s" % INV2).get_data(as_text=True)
+html = cli.get("/comunicaciones-corporativas/%s" % INV2).get_data(as_text=True)
 check("con alguien añadido DESPUÉS, sale el botón y dice cuántos son",
       "Mandar a 1 nuevo de la lista" in html, None)
 ENVIADOS.clear()
-r = cli.post("/invitaciones-corporativas/%s/enviar-nuevos" % INV2, follow_redirects=True)
+r = cli.post("/comunicaciones-corporativas/%s/enviar-nuevos" % INV2, follow_redirects=True)
 check("se le manda al nuevo", [e["to"] for e in ENVIADOS] == ["tardon@x.com"], [e["to"] for e in ENVIADOS])
 check("y a nadie más (a quien ya la tiene no se le manda otra vez)", len(ENVIADOS) == 1, len(ENVIADOS))
 ENVIADOS.clear()
-r = cli.post("/invitaciones-corporativas/%s/enviar-nuevos" % INV2, follow_redirects=True)
+r = cli.post("/comunicaciones-corporativas/%s/enviar-nuevos" % INV2, follow_redirects=True)
 check("volver a pulsarlo no manda nada (ya la tienen todos)", len(ENVIADOS) == 0, [e["to"] for e in ENVIADOS])
 check("y se dice", "ya la tienen todos" in r.get_data(as_text=True))
 
@@ -1269,6 +1278,217 @@ check("el editor trae el pop-up de la URL", 'id="prYoutubeModal"' in html)
 js_edit = io.open("static/js/press_editor.js", encoding="utf-8").read()
 check("y la paleta ofrece el vídeo siempre", 'data-pr-pal="youtube"' in js_edit)
 check("se mueve y se cambia de tamaño como los demás (16:9)", "b.type === 'youtube') return 9 / 16" in js_edit)
+
+
+print("\n── 18. SE LLAMA «COMUNICACIONES CORPORATIVAS» (y la URL de antes sigue llegando) ─")
+# ⚠️ Lo pidió Dani (sep 2026): «invitaciones corporativas va a pasar a llamarse Comunicaciones
+# corporativas». Cambia lo que se LEE; los identificadores siguen (`corporate_*`).
+html = cli.get("/comunicaciones-corporativas").get_data(as_text=True)
+check("la pantalla se titula «Comunicaciones corporativas»", "Comunicaciones corporativas</h1>" in html)
+check("y no queda el nombre viejo a la vista",
+      "Invitaciones corporativas" not in html and "Nueva invitación" not in html and "Mi lista de invitados" not in html)
+check("las pestañas: Comunicaciones · Listas de contactos", "Listas de contactos" in html and ">Comunicaciones" in html)
+check("el botón: «Nueva comunicación»", "Nueva comunicación" in html)
+r = cli.get("/invitaciones-corporativas?tab=listas")
+check("la URL de antes redirige (301) a la nueva, con su query",
+      r.status_code == 301 and (r.headers.get("Location") or "").endswith("/comunicaciones-corporativas?tab=listas"),
+      (r.status_code, r.headers.get("Location")))
+r = cli.get("/invitaciones-corporativas/%s" % INV_ID)
+check("también la de una ficha", r.status_code == 301 and (r.headers.get("Location") or "").endswith("/comunicaciones-corporativas/%s" % INV_ID),
+      (r.status_code, r.headers.get("Location")))
+with A.app.test_request_context("/"):
+    from flask import session as _fs3
+    _fs3["user_id"] = OTRO
+    _fs3["role"] = 1
+    acc = [a for a in A._build_home_quick_actions() if a["key"] == "invitaciones_corp"]
+    check("el atajo de Inicio dice «Comunicación corporativa»", bool(acc) and acc[0]["label"] == "Comunicación corporativa", acc)
+html = cli.get("/notas-de-prensa/%s/editar" % PR_ID).get_data(as_text=True)
+check("el editor lo llama comunicación corporativa", "Comunicación corporativa" in html and "Invitación corporativa" not in html)
+html = cli.get("/comunicaciones-corporativas/%s" % INV_ID).get_data(as_text=True)
+check("y la ficha también (reenviar la comunicación)", "Reenviar la comunicación" in html and "Reenviar la invitación" not in html)
+
+print("\n── 19. LA LISTA COMÚN: la ve y la edita todo el mundo; la borra su dueño ──")
+# ⚠️ Lo pidió Dani (sep 2026): «al crearlas tiene que haber la opción de marcarla como lista común,
+# la pueden ver y editar todos los usuarios». Borrarla y dejar de compartirla, solo su dueño (o
+# dirección): una lista con 300 contactos que usa toda la casa no la borra cualquiera con un clic.
+r = cli2.post("/comunicaciones-corporativas/listas/crear", data={"name": "Toda la casa", "shared": "1"}, follow_redirects=True)
+check("otra persona (Otro, sin ser dirección) crea una lista marcada como COMÚN",
+      r.status_code == 200 and "Lista común" in r.get_data(as_text=True), r.status_code)
+s = models.SessionLocal()
+try:
+    lc = s.query(models.CorporateGuestList).filter(models.CorporateGuestList.name == "Toda la casa").first()
+    LCOM = str(lc.id) if lc else ""
+    check("queda guardada como común y de quien la creó", lc is not None and lc.is_shared is True and str(lc.user_id) == OTRO)
+finally:
+    s.close()
+html = cli.get("/comunicaciones-corporativas?tab=listas").get_data(as_text=True)
+check("Dani la ve en SU pantalla", "Toda la casa" in html)
+check("con la marca de común y de quién es", "Común · de Otro" in html, html.count("Común"))
+r = cli.get("/comunicaciones-corporativas/listas/%s/invitados" % LCOM)
+js = r.get_json() or {}
+check("y abre sus contactos (200)", r.status_code == 200 and js.get("ok") and js.get("shared") is True, (r.status_code, js.get("shared")))
+check("la fila dice quién la creó y que no es suya", js.get("owner_nick") == "Otro" and js.get("mine") is False,
+      (js.get("owner_nick"), js.get("mine")))
+r = cli.post("/comunicaciones-corporativas/listas/%s/invitados" % LCOM, data={"name": "Común Uno", "email": "comun1@x.com"})
+check("puede AÑADIR a alguien", (r.get_json() or {}).get("ok") is True, r.get_json())
+r = cli.post("/comunicaciones-corporativas/listas/%s/renombrar" % LCOM, data={"name": "Toda la casa (prensa)"})
+check("y RENOMBRARLA", (r.get_json() or {}).get("ok") is True, r.get_json())
+cli.post("/comunicaciones-corporativas/listas/%s/renombrar" % LCOM, data={"name": "Toda la casa"})
+# Una TERCERA persona (rol normal, ni dueña ni dirección): la usa, pero no la borra ni la descomparte.
+s = models.SessionLocal()
+try:
+    u3 = s.query(models.User).filter(models.User.email == "tercera@33producciones.es").first()
+    if u3 is None:
+        u3 = models.User(email="tercera@33producciones.es", password_hash="x", role=1)
+        s.add(u3); s.flush()
+    u3.role = 1
+    if s.query(models.UserProfile).filter(models.UserProfile.user_id == u3.id).first() is None:
+        s.add(models.UserProfile(user_id=u3.id, nick="Tercera", departments=["Sello"]))
+    s.commit()
+    TERCERA = str(u3.id)
+finally:
+    s.close()
+cli3 = A.app.test_client()
+with cli3.session_transaction() as ses:
+    ses["user_id"] = TERCERA
+    ses["role"] = 1
+r = cli3.get("/comunicaciones-corporativas/listas/%s/invitados" % LCOM)
+check("una tercera persona también la ve", r.status_code == 200, r.status_code)
+js = r.get_json() or {}
+check("pero no le salen los botones de borrar ni de compartir",
+      js.get("can_delete") is False and js.get("can_share") is False, (js.get("can_delete"), js.get("can_share")))
+html3 = cli3.get("/comunicaciones-corporativas?tab=listas").get_data(as_text=True)
+check("ni en la pantalla (lo que no se puede hacer no se pinta)",
+      "Toda la casa" in html3 and "Eliminar la lista" not in html3 and "Dejarla solo para mí" not in html3)
+r = cli3.post("/comunicaciones-corporativas/listas/%s/eliminar" % LCOM, follow_redirects=True)
+check("y si lo intenta, no se borra y se le dice por qué", "solo la puede eliminar quien la creó" in r.get_data(as_text=True))
+r = cli3.post("/comunicaciones-corporativas/listas/%s/comun" % LCOM, data={"shared": "0"})
+check("ni puede dejar de compartirla (403)", r.status_code == 403, r.status_code)
+s = models.SessionLocal()
+try:
+    lc = s.get(models.CorporateGuestList, A.to_uuid(LCOM))
+    check("la lista sigue ahí y sigue siendo común", lc is not None and lc.is_shared is True)
+finally:
+    s.close()
+r = cli.post("/comunicaciones-corporativas/nueva",
+             data={"lists": [LCOM], "share_kind": "activity", "concert_id": CID, "subject": "Con la lista común"})
+check("se puede crear una comunicación con la lista común de otro",
+      r.status_code == 302 and "/notas-de-prensa/" in (r.headers.get("Location") or ""), (r.status_code, r.headers.get("Location")))
+s = models.SessionLocal()
+try:
+    inv_c = s.query(models.CorporateInvite).filter(models.CorporateInvite.subject == "Con la lista común").first()
+    check("y queda con esa lista", inv_c is not None and inv_c.lists_json == [LCOM], inv_c.lists_json if inv_c else None)
+finally:
+    s.close()
+r = cli3.get("/comunicaciones-corporativas/listas/%s/invitados" % LID)
+check("una lista PRIVADA de otro sigue dando 404", r.status_code == 404, r.status_code)
+r = cli2.post("/comunicaciones-corporativas/listas/%s/comun" % LCOM, data={"shared": "0"})
+js = r.get_json() or {}
+check("su dueño puede dejar de compartirla", js.get("ok") is True and js.get("shared") is False, js)
+r = cli3.get("/comunicaciones-corporativas/listas/%s/invitados" % LCOM)
+check("y entonces los demás dejan de verla (404)", r.status_code == 404, r.status_code)
+r = cli2.post("/comunicaciones-corporativas/listas/%s/comun" % LCOM, data={"shared": "1"})
+check("y volver a compartirla", (r.get_json() or {}).get("shared") is True, r.get_json())
+html = cli.get("/comunicaciones-corporativas").get_data(as_text=True)
+check("el pop-up de crear una lista trae la casilla de común", 'name="shared"' in html and "Lista común" in html)
+check("y en «¿A quién?» la común se distingue", "· común" in html)
+r = cli.post("/comunicaciones-corporativas/listas/%s/eliminar" % LCOM, follow_redirects=True)
+check("dirección SÍ puede eliminar una lista común de otro", "eliminada" in r.get_data(as_text=True))
+s = models.SessionLocal()
+try:
+    check("y ya no está", s.get(models.CorporateGuestList, A.to_uuid(LCOM)) is None)
+finally:
+    s.close()
+
+print("\n── 20. QUÉ SE VA A COMPARTIR: una actividad, u otra cosa con su nombre ──")
+# ⚠️ Lo pidió Dani (sep 2026): «añade qué se va a compartir: selección de una actividad con icono y
+# te muestra las opciones como ahora, u otra, y ahí es libre para poner el nombre».
+html = cli.get("/comunicaciones-corporativas").get_data(as_text=True)
+check("el pop-up pregunta «¿Qué se va a compartir?»", "¿Qué se va a compartir?" in html)
+check("con las dos opciones y su icono",
+      'value="activity"' in html and 'value="other"' in html and "fa-bullhorn" in html and "fa-calendar-day" in html)
+check("y el nombre libre para «otra cosa»", 'name="topic"' in html)
+r = cli.post("/comunicaciones-corporativas/nueva", data={"lists": [LID], "share_kind": "activity", "subject": "Sin actividad"})
+check("«una actividad» sin elegir cuál NO se crea",
+      r.status_code == 302 and "/notas-de-prensa/" not in (r.headers.get("Location") or ""), (r.status_code, r.headers.get("Location")))
+with cli.session_transaction() as ses:
+    err = ses.get(A.FORM_ERROR_SESSION_KEY) or {}
+check("y se devuelve con la actividad en rojo y el pop-up abierto",
+      "concert_id" in (err.get("campos") or []) and err.get("abrir") == "corpInviteModal", err)
+r = cli.post("/comunicaciones-corporativas/nueva", data={"lists": [LID], "share_kind": "other", "subject": "Sin nombre"})
+check("«otra cosa» sin nombre tampoco",
+      r.status_code == 302 and "/notas-de-prensa/" not in (r.headers.get("Location") or ""), (r.status_code, r.headers.get("Location")))
+with cli.session_transaction() as ses:
+    err = ses.get(A.FORM_ERROR_SESSION_KEY) or {}
+check("y se pide el nombre en rojo", "topic" in (err.get("campos") or []), err)
+s = models.SessionLocal()
+try:
+    check("no se ha creado ninguna de las dos",
+          s.query(models.CorporateInvite).filter(models.CorporateInvite.subject.in_(["Sin actividad", "Sin nombre"])).count() == 0)
+finally:
+    s.close()
+r = cli.post("/comunicaciones-corporativas/nueva",
+             data={"lists": [LID], "share_kind": "other", "topic": "Nuevo single «Verano»", "concert_id": CID})
+check("«otra cosa» con nombre se crea y lleva al editor",
+      r.status_code == 302 and "/notas-de-prensa/" in (r.headers.get("Location") or ""), (r.status_code, r.headers.get("Location")))
+s = models.SessionLocal()
+try:
+    inv_o = s.query(models.CorporateInvite).filter(models.CorporateInvite.topic == "Nuevo single «Verano»").first()
+    INV_O = str(inv_o.id) if inv_o else ""
+    PR_O = str(inv_o.design_release_id) if inv_o else ""
+    check("queda con su nombre y SIN actividad (aunque viniera una marcada: manda lo elegido)",
+          inv_o is not None and inv_o.concert_id is None and inv_o.activity_date is None)
+    pr_o = s.get(models.PressRelease, inv_o.design_release_id) if inv_o else None
+    check("el diseño nace vacío (sin el módulo de la actividad)",
+          pr_o is not None and press_render.blocks_of(pr_o.design or {}) == [], pr_o.design if pr_o else None)
+    check("el asunto por defecto es lo que se comparte", A._corp_subject(inv_o) == "Nuevo single «Verano»", A._corp_subject(inv_o))
+    inv_a = s.get(models.CorporateInvite, A.to_uuid(INV_ID))
+    inv_a.subject = None
+    check("y en una actividad sin asunto ni titular, «Te invito»", A._corp_subject(inv_a) == "Te invito", A._corp_subject(inv_a))
+    s.rollback()
+finally:
+    s.close()
+html = cli.get("/comunicaciones-corporativas").get_data(as_text=True)
+check("la tarjeta enseña lo que se comparte, con el altavoz",
+      "Nuevo single «Verano»" in html and "fa-bullhorn fa-fw ci-ico--brand" in html)
+html = cli.get("/notas-de-prensa/%s/editar" % PR_O).get_data(as_text=True)
+check("el editor dice qué se comparte", "Nuevo single «Verano»" in html)
+s = models.SessionLocal()
+try:
+    pr_o = s.get(models.PressRelease, A.to_uuid(PR_O))
+    pr_o.design = {"width": 600, "bg": {}, "blocks": [
+        {"id": "t1", "type": "title", "x": 40, "y": 40, "w": 520, "h": 60,
+         "html": "<p>Ya está fuera</p>", "style": {"size": 28, "bold": True}}]}
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(pr_o, "design")
+    s.commit()
+    TOK_O = pr_o.public_token
+finally:
+    s.close()
+html = cli.get("/comunicaciones-corporativas/%s/enviar" % INV_O).get_data(as_text=True)
+check("la pantalla de enviar dice qué se comparte", "Nuevo single «Verano»" in html and "Enviar la comunicación" in html)
+r = anon.get("/nota-de-prensa/%s" % TOK_O)
+cuerpo = r.get_data(as_text=True)
+check("la página pública de «otra cosa» se presenta como «Comunicación»",
+      r.status_code == 200 and "Comunicación" in cuerpo and "Invitación ·" not in cuerpo, r.status_code)
+r = anon.get("/nota-de-prensa/%s" % TOKPR)
+check("y la de una actividad sigue siendo una «Invitación»", "Invitación" in r.get_data(as_text=True))
+r = cli.post("/comunicaciones-corporativas/nueva", data={"lists": [LID], "subject": "Llamada vieja"})
+check("sin `share_kind` (una llamada de antes) se crea como siempre",
+      r.status_code == 302 and "/notas-de-prensa/" in (r.headers.get("Location") or ""), (r.status_code, r.headers.get("Location")))
+
+print("\n── 21. LA FICHA DE UNA ENVIADA: el correo a la IZQUIERDA y debajo los envíos ──")
+# ⚠️ Lo pidió Dani (sep 2026): «a la izquierda se vea el correo enviado, debajo el número de envíos;
+# cabe perfectamente, que se vea todo bien cuadrado». Antes iba abajo del todo, a lo ancho.
+html = cli.get("/comunicaciones-corporativas/%s" % INV_ID).get_data(as_text=True)
+i_mail, i_env, i_quien = html.find("El correo que se mandó"), html.find('class="ci-card__stats"'), html.find("A quién se le mandó")
+check("la ficha enseña el correo que se mandó", i_mail > 0)
+check("ANTES del número de envíos (la cifra va debajo)", 0 < i_mail < i_env, (i_mail, i_env))
+check("y los dos antes de «A quién se le mandó» (la columna de la derecha)", 0 < i_env < i_quien, (i_env, i_quien))
+check("el correo es el MISMO que salió (apunta a la previsualización)",
+      ("/comunicaciones-corporativas/%s/previsualizar" % INV_ID) in html)
+check("y se escala a su columna (el ancho del lienzo viaja en el HTML)", 'data-ci-mail-width="600"' in html)
+check("ya no va abajo del todo (una sola tarjeta con el correo)", html.count('<i class="fa fa-envelope-open-text me-2"></i>El correo que se mandó') == 1, html.count("El correo que se mandó"))
 
 print("\n════════════════════════════════════════════════════════════")
 print("  %d comprobaciones OK · %d FALLAN" % (len(OK), len(KO)))

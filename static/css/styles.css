@@ -8584,6 +8584,24 @@ a.ci-guest__nick:hover b{ text-decoration:underline; text-decoration-color:var(-
 .ci-act__t b{ display:block; font-size:.92rem; }
 .ci-act__t small{ display:inline-block; font-size:.76rem; color:#6c757d; margin-right:.6rem; }
 .ci-act__t small i{ color:#adb5bd; }
+/* QUÉ SE VA A COMPARTIR en una comunicación corporativa: dos opciones con su icono, una al lado de
+   la otra (una debajo de otra en el móvil). Misma familia que .ci-pick / .ci-act. */
+.ci-share{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+@media (max-width:575.98px){ .ci-share{ grid-template-columns:1fr; } }
+.ci-share__opt{ display:flex; align-items:center; gap:.6rem; border:1px solid #e9ecef; border-radius:12px;
+  padding:.55rem .7rem; cursor:pointer; margin:0; }
+.ci-share__opt:has(input:checked){ border-color:var(--brand-primary, #E33D48); background:#fffafa; }
+.ci-share__opt input{ flex:0 0 auto; }
+.ci-share__ico{ flex:0 0 auto; width:40px; height:40px; border-radius:10px; display:flex; align-items:center;
+  justify-content:center; background:#fdeced; color:var(--brand-primary, #E33D48); font-size:1.1rem; }
+.ci-share__t{ min-width:0; }
+.ci-share__t b{ display:block; font-size:.92rem; }
+.ci-share__t small{ display:block; font-size:.76rem; color:#6c757d; line-height:1.25; }
+/* La ficha de una comunicación enviada: EL CORREO A LA IZQUIERDA, escalado para que quepa entero en
+   su columna (el iframe se pinta a los 600 px del correo y se reduce con transform; el alto lo pone
+   el JS de la plantilla, porque un transform no cambia el sitio que ocupa). */
+.ci-mail__wrap{ position:relative; overflow:hidden; background:#f3f4f6; border-radius:0 0 14px 14px; }
+.ci-mail__frame{ display:block; border:0; transform-origin:0 0; background:#f3f4f6; }
 .text-accent{ color:var(--brand-accent, #007CA2); }
 
 /* LA REVISIÓN DE UN FICHERO de invitados: lo que trae, en tres bloques (los que ya están en la

@@ -17,6 +17,8 @@
 - GENERAR INVITACIONES · lote 4: la ENTRADA se edita dato a dato, tiene CONTRAPORTADA y dice lo de los MENORES
 - INVITACIONES · «Por contrato» / «Disponibles» / «?». En el listado de
 - INVITACIONES · «DISPONIBLES» ES LO QUE HAY SUBIDO Y LIBRE, NO EL CUPO DEL CONTRATO
+- COMUNICACIONES CORPORATIVAS (antes «invitaciones corporativas») · el NOMBRE nuevo, las LISTAS COMUNES,
+  QUÉ SE COMPARTE (una actividad u otra cosa) y el correo enviado a la izquierda de la ficha
 - INVITACIONES CORPORATIVAS · «Mi lista de invitados» y el envío desde el correo de cada uno
 - INVITACIONES CORPORATIVAS · SUBIR UN FICHERO SE REVISA ANTES (y los rótulos que se leían mal)
 - INVITACIONES CORPORATIVAS · «SIN CORREO» es el dato del envío, y se arregla uno a uno
@@ -367,8 +369,69 @@
   ⚠️ Los números salen de `_invitation_ficha_header_counts`, el MISMO que pinta las galletas de la
   cabecera de invitaciones: no pueden decir cosas distintas.
 
+- ⚠️⚠️ **COMUNICACIONES CORPORATIVAS (antes «invitaciones corporativas») · EL NOMBRE NUEVO, LAS
+  LISTAS COMUNES, QUÉ SE COMPARTE Y EL CORREO EN LA FICHA** (23-sep-2026, lo pidió Dani:
+  «invitaciones corporativas va a pasar a llamarse Comunicaciones corporativas; de las listas, al
+  crearlas tiene que haber la opción de marcarla como lista común, la pueden ver y editar todos los
+  usuarios; añade qué se va a compartir: selección de una actividad con icono y te muestra las
+  opciones como ahora, u otra y ahí es libre para poner el nombre; y en la ficha de una enviada, a la
+  izquierda el correo enviado y debajo el número de envíos»). **Todo lo de las notas de abajo sigue
+  valiendo**: cambia lo que se LEE y se añaden tres cosas.
+  · **EL NOMBRE**: la pantalla es **`/comunicaciones-corporativas`** («Comunicaciones corporativas»,
+  pestañas «Comunicaciones» y «Listas de contactos», botón «Nueva comunicación», el atajo de Inicio
+  «Comunicación corporativa», y «comunicación» en flashes, JSON, editor, pantalla de enviar y ficha).
+  Los «invitados» de una lista son ahora **contactos** (una comunicación sobre otra cosa no invita a
+  nadie). ⚠️ **La URL de antes redirige** (`corporate_invites_legacy_redirect`, 301 y conserva la
+  query): un marcador o un enlace guardado no pueden dar un 404. ⚠️⚠️ **Los identificadores NO se han
+  renombrado** (`CorporateInvite`, `corporate_*`, `_corp_*`, `ci-*`, `corporate_invites.html`,
+  `check_invitaciones_corporativas.py`, la clave `invitaciones_corp` de Inicio): cambiar cuatro
+  tablas y 25 endpoints no le da nada a nadie y rompe lo que ya funciona; al buscar en el código,
+  buscar `corp`. La página pública dice «Invitación» si comparte una actividad y «Comunicación» si
+  no (`_corp_invite_of_design` en `public_press_release`).
+  · **LA LISTA COMÚN** (`CorporateGuestList.is_shared`; la casilla al crearla y el botón «Hacerla
+  común» / «Dejarla solo para mí», endpoint `corporate_list_share`): **la ve y la edita todo el
+  mundo** —añadir y quitar gente, subir un fichero, arreglar correos, renombrarla y mandar con ella—.
+  Lo que sigue siendo **de su dueño (o de dirección)**: **borrarla y dejar de compartirla** (una
+  lista con 300 contactos que usa toda la casa no la borra cualquiera con un clic); a los demás no
+  se les pintan esos botones y el servidor lo vuelve a comprobar. **Dos llaves, dos nombres**:
+  **`_corp_list_usable`** (la suya o una común: trabajar con ella) y **`_corp_list_owned`** (la suya,
+  o dirección). Ya no existe `_corp_list_mine`: con las comunes ese nombre mentiría. `_corp_my_lists`
+  devuelve **las suyas primero y detrás las comunes de los demás**, y la fila lleva `shared`, `mine`,
+  `owner_nick` (quién la creó), `can_delete` y `can_share`. En la pantalla, la común lleva el icono
+  de la gente de la casa (`fa-people-group`, en el azul) y la galleta «Común · de Nick».
+  ⚠️ Las **MARCAS del correo** (rebotó · no abre) de una lista común se miran sobre **lo mandado por
+  toda la casa** (`_corp_mail_health` con `user_id=None`, punto único `_corp_health_owner`): un
+  correo que no existe no existe para nadie. ⚠️ Las **COMUNICACIONES no se comparten**: lo común son
+  las listas; lo que manda cada uno es suyo (`_corp_invite_mine`, sin cambios).
+  ⚠️ El contador de la cabecera de una lista se actualiza por **`data-ci-count`**, no por «el primer
+  badge»: al lado está ahora la galleta de común y el JS escribiría en la que no toca.
+  · **QUÉ SE VA A COMPARTIR** (pop-up de nueva comunicación, radio `share_kind`): **«Una actividad»**
+  (el calendario; se elige entre las que están por venir, como siempre) u **«Otra cosa»** (el
+  altavoz, `fa-bullhorn`; se le pone nombre libremente → **`CorporateInvite.topic`**). Es una de las
+  dos: una actividad sin elegir o un «otra cosa» sin nombre se devuelven con `_flash_form_error`
+  (el campo en rojo y el pop-up abierto), y **manda lo elegido**: con «otra cosa» la actividad que
+  viniera marcada se ignora. El panel que no toca se esconde **y se deshabilita** en el JS (un campo
+  oculto se envía igual, la regla de la casa). El nombre se lee en la **tarjeta** del listado (con
+  el altavoz), en la cabecera del **editor** (`_press_invite_context["topic"]`) y de la **pantalla
+  de enviar** (`invite_topic`), en la **ficha**… y es el **asunto** si no se escribe otro ni hay
+  titular: **`_corp_subject(inv, pr)`** es el punto único de la pantalla previa, la prueba, el envío y
+  el `<title>` del correo (antes cada uno tenía su «Te invito» a mano; con una actividad sigue
+  siendo «Te invito»). Sin `share_kind` (una llamada de antes del cambio) se hace lo de siempre.
+  · **LA FICHA DE UNA ENVIADA**: **el correo que se mandó a la IZQUIERDA y, debajo, el número de
+  envíos**; la actividad (o lo que se comparte), detrás. Antes el correo iba abajo del todo, a lo
+  ancho. Es un `<iframe>` con el **MISMO HTML que salió** (`corporate_invite_preview`, con el token
+  de prueba: abrirlo aquí no cuenta como una apertura), **escalado** con `transform` por el JS de la
+  plantilla para que los 600 px del correo (`press_render.WIDTH`, viaja en `data-ci-mail-width`)
+  quepan en la columna sin barra horizontal; el alto se mide del contenido (mismo origen) y se vuelve
+  a medir al cargar las imágenes y al cambiar el tamaño de la ventana. `web_html` ya no se calcula
+  en esa vista.
+  · Cubierto por `tools/check_invitaciones_corporativas.py` (apartados 18 a 21: el nombre y la
+  redirección, la lista común con tres personas —dueño, dirección y una tercera—, las dos opciones
+  de qué se comparte con sus rechazos y la llamada vieja, y el orden de la ficha).
+
 - ⚠️⚠️ **INVITACIONES CORPORATIVAS · LA LISTA DE INVITADOS DE CADA UNO Y EL ENVÍO DESDE SU CORREO**
-  (sep 2026, lo pidió Dani). **Esto NO son las invitaciones de un evento** (las entradas que se
+  (sep 2026, lo pidió Dani; **hoy se llama COMUNICACIONES CORPORATIVAS, ver la nota de arriba**).
+  **Esto NO son las invitaciones de un evento** (las entradas que se
   piden, se asignan y se envían, que es todo lo de arriba): es lo que manda **una persona de la
   casa en su nombre** para invitar a SUS contactos a una actividad. Por eso es una función
   **PERSONAL**: la tiene **todo el mundo** (botón en Inicio, sin permiso que conceder) y cada uno

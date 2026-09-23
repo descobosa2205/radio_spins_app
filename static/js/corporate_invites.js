@@ -1,7 +1,9 @@
-/* INVITACIONES CORPORATIVAS · la pantalla
-   · Mis listas de invitados: se abren, se les añade gente (buscando entre los terceros o creando
-     uno nuevo), se sube un fichero y se quita a alguien.
-   · Las invitaciones: vista previa, enviar (por tandas) y cómo va.
+/* COMUNICACIONES CORPORATIVAS · la pantalla (hasta sep 2026, «invitaciones corporativas»; los
+   identificadores `ci-*` siguen, solo cambió lo que se lee)
+   · Las listas de contactos (las mías y las COMUNES): se abren, se les añade gente (buscando entre
+     los terceros o creando uno nuevo), se sube un fichero, se quita a alguien y se hacen comunes.
+   · Las comunicaciones: qué se comparte (una actividad u otra cosa), vista previa, enviar (por
+     tandas) y cómo va.
 
    ⚠️ TODO por DELEGACIÓN en `document`: las zonas se repintan al vuelo, así que un listener pegado
    a un nodo se moriría con él (la regla de la casa).
@@ -88,9 +90,10 @@
     } else {
       caja.innerHTML = '<div class="ci-guests">' + filas.map(filaInvitado).join('') + '</div>';
     }
-    // El contador de la cabecera, al día sin recargar la página.
-    var cab = document.querySelector('[data-ci-list="' + listId + '"] .accordion-button .badge');
-    if (cab && datos) cab.textContent = datos.count + ' invitado' + (datos.count === 1 ? '' : 's');
+    // El contador de la cabecera, al día sin recargar la página. ⚠️ Por su `data-ci-count`, no por
+    // «el primer badge»: al lado hay otras galletas (la de común) y se escribiría en la que no toca.
+    var cab = document.querySelector('[data-ci-list="' + listId + '"] .accordion-button [data-ci-count]');
+    if (cab && datos) cab.textContent = datos.count + ' contacto' + (datos.count === 1 ? '' : 's');
     // Y lo que falta por arreglar (la galleta ámbar y el botón de «Arreglar los N sin correo»).
     if (datos) {
       var faltan = Math.max(0, (datos.count || 0) - (datos.with_email || 0));
@@ -122,11 +125,11 @@
     if (!caja || caja.dataset.ciLoaded === '1') return;
     fetch(url('data-guests-url-tpl', '__LIST__', listId)).then(function (r) { return r.json(); })
       .then(function (js) {
-        if (!js || !js.ok) { caja.innerHTML = '<div class="text-danger small">No se pudieron cargar los invitados.</div>'; return; }
+        if (!js || !js.ok) { caja.innerHTML = '<div class="text-danger small">No se pudieron cargar los contactos.</div>'; return; }
         caja.dataset.ciLoaded = '1';
         pintaInvitados(listId, js);
       }).catch(function () {
-        caja.innerHTML = '<div class="text-danger small">No se pudieron cargar los invitados.</div>';
+        caja.innerHTML = '<div class="text-danger small">No se pudieron cargar los contactos.</div>';
       });
   }
 
@@ -142,6 +145,25 @@
         .then(function (js) {
           if (!js || !js.ok) { alert((js && js.error) || 'No se pudo quitar.'); return; }
           pintaInvitados(lid, js);
+        });
+      return;
+    }
+
+    /* HACERLA COMÚN o dejar de compartirla (solo le sale el botón a quien creó la lista, o a
+       dirección; el servidor lo vuelve a comprobar). Se pregunta antes: compartirla la abre a toda
+       la casa, y dejar de compartirla se la quita a quien la esté usando. */
+    var comp = ev.target.closest('[data-ci-share]');
+    if (comp) {
+      var hacer = comp.getAttribute('data-ci-shared') !== '1';
+      var pregunta = hacer
+        ? '¿Hacer COMÚN esta lista? La verá y la podrá editar todo el mundo.'
+        : '¿Dejar esta lista solo para ti? Los demás dejarán de verla (y de poder mandar con ella).';
+      if (!confirm(pregunta)) return;
+      var fdc = new FormData(); fdc.append('shared', hacer ? '1' : '0');
+      post(url('data-share-url-tpl', '__LIST__', comp.getAttribute('data-ci-share')), fdc)
+        .then(function (js) {
+          if (!js || !js.ok) { alert((js && js.error) || 'No se pudo guardar.'); return; }
+          window.location.reload();
         });
       return;
     }
@@ -236,6 +258,27 @@
 
   /* ---------- buscar entre los terceros ---------- */
   var tBusca = null;
+  /* QUÉ SE VA A COMPARTIR (lo pidió Dani): «una actividad» —y se elige cuál— u «otra cosa» —y se
+     le pone nombre—. El panel que no toca se ESCONDE y se DESHABILITA: un campo oculto se envía
+     igual, y un `required` invisible bloquea el envío sin decir por qué (la regla de la casa). */
+  function aplicaQueSeComparte() {
+    var marcado = document.querySelector('input[name="share_kind"]:checked');
+    var modo = marcado ? marcado.value : '';
+    document.querySelectorAll('[data-ci-share-panel]').forEach(function (panel) {
+      var activo = panel.getAttribute('data-ci-share-panel') === modo;
+      panel.classList.toggle('d-none', !activo);
+      panel.querySelectorAll('input, select, textarea').forEach(function (campo) { campo.disabled = !activo; });
+      if (activo && modo === 'other') {
+        var nombre = panel.querySelector('input[name="topic"]');
+        if (nombre) setTimeout(function () { nombre.focus(); }, 60);
+      }
+    });
+  }
+  document.addEventListener('change', function (ev) {
+    if (ev.target && ev.target.name === 'share_kind') aplicaQueSeComparte();
+  });
+  aplicaQueSeComparte();
+
   document.addEventListener('input', function (ev) {
     if (ev.target.closest('[data-ci-search]')) {
       clearTimeout(tBusca);
@@ -243,7 +286,7 @@
       tBusca = setTimeout(function () { busca(q); }, 250);
       return;
     }
-    // El buscador de ACTIVIDADES del pop-up de nueva invitación (filtra lo que ya está pintado).
+    // El buscador de ACTIVIDADES del pop-up de nueva comunicación (filtra lo que ya está pintado).
     if (ev.target.closest('[data-ci-act-search]')) {
       var t = (ev.target.value || '').toLowerCase().trim();
       document.querySelectorAll('[data-ci-act-text]').forEach(function (el) {
@@ -719,7 +762,7 @@
           '<input class="form-control form-control-sm" data-ci-fix-phone value="' + esc(g.phone || '') + '"></div>' +
       '</div>' +
       '<div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>Se guarda también en su ficha de ' +
-        '<strong>Terceros</strong> si la tenía vacía. Sin correo no se le puede mandar la invitación.</div>' +
+        '<strong>Terceros</strong> si la tenía vacía. Sin correo no se le puede mandar nada.</div>' +
       '<div class="alert alert-danger py-2 px-3 small mt-2 d-none" data-ci-fix-error></div>';
     var input = caja.querySelector('[data-ci-fix-email]');
     if (input) setTimeout(function () { input.focus(); }, 60);
@@ -811,7 +854,7 @@
     fixGuarda();
   });
 
-  /* ---------- enviar la invitación (por tandas) ---------- */
+  /* ---------- enviar la comunicación (por tandas) ---------- */
   function progreso(invId, texto, clase) {
     var caja = document.querySelector('[data-ci-invite="' + invId + '"] [data-ci-progress]');
     if (!caja) return;
@@ -819,7 +862,7 @@
     caja.innerHTML = texto;
   }
 
-  /* ⚠️⚠️ PINCHAR UNA INVITACIÓN YA ENVIADA ABRE SU FICHA. La tarjeta no puede ser un `<a>` (dentro
+  /* ⚠️⚠️ PINCHAR UNA COMUNICACIÓN YA ENVIADA ABRE SU FICHA. La tarjeta no puede ser un `<a>` (dentro
      hay enlaces, botones y un formulario, y un `<a>` dentro de otro parte el HTML), así que navega
      este listener — y deja pasar todo lo que ya es clicable por su cuenta. */
   document.addEventListener('click', function (ev) {
@@ -829,7 +872,7 @@
     window.location.href = card.getAttribute('data-ci-open');
   });
 
-  /* ⚠️ LA INVITACIÓN SE MANDA DESDE LA PANTALLA PREVIA AL ENVÍO (la común de toda la app), no
+  /* ⚠️ LA COMUNICACIÓN SE MANDA DESDE LA PANTALLA PREVIA AL ENVÍO (la común de toda la app), no
      desde la tarjeta: ahí se ve cómo llega el correo, a quién se le manda y se puede mandar una
      prueba antes. Aquí solo queda VIGILAR lo que se está mandando, para que la tarjeta lo diga. */
   function vigila(invId) {
@@ -852,7 +895,7 @@
     vigila(c.getAttribute('data-ci-invite'));
   });
 
-  // Si se vuelve del editor con `?invitacion=`, se abre esa tarjeta a la vista.
+  // Si se vuelve del editor con `?comunicacion=`, se abre esa tarjeta a la vista.
   var abierta = root.getAttribute('data-open-invite');
   if (abierta) {
     var card = document.querySelector('[data-ci-invite="' + abierta + '"]');

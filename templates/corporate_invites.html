@@ -1,14 +1,15 @@
 {% extends "layout.html" %}
 {% block content %}
-{# ═══════════════ INVITACIONES CORPORATIVAS ═══════════════
-   Lo que manda una persona de la casa EN SU NOMBRE y DESDE SU CORREO: invitar a sus contactos a una
-   actividad con un correo diseñado (el MISMO editor y las mismas plantillas que las comunicaciones
-   a compradores).
+{# ═══════════════ COMUNICACIONES CORPORATIVAS (hasta sep 2026, «invitaciones corporativas») ═══════════════
+   Lo que manda una persona de la casa EN SU NOMBRE y DESDE SU CORREO a sus contactos: una ACTIVIDAD a
+   la que los invita, u OTRA COSA (un single, una felicitación…) con un correo diseñado (el MISMO
+   editor y las mismas plantillas que las comunicaciones a compradores).
    · Arriba, las YA ENVIADAS, con cuántos las han abierto. Las MÁS PRÓXIMAS PRIMERO.
-   · Debajo, «Mi lista de invitados corporativos»: varias listas, y a cada una se añade gente de una
-     en una o subiendo un fichero (crea los terceros que no existan y engancha los que ya están).
+   · Debajo, las LISTAS DE CONTACTOS: las de cada uno (nadie más las ve) y las COMUNES (las ve y las
+     edita todo el mundo); a cada una se añade gente de una en una o subiendo un fichero.
    ⚠️ Esto NO son las invitaciones de un evento (las entradas que se piden y se asignan): eso es la
-   sección Invitaciones. #}
+   sección Invitaciones. ⚠️ Los identificadores siguen diciendo `corporate_invite*`/`ci-*`: solo
+   cambió lo que se lee. #}
 <div class="ci-page" data-ci
      data-guests-url-tpl="{{ url_for('corporate_list_guests', list_id='__LIST__') }}"
      data-add-url-tpl="{{ url_for('corporate_guest_add', list_id='__LIST__') }}"
@@ -18,6 +19,7 @@
      data-import-new-url-tpl="{{ url_for('corporate_import_new', list_id='__LIST__') }}"
      data-fix-url-tpl="{{ url_for('corporate_guest_fix', guest_id='__GUEST__') }}"
      data-rename-url-tpl="{{ url_for('corporate_list_rename', list_id='__LIST__') }}"
+     data-share-url-tpl="{{ url_for('corporate_list_share', list_id='__LIST__') }}"
      data-remove-url-tpl="{{ url_for('corporate_guest_remove', guest_id='__GUEST__') }}"
      data-send-url-tpl="{{ url_for('corporate_invite_send', invite_id='__INV__') }}"
      data-continue-url-tpl="{{ url_for('corporate_invite_continue', invite_id='__INV__') }}"
@@ -27,12 +29,13 @@
      data-search-url="{{ url_for('api_search_promoters') }}"
      data-open-invite="{{ open_invite }}">
 
-  <h1 class="h4 mb-1"><i class="fa fa-envelope-circle-check me-2"></i>Invitaciones corporativas</h1>
-  <p class="text-muted small mb-3">Invita a tus contactos a una actividad. El correo sale
-    <strong>desde tu dirección</strong>, así que quien lo recibe te contesta a ti.</p>
+  <h1 class="h4 mb-1"><i class="fa fa-envelope-circle-check me-2"></i>Comunicaciones corporativas</h1>
+  <p class="text-muted small mb-3">Comunica algo a tus contactos: una actividad a la que invitarlos, o
+    cualquier otra cosa. El correo sale <strong>desde tu dirección</strong>, así que quien lo recibe te
+    contesta a ti.</p>
 
   {# ⚠️ SALE DESDE EL CORREO DE QUIEN LA MANDA: si no está configurado se dice AQUÍ, antes de que
-     alguien se ponga a diseñar una invitación que luego no va a poder enviar. #}
+     alguien se ponga a diseñar una comunicación que luego no va a poder enviar. #}
   {% if not sender.ok %}
     <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3">
       <i class="fa fa-triangle-exclamation mt-1"></i>
@@ -46,7 +49,7 @@
   {% else %}
     <div class="alert alert-light border d-flex align-items-center gap-2 py-2 px-3 small">
       <i class="fa fa-paper-plane text-accent"></i>
-      Las invitaciones saldrán desde <strong>{{ sender.label }}</strong>.
+      Las comunicaciones saldrán desde <strong>{{ sender.label }}</strong>.
     </div>
   {% endif %}
 
@@ -54,39 +57,39 @@
     <li class="nav-item">
       <button class="nav-link {{ '' if open_tab == 'listas' else 'active' }}" data-bs-toggle="tab"
               data-bs-target="#ciEnviadas" type="button" role="tab">
-        <i class="fa fa-paper-plane me-1"></i>Invitaciones
+        <i class="fa fa-paper-plane me-1"></i>Comunicaciones
         {% if invites %}<span class="badge text-bg-light border ms-1">{{ invites|length }}</span>{% endif %}
       </button>
     </li>
     <li class="nav-item">
       <button class="nav-link {{ 'active' if open_tab == 'listas' else '' }}" data-bs-toggle="tab"
               data-bs-target="#ciListas" type="button" role="tab">
-        <i class="fa fa-address-book me-1"></i>Mi lista de invitados
+        <i class="fa fa-address-book me-1"></i>Listas de contactos
         {% if lists %}<span class="badge text-bg-light border ms-1">{{ lists|length }}</span>{% endif %}
       </button>
     </li>
   </ul>
 
   <div class="tab-content">
-    {# ══════════ LAS INVITACIONES (las enviadas y los borradores) ══════════ #}
+    {# ══════════ LAS COMUNICACIONES (las enviadas y los borradores) ══════════ #}
     <div class="tab-pane fade {{ '' if open_tab == 'listas' else 'show active' }}" id="ciEnviadas" role="tabpanel">
       <div class="d-flex gap-2 flex-wrap flex-row-reverse mb-3">
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#corpInviteModal"
-                {% if not lists %}disabled title="Antes hay que tener alguna lista de invitados"{% endif %}>
-          <i class="fa fa-plus me-1"></i>Nueva invitación
+                {% if not lists %}disabled title="Antes hay que tener alguna lista de contactos"{% endif %}>
+          <i class="fa fa-plus me-1"></i>Nueva comunicación
         </button>
       </div>
 
       {% if not invites %}
         <div class="alert alert-light border">
-          Todavía no has mandado ninguna invitación.
-          {% if lists %}Pulsa <strong>«Nueva invitación»</strong> para empezar.
-          {% else %}Primero crea una <strong>lista de invitados</strong> en la pestaña de al lado.{% endif %}
+          Todavía no has mandado ninguna comunicación.
+          {% if lists %}Pulsa <strong>«Nueva comunicación»</strong> para empezar.
+          {% else %}Primero crea una <strong>lista de contactos</strong> en la pestaña de al lado.{% endif %}
         </div>
       {% else %}
         <div class="ci-grid">
           {% for inv in invites %}
-            {# ⚠️⚠️ UNA INVITACIÓN YA ENVIADA SE PINCHA Y LLEVA A SU FICHA (a quién se le mandó,
+            {# ⚠️⚠️ UNA COMUNICACIÓN YA ENVIADA SE PINCHA Y LLEVA A SU FICHA (a quién se le mandó,
                quién la ha abierto, quién la ha reenviado y a quién no le llegó). La tarjeta **NO es
                un `<a>`**: dentro ya hay enlaces, botones y un formulario, y un `<a>` dentro de otro
                PARTE EL HTML (la regla de la casa). Navega un listener delegado por `data-ci-open`,
@@ -100,7 +103,8 @@
               {% elif inv.activity and inv.activity.artist_photo %}
                 <img class="ci-card__poster ci-card__poster--avatar" src="{{ inv.activity.artist_photo }}" alt="" loading="lazy">
               {% else %}
-                <span class="ci-card__poster ci-card__poster--ph"><i class="fa fa-envelope-circle-check"></i></span>
+                {# Sin actividad: si comparte OTRA COSA, el altavoz; si no, el sobre de siempre. #}
+                <span class="ci-card__poster ci-card__poster--ph"><i class="fa {{ 'fa-bullhorn' if inv.topic else 'fa-envelope-circle-check' }}"></i></span>
               {% endif %}
               <div class="ci-card__body">
                 <div class="ci-card__head">
@@ -114,6 +118,11 @@
                     {% if inv.activity.date_label %}<div><i class="fa fa-calendar-days fa-fw"></i>{{ inv.activity.date_label }}</div>{% endif %}
                     {% if inv.activity.venue_label %}<div><i class="fa fa-location-dot fa-fw"></i>{{ inv.activity.venue_label }}</div>{% endif %}
                     {% if inv.activity.time_label %}<div><i class="fa fa-clock fa-fw"></i>{{ inv.activity.time_label }}</div>{% endif %}
+                  </div>
+                {% elif inv.topic %}
+                  {# QUÉ SE COMPARTE cuando no es una actividad: su nombre, con el altavoz de la casa. #}
+                  <div class="ci-card__act">
+                    <div><i class="fa fa-bullhorn fa-fw ci-ico--brand"></i>{{ inv.topic }}</div>
                   </div>
                 {% endif %}
                 <div class="ci-card__meta small text-muted">
@@ -135,7 +144,7 @@
                     </form>
                   </div>
                 {% else %}
-                  {# LO QUE SE QUIERE SABER DE UNA INVITACIÓN MANDADA: a cuántos fue y CUÁNTOS LA HAN ABIERTO. #}
+                  {# LO QUE SE QUIERE SABER DE UNA COMUNICACIÓN MANDADA: a cuántos fue y CUÁNTOS LA HAN ABIERTO. #}
                   <div class="ci-card__stats">
                     <span class="ci-stat"><i class="fa fa-users fa-fw"></i><b>{{ inv.sent_ok }}</b> enviada{{ '' if inv.sent_ok == 1 else 's' }}</span>
                     <span class="ci-stat ci-stat--open"><i class="fa fa-envelope-open fa-fw"></i><b>{{ inv.opened }}</b> la {{ 'ha' if inv.opened == 1 else 'han' }} abierto{% if inv.total %} <span class="text-muted">({{ inv.opened_pct }}%)</span>{% endif %}</span>
@@ -155,7 +164,7 @@
       {% endif %}
     </div>
 
-    {# ══════════ MIS LISTAS DE INVITADOS ══════════ #}
+    {# ══════════ LAS LISTAS DE CONTACTOS: las mías y las COMUNES ══════════ #}
     <div class="tab-pane fade {{ 'show active' if open_tab == 'listas' else '' }}" id="ciListas" role="tabpanel">
       <div class="d-flex gap-2 flex-wrap flex-row-reverse mb-3">
         <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#corpListModal">
@@ -166,7 +175,8 @@
       {% if not lists %}
         <div class="alert alert-light border">
           Todavía no tienes ninguna lista. Crea una (por ejemplo «Prensa» o «Patrocinadores») y añade
-          a tus contactos de uno en uno o <strong>subiendo un fichero</strong>.
+          a tus contactos de uno en uno o <strong>subiendo un fichero</strong>. Si la marcas como
+          <strong>común</strong>, la ve y la edita todo el mundo.
         </div>
       {% else %}
         <div class="accordion ci-lists" id="ciListsAcc">
@@ -175,9 +185,14 @@
               <h2 class="accordion-header">
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                         data-bs-target="#ciList{{ loop.index }}" data-ci-load="{{ l.id }}">
-                  <i class="fa fa-address-book me-2 text-danger"></i>
+                  {# Una lista COMÚN se distingue de un vistazo: la gente de la casa, en el azul. #}
+                  <i class="fa {{ 'fa-people-group text-accent' if l.shared else 'fa-address-book text-danger' }} me-2"></i>
                   <span class="fw-semibold">{{ l.name }}</span>
-                  <span class="badge text-bg-light border ms-2">{{ l.count }} invitado{{ '' if l.count == 1 else 's' }}</span>
+                  <span class="badge text-bg-light border ms-2" data-ci-count>{{ l.count }} contacto{{ '' if l.count == 1 else 's' }}</span>
+                  {% if l.shared %}
+                    <span class="badge text-bg-light border ms-1" title="La ve y la edita todo el mundo{% if l.owner_nick %} · la creó {{ l.owner_nick }}{% endif %}">
+                      <i class="fa fa-people-group me-1 text-accent"></i>Común{% if l.owner_nick %} · de {{ l.owner_nick }}{% endif %}</span>
+                  {% endif %}
                   {% if l.count != l.with_email %}
                     <span class="badge text-bg-warning ms-1" title="Sin correo no se les puede invitar">{{ l.count - l.with_email }} sin correo</span>
                   {% endif %}
@@ -210,11 +225,24 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-ci-rename="{{ l.id }}" data-ci-name="{{ l.name }}">
                       <i class="fa fa-pen me-1"></i>Renombrar
                     </button>
-                    <form method="post" action="{{ url_for('corporate_list_delete', list_id=l.id) }}" class="ms-auto"
-                          onsubmit="return confirm('¿Eliminar la lista «{{ l.name }}»? Los contactos siguen en Terceros.');">
-                                      <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar la lista</button>
-                    </form>
+                    {# HACERLA COMÚN (o dejar de compartirla) y BORRARLA: solo quien la creó, o dirección.
+                       A los demás no se les pinta lo que no pueden hacer (la regla de la casa). #}
+                    {% if l.can_share %}
+                      <button type="button" class="btn btn-sm btn-outline-secondary" data-ci-share="{{ l.id }}" data-ci-shared="{{ '1' if l.shared else '0' }}">
+                        {% if l.shared %}<i class="fa fa-lock me-1"></i>Dejarla solo para mí{% else %}<i class="fa fa-people-group me-1"></i>Hacerla común{% endif %}
+                      </button>
+                    {% endif %}
+                    {% if l.can_delete %}
+                      <form method="post" action="{{ url_for('corporate_list_delete', list_id=l.id) }}" class="ms-auto"
+                            onsubmit="return confirm('¿Eliminar la lista «{{ l.name }}»?{% if l.shared %} Es común: dejará de verla todo el mundo.{% endif %} Los contactos siguen en Terceros.');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar la lista</button>
+                      </form>
+                    {% endif %}
                   </div>
+                  {% if l.shared %}
+                    <div class="small text-muted mb-2"><i class="fa fa-people-group me-1 text-accent"></i>Lista <strong>común</strong>:
+                      la ve y la edita todo el mundo{% if l.owner_nick %} (la creó {{ l.owner_nick }}){% endif %}.</div>
+                  {% endif %}
                   <div class="small text-muted mb-2">
                     El fichero (Excel o CSV) puede traer nombre, correo, teléfono y lo que quieras.
                     Al subirlo <strong>se enseña lo que trae</strong>: quién ya está en la lista, a quién
@@ -237,14 +265,21 @@
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
     <form method="post" action="{{ url_for('corporate_list_create') }}">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-address-book me-2 text-danger"></i>Nueva lista de invitados</h5>
+        <h5 class="modal-title"><i class="fa fa-address-book me-2 text-danger"></i>Nueva lista de contactos</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <label class="form-label">Cómo se llama</label>
         <input class="form-control" name="name" maxlength="120" required autocomplete="off"
                placeholder="Prensa, Patrocinadores, Amigos de la casa…">
-        <div class="form-text">Es tuya: nadie más la ve.</div>
+        {# LA LISTA COMÚN (lo pidió Dani): si se marca, la ve y la edita todo el mundo. #}
+        <div class="form-check mt-3">
+          <input class="form-check-input" type="checkbox" name="shared" value="1" id="corpListShared">
+          <label class="form-check-label" for="corpListShared">
+            <i class="fa fa-people-group me-1 text-accent"></i><strong>Lista común</strong>: la pueden ver y editar todos los usuarios
+          </label>
+        </div>
+        <div class="form-text">Sin marcarlo, la lista es tuya y nadie más la ve. Se puede cambiar después.</div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -371,12 +406,12 @@
   </div></div>
 </div>
 
-{# ---------- NUEVA INVITACIÓN ---------- #}
+{# ---------- NUEVA COMUNICACIÓN: a quién, QUÉ SE COMPARTE y el asunto ---------- #}
 <div class="modal fade" id="corpInviteModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
     <form method="post" action="{{ url_for('corporate_invite_create') }}">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-envelope-circle-check me-2 text-danger"></i>Nueva invitación corporativa</h5>
+        <h5 class="modal-title"><i class="fa fa-envelope-circle-check me-2 text-danger"></i>Nueva comunicación corporativa</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -386,15 +421,35 @@
             {% for l in lists %}
               <label class="ci-pick">
                 <input type="checkbox" name="lists" value="{{ l.id }}" {{ 'checked' if loop.first }}>
-                <span><b>{{ l.name }}</b><small>{{ l.with_email }} con correo{% if l.count != l.with_email %} · {{ l.count - l.with_email }} sin correo{% endif %}</small></span>
+                <span><b>{{ l.name }}{% if l.shared %} <i class="fa fa-people-group text-accent ms-1" title="Lista común"></i>{% endif %}</b><small>{{ l.with_email }} con correo{% if l.count != l.with_email %} · {{ l.count - l.with_email }} sin correo{% endif %}{% if l.shared %} · común{% endif %}</small></span>
               </label>
             {% endfor %}
           </div>
-          <div class="form-text">Quien esté en varias listas recibe <strong>una sola</strong> invitación.</div>
+          <div class="form-text">Quien esté en varias listas recibe <strong>una sola</strong> comunicación.</div>
         </div>
 
+        {# ⚠️⚠️ QUÉ SE VA A COMPARTIR (sep 2026, lo pidió Dani): UNA ACTIVIDAD —con su icono, y se
+           elige cuál entre las que están por venir, como siempre— u OTRA COSA, y ahí se le pone
+           nombre libremente. El panel que no toca se esconde Y SE DESHABILITA en el JS: un campo
+           oculto se envía igual, y un `required` invisible bloquea el envío sin decir por qué. #}
         <div class="mb-3">
-          <label class="form-label fw-semibold"><i class="fa fa-calendar-day me-1 text-danger"></i>¿A qué actividad?</label>
+          <label class="form-label fw-semibold"><i class="fa fa-share-nodes me-1 text-danger"></i>¿Qué se va a compartir?</label>
+          <div class="ci-share">
+            <label class="ci-share__opt">
+              <input type="radio" name="share_kind" value="activity" {{ 'checked' if activities }}>
+              <span class="ci-share__ico"><i class="fa fa-calendar-day"></i></span>
+              <span class="ci-share__t"><b>Una actividad</b><small>Un concierto, un festival… con su cartel, la fecha y el recinto</small></span>
+            </label>
+            <label class="ci-share__opt">
+              <input type="radio" name="share_kind" value="other" {{ 'checked' if not activities }}>
+              <span class="ci-share__ico"><i class="fa fa-bullhorn"></i></span>
+              <span class="ci-share__t"><b>Otra cosa</b><small>Un single, una felicitación, una noticia de la casa…</small></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="mb-3" data-ci-share-panel="activity">
+          <label class="form-label fw-semibold"><i class="fa fa-calendar-day me-1 text-danger"></i>¿Qué actividad?</label>
           {% if activities %}
             <input class="form-control form-control-sm mb-2" data-ci-act-search placeholder="Buscar por artista, recinto o fecha…" autocomplete="off">
             <div class="ci-acts" data-ci-acts>
@@ -411,10 +466,17 @@
                 </label>
               {% endfor %}
             </div>
-            <div class="form-text">Se pone sola en el correo (con su cartel, el artista, la fecha, el recinto y la hora). Es opcional.</div>
+            <div class="form-text">Se pone sola en el correo (con su cartel, el artista, la fecha, el recinto y la hora).</div>
           {% else %}
-            <div class="alert alert-light border py-2 px-3 small mb-0">No hay actividades por venir. Puedes hacer la invitación igual y diseñar el contenido a mano.</div>
+            <div class="alert alert-light border py-2 px-3 small mb-0">No hay actividades por venir. Elige <strong>«Otra cosa»</strong> y ponle nombre a lo que quieres comunicar.</div>
           {% endif %}
+        </div>
+
+        <div class="mb-3 d-none" data-ci-share-panel="other">
+          <label class="form-label fw-semibold"><i class="fa fa-bullhorn me-1 text-danger"></i>¿Qué es?</label>
+          <input class="form-control" name="topic" maxlength="120" autocomplete="off"
+                 placeholder="Nuevo single, felicitación de Navidad, cambio de oficina…">
+          <div class="form-text">Es como se ve en el listado (y el asunto del correo, si no escribes otro).</div>
         </div>
 
         <div>

@@ -65357,10 +65357,13 @@ def public_press_release(token):
         tipo, nombre, _img = _press_kind_and_name(s, pr, rows=filas)
         titular = press_render.headline_of(pr.design or {})
         fecha = (pr.sent_at or pr.scheduled_at or pr.created_at)
-        # Cómo se presenta la página: una nota de prensa, una «Comunicación» (envío a compradores) o
-        # una «Invitación» — quien la abre tiene que saber qué está mirando.
-        que_es = ("Invitación" if _press_is_invite(pr) else
-                  ("Comunicación" if _press_is_campaign(pr) else "Nota de prensa"))
+        # Cómo se presenta la página: una nota de prensa, una «Comunicación» (envío a compradores o
+        # comunicación corporativa sobre otra cosa) o una «Invitación» (una comunicación corporativa
+        # que comparte una ACTIVIDAD) — quien la abre tiene que saber qué está mirando.
+        que_es = ("Comunicación" if _press_is_campaign(pr) else "Nota de prensa")
+        if _press_is_invite(pr):
+            inv_c = _corp_invite_of_design(s, pr)
+            que_es = "Invitación" if (inv_c is None or inv_c.concert_id) else "Comunicación"
         og_title = "%s · %s · %s" % (que_es, _press_subject_label(s, pr, filas),
                                      fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else "")
         return render_template(
@@ -105061,11 +105064,11 @@ def _home_quick_action_defs() -> dict:
             "hint": "Meter la venta de entradas de cada actividad", "access": "ventas",
             "url": url_for("sales_update_view"),
         },
-        # --- Para TODO EL MUNDO: invitar a los contactos de uno a una actividad ---
+        # --- Para TODO EL MUNDO: comunicar algo a los contactos de uno (una actividad u otra cosa) ---
         "invitaciones_corp": {
-            "key": "invitaciones_corp", "label": "Invitación corporativa", "plus": True,
+            "key": "invitaciones_corp", "label": "Comunicación corporativa", "plus": True,
             "icon": "fa-envelope-circle-check",
-            "hint": "Invitar a tus contactos a una actividad, desde tu correo",
+            "hint": "Comunicar algo a tus contactos (una actividad u otra cosa), desde tu correo",
             "access": None, "url": url_for("corporate_invites_view"),
         },
     }
@@ -105077,7 +105080,7 @@ _HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "singl
                      "ventas", "invitaciones_gestionar", "invitaciones", "invitaciones_corp"]
 
 # ⚠️ Acciones que ve TODO EL MUNDO, esté en el departamento que esté: son funciones PERSONALES (las
-# listas de invitados de uno y sus invitaciones), no el trabajo de una sección. Se añaden siempre,
+# listas de contactos de uno y sus comunicaciones corporativas), no el trabajo de una sección. Se añaden siempre,
 # así que no hay que acordarse de meterlas en cada departamento cuando se cree uno nuevo.
 _HOME_QUICK_ALWAYS = ["invitaciones_corp"]
 
@@ -107776,12 +107779,16 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "vacation_notice_view",
                       # MI PASE: el atajo a la acreditación propia (lleva a la ficha de uno mismo).
                       "my_pass_view",
-                      # ⚠️ INVITACIONES CORPORATIVAS: cada uno tiene SUS listas de invitados y manda
-                      # SUS invitaciones, desde su propio correo. No es una sección que se conceda:
+                      # ⚠️ COMUNICACIONES CORPORATIVAS (antes «invitaciones corporativas»): cada uno
+                      # tiene SUS listas de contactos —y las COMUNES, que son de todos— y manda SUS
+                      # comunicaciones, desde su propio correo. No es una sección que se conceda:
                       # la tiene todo el mundo y solo sobre lo suyo (cada endpoint comprueba dentro
-                      # que la lista o la invitación es de quien la abre, `_corp_*_mine`).
+                      # que la lista es suya o común, `_corp_list_usable`, y que la comunicación es
+                      # de quien la abre, `_corp_invite_mine`). La URL de antes redirige a la nueva.
                       "corporate_invites_view", "corporate_invite_detail_view",
+                      "corporate_invites_legacy_redirect",
                       "corporate_list_create", "corporate_list_rename", "corporate_list_delete",
+                      "corporate_list_share",
                       "corporate_list_guests", "corporate_guest_add", "corporate_guest_remove",
                       "corporate_guest_fix",
                       "corporate_list_import", "corporate_import_review",
@@ -189693,30 +189700,35 @@ def public_invitation_access_og_image(token):
 
 
 # ═════════════════════════════════════════════════════════════════════════════════════════════
-# INVITACIONES CORPORATIVAS · «Mi lista de invitados» y los envíos de cada persona
+# COMUNICACIONES CORPORATIVAS · las listas de contactos (las de cada uno y las COMUNES) y los envíos
 # ═════════════════════════════════════════════════════════════════════════════════════════════
 # ⚠️⚠️ ESTO NO SON LAS INVITACIONES DE UN EVENTO (las entradas que se piden y se asignan: eso es
 # `InvitationRequest`, sección Invitaciones). Esto es lo que manda una persona de la casa **en su
-# nombre y desde su correo**: invitar a SUS contactos a una actividad con un correo diseñado.
-# Por eso todo cuelga del usuario y es una función PERSONAL (la tiene todo el mundo, sin permisos).
+# nombre y desde su correo** a SUS contactos: una ACTIVIDAD a la que los invita, u OTRA COSA (un
+# single, una felicitación, un cambio de oficina…) con un correo diseñado. Hasta sep 2026 se llamó
+# «comunicaciones corporativas»; Dani lo renombró porque ya no solo se invita. ⚠️ Los identificadores
+# (`CorporateInvite`, `corporate_*`, `_corp_*`) NO se han renombrado: cambiar 20 endpoints y cuatro
+# tablas no le da nada a nadie y rompe lo que ya funciona. Lo que cambia es lo que se LEE.
+# Es una función PERSONAL (la tiene todo el mundo, sin permisos) y cada uno ve lo suyo… salvo las
+# LISTAS COMUNES (`CorporateGuestList.is_shared`): esas las ve y las edita todo el mundo.
 #
 # El CONTENIDO es un DISEÑO (`PressRelease` con `purpose='INVITE'`), o sea el MISMO editor y las
 # MISMAS plantillas que el correo de un envío a compradores: un solo editor que mantener.
-# La cadena es la de siempre: a quién → la actividad → diseñar → enviar (por tandas, sin repetir).
+# La cadena es la de siempre: a quién → qué se comparte → diseñar → enviar (por tandas, sin repetir).
 
 CORP_INVITE_BUDGET_SECONDS = 45          # lo que dura una tanda de envío (la regla de la casa)
 CORP_TOKEN_PLACEHOLDER = "__CORP_TOKEN__"   # se sustituye por el token de cada persona
 
 
 def _press_is_invite(pr) -> bool:
-    """¿Este diseño es el correo de una INVITACIÓN CORPORATIVA (y no una nota de prensa)?"""
+    """¿Este diseño es el correo de una COMUNICACIÓN CORPORATIVA (y no una nota de prensa)?"""
     return (getattr(pr, "purpose", "PRESS") or "PRESS").upper() == "INVITE"
 
 
 def _press_request_is_invite() -> bool:
-    """¿La petición al editor es sobre el diseño de una invitación corporativa? Lo mira el gate de
+    """¿La petición al editor es sobre el diseño de una comunicación corporativa? Lo mira el gate de
     permisos: esos endpoints son `promo_press_*` (sección Promoción) pero ese diseño es de QUIEN
-    manda la invitación, que puede no tener Promoción ni ninguna otra sección. Cacheado por
+    manda la comunicación, que puede no tener Promoción ni ninguna otra sección. Cacheado por
     petición, igual que el de los envíos a compradores."""
     rid = (request.view_args or {}).get("release_id") if request else None
     if not rid:
@@ -189751,10 +189763,10 @@ def _corp_nick() -> str:
 
 
 def _corp_design_is_mine(session_db, pr) -> bool:
-    """¿Este diseño de invitación es de quien lo está abriendo? La llave de la función personal.
+    """¿Este diseño de comunicación es de quien lo está abriendo? La llave de la función personal.
 
     ⚠️ Se mira el ENVÍO al que pertenece (no `created_by_user_id` del diseño): es el envío el que
-    dice de quién es, y así una invitación sigue siendo suya aunque el diseño se hubiera creado de
+    dice de quién es, y así una comunicación sigue siendo suya aunque el diseño se hubiera creado de
     otra forma. Dirección entra en todas (es quien tiene que poder mirar lo que sale de la casa)."""
     uid = _corp_user_id()
     if not uid:
@@ -189765,7 +189777,7 @@ def _corp_design_is_mine(session_db, pr) -> bool:
         inv = (session_db.query(CorporateInvite)
                .filter(CorporateInvite.design_release_id == pr.id).first())
     except Exception:
-        app.logger.exception("[invitaciones corp] no se pudo mirar de quién es el diseño")
+        app.logger.exception("[comunicaciones corp] no se pudo mirar de quién es el diseño")
         return False
     if inv is None:
         return str(getattr(pr, "created_by_user_id", "") or "") == str(uid)
@@ -189781,12 +189793,12 @@ def _corp_invite_of_design(session_db, pr):
 
 
 def _corp_return_url(inv) -> str:
-    """A dónde vuelve el editor: la pantalla de invitaciones con ESTA abierta para mandarla."""
-    return url_for("corporate_invites_view", invitacion=str(inv.id))
+    """A dónde vuelve el editor: la pantalla de comunicaciones con ESTA abierta para mandarla."""
+    return url_for("corporate_invites_view", comunicacion=str(inv.id))
 
 
 def _press_invite_context(s, pr) -> dict | None:
-    """La invitación corporativa cuyo correo es este diseño (o None si no lo es).
+    """La comunicación corporativa cuyo correo es este diseño (o None si no lo es).
 
     ⚠️ `next_url` es **la pantalla previa al envío** (la común de toda la app): al terminar el
     diseño se pasa a ver cómo llega el correo, a quién se le manda y a mandarse la prueba — lo
@@ -189795,33 +189807,94 @@ def _press_invite_context(s, pr) -> dict | None:
         return None
     inv = _corp_invite_of_design(s, pr)
     if inv is None:
-        return {"id": "", "label": "Invitación corporativa",
+        return {"id": "", "label": "Comunicación corporativa", "topic": "",
                 "return_url": url_for("corporate_invites_view"),
                 "next_url": url_for("corporate_invites_view")}
     ya_salio = (inv.status or "DRAFT").upper() != "DRAFT"
-    return {"id": str(inv.id), "label": "Invitación corporativa",
+    return {"id": str(inv.id), "label": "Comunicación corporativa",
+            # QUÉ SE COMPARTE cuando no es una actividad: se enseña en la cabecera del editor.
+            "topic": (inv.topic or "").strip(),
             "return_url": _corp_return_url(inv),
             "next_url": (url_for("corporate_invite_detail_view", invite_id=inv.id) if ya_salio
                          else url_for("corporate_invite_send_view", invite_id=inv.id))}
 
 
-# ── LAS LISTAS DE INVITADOS ──────────────────────────────────────────────────────────────────
+# ── LAS LISTAS DE CONTACTOS ──────────────────────────────────────────────────────────────────
+# ⚠️⚠️ LA LISTA COMÚN (sep 2026, lo pidió Dani: «al crearlas tiene que haber la opción de marcarla
+# como lista común: la pueden ver y editar todos los usuarios»). Una lista es de quien la crea y
+# nadie más la ve… salvo que se marque COMÚN (`is_shared`): entonces la ve y la edita TODO EL MUNDO
+# (añadir y quitar gente, subir un fichero, arreglar correos, renombrarla, mandar con ella).
+# Lo que sigue siendo de su DUEÑO (o de dirección): BORRARLA y dejar de compartirla — una lista con
+# 300 contactos que usa toda la casa no la puede borrar cualquiera con un clic.
 
-def _corp_my_lists(session_db, user_id) -> list:
-    return (session_db.query(CorporateGuestList)
-            .filter(CorporateGuestList.user_id == user_id)
-            .order_by(CorporateGuestList.created_at.asc()).all())
+def _corp_list_is_shared(lst) -> bool:
+    return bool(getattr(lst, "is_shared", False))
 
 
-def _corp_list_mine(session_db, list_id, user_id):
-    """La lista, si es SUYA (si no, None: nadie ve las listas de nadie)."""
+def _corp_list_owned(session_db, list_id, user_id):
+    """La lista, si es de ESA persona (quien la creó) o quien mira es dirección; si no, None.
+    Es la llave de lo que solo hace el dueño: borrarla y compartirla o dejar de compartirla."""
     lid = _safe_uuid(list_id)
     if not lid or not user_id:
         return None
     lst = session_db.get(CorporateGuestList, lid)
-    if lst is None or str(lst.user_id) != str(user_id):
+    if lst is None:
+        return None
+    if str(lst.user_id) != str(user_id) and not is_master():
         return None
     return lst
+
+
+def _corp_list_usable(session_db, list_id, user_id):
+    """La lista con la que ESA persona puede TRABAJAR: la suya, o una COMÚN (si no, None: nadie ve
+    las listas privadas de nadie). Es la llave de todo lo demás: verla, añadir y quitar gente, subir
+    un fichero, renombrarla y mandar con ella."""
+    lid = _safe_uuid(list_id)
+    if not lid or not user_id:
+        return None
+    lst = session_db.get(CorporateGuestList, lid)
+    if lst is None:
+        return None
+    if str(lst.user_id) != str(user_id) and not _corp_list_is_shared(lst):
+        return None
+    return lst
+
+
+def _corp_my_lists(session_db, user_id) -> list:
+    """LAS LISTAS con las que trabaja esa persona: **las suyas primero** y detrás las COMUNES de los
+    demás (cada grupo por orden de creación). Una común creada por uno mismo sale entre las suyas,
+    con su marca de común."""
+    if not user_id:
+        return []
+    filas = (session_db.query(CorporateGuestList)
+             .filter(or_(CorporateGuestList.user_id == user_id,
+                         CorporateGuestList.is_shared.is_(True)))
+             .order_by(CorporateGuestList.created_at.asc()).all())
+    return sorted(filas, key=lambda l: (0 if str(l.user_id) == str(user_id) else 1,
+                                        (l.created_at.timestamp() if l.created_at else 0.0)))
+
+
+def _corp_user_nick(session_db, user_id) -> str:
+    """Cómo se llama en la casa a quien creó una lista (su nick; si no, lo de antes de la @)."""
+    if not user_id:
+        return ""
+    try:
+        fila = (session_db.query(UserProfile.nick, User.email)
+                .outerjoin(User, User.id == UserProfile.user_id)
+                .filter(UserProfile.user_id == user_id).first())
+        if fila is None:
+            u = session_db.get(User, user_id)
+            return _email_to_nick(u.email) if (u is not None and u.email) else ""
+        return (fila[0] or "").strip() or _email_to_nick(fila[1] or "")
+    except Exception:
+        return ""
+
+
+def _corp_health_owner(lst):
+    """DE QUIÉN son los envíos que dicen cómo le va el correo a cada contacto de la lista: los de su
+    dueño en una lista privada; en una COMÚN, **los de toda la casa** (`None`): un correo que no
+    existe no existe para nadie, y a quien no abre lo que le mandan da igual quién se lo mande."""
+    return None if _corp_list_is_shared(lst) else lst.user_id
 
 
 def _corp_guest_email(g) -> str:
@@ -189830,7 +189903,7 @@ def _corp_guest_email(g) -> str:
 
     ⚠️⚠️ La pantalla miraba **solo la fila** y el envío mira primero la FICHA, así que quien tenía el
     correo en su ficha salía como «sin correo» —y lo seguía diciendo después de arreglarlo— aunque
-    la invitación sí le llegaba (bug real, sep 2026, lo vio Dani en su lista de invitados). Si un
+    la comunicación sí le llegaba (bug real, sep 2026, lo vio Dani en su lista de invitados). Si un
     dato se enseña en dos sitios, sale de la misma función."""
     prom = getattr(g, "promoter", None)
     return ((_corp_promoter_email(prom) if prom is not None else "")
@@ -189844,7 +189917,7 @@ def _corp_guest_email(g) -> str:
 #     que arreglarlo, porque a esa persona no le llega nada.
 #   · SOBRE TACHADO — le han llegado los últimos correos y NO ha abierto ninguno.
 # ⚠️ Se mira lo MANDADO DE VERDAD (`CorporateInviteRecipient`), que es el único sitio donde consta
-# si salió y si se abrió; y solo lo de ESTA persona (sus invitaciones), que es lo suyo.
+# si salió y si se abrió; y solo lo de ESTA persona (sus comunicaciones), que es lo suyo.
 CORP_HEALTH_LAST_N = 3          # cuántos de los últimos correos se miran ("los últimos correos")
 
 # Lo que dice un servidor de correo cuando la dirección NO EXISTE. Un rebote así no se arregla
@@ -189862,22 +189935,24 @@ def _corp_error_is_bounce(error: str) -> bool:
 
 
 def _corp_mail_health(session_db, user_id, correos: list) -> dict:
-    """Por cada correo, cómo le ha ido en los ÚLTIMOS envíos de esta persona. UNA consulta.
+    """Por cada correo, cómo le ha ido en los ÚLTIMOS envíos de esta persona —o de **toda la casa**
+    si `user_id` es None, que es lo que se mira en una lista COMÚN—. UNA consulta.
 
     Devuelve `{correo: {"status": ""|"unopened"|"error", "hard": bool, "error": str, "sent": int,
     "opened": int}}`. ⚠️ Punto único: lo usan la fila de la lista y la galleta de la cabecera, así
     que el número que se ve es exactamente el que se cuenta."""
     correos = sorted({(c or "").strip().lower() for c in (correos or []) if (c or "").strip()})
-    if not correos or not user_id:
+    if not correos:
         return {}
-    filas = (session_db.query(CorporateInviteRecipient.email, CorporateInviteRecipient.status,
-                              CorporateInviteRecipient.error, CorporateInviteRecipient.opened_at,
-                              CorporateInviteRecipient.sent_at, CorporateInviteRecipient.created_at)
-             .join(CorporateInvite, CorporateInvite.id == CorporateInviteRecipient.invite_id)
-             .filter(CorporateInvite.user_id == user_id,
-                     func.lower(CorporateInviteRecipient.email).in_(correos),
-                     CorporateInviteRecipient.status != "PENDIENTE")
-             .all())
+    consulta = (session_db.query(CorporateInviteRecipient.email, CorporateInviteRecipient.status,
+                                 CorporateInviteRecipient.error, CorporateInviteRecipient.opened_at,
+                                 CorporateInviteRecipient.sent_at, CorporateInviteRecipient.created_at)
+                .join(CorporateInvite, CorporateInvite.id == CorporateInviteRecipient.invite_id)
+                .filter(func.lower(CorporateInviteRecipient.email).in_(correos),
+                        CorporateInviteRecipient.status != "PENDIENTE"))
+    if user_id:
+        consulta = consulta.filter(CorporateInvite.user_id == user_id)
+    filas = consulta.all()
     por_correo: dict = {}
     for correo, estado, error, abierto, mandado, creado in filas:
         por_correo.setdefault((correo or "").strip().lower(), []).append(
@@ -189956,7 +190031,7 @@ def _corp_list_rows_sorted(session_db, lst, invitados=None, *, salud: dict | Non
                      .filter(CorporateGuest.list_id == lst.id)
                      .order_by(CorporateGuest.created_at.asc()).all())
     if salud is None:
-        salud = _corp_mail_health(session_db, lst.user_id, [_corp_guest_email(g) for g in invitados])
+        salud = _corp_mail_health(session_db, _corp_health_owner(lst), [_corp_guest_email(g) for g in invitados])
     filas = [_corp_guest_row(g, health=salud) for g in invitados]
     # ⚠️ Se ordena por el nick SIN acentos ni mayúsculas; el segundo criterio solo desempata, para
     # que dos tocayos salgan siempre en el mismo orden y la lista no «baile» entre refrescos.
@@ -189975,11 +190050,20 @@ def _corp_list_row(session_db, lst, *, con_invitados: bool = False) -> dict:
     con_correo = sum(1 for c in correos if c)
     # ⚠️ La salud del correo se calcula SIEMPRE (una consulta), aunque no se pinten las filas: así la
     # galleta de la cabecera dice lo mismo que las marcas de dentro, que es la regla de la casa.
-    salud = _corp_mail_health(session_db, lst.user_id, correos)
+    salud = _corp_mail_health(session_db, _corp_health_owner(lst), correos)
     estados = [(salud.get(c) or {}).get("status") or "" for c in correos if c]
+    # DE QUIÉN es y si es COMÚN: lo que decide qué botones se pintan (borrar y compartir son del
+    # dueño o de dirección; lo demás lo hace cualquiera que pueda trabajar con ella).
+    uid = _corp_user_id()
+    mia = bool(uid) and str(lst.user_id) == str(uid)
+    comun = _corp_list_is_shared(lst)
     return {
         "id": str(lst.id), "name": (lst.name or "").strip() or "Sin nombre",
         "count": len(invitados), "with_email": con_correo,
+        "shared": comun, "mine": mia,
+        "owner_nick": (_corp_user_nick(session_db, lst.user_id) if comun and not mia else ""),
+        "can_delete": bool(mia or is_master()),
+        "can_share": bool(mia or is_master()),
         "rows": (_corp_list_rows_sorted(session_db, lst, invitados, salud=salud) if con_invitados else []),
         # Cuántos tienen algo que mirar en su correo (rebotó, o no abre lo que se le manda).
         "bounced": sum(1 for e in estados if e == "error"),
@@ -190033,7 +190117,7 @@ def _corp_guest_add(session_db, lst, *, promoter=None, name: str = "", email: st
 # fichero los trae). Los manda el servidor para que la pantalla no tenga su propia lista.
 CORP_IMPORT_BASIC_FIELDS = ("nick", "first_name", "last_name", "contact_email", "contact_phone")
 # Un motivo de coincidencia SEGURO: lo que no se repite entre dos personas. El nombre (aunque sea
-# el completo) no entra: dos personas pueden llamarse igual, y mandarle la invitación a quien no es
+# el completo) no entra: dos personas pueden llamarse igual, y mandarle la comunicación a quien no es
 # no tiene vuelta atrás — esas se enseñan igual, pero SIN marcar, para que las mire una persona.
 CORP_IMPORT_SURE_REASONS = ("por su DNI", "por su correo", "por su teléfono", "por el nick")
 
@@ -190068,7 +190152,7 @@ def _corp_import_mapping(columns: list) -> dict:
 def _corp_import_display_name(values: dict) -> str:
     """Con qué nombre entra en la lista: el de la persona (nombre + apellidos) y, si no viene, el
     nick del fichero. ⚠️ En este orden a propósito: en un listado de invitados el nick suele ser la
-    EMPRESA, y quien recibe la invitación es la persona."""
+    EMPRESA, y quien recibe la comunicación es la persona."""
     nombre = " ".join([x for x in [(values.get("first_name") or "").strip(),
                                    (values.get("last_name") or "").strip()] if x]).strip()
     return (nombre or (values.get("nick") or "").strip() or (values.get("contact_email") or "").strip())
@@ -190171,10 +190255,10 @@ def _corp_import_rows_in(rows: list) -> list:
 # ── EL ENVÍO ─────────────────────────────────────────────────────────────────────────────────
 
 def _corp_sender(session_db, user_id) -> dict:
-    """DESDE QUÉ CORREO sale la invitación: **el buzón de quien la manda** (Integraciones → Correo,
+    """DESDE QUÉ CORREO sale la comunicación: **el buzón de quien la manda** (Integraciones → Correo,
     punto único `_user_mail_account`). Si no lo tiene configurado NO se manda y se dice qué hacer.
 
-    ⚠️ Lo pidió Dani así: una invitación se escribe de tú a tú y quien la recibe contesta a esa
+    ⚠️ Lo pidió Dani así: una comunicación se escribe de tú a tú y quien la recibe contesta a esa
     persona, no a un buzón de la app. Mandarla con el remitente de la casa sería mentir sobre quién
     invita — por eso aquí no hay salida alternativa: se configura y ya."""
     acc = _user_mail_account(session_db, user_id)
@@ -190187,14 +190271,14 @@ def _corp_sender(session_db, user_id) -> dict:
     problema = _user_mail_account_problem(session_db, user_id)
     if problema and problema.get("reason") == "inactive":
         aviso = ("Tu cuenta de correo %s está DESACTIVADA en Integraciones → Correo. "
-                 "Actívala para poder mandar la invitación." % problema.get("email", ""))
+                 "Actívala para poder mandar la comunicación." % problema.get("email", ""))
     elif problema and problema.get("reason") == "nopass":
         aviso = ("Tu cuenta de correo %s no tiene contraseña guardada en Integraciones → Correo, "
                  "así que la app no puede conectarse a tu buzón. Complétala para poder mandar la "
-                 "invitación." % problema.get("email", ""))
+                 "comunicación." % problema.get("email", ""))
     else:
         aviso = ("Todavía no tienes tu correo dado de alta en Integraciones → Correo → «Cuentas de "
-                 "envío». La invitación sale desde TU dirección, así que hay que configurarla antes "
+                 "envío». La comunicación sale desde TU dirección, así que hay que configurarla antes "
                  "de enviarla.")
     # ⚠️ Integraciones es de DIRECCIÓN: a quien no puede entrar no se le manda a una pantalla en la
     # que se comería un 403 — se le dice que se lo pida (es lo honesto, y es lo que puede hacer).
@@ -190205,7 +190289,7 @@ def _corp_sender(session_db, user_id) -> dict:
 
 
 def _corp_design_ensure(session_db, inv):
-    """El diseño del correo de esta invitación, creándolo si no lo tiene. De quién es (el artista o
+    """El diseño del correo de esta comunicación, creándolo si no lo tiene. De quién es (el artista o
     el evento de la actividad) y sobre qué va (esa actividad): con eso el editor ofrece SUS módulos
     —los datos de la actividad, su cartelería, sus fotos, los logos—."""
     if inv.design_release_id:
@@ -190232,7 +190316,7 @@ def _corp_design_ensure(session_db, inv):
     session_db.flush()
     inv.design_release_id = pr.id
     session_db.flush()
-    # El módulo «Datos de la actividad» ya puesto: es lo primero que hay que ver en una invitación
+    # El módulo «Datos de la actividad» ya puesto: es lo primero que hay que ver en una comunicación
     # y así no hay que acordarse de arrastrarlo (se puede mover, cambiar o quitar como cualquiera).
     if concert is not None:
         pr.design = {"width": press_render.WIDTH, "bg": {}, "blocks": [
@@ -190254,19 +190338,33 @@ def _corp_has_design(session_db, inv) -> bool:
     return bool(pr is not None and press_render.blocks_of(pr.design or {}))
 
 
+def _corp_subject(inv, pr=None) -> str:
+    """EL ASUNTO del correo, punto único: el que se escribió; si no, el titular del diseño; si no,
+    **lo que se comparte** (otra cosa → su nombre; una actividad → «Te invito»). Lo usan la pantalla
+    previa, la prueba y el envío, así que los tres dicen lo mismo."""
+    asunto = (inv.subject or "").strip()
+    if asunto:
+        return asunto
+    if pr is not None:
+        titular = (press_render.headline_of(pr.design or {}) or "").strip()
+        if titular:
+            return titular
+    return (inv.topic or "").strip() or "Te invito"
+
+
 def _corp_email_html(session_db, inv, *, token: str = CORP_TOKEN_PLACEHOLDER) -> str:
-    """El correo de la invitación: el DISEÑO (las bandas del motor de las notas de prensa) y el
+    """El correo de la comunicación: el DISEÑO (las bandas del motor de las notas de prensa) y el
     PÍXEL que dice quién la ha abierto. **Sin «ver en el navegador»**: ver abajo."""
     pr = session_db.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
     if pr is None:
         return ""
     tok = _press_ensure_token(session_db, pr)
     cuerpo = press_render.render_email(_press_prepared_design(session_db, pr, tok))
-    titular = (press_render.headline_of(pr.design or {}) or (inv.subject or "").strip() or "Invitación")
+    titular = (press_render.headline_of(pr.design or {}) or _corp_subject(inv))
     pixel = ('<img src="%s" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;">'
              % _html_escape_attr(_external_url_for("public_corporate_invite_open", token=token)))
     # ⚠️⚠️ AQUÍ NO VA «VER EN EL NAVEGADOR» (sep 2026, lo pidió Dani: «quítalo, hace que aparezca
-    #    comercial»). Una invitación la manda UNA PERSONA desde SU correo a alguien a quien conoce:
+    #    comercial»). Una comunicación la manda UNA PERSONA desde SU correo a alguien a quien conoce:
     #    ese enlace es la marca de un mailing y hace que Gmail la mande a Promociones. En una nota
     #    de prensa o en un envío a compradores sí se queda: ahí son mailings de verdad y quien los
     #    recibe agradece la versión web.
@@ -190289,7 +190387,7 @@ def _corp_email_html(session_db, inv, *, token: str = CORP_TOKEN_PLACEHOLDER) ->
 
 
 def _corp_recipient_nick(r) -> str:
-    """Cómo se llama a quien recibió la invitación: **su nick** si tiene ficha y, si no, lo que se
+    """Cómo se llama a quien recibió la comunicación: **su nick** si tiene ficha y, si no, lo que se
     apuntó al mandársela. El mismo criterio que la lista de invitados."""
     prom = getattr(r, "promoter", None)
     return (((getattr(prom, "nick", "") or "").strip() if prom is not None else "")
@@ -190297,7 +190395,7 @@ def _corp_recipient_nick(r) -> str:
 
 
 # LOS ESTADOS DE UN DESTINATARIO, con su icono y lo que significa. ⚠️ Punto único: lo usan la ficha
-# de la invitación y la galleta del listado, así que el icono y la palabra son siempre los mismos.
+# de la comunicación y la galleta del listado, así que el icono y la palabra son siempre los mismos.
 CORP_RECIPIENT_STATES = {
     "bounced":   {"icon": "fa-triangle-exclamation", "cls": "text-danger",  "label": "Ese correo no existe"},
     "error":     {"icon": "fa-circle-exclamation",   "cls": "text-danger",  "label": "No le llegó"},
@@ -190376,7 +190474,7 @@ def _corp_invite_lists(session_db, inv) -> list:
 
 
 def _corp_build_recipients(session_db, inv, *, chosen: list | None = None) -> int:
-    """Crea los destinatarios de la invitación. Devuelve cuántos son.
+    """Crea los destinatarios de la comunicación. Devuelve cuántos son.
 
     ⚠️ **Quien esté en varias listas recibe UNA sola** (se deduplica por correo) y el correo se
     refresca de la ficha del tercero: si lo cambió, se manda al que vale hoy.
@@ -190429,7 +190527,7 @@ def _corp_build_recipients(session_db, inv, *, chosen: list | None = None) -> in
 
 
 def _corp_recipients_preview(session_db, lists_ids: list) -> dict:
-    """Cuántos recibirían la invitación con esas listas marcadas (y cuántos se quedan fuera por no
+    """Cuántos recibirían la comunicación con esas listas marcadas (y cuántos se quedan fuera por no
     tener correo). ⚠️ Es el MISMO criterio que el envío: el número que se ve antes de mandar es
     exactamente a quién se le manda."""
     uuids = [u for u in (_safe_uuid(x) for x in (lists_ids or [])) if u]
@@ -190472,11 +190570,11 @@ def _corp_recipient_email_hoy(session_db, r) -> str:
 
 
 def _corp_recipient_requeue(session_db, inv, r) -> tuple[bool, str]:
-    """Deja a esa persona lista para que le vuelva a salir la invitación. (ok, motivo si no).
+    """Deja a esa persona lista para que le vuelva a salir la comunicación. (ok, motivo si no).
 
     ⚠️ Se REFRESCA el correo a la dirección de hoy. Lo abierto y lo reenviado **no se tocan**: es la
     misma persona y su historial sigue valiendo; lo que se apunta aparte es `resend_count`.
-    ⚠️ Si su correo de hoy ya lo tiene OTRO destinatario de esta misma invitación (el único
+    ⚠️ Si su correo de hoy ya lo tiene OTRO destinatario de esta misma comunicación (el único
     `invite_id + email`), no se duplica: se dice y no se manda dos veces al mismo buzón."""
     correo = _corp_recipient_email_hoy(session_db, r)
     if not correo:
@@ -190492,7 +190590,7 @@ def _corp_recipient_requeue(session_db, inv, r) -> tuple[bool, str]:
     r.status, r.error = "PENDIENTE", None
     if not r.token:
         r.token = _uuid_token()
-    # Vuelve a haber algo que mandar: la invitación deja de estar «terminada».
+    # Vuelve a haber algo que mandar: la comunicación deja de estar «terminada».
     if (inv.status or "").upper() == "SENT":
         inv.status = "SENDING"
     return True, ""
@@ -190566,7 +190664,7 @@ def _corp_recount(session_db, inv) -> None:
 
 
 def _corp_send_pending(session_db, inv) -> dict:
-    """Manda la invitación a los que quedan, durante ~45 s. Devuelve lo hecho y lo que queda.
+    """Manda la comunicación a los que quedan, durante ~45 s. Devuelve lo hecho y lo que queda.
 
     ⚠️ Cada envío se guarda AL MOMENTO: si el servidor corta la petición, lo mandado está mandado y
     al volver a pulsar salen solo los que faltan (nadie recibe dos veces)."""
@@ -190588,7 +190686,7 @@ def _corp_send_pending(session_db, inv) -> dict:
     inv.status = "SENDING"
     inv.from_email = remitente["from_email"]
     cuerpo_html = _corp_email_html(session_db, inv)
-    asunto = (inv.subject or "").strip() or "Te invito"
+    asunto = _corp_subject(inv)
     por_destino = {(r.email or "").strip().lower(): r for r in pendientes}
 
     def personaliza(destinatario):
@@ -190610,7 +190708,7 @@ def _corp_send_pending(session_db, inv) -> dict:
                                              auto_submitted=False)
         except Exception as exc:
             ok, error = False, str(exc)
-            app.logger.exception("[invitaciones corp] fallo inesperado mandando a %s", (r.email or "")[:80])
+            app.logger.exception("[comunicaciones corp] fallo inesperado mandando a %s", (r.email or "")[:80])
         if ok:
             # ⚠️ Si ya se le había mandado antes, esto es un REENVÍO: `sent_at` pasa a ser la del
             #    último, así que se apunta aparte cuándo y cuántas veces se le ha vuelto a mandar.
@@ -190639,7 +190737,7 @@ _CORP_BG_GUARD = threading.Lock()
 
 
 def _corp_send_bg(invite_pk: str) -> None:
-    """Sigue mandando la invitación en un HILO hasta que no queden (el mismo patrón que los envíos a
+    """Sigue mandando la comunicación en un HILO hasta que no queden (el mismo patrón que los envíos a
     compradores: la primera tanda va en la petición para ver al momento los errores de verdad)."""
     clave = str(invite_pk)
     with _CORP_BG_GUARD:
@@ -190655,7 +190753,7 @@ def _corp_send_bg(invite_pk: str) -> None:
                     return
                 datos = _corp_send_pending(s, inv)
             except Exception:
-                app.logger.exception("[invitaciones corp] fallo mandando en segundo plano")
+                app.logger.exception("[comunicaciones corp] fallo mandando en segundo plano")
                 return
             finally:
                 s.close()
@@ -190671,8 +190769,8 @@ def _corp_send_bg_start(invite_pk: str) -> None:
 
 
 def _corp_invite_row(session_db, inv, *, stats: dict | None = None) -> dict:
-    """Una invitación tal como se ve en el listado: a qué actividad, a cuántos y **cuántos la han
-    abierto** (que es lo que se quiere saber de una invitación mandada)."""
+    """Una comunicación tal como se ve en el listado: a qué actividad, a cuántos y **cuántos la han
+    abierto** (que es lo que se quiere saber de una comunicación mandada)."""
     d = stats or {}
     total = int(inv.total or 0)
     abiertos = int(d.get("abiertos") or 0)
@@ -190686,8 +190784,10 @@ def _corp_invite_row(session_db, inv, *, stats: dict | None = None) -> dict:
         "id": str(inv.id),
         "status": estado,
         "status_label": {"DRAFT": "Borrador", "SENDING": "Enviándose", "SENT": "Enviada"}.get(estado, estado),
-        "subject": (inv.subject or "").strip() or titular or "Sin asunto",
+        "subject": (inv.subject or "").strip() or titular or (inv.topic or "").strip() or "Sin asunto",
         "headline": titular,
+        # QUÉ SE COMPARTE cuando no es una actividad («Otra cosa»): su nombre, para la tarjeta.
+        "topic": (inv.topic or "").strip(),
         "concert_id": str(inv.concert_id) if inv.concert_id else "",
         "concert_url": url_for("concert_detail_view", cid=inv.concert_id) if inv.concert_id else "",
         "activity": (None if datos_act.get("pending") else datos_act),
@@ -190717,9 +190817,9 @@ def _corp_invite_row(session_db, inv, *, stats: dict | None = None) -> dict:
 
 def _corp_invite_sort_key(fila: dict):
     """⚠️ **LAS MÁS PRÓXIMAS PRIMERO Y LAS MÁS ANTIGUAS DESPUÉS** (lo pidió Dani). Lo que ordena una
-    invitación es CUÁNDO ES LO QUE SE INVITA: primero las actividades que están **por venir**, de la
+    comunicación es CUÁNDO ES LO QUE SE INVITA: primero las actividades que están **por venir**, de la
     más cercana a la más lejana, y detrás las que ya pasaron, de la más reciente a la más antigua.
-    Una invitación sin actividad se ordena por **cuándo se hizo**, junto a las pasadas.
+    Una comunicación sin actividad se ordena por **cuándo se hizo**, junto a las pasadas.
 
     ⚠️ La fila trae el instante en crudo (`order_ts`, negativo para que «lo más reciente primero»
     sea un orden ascendente normal): ordenar por la etiqueta «17/09/2026 21:11» ordenaría por el DÍA
@@ -190738,7 +190838,7 @@ def _corp_invite_sort_key(fila: dict):
 
 
 def _corp_invites_rows(session_db, user_id) -> list[dict]:
-    """Las invitaciones de esa persona, ya ordenadas (las más próximas primero)."""
+    """Las comunicaciones de esa persona, ya ordenadas (las más próximas primero)."""
     invites = (session_db.query(CorporateInvite)
                .options(joinedload(CorporateInvite.concert).joinedload(Concert.artist))
                .filter(CorporateInvite.user_id == user_id)
@@ -190764,7 +190864,8 @@ def _corp_invites_rows(session_db, user_id) -> list[dict]:
 
 
 def _corp_invite_mine(session_db, invite_id, user_id):
-    """La invitación, si es SUYA (dirección entra en todas)."""
+    """La comunicación, si es SUYA (dirección entra en todas). ⚠️ Las comunicaciones NO se
+    comparten: lo común son las LISTAS; lo que manda cada uno es suyo."""
     iid = _safe_uuid(invite_id)
     if not iid:
         return None
@@ -190798,22 +190899,34 @@ def _corp_activity_options(session_db) -> list[dict]:
                 "date": c.date.isoformat() if c.date else "",
             })
     except Exception:
-        app.logger.exception("[invitaciones corp] no se pudieron leer las actividades")
+        app.logger.exception("[comunicaciones corp] no se pudieron leer las actividades")
     return filas
 
 
 # ── LAS PANTALLAS ────────────────────────────────────────────────────────────────────────────
 
-@app.get("/invitaciones-corporativas", endpoint="corporate_invites_view")
+@app.get("/invitaciones-corporativas", defaults={"resto": ""}, endpoint="corporate_invites_legacy_redirect")
+@app.get("/invitaciones-corporativas/<path:resto>", endpoint="corporate_invites_legacy_redirect")
+@admin_required
+def corporate_invites_legacy_redirect(resto=""):
+    """LA URL DE ANTES del cambio de nombre (sep 2026, «invitaciones corporativas» →
+    «comunicaciones corporativas»): un marcador o un enlace guardado en un correo sigue llegando."""
+    destino = "/comunicaciones-corporativas" + ("/" + resto if resto else "")
+    if request.query_string:
+        destino += "?" + request.query_string.decode("utf-8", "replace")
+    return redirect(destino, code=301)
+
+
+@app.get("/comunicaciones-corporativas", endpoint="corporate_invites_view")
 @admin_required
 def corporate_invites_view():
-    """ENVIAR INVITACIONES CORPORATIVAS: arriba las YA ENVIADAS (con cuántos las han abierto) y el
+    """ENVIAR COMUNICACIONES CORPORATIVAS: arriba las YA ENVIADAS (con cuántos las han abierto) y el
     botón de crear una nueva; debajo, «Mi lista de invitados corporativos»."""
     s = db()
     try:
         uid = _corp_user_id()
         if not uid:
-            flash("Vuelve a entrar para usar las invitaciones corporativas.", "warning")
+            flash("Vuelve a entrar para usar las comunicaciones corporativas.", "warning")
             return redirect(url_for("home"))
         listas = [_corp_list_row(s, l) for l in _corp_my_lists(s, uid)]
         remitente = _corp_sender(s, uid)
@@ -190823,30 +190936,29 @@ def corporate_invites_view():
             lists=listas,
             activities=_corp_activity_options(s),
             sender=remitente,
-            open_invite=(request.args.get("invitacion") or "").strip(),
+            open_invite=(request.args.get("comunicacion") or "").strip(),
             open_tab=(request.args.get("tab") or "").strip(),
         )
     finally:
         s.close()
 
 
-@app.get("/invitaciones-corporativas/<invite_id>", endpoint="corporate_invite_detail_view")
+@app.get("/comunicaciones-corporativas/<invite_id>", endpoint="corporate_invite_detail_view")
 @admin_required
 def corporate_invite_detail_view(invite_id):
-    """La ficha de una invitación: a quién se le mandó, quién la ha abierto y a quién no le llegó."""
+    """La ficha de una comunicación: a quién se le mandó, quién la ha abierto y a quién no le llegó."""
     s = db()
     try:
         uid = _corp_user_id()
         inv = _corp_invite_mine(s, invite_id, uid)
         if inv is None:
-            flash("Esa invitación no existe (o no es tuya).", "warning")
+            flash("Esa comunicación no existe (o no es tuya).", "warning")
             return redirect(url_for("corporate_invites_view"))
         filas = (s.query(CorporateInviteRecipient)
                  .options(joinedload(CorporateInviteRecipient.promoter))
                  .filter(CorporateInviteRecipient.invite_id == inv.id).all())
         abiertos = sum(1 for r in filas if r.opened_at)
         reenviadas = sum(1 for r in filas if r.forwarded_at)
-        pr = s.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
         # ⚠️ EL ORDEN: primero lo que hay que MIRAR (a quién no le llegó), después quien la reenvió,
         # los que la abrieron y, al final, el resto. Dentro de cada grupo, por nick.
         def _orden(r):
@@ -190862,7 +190974,7 @@ def corporate_invite_detail_view(invite_id):
         try:
             nuevos = len(_corp_new_guests(s, inv))
         except Exception:
-            app.logger.exception("[invitaciones corp] no se pudo mirar quién es nuevo en las listas")
+            app.logger.exception("[comunicaciones corp] no se pudo mirar quién es nuevo en las listas")
             nuevos = 0
         return render_template(
             "corporate_invite_detail.html",
@@ -190870,7 +190982,10 @@ def corporate_invite_detail_view(invite_id):
             recipients=[_corp_recipient_row(s, r) for r in filas],
             nuevos=nuevos,
             send_new_url=url_for("corporate_invite_send_new", invite_id=inv.id),
-            web_html=(_press_web_html(s, pr, pr.public_token) if pr is not None else ""),
+            # EL CORREO QUE SE MANDÓ, a la izquierda: el mismo HTML que salió (token de prueba) y el
+            # ancho del lienzo, para que la plantilla lo escale a su columna.
+            preview_url=url_for("corporate_invite_preview", invite_id=inv.id),
+            email_width=press_render.WIDTH,
         )
     finally:
         s.close()
@@ -190878,7 +190993,7 @@ def corporate_invite_detail_view(invite_id):
 
 # ── LAS LISTAS: crear, renombrar, borrar, añadir y quitar gente ──────────────────────────────
 
-@app.post("/invitaciones-corporativas/listas/crear", endpoint="corporate_list_create")
+@app.post("/comunicaciones-corporativas/listas/crear", endpoint="corporate_list_create")
 @admin_required
 def corporate_list_create():
     s = db()
@@ -190888,28 +191003,30 @@ def corporate_list_create():
         if not uid or not nombre:
             _flash_form_error("Ponle un nombre a la lista.", campos=["name"], abrir="#corpListModal")
             return redirect(url_for("corporate_invites_view", tab="listas"))
-        lst = CorporateGuestList(user_id=uid, name=nombre)
+        comun = _truthy(request.form.get("shared"))
+        lst = CorporateGuestList(user_id=uid, name=nombre, is_shared=comun)
         s.add(lst)
         s.commit()
-        flash("Lista «%s» creada." % nombre, "success")
+        flash(("Lista común «%s» creada: la ve y la edita todo el mundo." if comun
+               else "Lista «%s» creada.") % nombre, "success")
         return redirect(url_for("corporate_invites_view", tab="listas", lista=str(lst.id)))
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo crear la lista")
+        app.logger.exception("[comunicaciones corp] no se pudo crear la lista")
         flash("No se pudo crear la lista.", "danger")
         return redirect(url_for("corporate_invites_view", tab="listas"))
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/listas/<list_id>/renombrar", endpoint="corporate_list_rename")
+@app.post("/comunicaciones-corporativas/listas/<list_id>/renombrar", endpoint="corporate_list_rename")
 @admin_required
 def corporate_list_rename(list_id):
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        lst = _corp_list_usable(s, list_id, _corp_user_id())
         if lst is None:
-            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
         nombre = (request.form.get("name") or "").strip()[:120]
         if not nombre:
             return jsonify({"ok": False, "error": "Ponle un nombre a la lista."}), 400
@@ -190919,20 +191036,53 @@ def corporate_list_rename(list_id):
         return jsonify({"ok": True, "name": nombre})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo renombrar la lista")
+        app.logger.exception("[comunicaciones corp] no se pudo renombrar la lista")
         return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/listas/<list_id>/eliminar", endpoint="corporate_list_delete")
+@app.post("/comunicaciones-corporativas/listas/<list_id>/comun", endpoint="corporate_list_share")
+@admin_required
+def corporate_list_share(list_id):
+    """HACER COMÚN una lista (o dejar de compartirla). Solo su dueño o dirección: es la misma llave
+    que borrarla, porque dejar de compartir una lista que usa toda la casa se parece bastante."""
+    s = db()
+    try:
+        uid = _corp_user_id()
+        lst = _corp_list_owned(s, list_id, uid)
+        if lst is None:
+            if _corp_list_usable(s, list_id, uid) is not None:
+                return jsonify({"ok": False, "error": "Solo quien creó la lista (o dirección) puede cambiar si es común."}), 403
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
+        lst.is_shared = _truthy(request.form.get("shared"))
+        lst.updated_at = _now_madrid()
+        s.commit()
+        return jsonify({"ok": True, "shared": bool(lst.is_shared),
+                        "message": ("La lista «%s» ya es común: la ve y la edita todo el mundo." if lst.is_shared
+                                    else "La lista «%s» vuelve a ser solo tuya.") % (lst.name or "")})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[comunicaciones corp] no se pudo cambiar si la lista es común")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
+    finally:
+        s.close()
+
+
+@app.post("/comunicaciones-corporativas/listas/<list_id>/eliminar", endpoint="corporate_list_delete")
 @admin_required
 def corporate_list_delete(list_id):
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        uid = _corp_user_id()
+        lst = _corp_list_owned(s, list_id, uid)
         if lst is None:
-            flash("Esa lista no es tuya.", "warning")
+            # ⚠️ Una lista COMÚN la puede usar cualquiera, pero borrarla solo quien la creó (o
+            # dirección): se dice el porqué, no un «no es tuya» que no cuadra con lo que ve.
+            if _corp_list_usable(s, list_id, uid) is not None:
+                flash("Esa lista común solo la puede eliminar quien la creó (o dirección).", "warning")
+            else:
+                flash("Esa lista no es tuya.", "warning")
             return redirect(url_for("corporate_invites_view", tab="listas"))
         nombre = lst.name
         # ⚠️ Se borra la LISTA, no los terceros: sus fichas siguen en la base de datos.
@@ -190941,35 +191091,35 @@ def corporate_list_delete(list_id):
         flash("Lista «%s» eliminada (los contactos siguen en Terceros)." % nombre, "success")
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo eliminar la lista")
+        app.logger.exception("[comunicaciones corp] no se pudo eliminar la lista")
         flash("No se pudo eliminar la lista.", "danger")
     finally:
         s.close()
     return redirect(url_for("corporate_invites_view", tab="listas"))
 
 
-@app.get("/invitaciones-corporativas/listas/<list_id>/invitados", endpoint="corporate_list_guests")
+@app.get("/comunicaciones-corporativas/listas/<list_id>/invitados", endpoint="corporate_list_guests")
 @admin_required
 def corporate_list_guests(list_id):
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        lst = _corp_list_usable(s, list_id, _corp_user_id())
         if lst is None:
-            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
         return jsonify({"ok": True, **_corp_list_row(s, lst, con_invitados=True)})
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/listas/<list_id>/invitados", endpoint="corporate_guest_add")
+@app.post("/comunicaciones-corporativas/listas/<list_id>/invitados", endpoint="corporate_guest_add")
 @admin_required
 def corporate_guest_add(list_id):
     """Añadir a alguien: un TERCERO que ya está (`promoter_id`) o uno nuevo (que se crea)."""
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        lst = _corp_list_usable(s, list_id, _corp_user_id())
         if lst is None:
-            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
         pid = _safe_uuid(request.form.get("promoter_id"))
         nombre = (request.form.get("name") or "").strip()[:200]
         correo = (request.form.get("email") or "").strip().lower()[:200]
@@ -190977,7 +191127,7 @@ def corporate_guest_add(list_id):
         prom = s.get(Promoter, pid) if pid else None
         if prom is None:
             if not correo:
-                return jsonify({"ok": False, "error": "Hace falta el correo: es a donde se manda la invitación."}), 400
+                return jsonify({"ok": False, "error": "Hace falta el correo: es a donde se manda la comunicación."}), 400
             # ⚠️ Un correo que YA tenemos es el MISMO tercero: no se crea otra ficha (es el criterio
             # de la importación de terceros y de los contactos de medios).
             indices = _promoter_import_indexes(s)
@@ -191003,13 +191153,13 @@ def corporate_guest_add(list_id):
         return jsonify({"ok": True, **_corp_list_row(s, lst, con_invitados=True)})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo añadir el invitado")
+        app.logger.exception("[comunicaciones corp] no se pudo añadir el invitado")
         return jsonify({"ok": False, "error": "No se pudo añadir."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/invitados/<guest_id>/arreglar", endpoint="corporate_guest_fix")
+@app.post("/comunicaciones-corporativas/invitados/<guest_id>/arreglar", endpoint="corporate_guest_fix")
 @admin_required
 def corporate_guest_fix(guest_id):
     """EL CORREO QUE LE FALTA A UN INVITADO, de uno en uno (y sin salir de la pantalla).
@@ -191021,13 +191171,13 @@ def corporate_guest_fix(guest_id):
     s = db()
     try:
         g = s.get(CorporateGuest, _safe_uuid(guest_id)) if _safe_uuid(guest_id) else None
-        lst = _corp_list_mine(s, (g.list_id if g is not None else None), _corp_user_id())
+        lst = _corp_list_usable(s, (g.list_id if g is not None else None), _corp_user_id())
         if g is None or lst is None:
-            return jsonify({"ok": False, "error": "Ese invitado no es de una lista tuya."}), 404
+            return jsonify({"ok": False, "error": "Ese contacto no es de una lista tuya (ni de una común)."}), 404
         correo = (request.form.get("email") or "").strip().lower()[:200]
         telefono = (request.form.get("phone") or "").strip()[:60]
         if not correo:
-            return jsonify({"ok": False, "error": "Escribe el correo: es a donde se manda la invitación."}), 400
+            return jsonify({"ok": False, "error": "Escribe el correo: es a donde se manda la comunicación."}), 400
         if "@" not in correo or "." not in correo.split("@")[-1]:
             return jsonify({"ok": False, "error": "Ese correo no parece un correo (%s)." % correo}), 400
         # ⚠️ Si ese correo ya lo tenemos en otra ficha, es la MISMA persona: se engancha a ella en vez
@@ -191051,41 +191201,41 @@ def corporate_guest_fix(guest_id):
         return jsonify({"ok": True, "pending": (fila["count"] - fila["with_email"]), **fila})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo arreglar el correo del invitado")
+        app.logger.exception("[comunicaciones corp] no se pudo arreglar el correo del invitado")
         return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/invitados/<guest_id>/quitar", endpoint="corporate_guest_remove")
+@app.post("/comunicaciones-corporativas/invitados/<guest_id>/quitar", endpoint="corporate_guest_remove")
 @admin_required
 def corporate_guest_remove(guest_id):
     s = db()
     try:
         g = s.get(CorporateGuest, _safe_uuid(guest_id)) if _safe_uuid(guest_id) else None
-        lst = _corp_list_mine(s, (g.list_id if g is not None else None), _corp_user_id())
+        lst = _corp_list_usable(s, (g.list_id if g is not None else None), _corp_user_id())
         if g is None or lst is None:
-            return jsonify({"ok": False, "error": "Ese invitado no es de una lista tuya."}), 404
+            return jsonify({"ok": False, "error": "Ese contacto no es de una lista tuya (ni de una común)."}), 404
         s.delete(g)
         s.commit()
         return jsonify({"ok": True, **_corp_list_row(s, lst, con_invitados=True)})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo quitar el invitado")
+        app.logger.exception("[comunicaciones corp] no se pudo quitar el invitado")
         return jsonify({"ok": False, "error": "No se pudo quitar."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/listas/<list_id>/importar", endpoint="corporate_list_import")
+@app.post("/comunicaciones-corporativas/listas/<list_id>/importar", endpoint="corporate_list_import")
 @admin_required
 def corporate_list_import(list_id):
     """SUBIR UN FICHERO: lo lee y devuelve **la revisión**. ⚠️ No crea ni añade nada todavía."""
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        lst = _corp_list_usable(s, list_id, _corp_user_id())
         if lst is None:
-            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
         f = request.files.get("file")
         if f is None or not (f.filename or "").strip():
             return jsonify({"ok": False, "error": "Elige un fichero (Excel o CSV)."}), 400
@@ -191100,7 +191250,7 @@ def corporate_list_import(list_id):
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
-            app.logger.exception("[invitaciones corp] no se pudo leer el fichero")
+            app.logger.exception("[comunicaciones corp] no se pudo leer el fichero")
             return jsonify({"ok": False, "error": "No se pudo leer el fichero (%s)." % str(exc)[:120]}), 400
         if not (leido.get("rows") or []):
             return jsonify({"ok": False, "error": "El fichero no tiene ninguna fila con datos."}), 400
@@ -191110,13 +191260,13 @@ def corporate_list_import(list_id):
                         "file_rows": leido.get("rows") or [], **revision})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo leer el fichero")
+        app.logger.exception("[comunicaciones corp] no se pudo leer el fichero")
         return jsonify({"ok": False, "error": "No se pudo leer el fichero."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/listas/<list_id>/importar/revisar", endpoint="corporate_import_review")
+@app.post("/comunicaciones-corporativas/listas/<list_id>/importar/revisar", endpoint="corporate_import_review")
 @admin_required
 def corporate_import_review(list_id):
     """La revisión OTRA VEZ, con las columnas que ha corregido una persona.
@@ -191125,9 +191275,9 @@ def corporate_import_review(list_id):
     así que cambiar a qué campo va una columna **no obliga a volver a subirlo**."""
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        lst = _corp_list_usable(s, list_id, _corp_user_id())
         if lst is None:
-            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
         payload = request.get_json(silent=True) or {}
         columnas = _corp_import_columns_in(payload.get("columns") or [])
         filas = _corp_import_rows_in(payload.get("file_rows") or [])
@@ -191136,13 +191286,13 @@ def corporate_import_review(list_id):
         return jsonify({"ok": True, "file_rows": filas, **_corp_import_review(s, lst, columnas, filas)})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo revisar el fichero")
+        app.logger.exception("[comunicaciones corp] no se pudo revisar el fichero")
         return jsonify({"ok": False, "error": "No se pudo revisar el fichero."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/listas/<list_id>/importar/anadir", endpoint="corporate_import_add")
+@app.post("/comunicaciones-corporativas/listas/<list_id>/importar/anadir", endpoint="corporate_import_add")
 @admin_required
 def corporate_import_add(list_id):
     """Añade a la lista **los que se han marcado** de entre los que YA TENEMOS en Terceros.
@@ -191152,9 +191302,9 @@ def corporate_import_add(list_id):
     los trae—, que es el criterio de toda la app."""
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        lst = _corp_list_usable(s, list_id, _corp_user_id())
         if lst is None:
-            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
         payload = request.get_json(silent=True) or {}
         anadidos = repetidos = 0
         for item in (payload.get("items") or [])[:2000]:
@@ -191186,13 +191336,13 @@ def corporate_import_add(list_id):
                         **_corp_list_row(s, lst, con_invitados=True)})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudieron añadir los marcados")
+        app.logger.exception("[comunicaciones corp] no se pudieron añadir los marcados")
         return jsonify({"ok": False, "error": "No se pudieron añadir."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/listas/<list_id>/importar/nuevo", endpoint="corporate_import_new")
+@app.post("/comunicaciones-corporativas/listas/<list_id>/importar/nuevo", endpoint="corporate_import_new")
 @admin_required
 def corporate_import_new(list_id):
     """Da de alta a UNA persona del fichero **como tercero** y la deja añadida a la lista.
@@ -191202,9 +191352,9 @@ def corporate_import_new(list_id):
     extra con el nombre de su columna**, igual que en la importación de terceros: no se pierde."""
     s = db()
     try:
-        lst = _corp_list_mine(s, list_id, _corp_user_id())
+        lst = _corp_list_usable(s, list_id, _corp_user_id())
         if lst is None:
-            return jsonify({"ok": False, "error": "Esa lista no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa lista no es tuya (ni es común)."}), 404
         payload = request.get_json(silent=True) or {}
         values = {k: str(v or "").strip() for k, v in ((payload.get("values") or {}).items())
                   if k in promoter_import.FIELD_LABELS and str(v or "").strip()}
@@ -191249,7 +191399,7 @@ def corporate_import_new(list_id):
                         **_corp_list_row(s, lst, con_invitados=True)})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo dar de alta al invitado del fichero")
+        app.logger.exception("[comunicaciones corp] no se pudo dar de alta al invitado del fichero")
         return jsonify({"ok": False, "error": "No se pudo dar de alta a esta persona."}), 500
     finally:
         s.close()
@@ -191257,15 +191407,15 @@ def corporate_import_new(list_id):
 
 # ── LA INVITACIÓN: crear, diseñar, enviar ────────────────────────────────────────────────────
 
-@app.post("/invitaciones-corporativas/nueva", endpoint="corporate_invite_create")
+@app.post("/comunicaciones-corporativas/nueva", endpoint="corporate_invite_create")
 @admin_required
 def corporate_invite_create():
-    """Crea la invitación en BORRADOR con sus listas y su actividad, y lleva al EDITOR del correo."""
+    """Crea la comunicación en BORRADOR con sus listas y su actividad, y lleva al EDITOR del correo."""
     s = db()
     try:
         uid = _corp_user_id()
         if not uid:
-            flash("Vuelve a entrar para crear una invitación.", "warning")
+            flash("Vuelve a entrar para crear una comunicación.", "warning")
             return redirect(url_for("home"))
         listas = [x for x in request.form.getlist("lists") if (x or "").strip()]
         mias = {str(l.id) for l in _corp_my_lists(s, uid)}
@@ -191273,13 +191423,32 @@ def corporate_invite_create():
         if not listas:
             _flash_form_error("Marca al menos una lista de invitados.", campos=["lists"], abrir="#corpInviteModal")
             return redirect(url_for("corporate_invites_view"))
+        # ⚠️⚠️ QUÉ SE VA A COMPARTIR (sep 2026, lo pidió Dani): «una actividad» —y se elige cuál,
+        # como siempre— u «otra cosa», y ahí se le pone nombre libremente. Es una de las dos: una
+        # actividad sin elegir o un «otra cosa» sin nombre se devuelven marcados en rojo. Sin
+        # `share_kind` (una llamada de antes de este cambio) se hace lo de siempre: lo que venga.
+        modo = (request.form.get("share_kind") or "").strip().lower()
         cid = _safe_uuid(request.form.get("concert_id"))
         concert = s.get(Concert, cid) if cid else None
+        tema = (request.form.get("topic") or "").strip()[:120]
+        if modo == "activity":
+            if concert is None:
+                _flash_form_error("Elige la actividad que se va a compartir.", campos=["concert_id"],
+                                  abrir="#corpInviteModal")
+                return redirect(url_for("corporate_invites_view"))
+            tema = ""
+        elif modo == "other":
+            concert = None
+            if not tema:
+                _flash_form_error("Ponle nombre a lo que se va a compartir.", campos=["topic"],
+                                  abrir="#corpInviteModal")
+                return redirect(url_for("corporate_invites_view"))
         inv = CorporateInvite(
             user_id=uid, created_by_nick=_corp_nick(),
             subject=(request.form.get("subject") or "").strip()[:200] or None,
             concert_id=(concert.id if concert is not None else None),
             activity_date=(concert.date if concert is not None else None),
+            topic=(tema or None),
             lists_json=listas, status="DRAFT")
         s.add(inv)
         s.flush()
@@ -191288,14 +191457,14 @@ def corporate_invite_create():
         return redirect(url_for("promo_press_edit", release_id=pr.id))
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo crear la invitación")
-        flash("No se pudo crear la invitación.", "danger")
+        app.logger.exception("[comunicaciones corp] no se pudo crear la comunicación")
+        flash("No se pudo crear la comunicación.", "danger")
         return redirect(url_for("corporate_invites_view"))
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/<invite_id>/guardar", endpoint="corporate_invite_save")
+@app.post("/comunicaciones-corporativas/<invite_id>/guardar", endpoint="corporate_invite_save")
 @admin_required
 def corporate_invite_save(invite_id):
     """Guarda el asunto y a qué listas va (lo que se ajusta en el pop-up antes de mandar)."""
@@ -191304,9 +191473,9 @@ def corporate_invite_save(invite_id):
         uid = _corp_user_id()
         inv = _corp_invite_mine(s, invite_id, uid)
         if inv is None:
-            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa comunicación no es tuya."}), 404
         if (inv.status or "DRAFT").upper() != "DRAFT":
-            return jsonify({"ok": False, "error": "Esta invitación ya se ha mandado."}), 400
+            return jsonify({"ok": False, "error": "Esta comunicación ya se ha mandado."}), 400
         if "subject" in request.form:
             inv.subject = (request.form.get("subject") or "").strip()[:200] or None
         if request.form.getlist("lists"):
@@ -191318,37 +191487,37 @@ def corporate_invite_save(invite_id):
         return jsonify({"ok": True, **_corp_recipients_preview(s, inv.lists_json or [])})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo guardar")
+        app.logger.exception("[comunicaciones corp] no se pudo guardar")
         return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/<invite_id>/eliminar", endpoint="corporate_invite_delete")
+@app.post("/comunicaciones-corporativas/<invite_id>/eliminar", endpoint="corporate_invite_delete")
 @admin_required
 def corporate_invite_delete(invite_id):
     s = db()
     try:
         inv = _corp_invite_mine(s, invite_id, _corp_user_id())
         if inv is None:
-            flash("Esa invitación no es tuya.", "warning")
+            flash("Esa comunicación no es tuya.", "warning")
             return redirect(url_for("corporate_invites_view"))
         if (inv.status or "DRAFT").upper() == "SENT":
-            flash("Una invitación ya enviada no se borra: queda como registro de lo que salió.", "warning")
+            flash("Una comunicación ya enviada no se borra: queda como registro de lo que salió.", "warning")
             return redirect(url_for("corporate_invites_view"))
         s.delete(inv)
         s.commit()
         flash("Borrador eliminado.", "success")
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo eliminar")
+        app.logger.exception("[comunicaciones corp] no se pudo eliminar")
         flash("No se pudo eliminar.", "danger")
     finally:
         s.close()
     return redirect(url_for("corporate_invites_view"))
 
 
-@app.get("/invitaciones-corporativas/<invite_id>/previsualizar", endpoint="corporate_invite_preview")
+@app.get("/comunicaciones-corporativas/<invite_id>/previsualizar", endpoint="corporate_invite_preview")
 @admin_required
 def corporate_invite_preview(invite_id):
     """El correo TAL CUAL va a salir (el mismo HTML que el envío: no hay una segunda versión)."""
@@ -191365,7 +191534,7 @@ def corporate_invite_preview(invite_id):
         s.close()
 
 
-@app.get("/invitaciones-corporativas/<invite_id>/enviar", endpoint="corporate_invite_send_view")
+@app.get("/comunicaciones-corporativas/<invite_id>/enviar", endpoint="corporate_invite_send_view")
 @admin_required
 def corporate_invite_send_view(invite_id):
     """⚠️⚠️ **LA PANTALLA PREVIA AL ENVÍO, LA MISMA DE TODA LA APP** (lo pidió Dani: «esta función
@@ -191379,14 +191548,14 @@ def corporate_invite_send_view(invite_id):
         uid = _corp_user_id()
         inv = _corp_invite_mine(s, invite_id, uid)
         if inv is None:
-            flash("Esa invitación no existe (o no es tuya).", "warning")
+            flash("Esa comunicación no existe (o no es tuya).", "warning")
             return redirect(url_for("corporate_invites_view"))
         if (inv.status or "DRAFT").upper() == "SENT":
             return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
         pr = s.get(PressRelease, inv.design_release_id) if inv.design_release_id else None
         if pr is None or not press_render.blocks_of(pr.design or {}):
             # ⚠️ Sin diseño no hay nada que enviar ni que previsualizar: se lleva al editor y se dice.
-            flash("Antes hay que diseñar el contenido de la invitación.", "warning")
+            flash("Antes hay que diseñar el contenido de la comunicación.", "warning")
             return redirect(url_for("promo_press_edit", release_id=pr.id) if pr is not None
                             else url_for("corporate_invites_view"))
         _press_ensure_token(s, pr)
@@ -191394,10 +191563,10 @@ def corporate_invite_send_view(invite_id):
         return render_template(
             "press_release_send.html",
             scope="invite", mode="send", pr=pr,
-            email_subject=((inv.subject or "").strip()
-                           or press_render.headline_of(pr.design or {}) or "Te invito"),
+            email_subject=_corp_subject(inv, pr),
             sender=_corp_sender(s, inv.user_id),
             invite_activity=(None if datos_act.get("pending") else (datos_act or None)),
+            invite_topic=(inv.topic or "").strip(),
             invite_lists=[_corp_list_row(s, l, con_invitados=True) for l in _corp_invite_lists(s, inv)],
             send_url=url_for("corporate_invite_send", invite_id=inv.id),
             test_url=url_for("corporate_invite_test_send", invite_id=inv.id),
@@ -191410,7 +191579,7 @@ def corporate_invite_send_view(invite_id):
         s.close()
 
 
-@app.get("/invitaciones-corporativas/buscar-contactos", endpoint="corporate_contact_search")
+@app.get("/comunicaciones-corporativas/buscar-contactos", endpoint="corporate_contact_search")
 @admin_required
 def corporate_contact_search():
     """Buscar a alguien para añadirlo al envío. ⚠️ El MISMO buscador que la pantalla de enviar una
@@ -191422,21 +191591,21 @@ def corporate_contact_search():
         s.close()
 
 
-@app.post("/invitaciones-corporativas/<invite_id>/prueba", endpoint="corporate_invite_test_send")
+@app.post("/comunicaciones-corporativas/<invite_id>/prueba", endpoint="corporate_invite_test_send")
 @admin_required
 def corporate_invite_test_send(invite_id):
-    """EL CORREO DE PRUEBA, a quien está preparando la invitación. ⚠️ Es **el mismo HTML** que va a
+    """EL CORREO DE PRUEBA, a quien está preparando la comunicación. ⚠️ Es **el mismo HTML** que va a
     salir (`_corp_email_html`): no hay una segunda versión de la que fiarse."""
     s = db()
     try:
         inv = _corp_invite_mine(s, invite_id, _corp_user_id())
         if inv is None:
-            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa comunicación no es tuya."}), 404
         destino = ((request.get_json(silent=True) or {}).get("email") or _current_user_email() or "").strip()
         if not destino:
             return jsonify({"ok": False, "error": "No sabemos tu correo: escríbelo."}), 400
         if not _corp_has_design(s, inv):
-            return jsonify({"ok": False, "error": "Antes hay que diseñar el contenido de la invitación."}), 400
+            return jsonify({"ok": False, "error": "Antes hay que diseñar el contenido de la comunicación."}), 400
         remitente = _corp_sender(s, inv.user_id)
         if not remitente.get("ok"):
             return jsonify({"ok": False, "error": remitente.get("problem"),
@@ -191444,7 +191613,7 @@ def corporate_invite_test_send(invite_id):
         # ⚠️ Con el token «prueba»: una apertura de la prueba NO puede contar como que alguien la ha
         # abierto (no hay destinatario al que apuntársela).
         cuerpo = _corp_email_html(s, inv, token="prueba")
-        asunto = "[PRUEBA] " + ((inv.subject or "").strip() or "Te invito")
+        asunto = "[PRUEBA] " + _corp_subject(inv, s.get(PressRelease, inv.design_release_id) if inv.design_release_id else None)
         ok, error = _send_optional_email([destino], asunto, cuerpo, text_body=_html_to_text(cuerpo),
                                          from_name=remitente["from_name"], from_email=remitente["from_email"],
                                          reply_to=remitente["reply_to"], account=remitente["account"],
@@ -191454,13 +191623,13 @@ def corporate_invite_test_send(invite_id):
         return jsonify({"ok": True, "email": destino, "warning": (error or "")})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo mandar la prueba")
+        app.logger.exception("[comunicaciones corp] no se pudo mandar la prueba")
         return jsonify({"ok": False, "error": "No se pudo mandar la prueba."}), 400
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/<invite_id>/enviar", endpoint="corporate_invite_send")
+@app.post("/comunicaciones-corporativas/<invite_id>/enviar", endpoint="corporate_invite_send")
 @admin_required
 def corporate_invite_send(invite_id):
     """ENVIAR: comprueba que hay diseño y que esa persona tiene su correo configurado, monta los
@@ -191475,11 +191644,11 @@ def corporate_invite_send(invite_id):
         uid = _corp_user_id()
         inv = _corp_invite_mine(s, invite_id, uid)
         if inv is None:
-            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa comunicación no es tuya."}), 404
         if (inv.status or "DRAFT").upper() == "SENT":
-            return jsonify({"ok": False, "error": "Esta invitación ya se ha mandado."}), 400
+            return jsonify({"ok": False, "error": "Esta comunicación ya se ha mandado."}), 400
         if not _corp_has_design(s, inv):
-            return jsonify({"ok": False, "error": "Antes hay que diseñar el contenido de la invitación.",
+            return jsonify({"ok": False, "error": "Antes hay que diseñar el contenido de la comunicación.",
                             "design_url": (url_for("promo_press_edit", release_id=inv.design_release_id)
                                            if inv.design_release_id else "")}), 400
         # ⚠️⚠️ SALE DESDE EL CORREO DE QUIEN LA MANDA: si no lo tiene en Integraciones, no se manda
@@ -191489,8 +191658,7 @@ def corporate_invite_send(invite_id):
             return jsonify({"ok": False, "error": remitente.get("problem"),
                             "settings_url": remitente.get("url"), "needs_mail": True}), 400
         if not (inv.subject or "").strip():
-            pr = s.get(PressRelease, inv.design_release_id)
-            inv.subject = (press_render.headline_of(pr.design or {}) if pr is not None else "") or "Te invito"
+            inv.subject = _corp_subject(inv, s.get(PressRelease, inv.design_release_id))
         elegidos = (request.get_json(silent=True) or {}).get("recipients")
         ya = (s.query(func.count(CorporateInviteRecipient.id))
               .filter(CorporateInviteRecipient.invite_id == inv.id).scalar() or 0)
@@ -191510,13 +191678,13 @@ def corporate_invite_send(invite_id):
                         "url": url_for("corporate_invite_detail_view", invite_id=inv.id), **resultado})
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo enviar")
+        app.logger.exception("[comunicaciones corp] no se pudo enviar")
         return jsonify({"ok": False, "error": "No se pudo enviar."}), 500
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/<invite_id>/reenviar/<recipient_id>", endpoint="corporate_invite_resend_one")
+@app.post("/comunicaciones-corporativas/<invite_id>/reenviar/<recipient_id>", endpoint="corporate_invite_resend_one")
 @admin_required
 def corporate_invite_resend_one(invite_id, recipient_id):
     """REENVIAR a UNA persona (los tres puntitos de su fila).
@@ -191527,7 +191695,7 @@ def corporate_invite_resend_one(invite_id, recipient_id):
     try:
         inv = _corp_invite_mine(s, invite_id, _corp_user_id())
         if inv is None:
-            flash("Esa invitación no existe (o no es tuya).", "warning")
+            flash("Esa comunicación no existe (o no es tuya).", "warning")
             return redirect(url_for("corporate_invites_view"))
         r = s.get(CorporateInviteRecipient, _safe_uuid(recipient_id))
         if r is None or str(r.invite_id) != str(inv.id):
@@ -191547,7 +191715,7 @@ def corporate_invite_resend_one(invite_id, recipient_id):
             # ⚠️ El motor manda TODO lo que estuviera pendiente, no solo a esta persona: se dice lo
             #    que ha pasado de verdad (si había más en cola, salieron también).
             otros = int(resultado["enviados"]) - 1
-            flash("Invitación reenviada a %s (%s)%s." % (quien, destino,
+            flash("Comunicación reenviada a %s (%s)%s." % (quien, destino,
                   (" · y a %d que estaba%s en cola" % (otros, "" if otros == 1 else "n")) if otros > 0 else ""),
                   "success")
         elif resultado.get("fallos"):
@@ -191559,17 +191727,17 @@ def corporate_invite_resend_one(invite_id, recipient_id):
         return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo reenviar a una persona")
+        app.logger.exception("[comunicaciones corp] no se pudo reenviar a una persona")
         flash("No se pudo reenviar.", "warning")
         return redirect(url_for("corporate_invite_detail_view", invite_id=invite_id))
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/<invite_id>/enviar-nuevos", endpoint="corporate_invite_send_new")
+@app.post("/comunicaciones-corporativas/<invite_id>/enviar-nuevos", endpoint="corporate_invite_send_new")
 @admin_required
 def corporate_invite_send_new(invite_id):
-    """MANDÁRSELA A LOS QUE SE HAN AÑADIDO DESPUÉS a las listas de esta invitación.
+    """MANDÁRSELA A LOS QUE SE HAN AÑADIDO DESPUÉS a las listas de esta comunicación.
 
     ⚠️ Lo pidió Dani: «si se añade gente a la lista que no estaba en el momento de la comunicación,
     se tiene que poder enviar a todos esos terceros». A quien ya la recibió **no se le manda otra
@@ -191578,7 +191746,7 @@ def corporate_invite_send_new(invite_id):
     try:
         inv = _corp_invite_mine(s, invite_id, _corp_user_id())
         if inv is None:
-            flash("Esa invitación no existe (o no es tuya).", "warning")
+            flash("Esa comunicación no existe (o no es tuya).", "warning")
             return redirect(url_for("corporate_invites_view"))
         cuantos = _corp_queue_new_guests(s, inv)
         if not cuantos:
@@ -191597,21 +191765,21 @@ def corporate_invite_send_new(invite_id):
         return redirect(url_for("corporate_invite_detail_view", invite_id=inv.id))
     except Exception:
         s.rollback()
-        app.logger.exception("[invitaciones corp] no se pudo mandar a los nuevos de la lista")
+        app.logger.exception("[comunicaciones corp] no se pudo mandar a los nuevos de la lista")
         flash("No se pudo mandar a los nuevos.", "warning")
         return redirect(url_for("corporate_invite_detail_view", invite_id=invite_id))
     finally:
         s.close()
 
 
-@app.post("/invitaciones-corporativas/<invite_id>/seguir", endpoint="corporate_invite_continue")
+@app.post("/comunicaciones-corporativas/<invite_id>/seguir", endpoint="corporate_invite_continue")
 @admin_required
 def corporate_invite_continue(invite_id):
     s = db()
     try:
         inv = _corp_invite_mine(s, invite_id, _corp_user_id())
         if inv is None:
-            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa comunicación no es tuya."}), 404
         resultado = _corp_send_pending(s, inv)
         if resultado.get("quedan") and not resultado.get("error"):
             _corp_send_bg_start(str(inv.id))
@@ -191620,14 +191788,14 @@ def corporate_invite_continue(invite_id):
         s.close()
 
 
-@app.get("/invitaciones-corporativas/<invite_id>/estado", endpoint="corporate_invite_status")
+@app.get("/comunicaciones-corporativas/<invite_id>/estado", endpoint="corporate_invite_status")
 @admin_required
 def corporate_invite_status(invite_id):
     s = db()
     try:
         inv = _corp_invite_mine(s, invite_id, _corp_user_id())
         if inv is None:
-            return jsonify({"ok": False, "error": "Esa invitación no es tuya."}), 404
+            return jsonify({"ok": False, "error": "Esa comunicación no es tuya."}), 404
         filas = dict(s.query(CorporateInviteRecipient.status, func.count(CorporateInviteRecipient.id))
                      .filter(CorporateInviteRecipient.invite_id == inv.id)
                      .group_by(CorporateInviteRecipient.status).all())

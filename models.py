@@ -15798,18 +15798,25 @@ def ensure_afavor_schema():
 # INVITACIONES CORPORATIVAS · «Mi lista de invitados» y los envíos de cada persona
 # ═════════════════════════════════════════════════════════════════════════════════════════════
 # ⚠️ Esto NO son las invitaciones de un evento (las entradas que se piden y se asignan: ver
-# `InvitationRequest`). Esto es lo que manda una persona de la casa **en su nombre**: invita a sus
-# contactos a una actividad con un correo diseñado, desde SU buzón. Por eso todo cuelga del usuario.
+# `InvitationRequest`). Esto son las COMUNICACIONES CORPORATIVAS (hasta sep 2026 «invitaciones
+# corporativas»): lo que manda una persona de la casa **en su nombre** a sus contactos —una actividad
+# a la que los invita, o cualquier otra cosa— con un correo diseñado, desde SU buzón. Por eso todo
+# cuelga del usuario. ⚠️ Los identificadores siguen diciendo `CorporateInvite`/`corporate_*`: cambiar
+# el nombre de las tablas y de 20 endpoints no le da nada a nadie y sí rompe lo que ya funciona.
 
 
 class CorporateGuestList(Base):
-    """UNA LISTA de invitados corporativos. Cada persona de la casa tiene LAS SUYAS (puede tener
-    varias: «Prensa», «Patrocinadores», «Amigos de la casa»…) y no ve las de nadie más."""
+    """UNA LISTA de contactos para las comunicaciones corporativas. Cada persona de la casa tiene
+    LAS SUYAS (puede tener varias: «Prensa», «Patrocinadores», «Amigos de la casa»…) y no ve las de
+    nadie más… salvo que la lista sea **COMÚN** (`is_shared`, lo pidió Dani, sep 2026): esa la ve y la
+    edita TODO EL MUNDO. ⚠️ `user_id` sigue siendo quien la creó: solo esa persona (o dirección)
+    puede borrarla o dejar de compartirla."""
 
     __tablename__ = "corporate_guest_lists"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
+    is_shared = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -15848,9 +15855,10 @@ class CorporateGuest(Base):
 
 
 class CorporateInvite(Base):
-    """UN ENVÍO de invitación corporativa. El CONTENIDO es un DISEÑO (`PressRelease` con
+    """UNA COMUNICACIÓN CORPORATIVA (un envío). El CONTENIDO es un DISEÑO (`PressRelease` con
     `purpose='INVITE'`), el mismo editor y las mismas plantillas que el correo de un envío a
-    compradores. Sale **desde el buzón de quien lo genera** (`MailAccount` de esa persona)."""
+    compradores. Sale **desde el buzón de quien lo genera** (`MailAccount` de esa persona).
+    QUÉ SE COMPARTE: una ACTIVIDAD (`concert_id`) u OTRA COSA con su nombre (`topic`)."""
 
     __tablename__ = "corporate_invites"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
@@ -15861,6 +15869,9 @@ class CorporateInvite(Base):
     # primero— y lo que rellena el módulo «Datos de la actividad» del diseño.
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))
     activity_date = Column(Date)                 # copia de la fecha, para ordenar sin JOIN
+    # QUÉ SE COMPARTE cuando NO es una actividad («Otra cosa»): su nombre, libre («Nuevo single»,
+    # «Felicitación de Navidad»…). Es lo que se lee en la tarjeta y el asunto si no se escribe otro.
+    topic = Column(Text)
     design_release_id = Column(PGUUID(as_uuid=True), ForeignKey("press_releases.id", ondelete="SET NULL"))
     lists_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))   # ids de las listas
     status = Column(Text, nullable=False, server_default=text("'DRAFT'"))   # DRAFT|SENDING|SENT
@@ -15924,7 +15935,8 @@ class CorporateInviteRecipient(Base):
 
 
 def ensure_corporate_invites_schema():
-    """Invitaciones corporativas: las listas de invitados de cada persona y sus envíos. Idempotente.
+    """Comunicaciones corporativas: las listas de contactos de cada persona (y las comunes) y sus
+    envíos. Idempotente.
 
     ⚠️ CADA COLUMNA EN SU PROPIA SENTENCIA con `IF NOT EXISTS` (la regla de la casa: metida en un
     `DO $$ … IF NOT EXISTS(…) THEN ALTER` podría no ejecutarse nunca y la app reventaría al leerla).
@@ -15937,6 +15949,7 @@ def ensure_corporate_invites_schema():
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
             user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             name text NOT NULL,
+            is_shared boolean NOT NULL DEFAULT false,
             created_at timestamptz DEFAULT now(),
             updated_at timestamptz DEFAULT now()
         );
@@ -15964,6 +15977,7 @@ def ensure_corporate_invites_schema():
             subject text,
             concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL,
             activity_date date,
+            topic text,
             design_release_id uuid REFERENCES press_releases(id) ON DELETE SET NULL,
             lists_json jsonb NOT NULL DEFAULT '[]'::jsonb,
             status text NOT NULL DEFAULT 'DRAFT',
@@ -16007,6 +16021,10 @@ def ensure_corporate_invites_schema():
         #    puede no ejecutarse nunca y la app revienta al leerla).
         "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS resent_at timestamptz;",
         "ALTER TABLE corporate_invite_recipients ADD COLUMN IF NOT EXISTS resend_count integer NOT NULL DEFAULT 0;",
+        # LA LISTA COMÚN (sep 2026): la ve y la edita todo el mundo. Una columna, una sentencia.
+        "ALTER TABLE corporate_guest_lists ADD COLUMN IF NOT EXISTS is_shared boolean NOT NULL DEFAULT false;",
+        # QUÉ SE COMPARTE cuando no es una actividad (sep 2026). Una columna, una sentencia.
+        "ALTER TABLE corporate_invites ADD COLUMN IF NOT EXISTS topic text;",
     ], "corporate_invites_schema")
 
 

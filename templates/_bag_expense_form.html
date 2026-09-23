@@ -96,7 +96,8 @@
                 {% endfor %}
               </div>
               <div class="form-text" data-be-doc-hint>Se lee solo y rellena lo demás. <strong>No siempre
-                hay factura</strong>: el gasto se puede apuntar sin ella.</div>
+                hay factura</strong>: el gasto se puede apuntar sin ella. La factura la valida administración
+                antes de pasar a pago: con la liquidación de la bolsa o, si corre prisa, pidiendo el pago inmediato.</div>
               {# Lo que se ha podido leer, dicho en una línea: así se sabe qué revisar. #}
               <div class="alert alert-success py-2 px-3 small mt-2 mb-0 d-none" data-be-read-note></div>
               <div class="row g-2 mt-2 {% if not editando %}d-none{% endif %}" data-be-doc-fields>

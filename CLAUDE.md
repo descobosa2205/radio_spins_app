@@ -124,6 +124,7 @@ Necesitan Python 3.10+ → `/tmp/python/bin/python3` (ver «Verificación local�
 | `check_botones.py` | botones muertos: destino inexistente, handler que muere al repintar, función sin definir | al tocar plantillas o JS |
 | `check_permisos.py` | enlaces y formularios pintados que acaban en 403 (usuario por recurso) | al tocar permisos, barras de pestañas o botones |
 | `check_access_coverage.py` | escrituras sin recurso en el catálogo de permisos | al añadir endpoints |
+| `check_aprobacion_facturas.py` | que una factura subida NO entra en pendiente de pago hasta que administración la valida: con la bolsa (al validar la liquidación) o suelta (al aceptar el pago inmediato en Solicitudes, con la misma línea que tendrá en pago) | al tocar la consolidación de un gasto, las solicitudes de pago, la liquidación de una bolsa o cualquier subida de factura |
 | `check_pago_inmediato.py` | el correo a administración cuando se pide un pago inmediato (sus datos, quién lo pide con su foto y el botón de gestionarlo) | al tocar las solicitudes de pago o el motor de correos |
 | `check_iban_factura.py` | que ninguna factura llegue a pago sin número de cuenta (se fija al subirla y se exige al guardar el gasto) | al tocar gastos, facturas o pagos |
 | `check_gasto_factura_primero.py` | añadir un gasto empezando por la factura: se lee, rellena lo demás, reconoce al proveedor y pide en amarillo lo que le falte a su ficha | al tocar el formulario de un gasto de bolsa |

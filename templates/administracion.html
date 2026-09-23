@@ -137,21 +137,80 @@
     <div class="row g-3">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
-          <div class="card-header bg-white"><strong>Solicitudes de pago inmediato</strong></div>
+          {# ⚠️⚠️ AQUÍ SE VALIDA UNA FACTURA «SUELTA» (sep 2026, lo pidió Dani): una factura subida NO
+             está en pendiente de pago hasta que administración la aprueba —con la liquidación de su
+             bolsa o, si se pidió el pago inmediato, aquí—. Cada solicitud enseña LA MISMA línea que
+             tendrá en pendiente de pago (a quién se le paga, su cuenta, la factura y su desglose), y
+             «Validar y pasar a pago» es lo que la mete allí. #}
+          <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
+            <strong><i class="fa fa-bolt me-1 text-danger"></i>Solicitudes de pago inmediato</strong>
+            {% if payment_requests %}<span class="badge text-bg-danger">{{ payment_requests|length }}</span>{% endif %}
+            <span class="small text-muted">Se validan aquí como una liquidación: al aceptar, el gasto queda validado y pasa a pendiente de pago.</span>
+          </div>
           <div class="card-body p-0">
             {% for expense in payment_requests %}
+              {% set pay = (payment_request_pay or {}).get(expense.id|string) %}
               <div class="p-3 border-bottom" id="admin-payreq-{{ expense.id }}" data-inline-zone>
                 <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
-                  <div>
-                    <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}
-                    <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
-                    <div class="fw-semibold mt-2">{{ (expense.immediate_payment_amount or expense.amount_gross)|eur }}</div>
-                    {% if expense.created_by_nick %}<span class="badge text-bg-light border mt-2">Solicita: {{ expense.created_by_nick }}</span>{% endif %}
+                  <div class="min-w-0 flex-grow-1">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {% if expense.attachment_url and pay %}
+                        <button type="button" class="btn btn-link p-0 align-baseline text-reset text-decoration-none fw-semibold"
+                                data-pay-doc="{{ expense.attachment_url }}" data-pay-doc-title="{{ pay.concept }}"
+                                data-pay-doc-number="{{ pay.invoice_number }}"
+                                data-pay-doc-net="{{ pay.net }}" data-pay-doc-vat="{{ pay.vat }}"
+                                data-pay-doc-retention="{{ pay.retention }}" data-pay-doc-total="{{ pay.amount }}"
+                                data-pay-doc-beneficiary="{{ pay.beneficiary }}"
+                                data-pay-doc-iban="{{ pay.iban_masked }}"
+                                title="Ver la factura">{{ expense.concept or 'Sin concepto' }} <i class="fa fa-file-invoice text-muted ms-1"></i></button>
+                      {% else %}
+                        <span class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</span>
+                      {% endif %}
+                      {% if expense.attachment_url %}
+                        <span class="badge text-bg-warning text-dark" title="Tiene su factura o ticket, pero administración todavía no lo ha validado: no está en pendiente de pago."><i class="fa fa-hourglass-half me-1"></i>Factura por validar</span>
+                      {% else %}
+                        <span class="badge text-bg-danger" title="Se pide pagar sin factura ni ticket: si se acepta, el gasto pasa a pendiente de pago sin documento."><i class="fa fa-file-circle-xmark me-1"></i>Sin factura ni ticket</span>
+                      {% endif %}
+                    </div>
+                    <div class="small text-muted">
+                      {% if expense.bag %}<a class="text-reset" href="{{ url_for('bag_detail_view', bag_id=expense.bag.id) }}" title="Ver la bolsa"><i class="fa fa-sack-dollar me-1"></i>{{ expense.bag.title }}</a>{% else %}Sin bolsa{% endif %}
+                      · {{ pay.beneficiary if pay else (expense.provider.nick if expense.provider else 'Sin proveedor') }}
+                      {% if pay and pay.iban_masked %} · <span class="font-monospace">{{ pay.iban_masked }}</span>{% endif %}
+                      {% if expense.invoice_number %} · Fra. {{ expense.invoice_number }}{% endif %}
+                      {% if expense.issue_date %} · {{ expense.issue_date.strftime('%d/%m/%Y') }}{% endif %}
+                    </div>
+                    {% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}
+                    {% if pay %}
+                      {# El desglose y lo que le falta: lo mismo que se ve en pendiente de pago. #}
+                      <div class="small text-muted mt-1">Base {{ pay.net|eur }} · IVA {{ pay.vat|eur }}{% if pay.retention %} · Retención {{ pay.retention|eur }} (no se le abona){% endif %} · Total {{ pay.gross|eur }}</div>
+                      {% if pay.missing %}
+                        <div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ pay.missing_labels|join(', ') }}
+                          {% if 'iban' in pay.missing %}
+                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline ms-1"
+                                    data-pay-bank="{{ url_for('payment_bank_save', kind='expense', row_id=pay.id) }}"
+                                    data-pay-bank-who="{{ pay.beneficiary }}"
+                                    data-pay-bank-doc="{{ '1' if pay.attachment_url else '' }}">Poner la cuenta</button>
+                          {% endif %}
+                        </div>
+                      {% endif %}
+                      {% if pay.debts %}
+                        <div class="small text-warning-emphasis"><i class="fa fa-hand-holding-dollar me-1"></i>
+                          {% for d in pay.debts %}{{ d.kind_label }} {{ d.company_name }}: pendiente {{ d.pending|eur }}{% if not loop.last %} · {% endif %}{% endfor %}
+                        </div>
+                      {% endif %}
+                    {% endif %}
+                    <div class="small mt-2"><i class="fa fa-comment-dots me-1 text-muted"></i>{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
+                    {% set _modo = (expense.immediate_payment_amount_mode or 'TOTAL')|upper %}
+                    <div class="fw-semibold mt-2">{{ (expense.immediate_payment_amount or expense.amount_gross)|eur }}
+                      {% if _modo == 'PERCENT' %}<span class="small text-muted fw-normal">· {{ expense.immediate_payment_percent or 0 }}% del gasto ({{ expense.amount_gross|eur }})</span>
+                      {% elif _modo == 'AMOUNT' %}<span class="small text-muted fw-normal">· una parte del gasto ({{ expense.amount_gross|eur }})</span>{% endif %}
+                      {% if expense.immediate_payment_send_receipt %}<span class="badge text-bg-light border ms-1 fw-normal"><i class="fa fa-receipt me-1"></i>Hay que mandarle el justificante</span>{% endif %}
+                    </div>
+                    <span class="badge text-bg-light border mt-2"><i class="fa fa-user me-1"></i>Solicita: {{ (pay.requested_by if pay else '') or expense.created_by_nick or '—' }}{% if expense.immediate_payment_requested_at %} · {{ expense.immediate_payment_requested_at.strftime('%d/%m/%Y') }}{% endif %}</span>
                   </div>
                   <div class="d-flex flex-column gap-2" style="min-width:280px;">
-                    {% if expense.attachment_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ expense.attachment_url }}" target="_blank">Ver factura/ticket</a>{% endif %}
-                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='ACCEPT') }}" class="d-flex gap-1" data-inline data-inline-target="#admin-payreq-{{ expense.id }}"><input class="form-control form-control-sm" name="note" placeholder="Nota opcional"><button class="btn btn-sm btn-success">Aceptar</button></form>
+                    {% if expense.attachment_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ expense.attachment_url }}" target="_blank" rel="noopener"><i class="fa fa-file-invoice me-1"></i>Ver factura/ticket</a>{% endif %}
+                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='ACCEPT') }}" class="d-flex gap-1" data-inline data-inline-target="#admin-payreq-{{ expense.id }}"><input class="form-control form-control-sm" name="note" placeholder="Nota opcional"><button class="btn btn-sm btn-success text-nowrap" title="Administración valida el gasto: pasa a pendiente de pago"><i class="fa fa-circle-check me-1"></i>Validar y pasar a pago</button></form>
                     <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='REJECT') }}" class="d-flex gap-1" data-inline data-inline-target="#admin-payreq-{{ expense.id }}"><input class="form-control form-control-sm" name="note" placeholder="Motivo rechazo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
                   </div>
                 </div>
@@ -485,40 +544,7 @@
       </div>
     {% endfor %}
 
-    {# LA CUENTA QUE FALTA. Pop-up ÚNICO de la página: la URL se fija EN EL CLIC (con `modal_stack`
-       por medio, `shown.bs.modal` no siempre llega). Se escribe o se LEE de la propia factura. #}
-    <div class="modal fade" id="payBankModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-        <form method="post" data-pay-bank-form>
-          <input type="hidden" name="next" value="{{ request.full_path }}">
-          <div class="modal-header">
-            <h5 class="modal-title"><i class="fa fa-building-columns me-2"></i>Número de cuenta</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <p class="small text-muted mb-2">Sin cuenta este pago no se puede meter en ninguna remesa.
-              La que pongas queda en la ficha de <strong data-pay-bank-who>quien cobra</strong>, así que
-              la próxima vez ya no hará falta.</p>
-            <label class="form-label">IBAN</label>
-            <input class="form-control" name="iban" placeholder="ES00 0000 0000 0000 0000 0000" autocomplete="off">
-            <div class="form-text">Si la factura la dice, se puede leer de ella.</div>
-          </div>
-          <div class="modal-footer justify-content-between">
-            <button type="submit" name="leer" value="1" class="btn btn-outline-secondary d-none" data-pay-bank-read>
-              <i class="fa fa-magnifying-glass me-1"></i>Leerla de la factura</button>
-            <div class="ms-auto">
-              <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
-              <button class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
-            </div>
-          </div>
-        </form>
-      </div></div>
-    </div>
-
     {# Modal único para «marcar como pagado» (lo rellena el JS con el gasto que se elija) #}
-    {# Pop-up del DOCUMENTO (la factura de un pago, un certificado…): parcial ÚNICO compartido. #}
-    {% include '_doc_view_modal.html' %}
-
     <div class="modal fade" id="payPaidModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
         <form method="post" enctype="multipart/form-data" data-pay-paid-form>
@@ -1714,6 +1740,42 @@
 {% endif %}
 
 {% include '_invoice_amounts_modal.html' %}
+
+{# LA CUENTA QUE FALTA. Pop-up ÚNICO de la página: la URL se fija EN EL CLIC (con `modal_stack`
+   por medio, `shown.bs.modal` no siempre llega). Se escribe o se LEE de la propia factura.
+   ⚠️ Va FUERA de la subpestaña «De pago» porque también se usa en «Solicitudes» (la misma línea de
+   pago): dentro de aquella, el botón «Poner la cuenta» de una solicitud no encontraba el pop-up. #}
+<div class="modal fade" id="payBankModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" data-pay-bank-form>
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-building-columns me-2"></i>Número de cuenta</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">Sin cuenta este pago no se puede meter en ninguna remesa.
+          La que pongas queda en la ficha de <strong data-pay-bank-who>quien cobra</strong>, así que
+          la próxima vez ya no hará falta.</p>
+        <label class="form-label">IBAN</label>
+        <input class="form-control" name="iban" placeholder="ES00 0000 0000 0000 0000 0000" autocomplete="off">
+        <div class="form-text">Si la factura la dice, se puede leer de ella.</div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="submit" name="leer" value="1" class="btn btn-outline-secondary d-none" data-pay-bank-read>
+          <i class="fa fa-magnifying-glass me-1"></i>Leerla de la factura</button>
+        <div class="ms-auto">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+        </div>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# Pop-up del DOCUMENTO (la factura de un pago, un certificado…): parcial ÚNICO compartido, también
+   fuera de «De pago» por lo mismo (la factura de una solicitud se abre con él). #}
+{% include '_doc_view_modal.html' %}
 
 {# Remesas: arrastrar bolsas y gastos a la caja de su empresa. #}
 <script src="{{ url_for('static', filename='js/pagos.js', v=ASSET_V) }}"></script>

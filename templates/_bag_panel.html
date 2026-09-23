@@ -432,7 +432,15 @@
                   {# Divisiones ANTIGUAS (antes de que el reparto fuera un grupo con titular). #}
                   <span class="badge text-bg-info" title="{% if expense.split_info and expense.split_info.get('rows') %}{% for row in expense.split_info.get('rows') %}{{ row.bag_title }}: {{ row.amount|eur }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}Gasto dividido{% endif %}"><i class="fa fa-code-branch me-1"></i>Dividido</span>
                 {% endif %}
-                {% if not is_consolidated %}<span class="badge text-bg-secondary">Sin consolidar</span>{% endif %}
+                {% if not is_consolidated %}<span class="badge text-bg-secondary">Sin consolidar</span>
+                {% elif expense.consolidation_status not in bag_consolidated_statuses %}
+                  {# ⚠️ CON FACTURA NO ES VALIDADO (sep 2026): administración lo valida al liquidar la bolsa
+                     o, antes, al aceptar el pago inmediato. Hasta entonces no está en pendiente de pago. #}
+                  <span class="badge text-bg-warning text-dark" title="Tiene su factura o ticket. Administración lo valida al liquidar la bolsa (o antes, si se pide el pago inmediato); hasta entonces no está en pendiente de pago."><i class="fa fa-hourglass-half me-1"></i>Por validar</span>
+                {% elif expense.admin_reviewed_at and expense.attachment_url %}
+                  <span class="text-success small" title="Validado por administración el {{ expense.admin_reviewed_at.strftime('%d/%m/%Y %H:%M') }}{% if expense.admin_review_note %} · {{ expense.admin_review_note }}{% endif %}"><i class="fa fa-circle-check"></i></span>
+                {% endif %}
+                {% if expense.admin_review_status == 'PAGO_RECHAZADO' and not expense.immediate_payment_requested %}<span class="badge text-bg-light border text-danger" title="{{ expense.admin_review_note or 'Rechazado por administración' }}"><i class="fa fa-bolt me-1"></i>Pago inmediato rechazado</span>{% endif %}
                 {% if expense.consolidation_status == 'SIN_FACTURA_RECHAZADO' %}<span class="text-danger" title="{{ expense.no_invoice_rejection_reason or 'Rechazado por administración' }}"><i class="fa fa-triangle-exclamation"></i></span>{% endif %}
                 {% if expense.covered_by != 'BOLSA' %}<span class="badge text-bg-warning">{{ bag_covered_by_labels.get(expense.covered_by, expense.covered_by) }}</span>{% endif %}
                 {# CONTABILIDAD: un gasto ya contabilizado se ve como tal aquí también, y al pasar el

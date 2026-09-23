@@ -60,6 +60,8 @@
 - UNA FACTURA DICE DÓNDE HAY QUE PAGARLA: EL IBAN SE RESUELVE AL SUBIRLA (sep 2026, bug
 - ADMINISTRACIÓN · DE QUIÉN ES CADA BOLSA, debajo de su nombre
 - AÑADIR UN GASTO EMPIEZA POR LA FACTURA: se lee, rellena lo demás y reconoce al proveedor
+- UNA FACTURA SUBIDA NO ESTÁ EN PENDIENTE DE PAGO HASTA QUE ADMINISTRACIÓN LA VALIDA: con la
+  bolsa (al validar su liquidación) o suelta (al aceptar el pago inmediato en Solicitudes)
 
 ---
 
@@ -1402,3 +1404,68 @@
   real: el orden de los módulos, el visor, el reconocimiento por CIF/cuenta/nombre, que NO se coge
   lo nuestro, la ficha que se completa y se guarda —en el tercero y en la sociedad—, los rechazos y
   que sin factura el gasto se crea igual).
+
+- ⚠️⚠️⚠️ **UNA FACTURA SUBIDA NO ESTÁ EN PENDIENTE DE PAGO HASTA QUE ADMINISTRACIÓN LA VALIDA**
+  (sep 2026, lo pidió Dani: «todas las facturas que se hayan subido tienen que pasar el proceso de
+  aprobación por administración, con la bolsa, o suelta cuando se haya solicitado el pago inmediato:
+  tiene que aparecer en Solicitudes antes para validarse, igual que una liquidación, para aprobarse
+  ese gasto y que pase a pendiente de pago»). Antes, subir la factura o el ticket a un gasto lo
+  marcaba **CONSOLIDADO en el acto** y entraba en «De pago» (y en contabilidad) **sin pasar por
+  nadie**, con la bolsa todavía abierta.
+  · **DOS ESTADOS QUE NO SON LO MISMO**: `BAG_CONSOLIDATED_STATUSES` (CONSOLIDADO ·
+  SIN_FACTURA_ACEPTADO) es **VALIDADO por administración** —lo que entra en pendiente de pago, en
+  la remesa, en contabilidad y en los contadores—, y **`BAG_DOCUMENTED_STATUSES`** (los dos más
+  **`PENDIENTE_VALIDAR`**) es **tiene su documento**: lo que exige **cerrar la bolsa**
+  (`_bag_expense_is_consolidated`) y lo que cuenta como coste real en el resultado de una actividad
+  (`_concert_bag_expense_totals`). Al subir la factura el gasto queda **`PENDIENTE_VALIDAR`** (punto
+  único **`_bag_expense_document_status`**, que respeta lo ya validado: la factura que llega después
+  de aprobar un pago sin ella no lo devuelve a la cola).
+  · **LAS DOS VÍAS DE APROBACIÓN** (punto único **`_bag_expense_validate(session_db, expense,
+  how=…)`**: pone CONSOLIDADO, apunta `admin_review_status` = `VALIDADO_LIQUIDACION` |
+  `PAGO_ACEPTADO` con su nota y su fecha, deja un `VALIDADO_ADMIN` en el historial del gasto y lo
+  espeja a las PARTES si está dividido):
+    · **CON LA BOLSA** — `administration_bag_close_liquidation` llama a
+      **`_bag_expenses_validate_for_liquidation`** en **cualquier** decisión sobre la liquidación
+      (Validar ingresos/gastos · Cerrar y pasar a pago · Cerrar · Archivar sin pago): todos los
+      gastos con documento pasan a validados y el flash dice cuántos. Se hace también al archivar
+      porque lo documentado tiene que llegar igualmente a contabilidad.
+    · **SUELTA** — la **solicitud de pago inmediato** en Administración → Pendiente →
+      **Solicitudes**. Cada solicitud enseña **la MISMA línea que tendrá en pendiente de pago**
+      (`_payment_expense_row`: a quién se le paga, su cuenta —con «Poner la cuenta» si falta—, la
+      factura que se abre en el visor de pagos, base · IVA · retención · total, embargos y deudas),
+      la etiqueta **«Factura por validar»** o **«Sin factura ni ticket»** en rojo (aceptar sería
+      aprobar el pago sin documento), el motivo, el importe pedido (entero, un % o una parte) y
+      **quién lo pide**. **«Validar y pasar a pago»** = `_bag_expense_validate(how='PAGO_INMEDIATO')`
+      + `payment_status = PENDIENTE`. **Rechazar** deja la nota (`admin_review_note`), NO toca la
+      consolidación (la factura sigue su proceso con la liquidación) y solo deshace el PENDIENTE que
+      puso la propia solicitud (un pago parcial por medio se respeta).
+    · En los dos casos el aviso de administración **desaparece solo** (`_notify_resolve("EXPENSE")`)
+      y **a quien lo pidió se le contesta** en la app (tipo nuevo **`PAGO_RESPUESTA`**, solo
+      campanita: por correo se avisa de lo que te ENTRA, no de lo que te contestan). Quién lo pidió
+      lo resuelve `_expense_payment_requester` (la última `SOLICITUD_PAGO_INMEDIATO` del historial).
+  · **DÓNDE SE VE**: en la fila del gasto de la bolsa, la etiqueta amarilla **«Por validar»** (con
+  factura y sin validar), el **check verde** con la fecha al pasar el ratón cuando ya está validado,
+  y **«Pago inmediato rechazado»** con la nota mientras no se vuelva a pedir ni se valide. El
+  módulo «Factura o ticket» del formulario del gasto lo dice desde el principio.
+  ⚠️ **Todos los caminos por los que entra un documento** pasan por el punto único: el formulario del
+  gasto (`_bag_update_expense_from_form`), reemplazar el documento, el enlace público del gasto, la
+  petición al proveedor y el enlace de facturas (`_bag_expense_invoice_apply`, que ya dejaba
+  `PENDIENTE_VALIDAR` sin que nadie lo consumiera), Pleo y las **acciones de marketing** —ahí la
+  ACCIÓN sigue quedando CONSOLIDADA con su documento (es su criterio para cerrarse), pero el GASTO
+  espejado en la bolsa queda por validar—. Un **prorrateo** sigue naciendo CONSOLIDADO (es dinero
+  interno, no hay factura que validar).
+  ⚠️ Los pop-ups de la **cuenta** (`payBankModal`) y del **documento** (`_doc_view_modal.html`) se
+  sacaron de la subpestaña «De pago» al final de la página: en «Solicitudes» los botones «Poner la
+  cuenta» y la factura los necesitan y, dentro de aquella, no existían.
+  ⚠️ Lo que había en producción con factura y CONSOLIDADO **no cambia**: la regla se aplica a lo que
+  se sube a partir de ahora (lo ya consolidado se respeta).
+  ⚠️⚠️ **Y DE PASO, LA PRIMERA DIVISIÓN DE UN GASTO NO ESPEJABA NADA** (bug real, lo cazó la prueba):
+  `_split_apply` ponía el `split_group_id` del titular y de las partes **en memoria** y llamaba a
+  `_split_propagate`, que busca las filas del grupo **consultando la BD** (`_split_group_rows`) — y
+  la sesión es **`autoflush=False`**, así que no veía ninguna: las partes se quedaban en PENDIENTE
+  aunque el titular tuviera su factura (la misma trampa que ya documentaba
+  `_accounting_bag_close_if_done`). Ahora hay un `session_db.flush()` antes del espejo.
+  · **Prueba de la casa: `tools/check_aprobacion_facturas.py`** (71 comprobaciones con la app
+  real: las dos vías, el rechazo con su nota, el aviso a quien pidió, la parte de un gasto
+  dividido, los cuatro caminos de subida, marketing y que contabilidad solo ve lo validado).
+  **Pasarla dos veces seguidas**: es idempotente (recrea su base).

@@ -105,7 +105,7 @@ with cli.session_transaction() as ses:
 
 def gasto_nuevo(**extra):
     datos = {"category": "PRODUCCION", "concept": "Backline", "amount_value": "1.210",
-             "amount_mode": "INCLUDED", "provider_id": PROV, "document_type": "FACTURA"}
+             "amount_mode": "GROSS", "provider_id": PROV, "document_type": "FACTURA"}
     datos.update(extra)
     return cli.post("/bolsas/%s/expenses" % BAG, data=datos,
                     content_type="multipart/form-data", follow_redirects=True)

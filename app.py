@@ -102281,6 +102281,18 @@ BAG_COVERED_BY_LABELS = {
     "OFICINA": "Lo cubre la oficina",
 }
 BAG_CONSOLIDATED_STATUSES = {"CONSOLIDADO", "SIN_FACTURA_ACEPTADO"}
+# ⚠️⚠️ UNA FACTURA SUBIDA NO ES UN GASTO VALIDADO (sep 2026, lo pidió Dani: «todas las facturas que
+# se hayan subido tienen que pasar el proceso de aprobación por administración»). Al subir la factura
+# o el ticket el gasto queda DOCUMENTADO (`PENDIENTE_VALIDAR`) y solo pasa a CONSOLIDADO —que es lo
+# que entra en «pendiente de pago» y en contabilidad— cuando ADMINISTRACIÓN lo valida: con la bolsa,
+# al validar su liquidación (`_bag_expenses_validate_for_liquidation`), o suelto, al aceptar la
+# solicitud de pago inmediato en «Solicitudes» (`administration_payment_request_decision`). Antes se
+# marcaba CONSOLIDADO en el acto y entraba en «De pago» sin pasar por nadie.
+#   · `BAG_CONSOLIDATED_STATUSES` = VALIDADO por administración (pago, contabilidad, contadores).
+#   · `BAG_DOCUMENTED_STATUSES`   = tiene su documento (o la falta de factura ya aceptada): es lo que
+#     exige CERRAR la bolsa y lo que cuenta como «consolidado» en el resultado de una actividad.
+BAG_PENDING_VALIDATION_STATUS = "PENDIENTE_VALIDAR"
+BAG_DOCUMENTED_STATUSES = BAG_CONSOLIDATED_STATUSES | {BAG_PENDING_VALIDATION_STATUS}
 ADMINISTRATION_TABS = [
     ("pendiente", "Pendiente"),
     ("liquidaciones", "Liquidaciones"),
@@ -110676,7 +110688,9 @@ def promotion_activity_create(promotion_id):
                 amount_net=amount_net,
                 amount_tax=amount_tax,
                 amount_gross=amount_gross,
-                consolidation_status=consolidation_status,
+                # La acción se da por CONSOLIDADA con su documento, pero el GASTO lo valida administración.
+                consolidation_status=(BAG_PENDING_VALIDATION_STATUS if consolidation_status == 'CONSOLIDADO'
+                                      else consolidation_status),
                 attachment_url=attachment_url,
                 attachment_name=attachment_name,
                 attachment_mime=attachment_mime,
@@ -110722,7 +110736,8 @@ def marketing_action_document_upload(promotion_id, activity_id):
                 exp.attachment_url = url
                 exp.attachment_name = name
                 exp.attachment_mime = mime
-                exp.consolidation_status = 'CONSOLIDADO'
+                # La ACCIÓN queda consolidada con su documento; el GASTO lo valida administración.
+                exp.consolidation_status = _bag_expense_document_status(exp)
                 exp.updated_at = _now_madrid()
         session_db.commit()
         flash('Factura/ticket vinculada a la acción.', 'success')
@@ -111187,7 +111202,10 @@ def marketing_action_update(promotion_id, activity_id):
             expense.attachment_url = row.attachment_url
             expense.attachment_name = row.attachment_name
             expense.attachment_mime = row.attachment_mime
-            expense.consolidation_status = row.consolidation_status
+            # La acción se da por CONSOLIDADA con su documento, pero el GASTO lo valida administración.
+            expense.consolidation_status = (_bag_expense_document_status(expense)
+                                            if row.consolidation_status == 'CONSOLIDADO'
+                                            else row.consolidation_status)
             expense.updated_at = _now_madrid()
         promotion.updated_at = _now_madrid()
         session_db.commit()
@@ -119103,6 +119121,19 @@ def administracion_view():
                 BagExpense.status != "ELIMINADO",
                 BagExpense.immediate_payment_requested == True,  # noqa: E712
             ).order_by(BagExpense.immediate_payment_requested_at.asc().nullslast(), BagExpense.created_at.asc()).all()
+        # SOLICITUDES: cada gasto con la MISMA línea que tendrá en pendiente de pago (a quién se le
+        # paga, su cuenta, la factura con su desglose, la retención, embargos…): se valida igual que
+        # una liquidación, viendo lo que se va a aprobar. Y quién lo ha pedido.
+        payment_request_pay = {}
+        if payment_requests:
+            _ret_map = _expense_retention_map(session_db, payment_requests)
+            for _e in payment_requests:
+                try:
+                    _fila = _payment_expense_row(session_db, _e, retention=_ret_map.get(str(_e.id), Decimal("0")))
+                    _fila["requested_by"] = _expense_payment_requester(_e)[1]
+                    payment_request_pay[str(_e.id)] = _fila
+                except Exception:
+                    app.logger.exception("[administracion] no se pudo componer la línea de una solicitud de pago")
         payable_expenses = []
         if quiere_pago:
             payable_expenses = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
@@ -119228,6 +119259,7 @@ def administracion_view():
             pending_no_invoice=pending_no_invoice,
             closed_bags=closed_bags,
             payment_requests=payment_requests,
+            payment_request_pay=payment_request_pay,
             payable_expenses=payable_expenses,
             payments_history=payments_history,
             payments_q=payments_q,
@@ -123794,9 +123826,92 @@ def _bag_document_upload(file_storage) -> tuple[str | None, str | None, str | No
 
 
 def _bag_expense_is_consolidated(expense: BagExpense) -> bool:
-    if (getattr(expense, "consolidation_status", "") or "").upper() in BAG_CONSOLIDATED_STATUSES:
+    """¿El gasto está DOCUMENTADO (tiene su factura/ticket, o la falta de factura ya aceptada)?
+
+    ⚠️ Es lo que exige CERRAR la bolsa, y NO es lo mismo que «validado por administración»
+    (`BAG_CONSOLIDATED_STATUSES`): la bolsa se cierra con todo documentado y es administración quien
+    valida después, al liquidarla (o antes, si se pide el pago inmediato)."""
+    if (getattr(expense, "consolidation_status", "") or "").upper() in BAG_DOCUMENTED_STATUSES:
         return True
     return bool(getattr(expense, "attachment_url", None))
+
+
+def _bag_expense_document_status(expense) -> str:
+    """El estado de consolidación que le toca a un gasto que TIENE su documento.
+
+    ⚠️⚠️ Con factura no es «validado»: la factura la valida ADMINISTRACIÓN (al liquidar la bolsa o al
+    aceptar el pago inmediato). Lo que ya estaba validado se respeta —la factura que llega después de
+    aprobar un pago sin ella no lo devuelve a la cola—; lo demás queda PENDIENTE_VALIDAR."""
+    actual = (getattr(expense, "consolidation_status", "") or "").upper()
+    if actual in BAG_CONSOLIDATED_STATUSES:
+        return "CONSOLIDADO"
+    return BAG_PENDING_VALIDATION_STATUS
+
+
+def _bag_expense_needs_validation(expense) -> bool:
+    """¿Tiene su factura o ticket y administración todavía no lo ha validado?"""
+    if (getattr(expense, "status", "") or "").upper() == "ELIMINADO":
+        return False
+    if (getattr(expense, "consolidation_status", "") or "").upper() in BAG_CONSOLIDATED_STATUSES:
+        return False
+    return bool((getattr(expense, "attachment_url", None) or "").strip())
+
+
+def _bag_expense_validate(session_db, expense, *, how: str, note: str = "", audit: dict | None = None) -> bool:
+    """VALIDA un gasto: administración lo da por bueno y pasa a pendiente de pago (y a contabilidad).
+
+    Punto único de las DOS vías (sep 2026): `how` = 'LIQUIDACION' (al validar la liquidación de su
+    bolsa) o 'PAGO_INMEDIATO' (al aceptar la solicitud en Solicitudes). Deja rastro en el gasto
+    (`admin_review_*`) y en su historial (`BagPaymentInteraction`), y lo espeja a las PARTES si está
+    dividido. Devuelve True si ha cambiado algo."""
+    if expense is None:
+        return False
+    if (getattr(expense, "consolidation_status", "") or "").upper() in BAG_CONSOLIDATED_STATUSES:
+        return False
+    audit = audit or _bag_current_user_audit()
+    expense.consolidation_status = "CONSOLIDADO"
+    expense.admin_review_status = "VALIDADO_LIQUIDACION" if how == "LIQUIDACION" else "PAGO_ACEPTADO"
+    expense.admin_review_note = (note or "").strip() or None
+    expense.admin_reviewed_at = _now_madrid()
+    expense.updated_at = _now_madrid()
+    session_db.add(BagPaymentInteraction(
+        expense_id=expense.id, kind="VALIDADO_ADMIN",
+        description=("Validado por administración al liquidar la bolsa." if how == "LIQUIDACION"
+                     else "Validado por administración al aceptar el pago inmediato."),
+        created_by_user_id=audit.get("user_id"), created_by_nick=audit.get("nick")))
+    if getattr(expense, "split_group_id", None):
+        try:
+            _split_propagate(session_db, _split_titular_of(session_db, expense))
+        except Exception:
+            app.logger.exception("[bolsas] no se pudo espejar la validación del gasto dividido")
+    return True
+
+
+def _bag_expenses_validate_for_liquidation(session_db, bag, *, audit: dict | None = None) -> int:
+    """Al VALIDAR la liquidación de una bolsa, sus gastos con documento quedan validados: es la
+    aprobación «con la bolsa». Devuelve cuántos han pasado a pendiente de pago."""
+    if bag is None:
+        return 0
+    audit = audit or _bag_current_user_audit()
+    n = 0
+    for e in (session_db.query(BagExpense)
+              .filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()):
+        # Una PARTE de un gasto dividido se espeja de su titular: se valida donde se paga.
+        if (getattr(e, "split_role", None) or "").upper() == "PARTE":
+            continue
+        if _bag_expense_needs_validation(e) and _bag_expense_validate(session_db, e, how="LIQUIDACION", audit=audit):
+            n += 1
+    return n
+
+
+def _expense_payment_requester(expense) -> tuple:
+    """Quién pidió el PAGO INMEDIATO de este gasto → (user_id, nick): la última solicitud y, si no
+    consta, quien apuntó el gasto. Es a quien se le contesta."""
+    for ev in reversed(list(getattr(expense, "payment_events", None) or [])):
+        if (getattr(ev, "kind", "") or "").upper() == "SOLICITUD_PAGO_INMEDIATO":
+            return (getattr(ev, "created_by_user_id", None) or getattr(expense, "created_by_user_id", None),
+                    (getattr(ev, "created_by_nick", None) or getattr(expense, "created_by_nick", None) or ""))
+    return (getattr(expense, "created_by_user_id", None), (getattr(expense, "created_by_nick", None) or ""))
 
 
 def _bag_expense_counts_for_badges(expense: BagExpense) -> dict:
@@ -124310,7 +124425,10 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
             _iban_fill(session_db, (company or getattr(expense, "provider_company", None)), _iban_doc)
             _iban_fill(session_db, (provider or getattr(expense, "provider", None)), _iban_doc)
     if expense.attachment_url:
-        expense.consolidation_status = "CONSOLIDADO"
+        # ⚠️⚠️ CON FACTURA NO ES «VALIDADO» (sep 2026): queda PENDIENTE_VALIDAR hasta que administración
+        # lo valide (con la liquidación de la bolsa, o suelto al aceptar el pago inmediato). Lo que ya
+        # estaba validado se respeta.
+        expense.consolidation_status = _bag_expense_document_status(expense)
     elif expense.consolidation_status in BAG_CONSOLIDATED_STATUSES and not expense.attachment_url:
         # Se conserva una aceptación administrativa sin documento.
         pass
@@ -124799,6 +124917,11 @@ def _split_apply(session_db, expense, spec: list[dict]) -> dict:
         sobra.split_group_id = None
         sobra.split_role = None
         sobra.updated_at = _now_madrid()
+    # ⚠️⚠️ La sesión es `autoflush=False`: sin este flush, `_split_group_rows` (que consulta la BD por
+    # `split_group_id`) NO veía las filas recién agrupadas y la PRIMERA división no espejaba nada a
+    # las partes —se quedaban en PENDIENTE aunque el titular tuviera su factura— (bug real, sep 2026,
+    # lo cazó `tools/check_aprobacion_facturas.py`).
+    session_db.flush()
     _split_propagate(session_db, titular)
     return {"ok": True, "error": ""}
 
@@ -126160,7 +126283,7 @@ def bag_expense_document_replace(bag_id, expense_id):
             expense.attachment_name = name
             expense.attachment_mime = mime
             expense.replace_history = history
-            expense.consolidation_status = "CONSOLIDADO"
+            expense.consolidation_status = _bag_expense_document_status(expense)
             expense.updated_at = _now_madrid()
             session_db.commit()
             flash("Documento reemplazado.", "success")
@@ -126263,7 +126386,7 @@ def public_bag_expense_document_upload(token):
             expense.attachment_url = url
             expense.attachment_name = name
             expense.attachment_mime = mime
-            expense.consolidation_status = "CONSOLIDADO"
+            expense.consolidation_status = _bag_expense_document_status(expense)
             expense.updated_at = _now_madrid()
             session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="DOCUMENTO_SUBIDO", description="Documento subido desde enlace público."))
             session_db.commit()
@@ -126404,7 +126527,8 @@ def bag_expense_request_payment(bag_id, expense_id):
             created_by_nick=audit["nick"],
         ))
         session_db.commit()
-        flash("Solicitud de pago inmediato enviada a administración.", "success")
+        flash("Solicitud de pago inmediato enviada a administración: la validará en Solicitudes y, "
+              "al aceptarla, el gasto pasa a pendiente de pago.", "success")
     finally:
         session_db.close()
     return redirect(next_url)
@@ -129664,7 +129788,9 @@ def _concert_bag_expense_totals(session_db, concert):
     for e in filas:
         neto = _money_or_zero(getattr(e, "amount_net", 0))
         total += neto
-        if (getattr(e, "consolidation_status", "") or "").upper() == "CONSOLIDADO":
+        # DOCUMENTADO (con su factura, o la falta de factura aceptada): el coste ya es real aunque
+        # administración todavía no lo haya validado para el pago.
+        if (getattr(e, "consolidation_status", "") or "").upper() in BAG_DOCUMENTED_STATUSES:
             consolidado += neto
             n_cons += 1
             cat = (e.category or "OTROS")
@@ -151862,6 +151988,9 @@ NOTIFICATION_KIND_META = {
     "ACOMPANANTE": ("Vas con el artista", "fa-user-group"),
     "DISENO": ("Nueva solicitud de diseño", "fa-palette"),
     "ADMIN_PETICION": ("Nueva petición para administración", "fa-inbox"),
+    # La RESPUESTA de administración a quien pidió un pago inmediato (aceptado o rechazado, con su
+    # nota). Solo en la app: por correo se avisa de lo que te ENTRA, no de lo que te contestan.
+    "PAGO_RESPUESTA": ("Respuesta a una solicitud de pago", "fa-bolt"),
     # Una PETICIÓN de actividad: le sale a contratación (que da el ok), al jefe de producto de ese
     # artista y, en cuanto entran, a quien la produce y a quien viaja con él.
     "PETICION": ("Nueva petición de actividad", "fa-envelope-open-text"),
@@ -151987,6 +152116,7 @@ NOTIFICATION_KIND_HELP = {
               "creatividades).",
     "ADMIN_BOLSA": "Cuando una bolsa se cierra y le entra a administración para liquidar.",
     "ADMIN_PETICION": "Cuando alguien pide un pago o algo que tiene que resolver administración.",
+    "PAGO_RESPUESTA": "Cuando administración acepta o rechaza el pago inmediato que pediste (con su nota).",
     "PETICION": "Cuando se hace una petición para un artista: a contratación (que tiene que dar el "
                 "ok), al jefe de producto de ese artista y, en cuanto se les asigna, a quien la "
                 "produce y a quien viaja con el artista.",
@@ -152030,7 +152160,7 @@ NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA
 
 def _notice_kind_catalog() -> list[dict]:
     """Todos los tipos de aviso internos de la app, en el orden en que se configuran."""
-    orden = ["PRODUCCION", "ACOMPANANTE", "DISENO", "PETICION", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
+    orden = ["PRODUCCION", "ACOMPANANTE", "DISENO", "PETICION", "ADMIN_BOLSA", "ADMIN_PETICION", "PAGO_RESPUESTA", "REMESA", "VACACIONES",
              "VENTA", "ANUNCIO", "VENTAS_ACTUALIZAR", "CONTABILIDAD", "REGISTROS", "MATERIALES",
              "FECHA_LANZAMIENTO", "PITCH",
              "DEMO", "DISCOGRAFICA", "AGENDA", "TAREA"]
@@ -155314,22 +155444,49 @@ def administration_payment_request_decision(expense_id, decision):
             abort(404)
         decision = (decision or '').strip().upper()
         note = (request.form.get('note') or '').strip()
+        audit = _bag_current_user_audit()
+        # A quién se le contesta: quien pidió el pago inmediato (y si no consta, quien apuntó el gasto).
+        pidio, _pidio_nick = _expense_payment_requester(expense)
+        importe = _money_or_zero(expense.immediate_payment_amount or expense.amount_gross)
+        concepto = (expense.concept or 'Gasto').strip()
+        volver = (url_for('bag_detail_view', bag_id=expense.bag_id) if expense.bag_id
+                  else url_for('administracion_view', tab='pendiente', subtab='solicitudes'))
         if decision == 'ACCEPT':
+            # ⚠️⚠️ ACEPTAR ES VALIDAR (sep 2026, lo pidió Dani). La factura subida «suelta» —con el pago
+            # inmediato pedido— pasa por aquí igual que una liquidación: hasta que administración la
+            # acepta el gasto NO está en pendiente de pago; al aceptarla queda validado y entra.
+            _bag_expense_validate(session_db, expense, how='PAGO_INMEDIATO', note=note, audit=audit)
             expense.immediate_payment_requested = False
-            expense.payment_status = 'PENDIENTE'
+            if (expense.payment_status or 'NO_PAGADO').upper() in ('NO_PAGADO', 'PENDIENTE'):
+                expense.payment_status = 'PENDIENTE'
             expense.admin_review_status = 'PAGO_ACEPTADO'
             expense.admin_review_note = note or None
             expense.admin_reviewed_at = _now_madrid()
-            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind='PAGO_ACEPTADO', description=note or 'Solicitud aceptada por administración.', amount=expense.immediate_payment_amount or expense.amount_gross, created_by_nick=_email_to_nick(_current_user_email() or '')))
-            flash('Solicitud aceptada y enviada a pendiente de pago.', 'success')
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind='PAGO_ACEPTADO', description=note or 'Solicitud aceptada por administración.', amount=importe, created_by_user_id=audit.get('user_id'), created_by_nick=audit.get('nick')))
+            # La petición ya está resuelta: su aviso desaparece solo, y a quien la pidió se le dice.
+            _notify_resolve(session_db, "EXPENSE", expense.id)
+            if pidio:
+                _notify_user(session_db, pidio, "PAGO_RESPUESTA", "Pago inmediato aceptado",
+                             "%s · %s · ya está en pendiente de pago%s" % (concepto, format_eur(importe), (" · " + note) if note else ""),
+                             volver, ref_type="EXPENSE_DECISION", ref_id=str(expense.id), email=False)
+            flash('Solicitud aceptada: el gasto queda validado y pasa a pendiente de pago.', 'success')
         else:
             expense.immediate_payment_requested = False
-            expense.payment_status = 'NO_PAGADO'
+            # Solo se deshace lo que puso la solicitud: un pago parcial que hubiera por medio se respeta.
+            if (expense.payment_status or 'NO_PAGADO').upper() == 'PENDIENTE':
+                expense.payment_status = 'NO_PAGADO'
             expense.admin_review_status = 'PAGO_RECHAZADO'
             expense.admin_review_note = note or 'Solicitud rechazada por administración.'
             expense.admin_reviewed_at = _now_madrid()
-            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind='PAGO_RECHAZADO', description=expense.admin_review_note, amount=Decimal('0'), created_by_nick=_email_to_nick(_current_user_email() or '')))
-            flash('Solicitud rechazada y devuelta con nota.', 'warning')
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind='PAGO_RECHAZADO', description=expense.admin_review_note, amount=Decimal('0'), created_by_user_id=audit.get('user_id'), created_by_nick=audit.get('nick')))
+            _notify_resolve(session_db, "EXPENSE", expense.id)
+            if pidio:
+                _notify_user(session_db, pidio, "PAGO_RESPUESTA", "Pago inmediato rechazado",
+                             "%s · %s" % (concepto, expense.admin_review_note),
+                             volver, ref_type="EXPENSE_DECISION", ref_id=str(expense.id), email=False)
+            # ⚠️ La factura NO se pierde: sigue su proceso normal con la liquidación de la bolsa.
+            flash('Solicitud rechazada y devuelta con nota. La factura seguirá su proceso con la liquidación de la bolsa.', 'warning')
+        expense.updated_at = _now_madrid()
         session_db.commit()
         return redirect(url_for('administracion_view', tab='pendiente', subtab='solicitudes'))
     except Exception as exc:
@@ -155355,27 +155512,35 @@ def administration_bag_close_liquidation(bag_id):
         # donde se pregunta. Si no viene contestado, `_bag_cash_default_on_close` la da por incluida
         # (el caso normal) y queda dicho y cambiable en su panel.
         _bag_cash_decide(session_db, bag, request.form.get('cash_impact') or '')
+        # ⚠️⚠️ VALIDAR LA LIQUIDACIÓN VALIDA SUS FACTURAS (sep 2026, lo pidió Dani): es la aprobación
+        # «con la bolsa». Los gastos con documento que administración no había validado pasan a
+        # CONSOLIDADO y entran en pendiente de pago (y en contabilidad). Vale para cualquier decisión
+        # sobre la liquidación: si se archiva sin pago, lo documentado tiene que llegar igualmente a
+        # contabilidad.
+        validados = _bag_expenses_validate_for_liquidation(session_db, bag)
+        _y_validados = ((" %d gasto%s con factura quedan validados y pasan a pendiente de pago."
+                         % (validados, "" if validados == 1 else "s")) if validados else "")
         if mode == 'VALIDAR':
             bag.liquidation_status = 'PENDIENTE_CIERRE'
             bag.liquidation_reviewed_at = _now_madrid()
-            flash('Liquidación validada y enviada a cierre.', 'success')
+            flash('Liquidación validada y enviada a cierre.' + _y_validados, 'success')
         elif mode == 'PAGO':
             bag.liquidation_status = 'PENDIENTE_PAGO'
-            flash('Liquidación cerrada y enviada a pagos.', 'success')
+            flash('Liquidación cerrada y enviada a pagos.' + _y_validados, 'success')
         elif mode == 'ARCHIVAR':
             bag.liquidation_status = 'ARCHIVADA'
             bag.is_archived = True
             bag.archived_at = _now_madrid()
             _bag_cash_default_on_close(session_db, bag)
             _notify_resolve(session_db, "BAG", bag.id)
-            flash('Liquidación archivada.' + _bag_cash_flash(session_db, bag), 'success')
+            flash('Liquidación archivada.' + _bag_cash_flash(session_db, bag) + _y_validados, 'success')
         else:
             bag.liquidation_status = 'CERRADA'
             bag.is_archived = True
             bag.archived_at = _now_madrid()
             _bag_cash_default_on_close(session_db, bag)
             _notify_resolve(session_db, "BAG", bag.id)
-            flash('Liquidación cerrada.' + _bag_cash_flash(session_db, bag), 'success')
+            flash('Liquidación cerrada.' + _bag_cash_flash(session_db, bag) + _y_validados, 'success')
         adjustments = list(getattr(bag, 'liquidation_adjustments', None) or [])
         if note:
             adjustments.append({'at': _now_madrid().isoformat(), 'by': _current_user_email(), 'note': note, 'mode': mode})

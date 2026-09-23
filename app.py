@@ -169733,6 +169733,53 @@ def _staff_pass_circle(im_sq):
     return salida
 
 
+def _staff_pass_strip_png(persona: dict, escala: int = 1, foto=None) -> bytes:
+    """La BANDA (`strip.png`) del pase de Apple Wallet, estilo «tarjeta de socio»: 375×144 pt a
+    1x/2x/3x. Degradado rojo de la casa, el rótulo arriba a la izquierda y la FOTO en un círculo
+    grande con anillo blanco a la derecha (o las iniciales si no hay foto) y el NOMBRE pintado por
+    nosotros abajo a la izquierda.
+    ⚠️ El nombre va DENTRO de la imagen a propósito: el `primaryField` de una tarjeta de socio lo
+    pinta Wallet ARRIBA de la banda, en grande y a todo lo ancho, y se montaba sobre el rótulo y la
+    foto (probado en un iPhone). Sin campo principal, la banda se ve tal como se diseña."""
+    from PIL import ImageDraw
+    s = max(1, int(escala))
+    W, H = 375 * s, 144 * s
+    im = PILImage.new("RGB", (W, H), STAFF_PASS_RGB_RED)
+    d = ImageDraw.Draw(im)
+    oscuro = (176, 38, 50)
+    for x in range(W):
+        k = x / max(1, W - 1)
+        col = tuple(int(STAFF_PASS_RGB_RED[i] + (oscuro[i] - STAFF_PASS_RGB_RED[i]) * k) for i in range(3))
+        d.line([(x, 0), (x, H)], fill=col)
+    d.text((16 * s, 13 * s), "PASE DE PERSONAL", font=_staff_pass_font(11 * s, True), fill=(255, 226, 229))
+    d.text((16 * s, 29 * s), f"{STAFF_PASS_ORG} · {STAFF_PASS_ORG_SUB}", font=_staff_pass_font(10 * s), fill=(255, 205, 210))
+    # La foto, a la derecha.
+    r = 48 * s
+    cx, cy = W - 16 * s - r, H // 2
+    d.ellipse((cx - r - 4 * s, cy - r - 4 * s, cx + r + 4 * s, cy + r + 4 * s), fill=(255, 255, 255))
+    cuadrado = foto.resize((2 * r, 2 * r), PILImage.LANCZOS) if foto is not None else _staff_pass_initials_square(persona, 2 * r)
+    circulo = _staff_pass_circle(cuadrado)
+    im.paste(circulo, (cx - r, cy - r), circulo)
+    # El nombre, abajo a la izquierda, en el hueco que deja la foto (hasta dos líneas; si no cabe se
+    # baja el cuerpo de letra antes de recortar).
+    max_w = (cx - r - 4 * s) - 16 * s - 10 * s
+    nombre = (persona.get("name") or "").strip()
+    lineas, fuente = [], None
+    for cuerpo in (21, 19, 17, 15):
+        fuente = _staff_pass_font(cuerpo * s, True)
+        lineas = _staff_pass_text_lines(d, nombre, fuente, max_w, max_lines=2)
+        if len(lineas) <= 2 and all(not l.endswith("…") for l in lineas):
+            break
+    alto_linea = int(fuente.size * 1.18)
+    y = H - 14 * s - alto_linea * len(lineas)
+    for linea in lineas:
+        d.text((16 * s, y), linea, font=fuente, fill=(255, 255, 255))
+        y += alto_linea
+    buf = io.BytesIO()
+    im.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def _staff_pass_qr_image(url: str, lado: int):
     """El QR a un tamaño EXACTO de módulo (sin reescalar: un QR reescalado a medias se lee peor)."""
     import segno
@@ -169867,9 +169914,15 @@ def _staff_pass_card_pdf(png: bytes) -> bytes:
 
 # ------------------------------------- Apple Wallet (.pkpass) -------------------------------------
 def _staff_pass_apple_json(cfg: dict, p: StaffPass, persona: dict, url: str) -> dict:
-    """El `pass.json` de un pase GENÉRICO de Apple: colores de la casa, el nombre grande, el DNI y
-    el departamento debajo, la foto como miniatura y el QR de comprobación."""
-    deptos = ", ".join(list(persona.get("departments") or [])[:3]) or "Personal"
+    """El `pass.json` de Apple, estilo «tarjeta de socio» (`storeCard`): es el que admite una BANDA
+    de imagen a todo lo ancho (`strip.png`, la que lleva la foto, el rótulo y el NOMBRE), el DNI y
+    el departamento debajo y el QR de comprobación al pie.
+    ⚠️ SIN `primaryFields`: Wallet lo pinta ARRIBA de la banda, en grande y a todo lo ancho, y se
+    montaba sobre el rótulo y la foto (probado en un iPhone); el nombre va dentro de la imagen.
+    ⚠️ En este estilo los campos secundarios y auxiliares van en la MISMA fila: por eso solo DNI y
+    departamento, y la fecha de emisión y la empresa pasan al dorso. Sin `logoText`: el logo de la
+    casa ya va como imagen (`logo.png`)."""
+    deptos = ", ".join(list(persona.get("departments") or [])[:2]) or "Personal"
     fila = _staff_pass_row(p, persona)
     codigo = {"format": "PKBarcodeFormatQR", "message": url, "messageEncoding": "iso-8859-1",
               "altText": fila["alt_text"]}
@@ -169880,26 +169933,20 @@ def _staff_pass_apple_json(cfg: dict, p: StaffPass, persona: dict, url: str) -> 
         "serialNumber": f"{p.id}-{int(p.serial or 1)}",
         "organizationName": STAFF_PASS_ORG,
         "description": f"Pase de personal · {STAFF_PASS_ORG}",
-        "logoText": STAFF_PASS_ORG,
         "foregroundColor": "rgb(255, 255, 255)",
         "backgroundColor": "rgb(%d, %d, %d)" % STAFF_PASS_RGB_RED,
         "labelColor": "rgb(255, 228, 231)",
         "sharingProhibited": True,
         "barcode": codigo,
         "barcodes": [codigo],
-        "generic": {
+        "storeCard": {
             "headerFields": [{"key": "serial", "label": "PASE", "value": f"Nº {fila['serial_label']}"}],
-            "primaryFields": [{"key": "name", "label": "PERSONAL", "value": persona.get("name") or ""}],
             "secondaryFields": [
                 {"key": "dni", "label": "DNI", "value": persona.get("dni") or ""},
                 {"key": "dept", "label": "DEPARTAMENTO", "value": deptos, "textAlignment": "PKTextAlignmentRight"},
             ],
-            "auxiliaryFields": [
-                {"key": "issued", "label": "EMITIDO", "value": fila["issued_label"]},
-                {"key": "org", "label": "EMPRESA", "value": f"{STAFF_PASS_ORG} · {STAFF_PASS_ORG_SUB}",
-                 "textAlignment": "PKTextAlignmentRight"},
-            ],
             "backFields": [
+                {"key": "issued", "label": "Emitido", "value": f"{fila['issued_label']} · pase nº {fila['serial_label']}"},
                 {"key": "check", "label": "Comprobar la validez", "value": url},
                 {"key": "rules", "label": "Uso",
                  "value": "Pase personal e intransferible. Cualquier persona de la casa puede comprobar su "
@@ -169932,12 +169979,10 @@ def _staff_pass_pkpass_bytes(p: StaffPass, persona: dict) -> bytes:
         "logo@2x.png": _staff_pass_logo_png(320, 100, color=(255, 255, 255), margen=8),
         "logo@3x.png": _staff_pass_logo_png(480, 150, color=(255, 255, 255), margen=12),
     }
-    foto = _staff_pass_photo(persona, 270)
-    if foto is not None:
-        for nombre, lado in (("thumbnail.png", 90), ("thumbnail@2x.png", 180), ("thumbnail@3x.png", 270)):
-            buf = io.BytesIO()
-            foto.resize((lado, lado), PILImage.LANCZOS).save(buf, format="PNG")
-            ficheros[nombre] = buf.getvalue()
+    # La BANDA con la foto (la foto se baja UNA vez, al tamaño mayor, y se reduce para 1x y 2x).
+    foto = _staff_pass_photo(persona, 288)
+    for nombre, escala in (("strip.png", 1), ("strip@2x.png", 2), ("strip@3x.png", 3)):
+        ficheros[nombre] = _staff_pass_strip_png(persona, escala, foto=foto)
     manifest = json.dumps({nombre: hashlib.sha1(data).hexdigest() for nombre, data in ficheros.items()},
                           indent=2).encode("utf-8")
 

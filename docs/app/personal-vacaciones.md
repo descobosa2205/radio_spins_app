@@ -716,11 +716,21 @@
   la pantalla (`.sp-card`, con `filter:brightness(0) invert(1)` para el logo) y la del PDF (90×135 mm,
   la imagen a sangre). La imagen se abre en otra pestaña (en el iPhone: mantener pulsado → Fotos);
   `?dl=1` la baja como adjunto.
-  · **Apple Wallet** (`_staff_pass_pkpass_bytes`): zip con `pass.json` (estilo `generic`, colores de
-  la casa, nombre grande, DNI y departamento, miniatura con la foto, QR con la URL), `icon`/`logo`/
-  `thumbnail` en 1x/2x/3x, `manifest.json` (SHA-1) y la **firma PKCS#7 detached** del manifest con el
-  certificado del Pass Type ID + WWDR (`cryptography.pkcs7`, `Binary` + `DetachedSignature`; openssl
-  la verifica). **Google Wallet** (`_staff_pass_google_save_url`): enlace `pay.google.com/gp/v/save/`
+  · **Apple Wallet** (`_staff_pass_pkpass_bytes`): zip con `pass.json` (estilo **`storeCard`**, la
+  tarjeta de socio: es el que admite una BANDA de imagen a todo lo ancho), `icon`/`logo` en
+  1x/2x/3x, la **banda `strip.png`** (375×144 pt a 1x/2x/3x, `_staff_pass_strip_png`: degradado rojo,
+  rótulo «Pase de personal · 33 Producciones · Pies Records», la FOTO en un círculo grande con anillo
+  blanco a la derecha —o las iniciales— y el **NOMBRE pintado por nosotros** abajo a la izquierda,
+  hasta dos líneas y bajando el cuerpo si no cabe), los campos DNI y DEPARTAMENTO debajo, el número
+  de pase en la cabecera, el resto al dorso, `manifest.json` (SHA-1) y la **firma PKCS#7 detached**
+  del manifest con el certificado del Pass Type ID + WWDR (`cryptography.pkcs7`, `Binary` +
+  `DetachedSignature`; openssl la verifica). Certificado real activo en Render desde el 23-sep-2026.
+  ⚠️⚠️ **SIN `primaryFields` y sin `logoText`** (sep 2026, probado en el iPhone de Dani): en una
+  tarjeta de socio Wallet pinta el campo principal ARRIBA de la banda, en grande y a todo lo ancho,
+  y se montaba sobre el rótulo y la foto; por eso el nombre va DENTRO de la imagen. Y en este estilo
+  los campos secundarios y auxiliares comparten UNA fila: con cuatro se apretaban, así que solo DNI y
+  departamento (fecha y empresa, al dorso). El primer diseño fue `generic` con miniatura: sobrio de
+  más, Dani pidió mejorarlo. La foto se baja UNA vez (288 px) y se reduce para las tres escalas. **Google Wallet** (`_staff_pass_google_save_url`): enlace `pay.google.com/gp/v/save/`
   con un **JWT RS256** firmado a mano (`_jwt_rs256`, sin librería) que lleva la clase y el objeto
   genéricos. Los dos se activan por variables de entorno (`_apple_wallet_config` /
   `_google_wallet_config`); sin ellas los botones salen APAGADOS y explicados, nunca desaparecen.

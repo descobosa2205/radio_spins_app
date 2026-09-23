@@ -1020,6 +1020,26 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
   #navMain{ min-width:0; }
   #navMain .navbar-nav-primary{ overflow: visible; }
 }
+/* EL MENÚ EN EL MÓVIL: un panel lateral con scroll propio (ver el comentario en layout.html).
+   En escritorio (≥ lg) Bootstrap lo vuelve estático y no cambia nada de la barra de siempre. */
+.nav-offcanvas{ --bs-offcanvas-width: min(86vw, 360px); }
+@media (max-width: 991.98px){
+  .nav-offcanvas .nav-offcanvas__head{ border-bottom:1px solid var(--line-2, #e9ecef); padding:.9rem 1.1rem; }
+  .nav-offcanvas .offcanvas-body{ padding:.5rem .75rem 1.25rem; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+  .nav-offcanvas .navbar-nav-primary{ flex-wrap:wrap; }
+  .nav-offcanvas .navbar-nav-primary > .nav-item{ white-space:normal; }
+  .nav-offcanvas .navbar .nav-link,
+  .nav-offcanvas .nav-link{ padding:.62rem .75rem; font-size:1.02rem; }
+  /* El menú PERSONAL (avatar, Mis gastos, Mi pase, Personal de la Oficina, Salir) va el PRIMERO en
+     el móvil: es lo que más se busca y así no hay que bajar hasta el final. */
+  .nav-offcanvas #navUserItem{ order:-1; border-bottom:1px solid var(--line-2, #e9ecef); margin-bottom:.4rem; padding-bottom:.4rem; }
+  /* Dentro del panel, un menú con subsecciones se abre EN LÍNEA (acordeón), no flotando encima. */
+  .nav-offcanvas .navbar-nav .dropdown-menu{ position:static !important; float:none; width:100%; box-shadow:none !important;
+    border:0; border-left:2px solid var(--line-2, #e9ecef); border-radius:0; margin:.1rem 0 .45rem .9rem; padding:.15rem 0 .15rem .35rem;
+    background:transparent; }
+  .nav-offcanvas .navbar-nav .dropdown-menu .dropdown-item{ padding:.5rem .75rem; white-space:normal; }
+  .nav-offcanvas .navbar-nav .user-nav-menu .px-3.py-3{ display:none; }   /* el avatar y el nombre ya están en el propio botón */
+}
 
 /* Recintos en modo visualización. */
 .venue-card-link{ color: inherit; text-decoration: none; }

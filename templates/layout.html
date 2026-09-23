@@ -118,11 +118,22 @@
     <span class="navbar-text small text-danger d-none d-md-inline me-2"><i class="fa fa-user-secret me-1"></i>Viendo como <strong>{{ CURRENT_USER.nick if CURRENT_USER else 'usuario' }}</strong></span>
     {% endif %}
 
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+    <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navMain" aria-controls="navMain" aria-label="Abrir el menú">
       <span class="navbar-toggler-icon"></span>
     </button>
 
-    <div id="navMain" class="collapse navbar-collapse">
+    {# EL MENÚ EN EL MÓVIL ES UN PANEL LATERAL (offcanvas), NO UN DESPLEGABLE BAJO LA BARRA (sep 2026,
+       bug real: «no llego a Personal, el selector de secciones se corta con la pantalla y no puedo
+       bajar»). Con ~25 secciones, el desplegable medía más que la pantalla y, como la barra es
+       `sticky-top`, el scroll de la página no la movía: el final del menú —donde va el menú personal
+       con Personal, Mi pase, Salir…— quedaba fuera del alcance. El panel tiene su propio scroll
+       (`.offcanvas-body`) y en escritorio (≥ lg) Bootstrap lo pinta como la barra de siempre. #}
+    <div id="navMain" class="offcanvas offcanvas-end nav-offcanvas" tabindex="-1" aria-labelledby="navMainTitle">
+      <div class="offcanvas-header nav-offcanvas__head">
+        <div class="fw-semibold" id="navMainTitle"><i class="fa fa-bars me-2 text-danger"></i>Menú</div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+      </div>
+      <div class="offcanvas-body">
       <ul class="navbar-nav navbar-nav-primary ms-auto mb-2 mb-lg-0 align-items-lg-center" id="primaryNavList">
         {# AVISOS: la campana va la PRIMERA, antes de «Inicio», y solo se ve cuando hay algo
            pendiente (el JS le quita el d-none). Al pincharla salen todos en un pop-up. #}
@@ -234,7 +245,8 @@
           </li>
         {% endif %}
       </ul>
-    </div>
+      </div>{# /offcanvas-body #}
+    </div>{# /navMain #}
     {% endif %}{# /EXTERNAL_PROD #}
   </div>
 </nav>

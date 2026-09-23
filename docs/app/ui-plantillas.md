@@ -12,6 +12,7 @@
 - Loader global
 - MÓVIL · lo que no cabe SE DESPLAZA, no se estruja
 - MÓVIL · lo que se salía de la pantalla en INICIO (ago 2026, sobre la red de seguridad de
+- MÓVIL · EL MENÚ ES UN PANEL LATERAL con scroll propio (sep 2026, bug real: «no llego a Personal»)
 - EL BOTÓN DE VOLVER NUNCA LLEVA A UN FORMULARIO. Al crear algo, la pantalla
 - UN </div> DE MÁS CIERRA EL CONTENEDOR ANTES DE TIEMPO (bug real, ago 2026)
 - EL LECTOR DE CODEPOINTS TIENE QUE ENTENDER LOS ALIAS AGRUPADOS: Font Awesome escribe
@@ -1029,3 +1030,28 @@
   la **campanita** (`_promo_alert_add` crea ya el `AppNotification`): vivían SOLO en su módulo de
   Inicio y al reunir las tareas se habrían perdido —`PromotionAlert` es su propia tabla—.
 
+
+- **MÓVIL · EL MENÚ ES UN PANEL LATERAL CON SCROLL PROPIO** (sep 2026, bug real: «desde el móvil no
+  soy capaz de entrar en Personal: el selector de secciones se corta con la pantalla y no puedo bajar»).
+  La barra superior es `sticky-top` y el menú colapsado (`.collapse.navbar-collapse`) se pintaba
+  DEBAJO de ella con las ~25 secciones en columna: medía más que la pantalla (1081 px en un móvil de
+  812) y, como la barra pegajosa no se mueve con el scroll de la página, el final del menú —el menú
+  personal, con Personal de la Oficina, Mi pase, Salir— **no se podía alcanzar de ninguna manera**.
+  · Ahora `#navMain` es un **offcanvas de Bootstrap 5.3** (`offcanvas offcanvas-end nav-offcanvas`,
+  toggler con `data-bs-toggle="offcanvas"`): panel deslizante desde la derecha, con cabecera fija
+  («Menú» + cerrar) y `.offcanvas-body` con su propio scroll, fondo oscurecido y el scroll de la
+  página bloqueado. **En escritorio (≥ lg) no cambia nada**: `.navbar-expand-lg .offcanvas` lo
+  vuelve estático, esconde la cabecera y el `.offcanvas-body` es un flex igual que el antiguo
+  `.navbar-collapse` (comprobado: mismos elementos visibles, mismo «más», misma altura de barra).
+  · En el panel, **el menú personal va el PRIMERO** (`#navUserItem{ order:-1 }` bajo lg): es lo que
+  más se busca. Y los desplegables (Radio, Ventas, el personal…) se abren **en línea, como un
+  acordeón**, no flotando encima: `isMobileNavToggle` en `initDropdownOverflowFix` (scripts.js) deja
+  fuera del portaleo a los toggles de `#navMain` por debajo de 992 px, y el CSS `.nav-offcanvas
+  .navbar-nav .dropdown-menu{ position:static }` los pinta como sublista con una raya a la izquierda.
+  Al cerrar el panel (`hide.bs.offcanvas`) se cierran sus desplegables, para que no se reabra con
+  Radio desplegado. Estilos `.nav-offcanvas*` en `styles.css`.
+  ⚠️ El `availableWidth()` del menú «más» mide `nav.parentElement`: ahora es `.offcanvas-body`, que
+  en escritorio ocupa el ancho entero del offcanvas (flex column → stretch), así que la cuenta sale
+  igual que antes. Si algún día se cambia la estructura, medir `#navMain` y no el padre directo.
+  · Comprobado con la app real: móvil 375 px (abre, baja hasta el final, acordeones, cierra),
+  tablet 800 px (cerrado al cargar) y escritorio 1280 px (barra idéntica, 16 en «más»).

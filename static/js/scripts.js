@@ -1311,18 +1311,38 @@ function initDropdownOverflowFix(){
     closeOtherOpenDropdowns(toggle);
   }, true);
 
+  // EL MENÚ DEL MÓVIL (el panel lateral #navMain por debajo de lg) NO se portalea: sus desplegables
+  // (Radio, Ventas, el menú personal…) se abren EN LÍNEA dentro del panel, como un acordeón, y bajan
+  // con él al hacer scroll. Flotando encima tapaban la lista y se quedaban clavados al desplazarla.
+  function isMobileNavToggle(toggle){
+    return !!(toggle && window.innerWidth < 992 && toggle.closest && toggle.closest('#navMain'));
+  }
+
   document.addEventListener('show.bs.dropdown', (ev) => {
     const toggle = ev.target && ev.target.matches && ev.target.matches(TOGGLE_SELECTOR) ? ev.target : null;
     if (!toggle) return;
     prepareToggle(toggle);
     closeOtherOpenDropdowns(toggle);
+    if (isMobileNavToggle(toggle)) return;
     portalMenu(toggle);
   }, true);
 
   document.addEventListener('shown.bs.dropdown', (ev) => {
     const toggle = ev.target && ev.target.matches && ev.target.matches(TOGGLE_SELECTOR) ? ev.target : null;
-    if (!toggle) return;
+    if (!toggle || isMobileNavToggle(toggle)) return;
     placeMenu(toggle);
+  }, true);
+
+  // Al cerrar el panel del móvil se cierran también sus desplegables abiertos: si no, la próxima
+  // vez se abriría con Radio (o el menú personal) ya desplegado.
+  document.addEventListener('hide.bs.offcanvas', (ev) => {
+    if (!ev.target || ev.target.id !== 'navMain') return;
+    ev.target.querySelectorAll(TOGGLE_SELECTOR).forEach((toggle) => {
+      try {
+        const inst = bootstrap.Dropdown.getInstance(toggle);
+        if (inst) inst.hide();
+      } catch (_) {}
+    });
   }, true);
 
   document.addEventListener('hide.bs.dropdown', (ev) => {

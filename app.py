@@ -960,6 +960,11 @@ def admin_required(view):
             # lista blanca, que la actividad sea la suya y que tenga la marca).
             if _ext_roadmap_gate_ok():
                 return view(*args, **kwargs)
+            # ⚠️ EL CONTROL DE CAMERINOS (en abierto): la llave del navegador que tiene abierto
+            # `/controlcamerinos` deja tocar SOLO los horarios de la hoja que se ve
+            # (`_controlcamerinos_gate_ok`: lista blanca + llave + la misma actividad).
+            if _controlcamerinos_gate_ok():
+                return view(*args, **kwargs)
             nxt = request.full_path if request.query_string else request.path
             return redirect(url_for("admin_login", next=nxt))
         return view(*args, **kwargs)
@@ -89043,7 +89048,7 @@ def _roadmap_save(session_db, row, payload: dict) -> None:
         if session.get("user_id"):
             payload["updated_by"] = _email_to_nick(_current_user_email() or "")
         else:
-            payload["updated_by"] = (session.get("ext_name") or "externo")[:80]
+            payload["updated_by"] = (session.get("ext_name") or ("control camerinos" if _controlcamerinos_token_data() else "externo"))[:80]
     except RuntimeError:
         payload["updated_by"] = "sistema"
     row.roadmap_payload = payload
@@ -100249,11 +100254,13 @@ def camerinos_set(entity_type, entity_id):
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 CAMERINOS_NOTICE_MAX_CHARS = 240
 # CUÁNTO SE QUEDA el aviso en pantalla: 0 = SOLO mientras se lee en voz alta (lo pidió Dani), o un
-# número de minutos libre (de minuto en minuto), con tope. Con 0 el servidor lo da por vivo 90 s: lo
-# justo para que todas las pantallas (que sondean cada 5 s) lo reciban y lo lean.
+# número de minutos libre (de minuto en minuto), con tope. Con 0 el servidor lo da por vivo 30 s: lo
+# justo para que todas las pantallas (que sondean cada 5 s) lo reciban y lo lean. ⚠️ Pasados esos
+# segundos ya no está en ninguna pantalla, así que deja de salir como «en pantalla» (y no hay nada que
+# RETIRAR: retirar es solo mientras se está mostrando, lo pidió Dani); queda en el historial.
 CAMERINOS_NOTICE_DEFAULT_MINUTES = 0
 CAMERINOS_NOTICE_MAX_MINUTES = 240
-CAMERINOS_NOTICE_READ_SECONDS = 90
+CAMERINOS_NOTICE_READ_SECONDS = 30
 # LA VOZ: se genera en el servidor (OpenAI si hay `OPENAI_API_KEY`; si no, gTTS, la voz de Google
 # sin clave) y la pantalla la reproduce como un MP3, igual en todos los aparatos. La voz del
 # navegador (`speechSynthesis`) queda solo de respaldo: Silk no tiene por qué traer voces.
@@ -100384,6 +100391,8 @@ def _camerinos_notices_payload(session_db) -> dict:
         "active": (_camerinos_notice_dict(activo, seen=len(vistos), total=len(conectadas)) if activo is not None else None),
         "screens": {"online": len(conectadas), "total": len(pantallas), "list": pantallas[:20]},
         "presets": _camerinos_presets(),
+        # Desde el control de camerinos (en abierto) la lista de rápidos no se edita.
+        "presets_locked": False,
         "history": [_camerinos_notice_dict(n) for n in ultimos],
         "max_chars": CAMERINOS_NOTICE_MAX_CHARS,
         "default_minutes": CAMERINOS_NOTICE_DEFAULT_MINUTES,
@@ -100391,8 +100400,11 @@ def _camerinos_notices_payload(session_db) -> dict:
     }
 
 
-def _camerinos_notice_create(session_db, et: str, row, data: dict):
-    """Crea el aviso (retirando el que hubiera vivo). Devuelve `(aviso, error, código)`."""
+def _camerinos_notice_create(session_db, et: str, row, data: dict, *, remitente: str | None = None,
+                             allow_preset: bool = True):
+    """Crea el aviso (retirando el que hubiera vivo). Devuelve `(aviso, error, código)`.
+    `remitente` fuerza quién lo manda (el control de camerinos, que no tiene sesión); `allow_preset`
+    deja guardarlo como aviso rápido (desde el control, no)."""
     texto = re.sub(r"\s+", " ", str(data.get("text") or "")).strip()
     if not texto:
         return None, "Escribe el aviso (o toca uno de los avisos rápidos).", 400
@@ -100405,8 +100417,12 @@ def _camerinos_notice_create(session_db, et: str, row, data: dict):
     minutos = max(0, min(minutos, CAMERINOS_NOTICE_MAX_MINUTES))
     ahora = _now_madrid()
     caduca = ahora + (timedelta(minutes=minutos) if minutos else timedelta(seconds=CAMERINOS_NOTICE_READ_SECONDS))
-    estado = _current_user_state() or {}
-    quien = str(estado.get("nick") or "").strip() or _email_to_nick(_current_user_email() or "")
+    quien = (remitente or "").strip()
+    if not quien:
+        estado = _current_user_state() or {}
+        quien = str(estado.get("nick") or "").strip() or _email_to_nick(_current_user_email() or "")
+    else:
+        estado = {}
     # UNO A LA VEZ: el que hubiera vivo se retira (la pantalla lo cambia por el nuevo).
     vivos = (session_db.query(CamerinosNotice)
              .filter(CamerinosNotice.withdrawn_at.is_(None))
@@ -100426,7 +100442,7 @@ def _camerinos_notice_create(session_db, et: str, row, data: dict):
     )
     session_db.add(aviso)
     session_db.commit()
-    if data.get("save_preset"):
+    if allow_preset and data.get("save_preset"):
         _camerinos_presets_store(_camerinos_presets() + [texto])
     # La VOZ se genera YA (best-effort): así la primera pantalla que sondee la tiene lista.
     if aviso.speak:
@@ -100669,94 +100685,246 @@ def camerinos_presets_save(entity_type, entity_id):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
-#  CONTROL DE CAMERINOS · /controlcamerinos (sep 2026, lo pidió Dani)
+#  CONTROL DE CAMERINOS · /controlcamerinos · EN ABIERTO (sep 2026, lo pidió Dani)
 #  ---------------------------------------------------------------------------------------------
-#  La página para un Alexa (o cualquier pantalla táctil) en la oficina de producción o en un camerino:
-#  con un toque manda un aviso rápido a las pantallas, escribe uno nuevo, cambia qué hoja de ruta se
-#  ve y AÑADE O MODIFICA la propia hoja de ruta (es el panel de la hoja de ruta de la actividad que se
-#  está viendo, con todo lo que se puede hacer en él, así no hay una segunda forma de editarla).
-#  · Exige sesión de la casa y poder editar Producción (`_production_can_edit`): desde aquí se cambia
-#    lo que ven los camerinos y la hoja de ruta. Va en `SUPPORT_READ_ENDPOINTS` (la puerta la pone la
-#    propia vista) y en el modo trabajo se comporta como cualquier pantalla de la casa.
-#  · Sin nada en camerinos, ofrece las actividades de estos días para elegir una (el mismo pop-up).
+#  La página para un Alexa (o cualquier pantalla táctil) en la oficina de producción o en un camerino,
+#  SIN sesión, como la pantalla de los camerinos: con un toque manda un aviso rápido, escribe uno nuevo
+#  y AÑADE O MODIFICA LOS HORARIOS de la hoja de ruta que se está viendo. Y nada más (lo pidió así:
+#  «solo para esas funciones de esa hoja de ruta en concreto, y que de ahí no se pueda ir a otro sitio
+#  ni hacer ninguna otra cosa»).
+#  ⚠️⚠️ ES ABIERTA: cualquiera que conozca la dirección puede mandar avisos a las pantallas y tocar
+#  los horarios de la actividad que se vea. Por eso está ACOTADA al máximo:
+#  · Solo la actividad QUE SE VE en camerinos (`_camerinos_setting`): desde aquí no se elige otra, no
+#    se editan los avisos rápidos, no hay enlaces a la app ni fuera de ella (la página bloquea toda
+#    navegación) y la hoja se enseña como en el enlace compartido (`_roadmap_payload_for_kind`: sin
+#    números de habitación), solo con las pestañas de horarios y logística.
+#  · La LLAVE: al abrir la página el servidor deja una cookie firmada (`camctl`, `itsdangerous`,
+#    12 h) ligada a ESA actividad. Con ella, `_controlcamerinos_gate_ok` deja pasar SIN sesión —desde
+#    `admin_required` y `_require_login_v2`, como la puerta de los externos— solo a los endpoints de
+#    la lista blanca `CONTROLCAMERINOS_EDIT_ENDPOINTS` (los puntos de los horarios) para esa misma
+#    actividad, más las búsquedas que necesita el asistente. Si camerinos cambia de actividad, la
+#    llave deja de valer sola. Los avisos van por sus propios endpoints públicos (`/controlcamerinos/…`),
+#    que exigen la misma cookie: un POST a ciegas, sin haber abierto la página, no manda nada.
+#  · Lo que se guarda desde aquí queda firmado como «control camerinos» (`_roadmap_save`, `sent_by`).
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
-CONTROLCAMERINOS_DAYS_BACK = 1
-CONTROLCAMERINOS_DAYS_AHEAD = 21
-CONTROLCAMERINOS_MAX_CANDIDATES = 12
+CONTROLCAMERINOS_TOKEN_HOURS = 12
+CONTROLCAMERINOS_COOKIE = "camctl"
+# Lo ÚNICO que se puede tocar desde el control: los puntos de los horarios de la hoja que se ve…
+CONTROLCAMERINOS_EDIT_ENDPOINTS = {"roadmap_item_save", "roadmap_item_delete", "roadmap_item_toggle",
+                                   "roadmap_item_move", "roadmap_item_songs"}
+# …y lo que necesita su asistente (búsquedas sin datos de personas: compañías, sitios, ruta, recintos).
+CONTROLCAMERINOS_HELPER_ENDPOINTS = {"api_search_transport_companies", "api_transport_places",
+                                     "api_route_estimate", "api_search_venues"}
 
 
-def _controlcamerinos_urls(entity_type: str, entity_id: str) -> dict:
-    return {"state_url": url_for("camerinos_state", entity_type=entity_type, entity_id=entity_id),
-            "set_url": url_for("camerinos_set", entity_type=entity_type, entity_id=entity_id)}
+def _controlcamerinos_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt="camerinos-control")
 
 
-def _controlcamerinos_candidates(session_db) -> list[dict]:
-    """Las actividades de estos días (de ayer a tres semanas) que se pueden poner en camerinos, con su
-    tarjeta. Las canceladas y aplazadas no."""
-    hoy = today_local()
+def _controlcamerinos_token(entity_type: str, entity_id: str) -> str:
+    return _controlcamerinos_serializer().dumps({"et": entity_type, "eid": str(entity_id)})
+
+
+def _controlcamerinos_token_data() -> dict | None:
+    """La llave del control que trae la petición (la cookie): `{et, eid}` si vale, y solo si esa
+    actividad SIGUE siendo la que se ve en camerinos. None en cualquier otro caso."""
     try:
-        filas = (session_db.query(Concert)
-                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
-                 .filter(Concert.date >= hoy - timedelta(days=CONTROLCAMERINOS_DAYS_BACK),
-                         Concert.date <= hoy + timedelta(days=CONTROLCAMERINOS_DAYS_AHEAD))
-                 .order_by(Concert.date.asc(), Concert.created_at.asc())
-                 .limit(CONTROLCAMERINOS_MAX_CANDIDATES * 2).all())
+        raw = (request.cookies.get(CONTROLCAMERINOS_COOKIE) or "").strip()
     except Exception:
-        session_db.rollback()
-        app.logger.exception("[controlcamerinos] no se pudieron leer las actividades de estos días")
-        return []
-    salida = []
-    for c in filas:
-        if (getattr(c, "status", "") or "").upper() in ("CANCELADO", "APLAZADO"):
-            continue
-        try:
-            tarjeta = _camerinos_card(session_db, "concert", c, "GENERAL")
-        except Exception:
-            app.logger.exception("[controlcamerinos] no se pudo componer la tarjeta de una actividad")
-            continue
-        tarjeta.update(_controlcamerinos_urls("concert", str(c.id)))
-        salida.append(tarjeta)
-        if len(salida) >= CONTROLCAMERINOS_MAX_CANDIDATES:
-            break
-    return salida
+        return None
+    if not raw:
+        return None
+    try:
+        data = _controlcamerinos_serializer().loads(raw, max_age=CONTROLCAMERINOS_TOKEN_HOURS * 3600)
+    except (BadSignature, SignatureExpired):
+        return None
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not data.get("eid") or not data.get("et"):
+        return None
+    sel = _camerinos_setting()
+    if not sel or sel["entity_type"] != str(data.get("et")) or sel["entity_id"] != str(data.get("eid")):
+        return None
+    return {"et": str(data["et"]), "eid": str(data["eid"])}
 
 
-@app.get('/controlcamerinos', endpoint='controlcamerinos_view')
-@app.get('/control-camerinos', endpoint='controlcamerinos_view')
-@admin_required
-def controlcamerinos_view():
-    """EL CONTROL DE CAMERINOS: lo que se ve, los avisos de un toque y la hoja de ruta editable."""
-    if not _production_can_edit():
-        return forbid("El control de camerinos es de producción (hace falta poder editar Producción).")
+def _controlcamerinos_gate_ok() -> bool:
+    """La PUERTA del control de camerinos para una petición sin sesión: endpoint de la lista blanca +
+    llave válida + (en los de la hoja) la misma actividad que la llave. La llaman `admin_required` y
+    `_require_login_v2`, como la puerta de los externos."""
+    try:
+        ep = request.endpoint or ""
+        if ep not in CONTROLCAMERINOS_EDIT_ENDPOINTS and ep not in CONTROLCAMERINOS_HELPER_ENDPOINTS:
+            return False
+        datos = _controlcamerinos_token_data()
+        if not datos:
+            return False
+        if ep in CONTROLCAMERINOS_EDIT_ENDPOINTS:
+            va = request.view_args or {}
+            if str(va.get("entity_type") or "") != datos["et"] or str(va.get("entity_id") or "") != datos["eid"]:
+                return False
+        return True
+    except Exception:
+        app.logger.exception("[controlcamerinos] no se pudo decidir la puerta")
+        return False
+
+
+def _controlcamerinos_active(session_db):
+    """La actividad que se ve en camerinos: `(sel, entity_type, row)`, o `(None, None, None)`."""
+    sel = _camerinos_setting()
+    if not sel:
+        return None, None, None
+    et, row = _roadmap_entity(session_db, sel["entity_type"], sel["entity_id"])
+    if row is None:
+        return None, None, None
+    return sel, et, row
+
+
+def _controlcamerinos_needs_key():
+    """Los POST del control exigen la llave (la cookie de haber abierto la página)."""
+    if _controlcamerinos_token_data() is None:
+        return jsonify({"ok": False, "error": "Abre el control de camerinos (la página) para poder hacerlo desde aquí."}), 403
+    return None
+
+
+@app.get('/controlcamerinos', endpoint='public_controlcamerinos_view')
+def public_controlcamerinos_view():
+    """EL CONTROL DE CAMERINOS (en abierto): los avisos de un toque, un aviso nuevo y los horarios
+    editables de la hoja que se ve. Deja la llave (cookie) para esa actividad."""
     session_db = db()
     try:
-        sel = _camerinos_setting()
+        sel, et, row = _controlcamerinos_active(session_db)
         pantallas = _camerinos_screens(session_db)
         avisos = _camerinos_notices_payload(session_db)
         ctl = {
-            "active": None, "rm": None, "candidates": [],
+            "active": None, "rm": None,
             "presets": avisos.get("presets") or [],
             "notice": avisos.get("active"),
-            "screens": pantallas,
             "online": sum(1 for p in pantallas if p.get("online")),
             "screen_url": _external_url_for("public_camerinos_view"),
             "logo": _camerinos_brand(session_db, "", None),
         }
-        if sel:
-            et, row = _roadmap_entity(session_db, sel["entity_type"], sel["entity_id"])
-            if row is not None:
-                activo = _camerinos_card(session_db, et, row, sel["kind"])
-                activo.update(_controlcamerinos_urls(et, str(row.id)))
-                ctl["active"] = activo
-                ctl["logo"] = _camerinos_brand(session_db, et, row)
-                # La hoja de ruta ENTERA y EDITABLE (el mismo panel de la ficha).
-                ctl["rm"] = _roadmap_context(session_db, et, row)
-        if ctl["active"] is None:
-            ctl["candidates"] = _controlcamerinos_candidates(session_db)
-        return render_template("controlcamerinos.html", ctl=ctl)
+        llave = ""
+        if row is not None:
+            activo = _camerinos_card(session_db, et, row, sel["kind"])
+            # Las URLs que usa `camerinos.js`: la base del control (+ /avisos · /aviso · /aviso/retirar).
+            activo["set_url"] = url_for("public_controlcamerinos_view")
+            activo["state_url"] = url_for("public_controlcamerinos_state")
+            ctl["active"] = activo
+            ctl["logo"] = _camerinos_brand(session_db, et, row)
+            # LA HOJA DE RUTA, editable pero ACOTADA: como en el enlace compartido (sin números de
+            # habitación y solo los puntos de esa hoja), solo horarios y logística, sin lo de la casa
+            # (`ext_editor`: sin compartir, configurar días ni plantillas) y sin el aviso al personal.
+            rm = _roadmap_context(session_db, et, row)
+            rm["payload"] = _roadmap_payload_for_kind(rm.get("payload") or {}, sel["kind"])
+            rm["days"] = _roadmap_days(row, rm["payload"])
+            rm["readonly"] = False
+            rm["ext_editor"] = True
+            rm["control_kiosk"] = True
+            rm["tabs"] = ["agenda", "logistica"]
+            rm["camerinos"] = None
+            rm["kind"] = sel["kind"]
+            # Ni un enlace a la app (van dentro del JSON del panel): de aquí no se sale.
+            rm["sheet_kinds_url"] = ""
+            rm["setlist_edit_url"] = ""
+            rm["setlist_pdf_url"] = ""
+            ctl["rm"] = rm
+            llave = _controlcamerinos_token(et, str(row.id))
+        resp = make_response(render_template("controlcamerinos.html", ctl=ctl))
+        resp.headers["Cache-Control"] = "no-store"
+        if llave:
+            resp.set_cookie(CONTROLCAMERINOS_COOKIE, llave, max_age=CONTROLCAMERINOS_TOKEN_HOURS * 3600,
+                            httponly=True, samesite="Lax", secure=bool(request.is_secure), path="/")
+        else:
+            resp.delete_cookie(CONTROLCAMERINOS_COOKIE, path="/")
+        return resp
     finally:
         session_db.close()
 
+
+@app.get('/control-camerinos', endpoint='public_controlcamerinos_alias')
+def public_controlcamerinos_alias():
+    return redirect(url_for("public_controlcamerinos_view"))
+
+
+@app.get('/controlcamerinos/estado', endpoint='public_controlcamerinos_state')
+def public_controlcamerinos_state():
+    """El estado que pide el pop-up de avisos del control (la misma forma que `camerinos_state`, para
+    la actividad que se ve). Desde el control no se va a ningún otro sitio: sin enlaces a la app."""
+    session_db = db()
+    try:
+        sel, et, row = _controlcamerinos_active(session_db)
+        if row is None:
+            return jsonify({"ok": False, "error": "Ahora no se ve ninguna hoja de ruta en camerinos."}), 404
+        payload = _camerinos_state_payload(session_db, et, row)
+        payload.pop("sheet_kinds_url", None)
+        payload["control"] = True
+        if isinstance(payload.get("notices"), dict):
+            payload["notices"]["presets_locked"] = True
+        return jsonify(payload)
+    finally:
+        session_db.close()
+
+
+@app.get('/controlcamerinos/avisos', endpoint='public_controlcamerinos_notices')
+def public_controlcamerinos_notices():
+    session_db = db()
+    try:
+        return jsonify(dict(_camerinos_notices_payload(session_db), ok=True, presets_locked=True))
+    finally:
+        session_db.close()
+
+
+@app.post('/controlcamerinos/aviso', endpoint='public_controlcamerinos_notice_send')
+def public_controlcamerinos_notice_send():
+    """MANDAR un aviso desde el control (con la llave): queda firmado como «control camerinos» y no
+    puede guardar avisos rápidos."""
+    session_db = db()
+    try:
+        falta = _controlcamerinos_needs_key()
+        if falta is not None:
+            return falta
+        sel, et, row = _controlcamerinos_active(session_db)
+        if row is None:
+            return jsonify({"ok": False, "error": "Ahora no se ve ninguna hoja de ruta en camerinos."}), 404
+        data = request.get_json(silent=True) or {}
+        aviso, motivo, codigo = _camerinos_notice_create(session_db, et, row, data,
+                                                         remitente="control camerinos", allow_preset=False)
+        if aviso is None:
+            return jsonify({"ok": False, "error": motivo}), codigo
+        payload = _camerinos_notices_payload(session_db)
+        n = payload["screens"]["online"]
+        app.logger.info("[controlcamerinos] aviso a %d pantallas: %s", n, aviso.text)
+        msg = ("Aviso enviado a %d pantalla%s conectada%s." % (n, "" if n == 1 else "s", "" if n == 1 else "s")) if n \
+            else "Aviso enviado. Ahora mismo no hay ninguna pantalla conectada: lo verá la primera que se conecte mientras esté vivo."
+        return jsonify(dict(payload, ok=True, presets_locked=True, message=msg))
+    finally:
+        session_db.close()
+
+
+@app.post('/controlcamerinos/aviso/retirar', endpoint='public_controlcamerinos_notice_withdraw')
+def public_controlcamerinos_notice_withdraw():
+    session_db = db()
+    try:
+        falta = _controlcamerinos_needs_key()
+        if falta is not None:
+            return falta
+        ahora = _now_madrid()
+        retirados = 0
+        for n in session_db.query(CamerinosNotice).filter(CamerinosNotice.withdrawn_at.is_(None)).all():
+            n.withdrawn_at = ahora
+            retirados += 1
+        session_db.commit()
+        return jsonify(dict(_camerinos_notices_payload(session_db), ok=True, presets_locked=True,
+                            message=("Aviso retirado de las pantallas." if retirados else "No había ningún aviso en las pantallas.")))
+    finally:
+        session_db.close()
+
+
+@app.post('/controlcamerinos/avisos-rapidos', endpoint='public_controlcamerinos_presets_save')
+def public_controlcamerinos_presets_save():
+    """Desde el control NO se editan los avisos rápidos (eso es de la app)."""
+    return jsonify({"ok": False, "error": "Los avisos rápidos se editan desde la app, en el pop-up de Camerinos."}), 403
 
 def _tour_concerts_by_slug(session_db, slug: str) -> list[Concert]:
     rows = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(or_(func.upper(func.coalesce(Concert.sale_type, '')) == 'GIRAS_COMPRADAS', func.upper(func.coalesce(Concert.activity_type, '')) == 'GIRA')).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc()).all()
@@ -102378,7 +102546,12 @@ PUBLIC_ENDPOINTS_EXTRA = {"onesheet_public_view", "onesheet_roster_public", "one
                           "public_youtube_thumb", "public_youtube_play"}
 # HOJA DE RUTA EN CAMERINOS: la pantalla de los Echo Show y su sondeo (públicos, sin token).
 PUBLIC_ENDPOINTS_EXTRA |= {"public_camerinos_view", "public_camerinos_panel", "public_camerinos_notices",
-                           "public_camerinos_notice_audio"}
+                           "public_camerinos_notice_audio",
+                           # El CONTROL de camerinos (en abierto, con su llave): la página y sus avisos.
+                           "public_controlcamerinos_view", "public_controlcamerinos_alias",
+                           "public_controlcamerinos_state", "public_controlcamerinos_notices",
+                           "public_controlcamerinos_notice_send", "public_controlcamerinos_notice_withdraw",
+                           "public_controlcamerinos_presets_save"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -107312,6 +107485,9 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
+    # …y el CONTROL DE CAMERINOS (en abierto), con su llave, solo a los horarios de la hoja que se ve.
+    if _controlcamerinos_gate_ok():
+        return
     allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
@@ -107471,8 +107647,6 @@ SUPPORT_READ_ENDPOINTS = {
     "camerinos_state", "camerinos_notices_state",
     # Las HOJAS DE RUTA de la casa (nombre + icono): la pantalla la abre producción (lo comprueba ella).
     "roadmap_sheet_kinds_view",
-    # El CONTROL DE CAMERINOS (la página del Alexa de la oficina): producción (lo comprueba la vista).
-    "controlcamerinos_view",
     # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
     "api_publisher_change",
     # ¿Ya existe una canción con ese nombre de ese artista? Es una BÚSQUEDA, y la hacen el alta de

@@ -274,7 +274,7 @@
       + '</div>';
     h += '<div class="alert alert-success py-2 d-none" data-av-flash></div>';
     h += activoHtml(av);
-    h += '<div class="mt-3">' + q('fa-bolt', 'Avisos rápidos', 'Un toque y se manda a todas las pantallas, con la campana y leído en voz alta. <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-av-edit>Editar la lista</button>') + '</div>';
+    h += '<div class="mt-3">' + q('fa-bolt', 'Avisos rápidos', 'Un toque y se manda a todas las pantallas, con la campana y leído en voz alta.' + (av.presets_locked ? '' : ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-av-edit>Editar la lista</button>')) + '</div>';
     h += '<div class="cam-av-presets" data-av-presets>' + presetsHtml(av, false) + '</div>';
     h += '<div class="mt-3">' + q('fa-pen', 'Escribir un aviso', '') + '</div>';
     h += '<textarea class="form-control" rows="2" maxlength="' + max + '" data-av-text placeholder="Lo que tiene que salir en las pantallas"></textarea>';
@@ -282,7 +282,7 @@
       + '<span class="text-muted"><span data-av-count>0</span>/' + max + '</span>'
       + '<label class="form-check mb-0 d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" data-av-speak checked> Leer en voz alta</label>'
       + duracionHtml(av)
-      + '<label class="form-check mb-0 d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" data-av-save> Guardar como aviso rápido</label>'
+      + (av.presets_locked ? '' : '<label class="form-check mb-0 d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" data-av-save> Guardar como aviso rápido</label>')
       + '</div>';
     h += '<div class="mt-2"><button type="button" class="btn btn-danger" data-av-send><i class="fa fa-bell me-1"></i>Mandar a las pantallas</button></div>';
     h += historialHtml(av);

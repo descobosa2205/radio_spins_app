@@ -14,8 +14,8 @@ Comprueba, contra la app REAL y la BD de PRUEBA:
   · los permisos: sin sesión no se cambia nada; sin poder editar producción, tampoco
   · el botón «Camerinos» del panel de la hoja de ruta, con su estado pintado por el servidor, y que no
     asoma en la hoja compartida
-  · el CONTROL DE CAMERINOS (/controlcamerinos): lo que se ve con su hoja de ruta editable, los avisos
-    rápidos de un toque, las actividades para elegir cuando no se ve nada, y sus permisos
+  · el CONTROL DE CAMERINOS (/controlcamerinos, EN ABIERTO): solo la hoja que se ve, con sus horarios
+    editables gracias a la llave (cookie) y sus avisos; nada más (ni otra actividad, ni hoteles, ni rápidos)
   · las HOJAS DE RUTA con nombre e icono: crear una, que sale en las etiquetas de los puntos, en el
     pop-up de camerinos y con su propio enlace compartido (que filtra), y quitarla
   · los AVISOS a las pantallas: mandar (y los rápidos preguardados), que la pantalla lo recibe con su
@@ -491,21 +491,58 @@ def main():
     A._ROADMAP_SHEET_KINDS_CACHE["v"] = None
     check("el catálogo de hojas queda como estaba", A._get_app_setting(A.ROADMAP_SHEET_KINDS_KEY, None) == hojas_antes)
 
-    print("11 · El control de camerinos")
-    r = prod.get("/controlcamerinos"); html = r.get_data(as_text=True)
-    check("sin nada en camerinos, ofrece las actividades de estos días", r.status_code == 200 and NOMBRES[0] in html and "Mostrar en camerinos" in html and 'data-cam-open' in html, r.status_code)
-    check("con la ruta alternativa también", prod.get("/control-camerinos").status_code == 200)
+    print("11 · El control de camerinos (en abierto, solo la hoja que se ve)")
+    r = anon.get("/controlcamerinos"); html = r.get_data(as_text=True)
+    check("abre sin sesión y, sin nada en camerinos, lo dice", r.status_code == 200 and "Ahora no se ve ninguna hoja de ruta" in html and 'id="roadmapPanel"' not in html, r.status_code)
+    check("la ruta alternativa lleva a la buena", anon.get("/control-camerinos").status_code in (301, 302))
     prod.post(url_set, json={"action": "show", "kind": "GENERAL"})
     prod.post(url_set + "/aviso", json={"text": AVISOS[0], "speak": True, "minutes": 5})
-    r = prod.get("/controlcamerinos"); html = r.get_data(as_text=True)
-    check("con una actividad en camerinos, la enseña con su hoja de ruta editable", r.status_code == 200 and "Se ve ahora en camerinos" in html and NOMBRES[0] in html and 'id="roadmapPanel"' in html and 'data-readonly' not in html)
+    ctl = A.app.test_client()                      # un navegador CUALQUIERA, sin sesión
+    r = ctl.get("/controlcamerinos"); html = r.get_data(as_text=True)
+    check("con una actividad en camerinos, la enseña con sus horarios editables", r.status_code == 200 and "Se ve ahora en camerinos" in html and NOMBRES[0] in html and 'id="roadmapPanel"' in html and 'data-readonly' not in html)
+    check("deja la llave (cookie) de esa actividad", "camctl=" in (r.headers.get("Set-Cookie") or ""))
     check("con los avisos rápidos de un toque y el botón de nuevo aviso", 'data-cam-quick="' in html and 'data-cam-open="avisos"' in html and "camerinos.js" in html)
     check("y el aviso que está ahora en las pantallas", AVISOS[0] in html and "En las pantallas ahora" in html)
-    check("dice cuántas pantallas hay conectadas", "pantalla" in html and 'id="ctlClock"' in html)
-    prod.post(url_set + "/aviso/retirar", json={})
-    prod.post(url_set, json={"action": "stop"})
-    check("sin poder editar producción, 403", nadie.get("/controlcamerinos").status_code == 403)
-    check("sin sesión, al login", anon.get("/controlcamerinos").status_code in (302, 401))
+    check("sin poder cambiar lo que se ve ni salir a la app", "Cambiar lo que se ve" not in html and "<nav" not in html and "hojas-de-ruta/tipos" not in html and "Mandar un mensaje" not in html)
+    check("la hoja va acotada: solo horarios y logística, sin el número de habitación", '"tabs": ["agenda", "logistica"]' in html and HABITACION not in html and '"control_kiosk": true' in html)
+    # Con la llave, se editan LOS HORARIOS de esa actividad…
+    r = ctl.post(f"/hoja-ruta/concert/{cid}/item", json={"kind": "OTROS", "title": "Añadido desde el control", "day": DIA, "start_time": "13:15"})
+    j = r.get_json() if r.is_json else {}
+    check("con la llave se añade un punto a los horarios de esa hoja", r.status_code == 200 and j.get("ok") and any(it.get("title") == "Añadido desde el control" for it in (j.get("payload") or {}).get("agenda", [])), r.status_code)
+    s = A.db()
+    try:
+        c = s.get(Concert, A.to_uuid(cid))
+        check("y queda firmado como «control camerinos»", (c.roadmap_payload or {}).get("updated_by") == "control camerinos", (c.roadmap_payload or {}).get("updated_by"))
+    finally:
+        s.close()
+    check("pero no otra cosa de la hoja (un hotel)", ctl.post(f"/hoja-ruta/concert/{cid}/hotel", json={"name": "Hotel intruso"}).status_code in (302, 401, 403))
+    check("ni los horarios de OTRA actividad", ctl.post(f"/hoja-ruta/concert/{cid2}/item", json={"kind": "OTROS", "title": "Intruso", "day": DIA}).status_code in (302, 401, 403))
+    check("sin haber abierto la página (sin llave), nada", anon.post(f"/hoja-ruta/concert/{cid}/item", json={"kind": "OTROS", "title": "Sin llave", "day": DIA}).status_code in (302, 401, 403))
+    # …y se mandan avisos, sin tocar los rápidos.
+    r = ctl.post("/controlcamerinos/aviso", json={"text": AVISOS[1], "speak": True}); j = r.get_json() or {}
+    check("con la llave se manda un aviso, firmado como control", r.status_code == 200 and j.get("ok") and (j.get("active") or {}).get("sent_by") == "control camerinos" and j.get("presets_locked") is True, (r.status_code, j.get("error")))
+    check("sin llave no se manda", anon.post("/controlcamerinos/aviso", json={"text": "hola"}).status_code == 403)
+    check("los avisos rápidos no se editan desde el control", ctl.post("/controlcamerinos/avisos-rapidos", json={"presets": ["x"]}).status_code == 403)
+    st = ctl.get("/controlcamerinos/estado").get_json() or {}
+    check("el estado del control es el de esa actividad y sin enlaces a la app", st.get("ok") and (st.get("active") or {}).get("is_this") and "sheet_kinds_url" not in st and st["notices"]["presets_locked"] is True)
+    r = ctl.post("/controlcamerinos/aviso/retirar", json={}); j = r.get_json() or {}
+    check("retirar desde el control", r.status_code == 200 and j.get("ok") and j.get("active") is None)
+    # Un aviso «mientras se lee» deja de estar en pantalla enseguida: no hay nada que retirar.
+    r = prod.post(url_set + "/aviso", json={"text": AVISOS[3], "speak": True}); j = r.get_json() or {}
+    check("recién mandado, el aviso «mientras se lee» está en pantalla", (j.get("active") or {}).get("text") == AVISOS[3])
+    s = A.db()
+    try:
+        n = s.query(CamerinosNotice).filter(CamerinosNotice.text == AVISOS[3]).order_by(CamerinosNotice.sent_at.desc()).first()
+        n.sent_at = A._now_madrid() - timedelta(seconds=40); n.expires_at = A._now_madrid() - timedelta(seconds=10); s.commit()
+    finally:
+        s.close()
+    av = prod.get(url_set + "/avisos").get_json() or {}
+    check("a los 30 s ya no está en pantalla: no hay nada que retirar y queda en el historial", av.get("active") is None and any(h["text"] == AVISOS[3] for h in av.get("history", [])))
+    # Si camerinos cambia de actividad, la llave deja de valer.
+    prod.post(url_set2, json={"action": "show", "kind": "GENERAL"})
+    check("si camerinos cambia de actividad, la llave vieja no sirve", ctl.post(f"/hoja-ruta/concert/{cid}/item", json={"kind": "OTROS", "title": "Llave vieja", "day": DIA}).status_code in (302, 401, 403))
+    prod.post(url_set2, json={"action": "stop"})
+    check("sin nada en camerinos, el control vuelve a estar vacío", "Ahora no se ve ninguna hoja de ruta" in anon.get("/controlcamerinos").get_data(as_text=True))
 
     print("8 · Limpieza")
     s = A.db()

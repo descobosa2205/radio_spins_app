@@ -38,7 +38,7 @@
 - HOJA DE RUTA EN CAMERINOS · la pantalla de los Echo Show: una sola hoja elegida, sus horarios con
 - CAMERINOS · AVISOS A LAS PANTALLAS: la campanita del pop-up, los avisos rápidos de un toque, la nota
 - LAS HOJAS DE RUTA DE LA CASA: las dos de serie y las que se creen con su nombre y su icono (el catálogo,
-- EL CONTROL DE CAMERINOS (/controlcamerinos): la página del Alexa de la oficina: lo que se ve, avisos de
+- EL CONTROL DE CAMERINOS (/controlcamerinos, EN ABIERTO y acotado a la hoja que se ve): avisos de un
 - HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos (sep 2026, lo pidió
 - HORARIOS · CADA TIPO PREGUNTA SOLO LO SUYO, y las PERSONAS DE CONTACTO son varias (sep 2026,
 - TRASLADOS · LAS COMPAÑÍAS DE TRANSPORTE SON UNA BASE DE DATOS, con su logo en PNG sin fondo
@@ -980,26 +980,44 @@ transporte): ahí se quita y deja de salir.
   pantalla con su hora y quién, **el MP3 de la voz sonando y la nota yéndose al acabar**, la confirmación
   «visto en 1 de 1», el retirar y el set list abriéndose y cerrándose.
 
-- **EL CONTROL DE CAMERINOS · `/controlcamerinos`** (sep 2026, lo pidió Dani: «un enlace que permita
-  pinchar para enviar mensajes predefinidos a los camerinos conectados o crear un nuevo aviso, y añadir
-  o modificar cosas de la hoja de ruta», pensado para un Alexa en la oficina o en un camerino). También
-  `/control-camerinos`. Es una página DE LA CASA (sesión + poder editar Producción, `controlcamerinos_view`,
-  en `SUPPORT_READ_ENDPOINTS` con la puerta en la propia vista): desde aquí se cambia lo que ven los
-  camerinos y la hoja de ruta, así que no puede ser pública. Plantilla `controlcamerinos.html`.
-  · Arriba, la barra de la casa con el logo de la empresa (calado), cuántas pantallas hay conectadas,
-  qué se ve ahora, la hora y un botón de pantalla completa (un toque, la regla de Chromium).
-  · **Con una actividad en camerinos**: su tarjeta, «Cambiar lo que se ve» (el pop-up de siempre) y
-  «Nuevo aviso» (el pop-up abierto DIRECTAMENTE en la vista de avisos: `data-cam-open="avisos"`), los
-  **avisos rápidos de un toque** (`data-cam-quick`: se mandan con voz y «solo mientras se lee», y el
-  resultado se dice al lado), el aviso que está ahora en las pantallas y, debajo, **la hoja de ruta
-  ENTERA y EDITABLE** (el mismo `_roadmap_panel.html` de la ficha con `_roadmap_context`: no hay una
-  segunda forma de editarla). Elegir otra cosa que ver recarga la página (`data-cam-reload`).
-  · **Sin nada en camerinos**: las actividades de estos días (`_controlcamerinos_candidates`: de ayer a
-  tres semanas, sin canceladas ni aplazadas) con su tarjeta y «Mostrar en camerinos».
-  ⚠️ `camerinos.js` puede cargarse desde el panel Y desde esta página: se protege de cargarse dos veces
-  (`window.__app33CamerinosJs`), o los clics se atenderían dos veces.
-  · Prueba: `check_camerinos.py`, apartado 11. Probado además en el navegador: elegir una actividad,
-  la recarga con su hoja editable, el aviso de un toque y su llegada a la pantalla.
+- ⚠️⚠️ **EL CONTROL DE CAMERINOS · `/controlcamerinos` · EN ABIERTO** (sep 2026, lo pidió Dani: «un
+  enlace que permita pinchar para enviar mensajes predefinidos a los camerinos conectados o crear un
+  nuevo aviso, y añadir o modificar cosas de la hoja de ruta… en abierto, solo para esas funciones de
+  esa hoja de ruta en concreto, y que de ahí no se pueda ir a otro sitio ni hacer ninguna otra cosa»;
+  pensado para un Alexa en la oficina o en un camerino). También `/control-camerinos` (redirige).
+  Plantilla `controlcamerinos.html`, standalone (sin el layout de la app).
+  · ⚠️⚠️ **ES UNA PÁGINA ABIERTA** (sin sesión, como `/camerinos`): cualquiera que conozca la dirección
+  puede mandar avisos a las pantallas y tocar los horarios de la actividad que se vea. Dani lo pidió
+  así a sabiendas; por eso está **ACOTADA al máximo**: solo la actividad QUE SE VE en camerinos (desde
+  aquí no se elige otra), solo sus AVISOS (sin editar los rápidos) y solo sus HORARIOS (pestañas
+  Horarios y Logística, la hoja como en el enlace compartido: `_roadmap_payload_for_kind`, sin números
+  de habitación; `ext_editor` para que no salga lo de la casa —compartir, configurar días, plantillas—
+  y `control_kiosk` para que no salga el aviso al personal). Sin nada en camerinos, solo lo dice.
+  · **LA LLAVE**: al abrir la página el servidor deja la cookie **`camctl`** (firmada con `itsdangerous`,
+  12 h, `_controlcamerinos_token`) ligada a ESA actividad. `_controlcamerinos_gate_ok` —llamada desde
+  `admin_required` y `_require_login_v2`, como la puerta de los externos— deja pasar SIN sesión solo a
+  `CONTROLCAMERINOS_EDIT_ENDPOINTS` (guardar, borrar, mover y marcar un punto y su repertorio) para
+  esa misma actividad, más `CONTROLCAMERINOS_HELPER_ENDPOINTS` (las búsquedas del asistente, sin datos
+  de personas). Si camerinos cambia de actividad, la llave deja de valer sola
+  (`_controlcamerinos_token_data` la compara con lo que se ve). Un hotel, otra actividad o un POST sin
+  haber abierto la página → al login, como siempre.
+  · **LOS AVISOS** van por sus endpoints públicos con la misma llave: `public_controlcamerinos_state`
+  (`/controlcamerinos/estado`), `_notices` (`/avisos`), `_notice_send` (`/aviso`), `_notice_withdraw`
+  (`/aviso/retirar`) y `_presets_save` (`/avisos-rapidos`, que responde **403**: los rápidos se editan
+  desde la app). `camerinos.js` los usa tal cual porque su base es `data-cam-set-url` = `/controlcamerinos`
+  (`presets_locked` esconde «Editar la lista» y «Guardar como aviso rápido»). Lo que se manda o se
+  guarda desde aquí queda firmado como **«control camerinos»** (`_camerinos_notice_create(remitente=)`,
+  `_roadmap_save`).
+  · **DE AQUÍ NO SE SALE**: sin menú ni enlaces a la app (el JSON del panel va sin `sheet_kinds_url` ni
+  las URLs del set list), los enlaces que traiga la hoja (mapas, teléfonos, PDF) se ven apagados y un
+  listener en fase de captura corta cualquier navegación y `window.open`. Botón de pantalla completa
+  (un toque). Barra con el logo de la empresa, las pantallas conectadas, qué se ve y la hora.
+  · ⚠️ **RETIRAR es solo mientras se está mostrando** (lo pidió Dani): un aviso «mientras se lee» está
+  vivo 30 s (`CAMERINOS_NOTICE_READ_SECONDS`, lo justo para que todas las pantallas lo reciban y lo
+  lean) y después ya no sale como «en pantalla» ni tiene botón de retirar: queda en el historial.
+  · Prueba: `check_camerinos.py`, apartado 11 (abre sin sesión, la llave, añadir un punto, lo que NO
+  se puede, los avisos con su firma, que la llave caduca al cambiar de actividad). Probado además en el
+  navegador sin sesión.
 
 - ⚠️⚠️ **HORARIOS · TODOS LOS PUNTOS SE AÑADEN IGUAL: el asistente por pasos** (sep 2026, lo pidió
   Dani). El editor de un punto de los horarios era un formulario largo de un tirón; ahora es el

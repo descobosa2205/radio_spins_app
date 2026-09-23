@@ -129,7 +129,8 @@ que es lo que `_my_task_images` necesita para poner la imagen. → `docs/app/ui-
 Al pinchar una fila se abre `#disenoTaskModal` con **la cabecera roja de la casa** (`sw-head`), el
 sujeto, las chapas (fecha de entrega con los días que quedan · quién lo pide · cuándo lo pidió),
 **«Lo que se pide»** (las `specs` de esa tarea: formatos, tamaños, logos, la idea…), la nota, **los
-archivos adjuntos** (las fotos con su miniatura) y la **zona de arrastrar o elegir**. Abajo,
+archivos adjuntos** (las fotos con su miniatura; en la cartelería, **los logos que se adjuntaron al
+pedirla**, con su nombre: `docs/app/carteleria.md`) y la **zona de arrastrar o elegir**. Abajo,
 «Abrir la ficha» lleva a donde vive el encargo.
 
 ⚠️⚠️ **Las tareas viajan en un `<script type="application/json">`, NO en atributos**: un `|tojson`

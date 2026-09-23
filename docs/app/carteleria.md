@@ -38,6 +38,7 @@
 - UN CARTEL PASA POR DOS VISTOS BUENOS: DISEÑO Y DESPUÉS CONTRATACIÓN (sep 2026)
 - SE PUEDE PEDIR UNA MODIFICACIÓN DE LOS CARTELES, CON LOS ARCHIVOS QUE HAGAN FALTA
 - CON LOS DOS VISTOS BUENOS, LOS CARTELES SE LE MANDAN SOLOS AL ARTISTA (sep 2026)
+- AL PEDIR LOS CARTELES SE ADJUNTAN LOGOS, CON SU ARCHIVO Y SU NOMBRE (sep 2026)
 
 ---
 
@@ -872,3 +873,41 @@
   genera** la miniatura de un PDF que todavía no la tenga: aprovecha la que haya. Quien tenga
   sesión llama al punto único con ella.
   · Cubierto por `tools/check_diseno_comunicaciones.py` (apartados 3 bis y 3 ter).
+
+- ⚠️⚠️ **AL PEDIR LOS CARTELES SE ADJUNTAN LOGOS, CON SU ARCHIVO Y SU NOMBRE** (sep 2026, lo pidió
+  Dani: «cuando se solicitan los carteles se tienen que poder añadir logos subiendo el fichero del
+  logo y poniendo el nombre»). Hasta ahora los logos que no eran de una empresa del grupo solo se
+  podían ESCRIBIR (`logo_notes`: «Ayuntamiento, patrocinador X…») y diseño tenía que ir a buscarlos.
+  · **DÓNDE SE AÑADEN**: en TODOS los sitios desde los que se piden carteles, con el mismo bloque
+  (`templates/_artwork_logo_upload.html`, macro `artwork_logo_upload`): el **paso de cartelería del
+  asistente** de actividad, el **formulario de la ficha** y su pop-up **«Solicitar carteles a
+  diseño»**, **«Solicitar carteles al promotor»** y **«Solicitar cartelería y fecha de anuncio»**. Un
+  botón «Añadir un logo (archivo + nombre)» pone una fila y abre el selector; el nombre del archivo
+  es el nombre del logo si no se escribe otro, y **varios archivos de golpe se reparten en filas**
+  (`static/js/artwork_logos.js`, global y por delegación). Los que ya tiene la solicitud salen como
+  galletas con su aspa (`concert_artwork_logo_delete`, por fetch).
+  ⚠️ Los campos son `logo_file_<n>` + `logo_name_<n>` y el servidor los lee **por PREFIJO**
+  (`_artwork_logos_save`), no por posición: con `multiple` una fila puede traer varios archivos y por
+  índice se desparejarían de sus nombres (si trae varios, cada uno se queda con el de su archivo).
+  ⚠️ Los cinco `<form>` llevan **`enctype="multipart/form-data"`** (sin eso el archivo no viaja y no
+  da ningún error). Y las dos **vistas previas** en vivo mandan el formulario entero en cada tecla:
+  `app33SinArchivosDeLogos` les quita los archivos y deja los nombres, que la previa enseña como
+  «por subir» (`logo_names_pending`).
+  · **DÓNDE VIVEN**: `ConcertArtworkLogo` (`concert_artwork_logos`, colgados de la solicitud con
+  `ondelete=CASCADE`; la tabla la crea `create_all` y la red de seguridad está en
+  `ensure_concerts_schema_enhancements`). Los sube `_upload_artwork_file` (imagen, PDF, vectorial o
+  paquete). ⚠️ **No son carteles** (`ConcertArtworkAsset`): eso es lo que se entrega, y esto es
+  material para hacerlo — la misma razón por la que existe `ConcertArtworkReference`.
+  · **DÓNDE SE VEN** (punto único **`_artwork_logo_rows`**): la pestaña **Cartelería** de la ficha
+  («Logos adjuntos»), la **bandeja de diseño** (van como ARCHIVOS de la tarea y en «lo que se
+  pide»), el **correo a diseño** (con el enlace de descarga de cada uno) y su aviso en la app
+  (sección «Logos adjuntos»), los **correos al promotor** (por su nombre: se descargan desde el
+  enlace de los carteles) y la **página del enlace de subida** (`/carteleria/<token>`).
+  ⚠️⚠️ **SE DESCARGAN POR NUESTRO DOMINIO**: `concert_artwork_public_logo`
+  (`/carteleria/<token>/logo/<id>`, en las tres listas de públicos, como `concert_artwork_public_file`):
+  el id se valida contra los logos de ESA solicitud y la dirección de Storage no sale. Con
+  `?inline=1` se ve (la miniatura); sin él se descarga con el nombre del logo y la extensión del archivo.
+  ⚠️ Probado con la app real (34 comprobaciones): los cuatro caminos de pedirlos, el nombre escrito y
+  el de archivo con varios, la ficha, la página pública y su descarga sin sesión, las dos previas,
+  quitar uno, el asistente y los permisos.
+

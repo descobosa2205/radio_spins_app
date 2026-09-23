@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% import '_prod_owner_picker.html' as prod_owner with context %}
 {% import '_artwork_media.html' as artm with context %}
+{% from '_artwork_logo_upload.html' import artwork_logo_upload with context %}
 {% block content %}
 <div class="mb-2">
   {# A DÓNDE VUELVE LA FLECHA lo decide el servidor (`_concert_back_context`): el listado del que se
@@ -388,7 +389,7 @@
 <div class="modal fade" id="announceAskModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('concert_announce_ask_send', cid=concert.id) }}">
+      <form method="post" action="{{ url_for('concert_announce_ask_send', cid=concert.id) }}" enctype="multipart/form-data">
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <div class="modal-header sw-head">
           <h5 class="modal-title"><i class="fa fa-calendar-check me-2"></i>{{ announce_ask.label }}</h5>
@@ -429,6 +430,8 @@
                     {% endfor %}
                   </div>
                   <input class="form-control mt-2" name="logo_notes" value="{{ artwork_request.logo_notes if artwork_request else '' }}" placeholder="Otros logos (escríbelos aquí)">
+                  {# LOS LOGOS ADJUNTOS (archivo + nombre): viajan con la solicitud y el promotor los descarga. #}
+                  <div class="mt-2">{{ artwork_logo_upload(artwork_logo_rows, hint=False) }}</div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label mb-1">Fecha máxima de entrega de los carteles <span class="text-danger">*</span></label>
@@ -478,7 +481,7 @@
   var timer = null;
   function pinta() {
     if (!zona || !form) return;
-    fetch(zona.getAttribute('data-url'), { method: 'POST', body: new FormData(form) })
+    fetch(zona.getAttribute('data-url'), { method: 'POST', body: (window.app33SinArchivosDeLogos || function (x) { return x; })(new FormData(form)) })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d || !d.ok) return;
@@ -2202,7 +2205,7 @@
           {% if artwork_request and artwork_edit %}
             <div class="alert alert-light border mb-3">Al guardar esta edición se enviará una nueva solicitud a diseño y los formatos actuales pasarán a <strong>Carteles antiguos</strong>.</div>
           {% endif %}
-          <form method="post" action="{{ url_for('concert_artwork_save', cid=concert.id) }}" class="row g-3" id="artworkRequestForm">
+          <form method="post" action="{{ url_for('concert_artwork_save', cid=concert.id) }}" class="row g-3" id="artworkRequestForm" enctype="multipart/form-data">
             {% if artwork_request %}<input type="hidden" name="force_resend" value="1">{% endif %}
             <div class="col-12">
               <label class="form-label fw-semibold">¿Quién hace los carteles?</label>
@@ -2278,6 +2281,8 @@
                 <div class="col-12 col-xl-6">
                   <label class="form-label">Logos que deben incluirse</label>
                   <textarea class="form-control" name="logo_notes" rows="3" placeholder="Notas sobre logos, orden, tamaño, versiones, etc.">{{ artwork_request.logo_notes if artwork_request else '' }}</textarea>
+                  {# LOS LOGOS ADJUNTOS (archivo + nombre), los que ya tiene la solicitud y los nuevos. #}
+                  <div class="mt-2">{{ artwork_logo_upload(artwork_logo_rows) }}</div>
                   <div class="mt-2 row g-2">
                     {% for co in artwork_companies %}
                       <div class="col-12 col-md-6">
@@ -2397,6 +2402,21 @@
               {% endif %}
               {% if artwork_request.logo_notes %}
                 <div class="mb-3"><div class="small text-muted">Notas de logos</div><div>{{ artwork_request.logo_notes }}</div></div>
+              {% endif %}
+              {# LOS LOGOS ADJUNTOS a la solicitud (archivo + nombre): se abren en su archivo. #}
+              {% if artwork_logo_rows %}
+                <div class="mb-3">
+                  <div class="small text-muted">Logos adjuntos</div>
+                  <div class="d-flex flex-wrap gap-2 mt-2">
+                    {% for l in artwork_logo_rows %}
+                      <a class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2 text-decoration-none" href="{{ l.file_url }}" target="_blank" rel="noopener"
+                         title="{{ l.original_name }}{% if l.uploaded_by %} · lo subió {{ l.uploaded_by }}{% endif %}">
+                        {% if l.is_image %}<img src="{{ l.file_url }}" alt="" style="width:26px;height:26px;object-fit:contain;flex:0 0 auto;">{% else %}<i class="fa fa-file"></i>{% endif %}
+                        {{ l.name }}
+                      </a>
+                    {% endfor %}
+                  </div>
+                </div>
               {% endif %}
               {% if artwork_request.handled_by == 'OURS' and artwork_ticketer_ids %}
                 <div class="mb-3">
@@ -2860,7 +2880,7 @@
     {% if CAN_EDIT_CONCERTS %}
     <div class="modal fade" id="artworkWizardModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-        <form class="modal-content" method="post" action="{{ url_for('concert_artwork_save', cid=concert.id) }}" id="artworkWizardForm">
+        <form class="modal-content" method="post" action="{{ url_for('concert_artwork_save', cid=concert.id) }}" id="artworkWizardForm" enctype="multipart/form-data">
           <input type="hidden" name="handled_by" value="OURS">
           <div class="modal-header">
             <h5 class="modal-title"><i class="fa fa-palette me-2 text-danger"></i>Solicitar carteles a diseño <span class="text-muted small fw-normal" data-awz-step-label></span></h5>
@@ -2905,6 +2925,8 @@
                 <label class="form-label small">Otros logos y notas</label>
                 <textarea class="form-control" name="logo_notes" rows="2" placeholder="Otros logos, orden, tamaño, versiones…"></textarea>
               </div>
+              {# LOS LOGOS ADJUNTOS (archivo + nombre): viajan con la solicitud a diseño. #}
+              <div class="mt-3">{{ artwork_logo_upload([]) }}</div>
             </section>
 
             {# Paso 3 · ¿Qué ticketeras? #}
@@ -2995,7 +3017,7 @@
     <div class="modal fade" id="artworkPromoterModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
-          <form method="post" action="{{ url_for('concert_artwork_promoter_request', cid=concert.id) }}">
+          <form method="post" action="{{ url_for('concert_artwork_promoter_request', cid=concert.id) }}" enctype="multipart/form-data">
             <div class="modal-header">
               <h5 class="modal-title"><i class="fa fa-palette me-2"></i>Solicitar carteles al promotor</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -3034,6 +3056,8 @@
                       {% endfor %}
                     </div>
                     <input class="form-control mt-2" name="logo_notes" value="{{ artwork_request.logo_notes if artwork_request else '' }}" placeholder="Otros logos (escríbelos aquí)">
+                  {# LOS LOGOS ADJUNTOS (archivo + nombre): viajan con la solicitud y el promotor los descarga. #}
+                  <div class="mt-2">{{ artwork_logo_upload(artwork_logo_rows, hint=False) }}</div>
                   </div>
                   <div class="row g-2">
                     <div class="col-7">
@@ -3079,7 +3103,7 @@
       var timer = null;
       function pinta() {
         if (!zona || !form) return;
-        fetch(zona.getAttribute('data-url'), { method: 'POST', body: new FormData(form) })
+        fetch(zona.getAttribute('data-url'), { method: 'POST', body: (window.app33SinArchivosDeLogos || function (x) { return x; })(new FormData(form)) })
           .then(function (r) { return r.json(); })
           .then(function (d) {
             if (!d || !d.ok) return;

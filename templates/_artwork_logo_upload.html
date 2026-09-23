@@ -1,0 +1,59 @@
+{# =================================================================================================
+   LOGOS ADJUNTOS A UNA SOLICITUD DE CARTELERÍA · el bloque de subirlos (sep 2026, lo pidió Dani:
+   «cuando se solicitan los carteles se tienen que poder añadir logos subiendo el fichero del logo y
+   poniendo el nombre»).
+
+   Uso (dentro de un <form> con enctype="multipart/form-data"):
+       {% from '_artwork_logo_upload.html' import artwork_logo_upload with context %}
+       {{ artwork_logo_upload(artwork_logo_rows, hint=True) }}
+
+   · `existing` son los logos que YA tiene la solicitud (`_artwork_logo_rows`): salen como galletas
+     con su miniatura, y el aspa los quita (`concert_artwork_logo_delete`, por fetch).
+   · Cada fila nueva es el ARCHIVO y su NOMBRE. Los `name` (`logo_file_<n>` / `logo_name_<n>`) los
+     pone el JS al crear la fila y los lee `_artwork_logos_save` por PREFIJO, no por posición: con
+     `multiple` una fila puede traer varios archivos y por índice se desparejarían de sus nombres.
+   · El JS es GLOBAL (`static/js/artwork_logos.js`, por delegación): añadir una fila (y abrir el
+     selector de archivos de golpe), quitarla, poner el nombre del archivo como nombre si no se
+     escribe otro, y repartir en filas varios archivos elegidos a la vez.
+   ⚠️ Dentro del <template> los campos no se envían (es inerte), así que sin filas no viaja nada.
+   ================================================================================================= #}
+{% macro artwork_logo_upload(existing=[], hint=True) %}
+<div class="alogos" data-alogos>
+  {% if existing %}
+    <div class="d-flex flex-wrap gap-2 mb-2" data-alogos-existing>
+      {% for l in existing %}
+        <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2 alogo-chip">
+          {% if l.is_image %}<img src="{{ l.file_url }}" alt="" style="width:26px;height:26px;object-fit:contain;flex:0 0 auto;">{% else %}<i class="fa fa-file"></i>{% endif %}
+          <a href="{{ l.file_url }}" target="_blank" rel="noopener" class="text-reset text-decoration-none" title="{{ l.original_name }}">{{ l.name }}</a>
+          {% if l.delete_url %}
+            <button type="button" class="btn btn-link btn-sm p-0 text-danger" data-alogo-delete="{{ l.delete_url }}"
+                    title="Quitar este logo de la solicitud"><i class="fa fa-xmark"></i></button>
+          {% endif %}
+        </span>
+      {% endfor %}
+    </div>
+  {% endif %}
+  <div data-alogo-rows></div>
+  <template data-alogo-tpl>
+    <div class="row g-2 align-items-center mb-2" data-alogo-row>
+      <div class="col-sm-6">
+        <input type="file" class="form-control form-control-sm" data-alogo-file multiple
+               accept="image/*,application/pdf,.ai,.eps,.zip,.psd,.svg">
+      </div>
+      <div class="col-sm-5">
+        <input type="text" class="form-control form-control-sm" data-alogo-name maxlength="120"
+               placeholder="Nombre del logo (Ayuntamiento, patrocinador…)">
+      </div>
+      <div class="col-sm-1 text-end">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-alogo-remove title="Quitar esta fila"><i class="fa fa-xmark"></i></button>
+      </div>
+    </div>
+  </template>
+  <button type="button" class="btn btn-sm btn-outline-primary" data-alogo-add>
+    <i class="fa fa-plus me-1"></i>Añadir un logo (archivo + nombre)</button>
+  {% if hint %}
+    <div class="form-text">Sube el archivo del logo y dile cómo se llama: viaja con la solicitud
+      (la ficha, el correo, la bandeja de diseño) y se descarga desde el enlace de los carteles.</div>
+  {% endif %}
+</div>
+{% endmacro %}

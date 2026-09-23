@@ -87,6 +87,18 @@
             </div>
             <div class="small text-muted mb-1">Notas sobre logos</div>
             <div class="mb-3">{{ artwork_request.logo_notes or '—' }}</div>
+            {# LOS LOGOS ADJUNTOS a la solicitud (archivo + nombre): se DESCARGAN por nuestro dominio. #}
+            {% if artwork_logo_rows %}
+              <div class="small text-muted mb-1">Logos adjuntos</div>
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                {% for l in artwork_logo_rows %}
+                  <a class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2 text-decoration-none" href="{{ l.public_url }}" title="Descargar {{ l.name }}">
+                    {% if l.is_image %}<img src="{{ l.public_url }}?inline=1" alt="" style="width:24px;height:24px;object-fit:contain;flex:0 0 auto;">{% else %}<i class="fa fa-file"></i>{% endif %}
+                    {{ l.name }}<i class="fa fa-download ms-1 text-muted"></i>
+                  </a>
+                {% endfor %}
+              </div>
+            {% endif %}
             <div class="small text-muted mb-1">Ticketeras</div>
             <div class="d-flex flex-wrap gap-2 mb-3">
               {% for ticketer in selected_ticketers %}

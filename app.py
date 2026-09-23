@@ -258,6 +258,7 @@ from models import (
     ConcertSaleChannelRequest,
     ConcertArtworkAsset,
     ConcertArtworkReference,
+    ConcertArtworkLogo,
     ConcertNote,
     ConcertEquipment,
     ConcertEquipmentDocument,
@@ -523,7 +524,7 @@ if CALDAV_ONLY:
 _CSRF_EXEMPT_ENDPOINTS = {"public_menu_save", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_announce_confirm", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_corporate_invite_open", 
     "concert_artwork_public_upload",
     # La MINIATURA de un cartel recién subido, por nuestro dominio (la ve quien está subiendo).
-    "concert_artwork_public_file", "public_announce_confirm",
+    "concert_artwork_public_file", "concert_artwork_public_logo", "public_announce_confirm",
     # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
     "public_buyer_unsubscribe",
     # ACTUALIZAR VENTAS: el promotor de fuera no tiene sesión (su enlace es el token).
@@ -1007,7 +1008,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_corporate_invite_open", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_radio_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_corporate_invite_open", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "concert_artwork_public_logo", "public_announce_confirm", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -6738,7 +6739,8 @@ def _build_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, s
         + (f'<p><strong>Vídeo promocional:</strong> {escape(video_txt)}</p>' if video_txt else '')
         + f'<p><strong>Logos empresas del grupo:</strong> {logos_txt}</p>'
         f'<p><strong>Notas de logos:</strong> {row.logo_notes or "—"}</p>'
-        f'<p><strong>Ticketeras:</strong> {ticketers_txt}</p>'
+        + _artwork_logo_links_html(row)
+        + f'<p><strong>Ticketeras:</strong> {ticketers_txt}</p>'
         f'<p><strong>Notas de ticketeras:</strong> {row.ticketer_notes or "—"}</p>'
         f'<p><strong>Otras notas:</strong> {row.other_notes or "—"}</p>'
         f'<p><strong>Fecha máxima de entrega:</strong> {deadline_txt}</p>'
@@ -6920,6 +6922,15 @@ def _artwork_mail_sections(row, *, note="", changes=()) -> list[dict]:
                             ("Otras notas", getattr(row, "other_notes", ""))):
         if str(valor or "").strip():
             notas.append("%s: %s" % (etiqueta, str(valor).strip()))
+    # LOS LOGOS ADJUNTOS (archivo + nombre) van en el mismo bloque, por su nombre: se descargan
+    # desde el enlace de los carteles (en un correo no viaja la dirección de Storage). En la vista
+    # previa todavía no están subidos y se listan por lo escrito (`logo_names_pending`).
+    _nombres_logos = ([str(getattr(l, "name", "") or "").strip() for l in (getattr(row, "logos", None) or [])]
+                      + [str(x or "").strip() for x in (getattr(row, "logo_names_pending", None) or [])])
+    _nombres_logos = [x for x in _nombres_logos if x]
+    if _nombres_logos:
+        notas.append("Logos adjuntos (se descargan desde el enlace de los carteles): %s"
+                     % " · ".join(_nombres_logos))
     # ⚠️ **UN SOLO BLOQUE** con lo que tiene que llevar el cartel: los logos MARCADOS y lo escrito a
     # mano. Antes eran DOS («Logos que tienen que salir» y «Lo que tiene que salir»), que decían casi
     # lo mismo con dos títulos casi iguales y al promotor le llegaban seguidos.
@@ -7434,6 +7445,184 @@ def _artwork_request_change(session_db, concert, *, notas: str = "", ficheros=No
         session_db.rollback()
         app.logger.exception("[carteleria] no se pudo avisar de la modificación de los carteles")
     return True, ""
+
+
+# ═══════════════ LOS LOGOS QUE ACOMPAÑAN A UNA SOLICITUD DE CARTELERÍA (sep 2026) ═══════════════
+# «Cuando se solicitan los carteles se tienen que poder añadir logos subiendo el fichero del logo y
+# poniendo el nombre» (Dani). Hasta ahora solo se podían ESCRIBIR (`logo_notes`) y diseño tenía que
+# ir a buscarlos. Cada fila del formulario es `logo_file_<n>` + `logo_name_<n>` (las pinta el macro
+# de `_artwork_logo_upload.html` y las cablea `artwork_logos.js`); se guardan en `ConcertArtworkLogo`
+# y de ahí viven la ficha, la bandeja de diseño, los correos y la página del enlace de subida
+# (`/carteleria/<token>`, de donde se DESCARGAN por nuestro dominio). Punto único: `_artwork_logo_rows`.
+ARTWORK_LOGO_FIELD_PREFIX = "logo_file_"
+
+
+def _artwork_logo_rows(row, *, concert_id=None, token: str = "") -> list[dict]:
+    """Los logos de una solicitud, tal como se pintan: nombre · archivo · si es imagen · el aspa
+    (con `concert_id`) · el enlace público de descarga (con `token`)."""
+    salida = []
+    for l in (getattr(row, "logos", None) or []):
+        kind = ((getattr(l, "kind", "") or "").strip().upper()
+                or _artwork_asset_kind((l.original_name or l.file_url or ""), l.mime_type or ""))
+        fila = {"id": str(l.id), "name": ((l.name or "").strip() or (l.original_name or "Logo")),
+                "file_url": (l.file_url or ""), "original_name": (l.original_name or ""),
+                "kind": kind, "is_image": (kind == "IMAGE"),
+                "uploaded_by": (l.uploaded_by_nick or ""), "delete_url": "", "public_url": ""}
+        try:
+            if concert_id:
+                fila["delete_url"] = url_for("concert_artwork_logo_delete", cid=concert_id, lid=l.id)
+            if token:
+                fila["public_url"] = url_for("concert_artwork_public_logo", token=token, logo_id=l.id)
+        except Exception:
+            pass          # fuera de una petición (un cron) no hay url_for: sin enlaces
+        salida.append(fila)
+    return salida
+
+
+def _artwork_logo_names_from_form(datos) -> list[str]:
+    """Los NOMBRES de los logos que hay en el formulario (`logo_name_<n>`), para la VISTA PREVIA del
+    correo, que no sube nada: se enseñan por su nombre hasta que se envía."""
+    nombres = []
+    try:
+        claves = list(datos.keys())
+    except Exception:
+        claves = []
+    for k in claves:
+        if str(k).startswith("logo_name_"):
+            v = str(datos.get(k) or "").strip()
+            if v:
+                nombres.append(v[:120])
+    return nombres
+
+
+def _artwork_logos_save(session_db, row, form, files, *, nick: str = "") -> int:
+    """Guarda los logos que trae el formulario (archivo + nombre por fila). Devuelve cuántos.
+
+    ⚠️ Los archivos se buscan por su PREFIJO (`logo_file_<n>`), no por posición: con `multiple` una
+    fila puede traer varios y por índice se desparejarían de sus nombres. Si una fila trae varios,
+    cada uno se queda con el nombre de SU archivo (el nombre escrito solo vale para uno).
+    ⚠️ Un archivo que no se puede subir no tumba la solicitud: se apunta en el log y se sigue.
+    ⚠️ La fila de la solicitud tiene que estar ya en la base (`flush`): los logos cuelgan de su id."""
+    if row is None or files is None or getattr(row, "id", None) is None:
+        return 0
+    guardados = 0
+    for key in list(files.keys()):
+        if not str(key).startswith(ARTWORK_LOGO_FIELD_PREFIX):
+            continue
+        n = str(key)[len(ARTWORK_LOGO_FIELD_PREFIX):]
+        escrito = (form.get("logo_name_" + n) or "").strip()[:120] if form is not None else ""
+        lista = [fs for fs in files.getlist(key) if fs and getattr(fs, "filename", "")]
+        for fs in lista:
+            if escrito and len(lista) == 1:
+                nombre = escrito
+            else:
+                nombre = (Path(fs.filename).stem.replace("_", " ").replace("-", " ").strip()
+                          or escrito or "Logo")
+            try:
+                file_url, mime, kind = _upload_artwork_file(fs)
+            except Exception:
+                app.logger.exception("[carteleria] no se pudo subir un logo de la solicitud")
+                continue
+            if not file_url:
+                continue
+            session_db.add(ConcertArtworkLogo(
+                artwork_request_id=row.id, name=nombre[:120], file_url=file_url,
+                original_name=(fs.filename or "")[:200] or None, mime_type=mime,
+                kind=(kind or "IMAGE"), uploaded_by_nick=(nick or "").strip() or None))
+            guardados += 1
+    return guardados
+
+
+def _artwork_logo_links_html(row) -> str:
+    """El párrafo «Logos adjuntos» del correo a DISEÑO, con el enlace de descarga de cada uno (por
+    nuestro dominio, con el token del enlace de subida). Vacío si no hay ninguno."""
+    token = (getattr(row, "public_token", "") or "")
+    enlaces = []
+    for l in (getattr(row, "logos", None) or []):
+        try:
+            url = _external_url_for("concert_artwork_public_logo", token=token, logo_id=l.id) if token else ""
+        except Exception:
+            url = ""
+        nombre = str(escape((getattr(l, "name", "") or "Logo")))
+        enlaces.append(('<a href="%s">%s</a>' % (str(escape(url)), nombre)) if url else nombre)
+    if not enlaces:
+        return ""
+    return '<p><strong>Logos adjuntos:</strong> %s</p>' % ", ".join(enlaces)
+
+
+def _artwork_logo_notice_section(row) -> tuple:
+    """La sección «Logos adjuntos» del aviso de la app a diseño (se descargan desde el enlace del
+    botón «Gestionar entregas», que es la página de la solicitud)."""
+    filas = [{"title": (getattr(l, "name", "") or "Logo"), "icon": "fa-image",
+              "meta": "Se descarga desde «Gestionar entregas»"}
+             for l in (getattr(row, "logos", None) or [])]
+    return ({"title": "Logos adjuntos", "items": filas},) if filas else ()
+
+
+@app.post('/conciertos/<cid>/carteleria/logos/<lid>/eliminar', endpoint='concert_artwork_logo_delete')
+@admin_required
+def concert_artwork_logo_delete(cid, lid):
+    """Quita un logo adjunto de la solicitud de cartelería (el aspa de su galleta, por fetch)."""
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para gestionar cartelería.')
+    session = db()
+    try:
+        row = (session.query(ConcertArtworkRequest)
+               .filter(ConcertArtworkRequest.concert_id == (_safe_uuid(cid) or uuid.uuid4())).first())
+        logo = session.get(ConcertArtworkLogo, _safe_uuid(lid) or uuid.uuid4()) if row is not None else None
+        if row is None or logo is None or logo.artwork_request_id != row.id:
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "Ese logo ya no está en la solicitud."}), 404
+            flash("Ese logo ya no está en la solicitud.", "warning")
+            return redirect(url_for("concert_detail_view", cid=cid, tab="carteleria"))
+        session.delete(logo)
+        session.commit()
+        if _is_xhr_request():
+            return jsonify({"ok": True})
+        flash("Logo quitado de la solicitud.", "success")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="carteleria", edit_artwork=1))
+    except Exception:
+        session.rollback()
+        app.logger.exception("[carteleria] no se pudo quitar el logo de la solicitud")
+        if _is_xhr_request():
+            return jsonify({"ok": False, "error": "No se pudo quitar el logo."}), 400
+        flash("No se pudo quitar el logo.", "danger")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="carteleria"))
+    finally:
+        session.close()
+
+
+@app.get('/carteleria/<token>/logo/<logo_id>', endpoint='concert_artwork_public_logo')
+def concert_artwork_public_logo(token, logo_id):
+    """UN LOGO ADJUNTO a la solicitud, por NUESTRO dominio y con el token del enlace de subida: es lo
+    que descarga diseño o el promotor desde `/carteleria/<token>` y desde el correo.
+    ⚠️ El id se valida contra los logos de ESA solicitud (nunca contra la tabla entera) y la
+    dirección de Storage no sale. Con `?inline=1` se sirve para VERLO (la miniatura); si no, se
+    DESCARGA con su nombre (el del logo, con la extensión del archivo)."""
+    with get_db() as session_db:
+        row = (session_db.query(ConcertArtworkRequest)
+               .options(selectinload(ConcertArtworkRequest.logos))
+               .filter(ConcertArtworkRequest.public_token == token).first())
+        if row is None:
+            abort(404)
+        # ⚠️ Un id que viene de una URL PÚBLICA se lee con `_safe_uuid`: `to_uuid` revienta con
+        # cualquier cosa que no sea un UUID y eso sería un 500 (la pantalla de mantenimiento).
+        lid = _safe_uuid(logo_id)
+        logo = next((l for l in (row.logos or []) if lid and l.id == lid), None)
+        if logo is None or not (logo.file_url or ""):
+            abort(404)
+        try:
+            datos, ctype = _download_remote_content(logo.file_url, timeout=25)
+        except Exception:
+            app.logger.exception("[carteleria] no se pudo leer un logo de la solicitud")
+            abort(404)
+        inline = (request.args.get("inline") or "").strip() in ("1", "true", "si", "sí")
+        ext = Path((logo.original_name or logo.file_url or "").split("?", 1)[0]).suffix or ""
+        nombre = _safe_download_filename(((logo.name or "logo").strip() or "logo") + ext)
+        resp = send_file(BytesIO(datos), mimetype=(ctype or logo.mime_type or "application/octet-stream"),
+                         as_attachment=(not inline), download_name=nombre)
+        resp.headers["Cache-Control"] = "private, max-age=300"
+        return resp
 
 
 def _artwork_reshare_task(session_db, concert, row) -> None:
@@ -65895,9 +66084,13 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
             if hecho_por == "OURS" and estado in ("REQUESTED", "CORRECTIONS"):
                 carteles = [a for a in vigentes if _artwork_asset_category(a) == "POSTER"]
                 if not carteles or estado == "CORRECTIONS":
+                    # LOS LOGOS ADJUNTOS a la solicitud (archivo + nombre): van como archivos de la
+                    # tarea, que es donde diseño los descarga, y en la lista de lo que se pide.
+                    _logos_adj = _artwork_logo_rows(row)
                     especificaciones = [
                         {"label": "Formatos", "value": " · ".join(_artwork_requested_format_labels(row))},
                         {"label": "Logos que tienen que salir", "value": (row.logo_notes or "")},
+                        {"label": "Logos adjuntos", "value": " · ".join(l["name"] for l in _logos_adj)},
                         {"label": "Ticketeras", "value": (row.ticketer_notes or "")},
                         {"label": "Vídeo promocional",
                          "value": (" · ".join(_artwork_video_format_labels(row))
@@ -65912,6 +66105,7 @@ def _design_tasks(session_db, *, limit: int = 200) -> list[dict]:
                         photo=foto, due_date=getattr(row, "delivery_deadline", None),
                         asked_at=getattr(row, "requested_at", None),
                         specs=especificaciones, note=(row.other_notes or ""),
+                        files=[_design_file_row(l["file_url"], l["name"]) for l in _logos_adj],
                         url=ficha, upload_label="los carteles", **de_quien,
                         upload_help="Se puede soltar una carpeta entera: se sube cada archivo que haya dentro."))
             # b) El cartel de SOLD OUT (se pide solo al 90% de venta).
@@ -73254,6 +73448,9 @@ def concert_detail_view(cid):
                                  .filter(ConcertArtworkReference.artwork_request_id == artwork_request.id)
                                  .order_by(ConcertArtworkReference.created_at.desc()).all())
                                 if artwork_request is not None else []),
+            # LOS LOGOS ADJUNTOS a la solicitud (archivo + nombre), con su aspa para quitarlos.
+            artwork_logo_rows=(_artwork_logo_rows(artwork_request, concert_id=c.id)
+                               if artwork_request is not None else []),
             soldout=soldout,
             # EL PROCESO del Sold Out (declarado · carteles · comunicado al artista), que es lo que
             # pinta la etiqueta de la cabecera. `soldout` es la CARTELERÍA; esto es el proceso.
@@ -73473,6 +73670,9 @@ def concert_artwork_save(cid):
         row.ticketer_notes = (request.form.get('ticketer_notes') or '').strip() or None
         row.other_notes = (request.form.get('other_notes') or '').strip() or None
         row.delivery_deadline = parse_optional_date(request.form.get('delivery_deadline'))
+        # LOS LOGOS ADJUNTOS (archivo + nombre) que se hayan añadido en el formulario.
+        _artwork_logos_save(session, row, request.form, request.files,
+                            nick=((_current_user_state() or {}).get('nick') or ''))
         send_as_update = bool(force_resend or was_requested or getattr(row, 'needs_refresh', False) or _artwork_request_has_event_changes(row, concert))
         if send_as_update:
             _archive_current_artwork_assets(row)
@@ -73583,6 +73783,8 @@ def concert_artwork_public_upload(token):
             artwork_badge=_artwork_request_badge(row, concert),
             selected_companies=selected_companies,
             selected_ticketers=selected_ticketers,
+            # LOS LOGOS ADJUNTOS (archivo + nombre), con su enlace de descarga por nuestro dominio.
+            artwork_logo_rows=_artwork_logo_rows(row, token=token),
             is_promoter_flow=is_promoter_flow,
             style_guide_url=(os.environ.get('ARTWORK_STYLE_GUIDE_URL') or '').strip(),
             artwork_assets=sorted([x for x in (row.assets or []) if not bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'created_at', None) or datetime.min, reverse=True),
@@ -73921,6 +74123,9 @@ def concert_artwork_promoter_preview(cid):
             ticketer_notes=(datos.get("ticketer_notes") or "").strip(),
             other_notes=(datos.get("other_notes") or "").strip(),
             delivery_deadline=parse_optional_date(datos.get("delivery_deadline")),
+            # Los logos adjuntos: los ya guardados y, por su nombre, los que están por subir.
+            logos=list(getattr(row, "logos", None) or []),
+            logo_names_pending=_artwork_logo_names_from_form(datos),
         )
         asunto, html = _artwork_promoter_email(
             concert, previa, kind=(datos.get("kind") or "REQUEST"),
@@ -73987,6 +74192,9 @@ def concert_artwork_promoter_request(cid):
         row.updated_at = now
         row.event_snapshot = _concert_artwork_snapshot(concert)
         row.needs_refresh = False
+        # LOS LOGOS ADJUNTOS (archivo + nombre): el promotor los descarga desde su enlace.
+        _artwork_logos_save(session, row, request.form, request.files,
+                            nick=((_current_user_state() or {}).get('nick') or ''))
         # ⚠️⚠️ SI ADEMÁS FALTA LA FECHA DE ANUNCIO, se le pide EN EL MISMO CORREO (sus dos botones):
         # es la misma conversación y no tiene sentido mandarle dos. Queda apuntado igual que cuando
         # se pide desde el botón de la barra de la ficha.
@@ -74034,6 +74242,9 @@ def _announce_ask_preview_row(concert, datos):
         ticketer_notes=(datos.get("ticketer_notes") or "").strip(),
         other_notes=(datos.get("other_notes") or "").strip(),
         delivery_deadline=parse_optional_date(datos.get("delivery_deadline")),
+        # Los logos adjuntos: los ya guardados y, por su nombre, los que están por subir.
+        logos=list(getattr(row, "logos", None) or []),
+        logo_names_pending=_artwork_logo_names_from_form(datos),
     )
 
 
@@ -74134,6 +74345,9 @@ def concert_announce_ask_send(cid):
             row.updated_at = ahora
             row.event_snapshot = _concert_artwork_snapshot(concert)
             row.needs_refresh = False
+            # LOS LOGOS ADJUNTOS (archivo + nombre): el promotor los descarga desde su enlace.
+            _artwork_logos_save(session_db, row, request.form, request.files,
+                                nick=((_current_user_state() or {}).get("nick") or ""))
         token = _ensure_announce_ask_token(session_db, concert) if estado["want_announce"] else ""
         concert.announce_ask_at = ahora
         concert.announce_ask_kind = estado["kind"]
@@ -85604,6 +85818,11 @@ def concert_wizard_create():
                 artwork_row.logo_notes = f'Otros logos: {logo_others}' if logo_others else None
                 artwork_row.other_notes = (request.form.get('artwork_notes') or '').strip() or None
                 artwork_row.delivery_deadline = parse_optional_date(request.form.get('artwork_deadline'))
+                # LOS LOGOS ADJUNTOS del paso de cartelería (archivo + nombre): con la solicitud ya
+                # en la base (`flush`) para poder colgarlos de su id.
+                session.flush()
+                _artwork_logos_save(session, artwork_row, request.form, request.files,
+                                    nick=((_current_user_state() or {}).get('nick') or ''))
                 artwork_send = True
             artwork_row.updated_at = now
             artwork_row.event_snapshot = _concert_artwork_snapshot(concert)
@@ -107922,7 +108141,7 @@ def _require_login_v2():
     # …y el CONTROL DE CAMERINOS (en abierto), con su llave, solo a los horarios de la hoja que se ve.
     if _controlcamerinos_gate_ok():
         return
-    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_invitation_ticket_pdf", "public_invitation_access", "public_invitation_access_state", "public_invitation_access_scan", "public_invitation_access_og_image", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_promoter_sheet", "public_promoter_sheet_save", "public_promoter_sheet_venues", "public_promoter_sheet_venue_create", "public_promoter_sheet_company_find", "public_promoter_sheet_company_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "concert_artwork_public_logo", "public_announce_confirm", "public_sale_channels", "onesheet_public_view", "onesheet_roster_public", "onesheet_public_og_image", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -153163,7 +153382,7 @@ def _notice_email_design_artwork(concert, row, enlace: str, *, is_update: bool =
         intro=("Han cambiado los datos del encargo de cartelería." if is_update
                else "Se os ha encargado la cartelería de esta actividad."),
         button_label="Gestionar entregas", button_url=enlace,
-        sections=_notice_design_section(piezas),
+        sections=tuple(_notice_design_section(piezas)) + _artwork_logo_notice_section(row),
         note=((getattr(row, "logo_notes", None) or "").strip()))
 
 

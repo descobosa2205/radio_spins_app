@@ -4042,6 +4042,12 @@ class ConcertArtworkRequest(Base):
         cascade="all, delete-orphan",
         order_by="ConcertArtworkAsset.created_at",
     )
+    # LOS LOGOS que acompañan a la solicitud (archivo + nombre), en el orden en que se subieron.
+    logos = relationship(
+        "ConcertArtworkLogo",
+        cascade="all, delete-orphan",
+        order_by="ConcertArtworkLogo.created_at",
+    )
 
 
 class ConcertArtworkReference(Base):
@@ -4067,6 +4073,40 @@ class ConcertArtworkReference(Base):
     note = Column(Text)
     uploaded_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConcertArtworkLogo(Base):
+    """UN LOGO QUE ACOMPAÑA A LA SOLICITUD DE CARTELERÍA, con su ARCHIVO y su NOMBRE (sep 2026, lo
+    pidió Dani: «cuando se solicitan los carteles se tienen que poder añadir logos subiendo el
+    fichero del logo y poniendo el nombre»).
+
+    Hasta ahora los logos que no eran de una empresa del grupo solo se podían ESCRIBIR
+    (`logo_notes`: «Ayuntamiento, patrocinador X…») y diseño tenía que ir a buscarlos. Ahora viajan
+    con la solicitud: se ven en la ficha, en el correo, en la bandeja de diseño y en la página del
+    enlace (`/carteleria/<token>`), de donde se descargan por NUESTRO dominio.
+    ⚠️ **No es un cartel** (`ConcertArtworkAsset`): eso es lo que se ENTREGA y esto es material para
+    hacerlo — la misma razón por la que existe `ConcertArtworkReference`.
+    """
+
+    __tablename__ = "concert_artwork_logos"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artwork_request_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concert_artwork_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)          # cómo se llama el logo («Ayuntamiento de Chipiona»)
+    file_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    mime_type = Column(Text)
+    kind = Column(Text, nullable=False, server_default=text("'IMAGE'"))   # IMAGE | PDF | FILE
+    uploaded_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_concert_artwork_logos_request", "artwork_request_id"),
+    )
 
 
 class ConcertArtworkAsset(Base):
@@ -10566,6 +10606,23 @@ def ensure_concerts_schema_enhancements():
 
         # País del recinto (alta de recintos con país; por defecto España en los formularios).
         'ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS country text;',
+
+        # LOS LOGOS que acompañan a una solicitud de cartelería (archivo + nombre, sep 2026). La
+        # tabla la crea también `_create_all_once`; esto es la red de seguridad de siempre.
+        """
+        CREATE TABLE IF NOT EXISTS concert_artwork_logos (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artwork_request_id uuid NOT NULL REFERENCES concert_artwork_requests(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            file_url text NOT NULL,
+            original_name text,
+            mime_type text,
+            kind text NOT NULL DEFAULT 'IMAGE',
+            uploaded_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_artwork_logos_request ON concert_artwork_logos (artwork_request_id);',
 
         # ¿Hay que FACTURARLE LOS EQUIPOS al promotor que los cubre? (y cuánto).
         # ⚠️ Cada columna en SU PROPIA sentencia: metida en un `DO $$ … IF NOT EXISTS(…)` que ya

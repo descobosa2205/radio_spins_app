@@ -947,9 +947,9 @@
                     ['audios', 'Audio (escuchar / descargar)', 'fa-music'], ['albums', 'Repertorio del disco', 'fa-compact-disc'], ['videos', 'Videoclip', 'fa-film'],
                     ['links', 'Enlaces de plataformas', 'fa-link'], ['photos', 'Fotos', 'fa-images'], ['playlists', 'Playlists', 'fa-list-ul'],
                     ['contact', 'Contactos', 'fa-address-card']];
-      /* ⚠️⚠️ ARRIBA DE CADA GRUPO, EL MÓDULO VACÍO: se arrastra y luego se elige qué lleva (y se
-         pueden poner todos los que hagan falta). Debajo siguen los concretos, para arrastrar
-         directamente el que se quiere. */
+      /* ⚠️⚠️ EN CADA GRUPO QUE SE ELIGE, **SOLO EL MÓDULO VACÍO**: se arrastra y luego se elige qué
+         lleva en el pop-up (y se pueden poner todos los que hagan falta). Lo concreto solo se lista
+         en los grupos que no tienen pop-up (cartelería, fotos, contactos). Ver abajo el porqué. */
       // Qué grupo de la paleta lleva su módulo VACÍO arriba, y cómo se llama.
       var GENERICO = { audios: 'audio', albums: 'album', videos: 'video', links: 'links', playlists: 'playlist',
                        activities: 'activity', logos: 'logo' };
@@ -976,18 +976,19 @@
             '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>' +
             '<span><b>' + esc(VACIO_LABEL[gen] || 'Módulo') + '</b><small>Se elige al colocarlo</small></span></div>';
         }
-        /* ⚠️⚠️ LOS DATOS DE UNA ACTIVIDAD: en la paleta va **SOLO el módulo vacío** (sep 2026, lo
-           pidió Dani: «pon solo lo de una actividad; lo arrastras y ahí sí seleccionas la actividad
-           que quieres que aparezca»). Listar todas las actividades por venir llenaba la barra de
-           entradas que hay que leer una a una, cuando el pop-up de elegir ya las trae con su
-           buscador. Los demás grupos sí siguen ofreciendo lo concreto: un single o un disco se
-           arrastran directamente. */
-        /* ⚠️⚠️ SOLO EL MÓDULO VACÍO en los datos de una actividad, en el SINGLE y en el LOGO (sep
-           2026, lo pidió Dani: «el módulo de singles también va a ser para arrastrar y luego
-           seleccionar el single, y el módulo de logos, arrastrarás y luego te deja seleccionar el
-           logo de grupo que quieras»). Listar todo lo concreto llenaba la barra de entradas que hay
-           que leer una a una, cuando el pop-up de elegir ya las trae con su buscador. */
-        if (['activities', 'audios', 'logos'].indexOf(g[0]) < 0) {
+        /* ⚠️⚠️ SOLO EL MÓDULO VACÍO EN TODO LO QUE SE ELIGE (sep 2026, lo pidió Dani en tres
+           tandas: primero «pon solo lo de una actividad; lo arrastras y ahí sí seleccionas la
+           actividad», después «el módulo de singles también va a ser para arrastrar y luego
+           seleccionar el single, y el de logos igual», y el 23-sep «en todas las comunicaciones, un
+           single se arrastra y después se selecciona qué canción, para que no aparezcan todas las
+           opciones mostradas en la derecha, y lo mismo con las playlist»). Listar lo concreto —cada
+           single, cada playlist, cada disco, cada videoclip, los enlaces de cada single— llenaba la
+           barra de entradas que hay que leer una a una, cuando el pop-up de elegir (`PICK`) ya las
+           trae con su portada y su buscador. La regla es UNA: **si un grupo tiene módulo vacío
+           (`GENERICO`), en la paleta va solo ese**; lo concreto se lista únicamente en los grupos
+           sin pop-up (cartelería, fotos, contactos). ⚠️ Vale para los TRES envíos (notas de prensa,
+           compradores y comunicaciones corporativas): es el mismo editor. */
+        if (!gen) {
           html += items.map(function (it) {
             return '<div class="pr-pal" draggable="true" data-pr-pal="' + esc(it.kind) + '" data-pr-ref="' + esc(JSON.stringify(it.ref || {})) + '">' +
               (it.cover ? '<img class="pr-pal__cover" src="' + esc(it.cover) + '" alt="">' : '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>') +

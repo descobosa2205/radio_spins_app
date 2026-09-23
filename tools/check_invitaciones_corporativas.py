@@ -277,7 +277,7 @@ with A.app.test_request_context("/"):
         # en el servidor porque son las que ofrece el pop-up de elegir.
         js_ed = io.open("static/js/press_editor.js", encoding="utf-8").read()
         check("la paleta NO lista las actividades una a una (ni los singles ni los logos)",
-              "['activities', 'audios', 'logos'].indexOf(g[0]) < 0" in js_ed)
+              "if (!gen) {" in js_ed and "['activities', 'audios', 'logos'].indexOf(g[0]) < 0" not in js_ed)
         check("pero sí ofrece el módulo vacío", "activities: 'activity'" in js_ed)
         s.rollback()
     finally:

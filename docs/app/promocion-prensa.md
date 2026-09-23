@@ -27,6 +27,8 @@
 - EL MÓDULO «DATOS DE LA ACTIVIDAD»: el cartel si está subido, el recinto que abre el mapa y la paleta
 - LA FILA DE UN DESTINATARIO, LA MISMA EN LOS TRES ENVÍOS (foto, correo al lado y vinculación debajo)
 - EL MÓDULO DE VÍDEO DE YOUTUBE: la miniatura con el play y el pop-up que lo reproduce
+- LA PALETA SOLO OFRECE EL MÓDULO VACÍO DE TODO LO QUE SE ELIGE (23-sep-2026: el single, la playlist,
+  el disco, el videoclip, los enlaces, la actividad y el logo; lo concreto se elige en el pop-up)
 - UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA (sep 2026, notas de prensa y
 - «DISEÑO DE COMUNICACIONES» · COLOR DE FONDO, la imagen FUNDIDA con él y los COLORES DE CADA MÓDULO
 - «DISEÑO DE COMUNICACIONES»: el cartel en PDF, el single y el logo vacíos, y elegir VARIOS con ⌘
@@ -787,13 +789,28 @@
   deformar.
   ⚠️ En el **PDF** un vídeo no se reproduce: va la misma miniatura, y pinchándola se abre el vídeo.
 
+- ⚠️⚠️ **LA PALETA SOLO OFRECE EL MÓDULO VACÍO DE TODO LO QUE SE ELIGE** (23-sep-2026, lo pidió
+  Dani: «en todas las comunicaciones, en las opciones "Un single" se arrastra y después se
+  selecciona qué canción, para que no aparezcan todas las opciones mostradas en la derecha, y lo
+  mismo con las playlist»). Es la tercera vuelta de la misma petición (primero la actividad, luego
+  el single y el logo) y ya es **una regla**, no una lista de excepciones: en `cargaModulos`
+  (`press_editor.js`), **si un grupo tiene módulo vacío (`GENERICO`), en la paleta va SOLO ese**
+  (`if (!gen)`); lo concreto se lista únicamente en los grupos sin pop-up —cartelería, fotos,
+  contactos—. Así la barra de la derecha son diez entradas que se leen de un vistazo, y **qué
+  single, qué playlist, qué disco, qué videoclip, qué enlaces, qué actividad o qué logo** se elige
+  en el pop-up (`#prPickModal`, con portada y buscador), donde ya estaba todo. ⚠️ Vale para los
+  TRES envíos (notas de prensa, compradores y comunicaciones corporativas): es el mismo editor.
+  ⚠️ Los recursos siguen viajando enteros en `promo_press_resources`: el pop-up los necesita; solo
+  cambia lo que se PINTA en la paleta. Lo cazan `tools/check_diseno_comunicaciones.py` y
+  `tools/check_invitaciones_corporativas.py` (apartado 2).
+
 - ⚠️⚠️ **UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA** (sep 2026, notas de prensa **y
   comunicaciones a compradores**: es el MISMO editor, así que todo lo que se toque aquí vale para
-  los dos). El **single**, el **disco**, el **videoclip**, los **enlaces** y la **playlist** tienen
+  los dos; ⚠️ desde el 23-sep **en la paleta va SOLO el vacío**, ver la nota de arriba). El **single**, el **disco**, el **videoclip**, los **enlaces** y la **playlist** tienen
   ya su módulo VACÍO al principio de su grupo en la paleta (`.pr-pal--empty`): se arrastra, se
   elige qué lleva en el pop-up (`#prPickModal`, con su portada y su buscador) y **se pueden poner
-  todos los que hagan falta** — cada arrastre es un módulo nuevo. Debajo siguen los concretos, para
-  arrastrar directamente el que se quiere.
+  todos los que hagan falta** — cada arrastre es un módulo nuevo. (Hasta el 23-sep-2026 debajo
+  seguían los concretos, para arrastrar directamente el que se quería; ya no: ver arriba.)
   · Se cambia después desde su panel («Cambiar», `data-pr-pick-open`) y pinchando un módulo vacío
   del lienzo. El `<select>` que solo tenía la playlist se retiró: ahora es el MISMO selector para
   los cinco.

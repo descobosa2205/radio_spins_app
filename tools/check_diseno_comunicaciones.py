@@ -347,7 +347,7 @@ def main():
     print("4 · la PALETA: lo que se arrastra vacío")
     js = (RAIZ / "static/js/press_editor.js").read_text(encoding="utf-8")
     check("la actividad, el single y el logo NO listan lo concreto",
-          "['activities', 'audios', 'logos'].indexOf(g[0]) < 0" in js)
+          "if (!gen) {" in js and "['activities', 'audios', 'logos'].indexOf(g[0]) < 0" not in js)
     check("el logo nace como una IMAGEN con su `pick`", "VACIO_TIPO = { logo: 'image' }" in js)
     check("y tiene su selector", "logo:     { grupo: 'logos'" in js)
     check("lo que se elige sale de `clavePick`, no del tipo", "function clavePick(b)" in js)

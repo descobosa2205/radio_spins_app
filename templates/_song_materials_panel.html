@@ -1,0 +1,518 @@
+{# LOS MATERIALES DE UNA CANCIÓN: su pestaña «Materiales» y la sección «Materiales del lanzamiento»
+   de su PLAN DE LANZAMIENTO pintan este MISMO parcial (mismos botones, mismos endpoints). #}
+  {# LA MAQUETA del proyecto que creó esta canción: se ve aquí MIENTRAS NO HAYA MÁSTERS. En cuanto
+     se suben, esta función desaparece de los materiales y la maqueta se queda en Demos. #}
+  {% if project_demos %}
+    <div class="ficha-section mb-3">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title"><i class="fa fa-compact-disc"></i>Maqueta del proyecto</h6>
+        <span class="text-muted small">Se deja de ver aquí en cuanto se suba el máster.</span>
+      </div>
+      <div class="ficha-section__body">
+        <div class="d-grid gap-2">
+          {% for d in project_demos %}
+            <div class="d-flex align-items-center gap-3 border rounded p-2 flex-wrap">
+              <img src="{{ d.cover_url or DEFAULT_COVER_URL }}" alt=""
+                   style="width:52px;height:52px;border-radius:10px;object-fit:cover;">
+              <span class="flex-grow-1 min-w-0">
+                <span class="fw-semibold d-block text-truncate">{{ d.title }}</span>
+                <span class="small text-muted text-truncate d-block">
+                  {{ d.who or '' }}{% if d.authors_tooltip %} · {{ d.authors_tooltip }}{% endif %}</span>
+              </span>
+              {% if d.audio_url %}
+                {# El reproductor de la casa (el de Syncros): suena aquí mismo, uno a la vez. #}
+                <span style="flex:1 1 12rem;min-width:9rem;">
+                  {{ ap.audio_player(d.audio_url, id=('demo-' ~ (d.id or '')), title=d.title,
+                                     artist=(d.who or ''), cover=(d.cover_url or ''),
+                                     album=(d.who or '')) }}
+                </span>
+              {% endif %}
+              <a class="btn btn-sm btn-outline-secondary"
+                 href="{{ url_for('discografica_view', section='demos', demo_artist=(d.artist_id or 'none')) }}">
+                <i class="fa fa-arrow-right me-1"></i>Ver en Demos</a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ---------- IDs DE PLATAFORMA (Spotify, Apple, Amazon, YouTube…) ----------
+     Son los gráficos VERTICALES que da cada plataforma. Se suben aquí, se marcan como «no
+     necesario» o se le piden al artista (le llega su enlace). #}
+  {% if platform_ids %}
+    <div class="ficha-section mb-3">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title"><i class="fa fa-fingerprint"></i>IDs de plataforma</h6>
+        <span class="d-flex align-items-center gap-2">
+          <span class="badge {{ 'text-bg-success' if platform_ids.all_done else 'text-bg-warning text-dark' }}">
+            {{ platform_ids.done }} / {{ platform_ids.total }}</span>
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <button class="btn btn-sm btn-outline-danger" type="button"
+                    data-bs-toggle="modal" data-bs-target="#songIdsAskModal">
+              <i class="fa fa-paper-plane me-1"></i>Solicitar al artista</button>
+          {% endif %}
+        </span>
+      </div>
+      <div class="ficha-section__body">
+        {% if platform_ids.request %}
+          <div class="alert alert-light border small">
+            <i class="fa fa-hourglass-half me-1"></i>Pedidos al artista.
+            <span class="text-break">{{ platform_ids.request_url }}</span>
+          </div>
+        {% endif %}
+        <div class="d-flex flex-wrap gap-3">
+          {% for r in platform_ids.rows %}
+            <div class="border rounded-3 p-2 text-center" style="width:150px;">
+              <span class="d-inline-flex align-items-center justify-content-center mb-1"
+                    style="width:38px;height:38px;border-radius:10px;background:{{ '#fff' if r.logo_url else r.color }};color:#fff;{% if r.logo_url %}border:1px solid #e9ecef;{% endif %}">
+                {% if r.logo_url %}<img src="{{ r.logo_url }}" alt="{{ r.label }}" style="width:26px;height:26px;object-fit:contain;">{% else %}<i class="{{ 'fa-brands' if r.brand else 'fa' }} {{ r.icon }}"></i>{% endif %}
+              </span>
+              <div class="small fw-semibold text-truncate" title="{{ r.label }}">{{ r.label }}</div>
+              <div class="my-2 mx-auto d-flex align-items-center justify-content-center"
+                   style="width:72px;aspect-ratio:9/16;border-radius:10px;overflow:hidden;
+                          border:2px dashed {{ '#cbd5e1' if not r.file_url else 'transparent' }};
+                          background:#fafbfc;">
+                {% if r.file_url %}
+                  <a href="{{ r.file_url }}" target="_blank" rel="noopener" class="w-100 h-100">
+                    <img src="{{ r.file_url }}" alt="" style="width:100%;height:100%;object-fit:cover;"></a>
+                {% elif r.not_needed %}
+                  <i class="fa fa-ban text-muted"></i>
+                {% else %}
+                  <i class="fa fa-mobile-screen text-muted"></i>
+                {% endif %}
+              </div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <form method="post" action="{{ url_for('song_platform_id_save', song_id=song.id) }}"
+                      enctype="multipart/form-data" class="d-grid gap-1">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <input type="hidden" name="platform" value="{{ r.platform }}">
+                  <input type="file" name="file" class="form-control form-control-sm d-none"
+                         id="idfile-{{ r.platform }}" accept="image/*,video/*"
+                         onchange="this.form.submit()">
+                  <label class="btn btn-sm btn-outline-secondary mb-0" for="idfile-{{ r.platform }}">
+                    <i class="fa fa-upload me-1"></i>{{ 'Cambiar' if r.file_url else 'Subir' }}</label>
+                </form>
+                <form method="post" action="{{ url_for('song_platform_id_save', song_id=song.id) }}">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <input type="hidden" name="platform" value="{{ r.platform }}">
+                  {% if r.not_needed %}
+                    <input type="hidden" name="undo_not_needed" value="1">
+                    <button class="btn btn-sm btn-link text-decoration-none p-0">No necesario ✕</button>
+                  {% else %}
+                    <input type="hidden" name="not_needed" value="1">
+                    <button class="btn btn-sm btn-link text-muted text-decoration-none p-0">No necesario</button>
+                  {% endif %}
+                </form>
+              {% endif %}
+            </div>
+          {% endfor %}
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <form method="post" action="{{ url_for('song_platform_id_save', song_id=song.id) }}"
+                  class="border rounded-3 p-2" style="width:170px;">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <div class="small fw-semibold mb-1">Otra plataforma</div>
+              <input class="form-control form-control-sm mb-1" name="new_platform" placeholder="Nombre" required>
+              <button class="btn btn-sm btn-outline-secondary w-100"><i class="fa fa-plus me-1"></i>Añadir</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# Pedirle al artista los IDs que se marquen. #}
+    <div class="modal fade" id="songIdsAskModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post"
+              action="{{ url_for('song_platform_ids_request', song_id=song.id) }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <div class="modal-header">
+            <div>
+              <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Solicitar IDs al artista</h5>
+              <div class="text-muted small">Le llega su enlace para subir cada uno.</div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label">¿Cuáles se piden?</label>
+            <div class="d-grid gap-2">
+              {% for r in platform_ids.rows %}
+                <label class="d-flex align-items-center gap-2 border rounded p-2">
+                  <input class="form-check-input m-0" type="checkbox" name="platform[]"
+                         value="{{ r.platform }}" {% if not r.done %}checked{% endif %}>
+                  <span class="d-inline-flex align-items-center justify-content-center"
+                        style="width:28px;height:28px;border-radius:8px;background:{{ '#fff' if r.logo_url else r.color }};color:#fff;{% if r.logo_url %}border:1px solid #e9ecef;{% endif %}">
+                    {% if r.logo_url %}<img src="{{ r.logo_url }}" alt="{{ r.label }}" style="width:16px;height:16px;object-fit:contain;">{% else %}<i class="{{ 'fa-brands' if r.brand else 'fa' }} {{ r.icon }} small"></i>{% endif %}</span>
+                  <span class="flex-grow-1">{{ r.label }}</span>
+                  {% if r.done %}<span class="badge text-bg-light border">ya está</span>{% endif %}
+                </label>
+              {% endfor %}
+            </div>
+            <label class="form-label mt-3">Nota <span class="text-muted">(opcional)</span></label>
+            <textarea class="form-control" name="note" rows="2"></textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar solicitud</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  {# Menú de compartir + descargar reutilizable (audio o portada). #}
+  {% macro mat_share_dl(concept, item, is_cover=False) %}
+    <li><h6 class="dropdown-header">Compartir</h6></li>
+    <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (concept ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+    <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (concept ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+    <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (concept ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+    <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ item.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header">Descargar</h6></li>
+    {% if is_cover %}
+      <li><a class="dropdown-item" href="{{ item.download_jpg_url }}"><i class="fa fa-image fa-fw me-1"></i>En JPG</a></li>
+      <li><a class="dropdown-item" href="{{ item.download_png_url }}"><i class="fa fa-image fa-fw me-1"></i>En PNG</a></li>
+    {% else %}
+      <li><a class="dropdown-item" href="{{ item.download_wav_url }}"><i class="fa fa-file-audio fa-fw me-1"></i>En WAV</a></li>
+      <li><a class="dropdown-item" href="{{ item.download_mp3_url }}"><i class="fa fa-file-audio fa-fw me-1"></i>En MP3</a></li>
+    {% endif %}
+  {% endmacro %}
+
+  {# EL REPRODUCTOR de un audio: **el MISMO de la landing de Syncros** (play redondo + barra que
+     se arrastra + duración), punto único `_audio_player_row.html`. Sin nombre de archivo: el
+     módulo en el que está ya dice qué es («Master 48 bits», «Instrumental»…).
+     ⚠️ Solo suena uno a la vez, también entre los varios reproductores de esta pestaña. #}
+  {% macro audio_chip(item) %}
+    {{ ap.audio_player(item.file_url, id=item.id, title=song.title,
+                       artist=(primary_artist.name if primary_artist else ''),
+                       cover=(song.cover_url or ''),
+                       album=(primary_artist.name if primary_artist else '')) }}
+  {% endmacro %}
+
+  {# Fila de archivo de audio: la etiqueta + el menú de 3 puntos. #}
+  {% macro audio_row(concept, item, fixed_slot=True) %}
+    <div class="mat-file">
+      <div class="mat-file__main">
+        {{ audio_chip(item) }}
+        {% if item.is_pending %}<span class="badge text-bg-warning text-dark">Pendiente de validar</span>{% endif %}
+      </div>
+      {% if item.is_pending and CAN_EDIT_DISCOGRAFICA %}
+        <form method="post" action="{{ url_for('discografica_song_material_validate', song_id=song.id, material_id=item.id) }}" class="d-inline me-1"><button class="btn btn-sm btn-success" title="Validar"><i class="fa fa-check"></i></button></form>
+        <form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" class="d-inline me-1" onsubmit="return confirm('¿Rechazar y eliminar este archivo?');"><button class="btn btn-sm btn-outline-danger" title="Rechazar"><i class="fa fa-xmark"></i></button></form>
+      {% endif %}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-h"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          {{ mat_share_dl(concept, item) }}
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <li><hr class="dropdown-divider"></li>
+            {% if fixed_slot %}
+              <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir', category:{{ item.category|tojson|forceescape }}, slotKey:{{ item.slot_key|tojson|forceescape }}, materialId:{{ item.id|tojson|forceescape }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+            {% else %}
+              <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir subproducto', category:{{ item.category|tojson|forceescape }}, slotKey:'SUBPRODUCT', materialId:{{ item.id|tojson|forceescape }}, showDisplayName:true, multiple:false, stemMode:false, displayName:{{ item.label|tojson|forceescape }}})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+            {% endif %}
+            <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" onsubmit="return confirm('¿Eliminar este archivo?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  {% endmacro %}
+
+  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+    <h5 class="m-0">Materiales</h5>
+    <span class="badge {{ materials_status.badge_class if materials_status else 'text-bg-danger' }}">
+      Audios completos {{ materials_status.completed_basics if materials_status else 0 }}/{{ materials_status.total_basics if materials_status else 4 }}
+    </span>
+  </div>
+
+  {# ENTREGA SIN TERMINAR DE REVISAR: qué falta y quién la entregó. ⚠️ Un material RECHAZADO deja
+     de estar «pendiente de validar» pero sigue faltando, así que se dice aquí — es lo que mantiene
+     la tarea abierta en el Inicio de Registros y del Sello. #}
+  {% for dr in (delivery_review or []) %}
+    <div class="alert alert-warning d-flex align-items-start gap-2">
+      <i class="fa fa-file-audio mt-1"></i>
+      <div class="min-w-0">
+        <div class="fw-semibold">Materiales entregados{% if dr.submitted_by %} por {{ dr.submitted_by }}{% endif %}{% if dr.submitted_label %} · {{ dr.submitted_label }}{% endif %}</div>
+        <div class="small">Pendiente de revisar{% if dr.missing_label %}: {{ dr.missing_label }}{% endif %}.</div>
+        {% if dr.rejected %}
+          <div class="small mt-1">
+            {% for r in dr.rejected %}<span class="badge text-bg-danger me-1"><i class="fa fa-xmark me-1"></i>{{ r.label }} rechazado</span>{% endfor %}
+            <span class="text-muted">Hay que volver a pedirlo para cerrar la entrega.</span>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+
+  {% if pending_delivery and CAN_EDIT_DISCOGRAFICA %}
+    {% set pd = pending_delivery %}
+    <div class="card border-warning mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-1"><i class="fa fa-inbox text-warning"></i><h6 class="m-0">Entrega recibida · pendiente de revisar</h6></div>
+        <div class="small text-muted mb-3">Revisa cada sección y consolídala en la ficha, o descártala.</div>
+        {% macro pd_actions(section) %}
+          <div class="d-flex gap-1">
+            <form method="post" action="{{ url_for('discografica_song_delivery_consolidate', song_id=song.id, link_id=pending_delivery.link_id) }}"><input type="hidden" name="section" value="{{ section }}"><button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Consolidar</button></form>
+            <form method="post" action="{{ url_for('discografica_song_delivery_discard_section', song_id=song.id, link_id=pending_delivery.link_id) }}" onsubmit="return confirm('¿Descartar esta sección recibida?');"><input type="hidden" name="section" value="{{ section }}"><button class="btn btn-sm btn-outline-danger" title="Descartar"><i class="fa fa-xmark"></i></button></form>
+          </div>
+        {% endmacro %}
+        {% if pd.production %}
+          <div class="border rounded p-2 mb-2" style="background:#fffdf5;">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2"><span class="fw-semibold">Información de producción</span>{{ pd_actions('production') }}</div>
+            <div class="row g-1 small">
+              {% for key, label, req in delivery_production_fields %}{% if pd.production.get(key) %}<div class="col-12 col-md-6"><span class="text-muted">{{ label }}:</span> {{ pd.production.get(key) }}</div>{% endif %}{% endfor %}
+            </div>
+          </div>
+        {% endif %}
+        {% if pd.authoral %}
+          <div class="border rounded p-2 mb-2" style="background:#fffdf5;">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2"><span class="fw-semibold">Información autoral</span>{{ pd_actions('authoral') }}</div>
+            <div class="table-responsive"><table class="table table-sm mb-0 small"><thead><tr><th>Autor</th><th>Editorial</th><th>Rol</th><th class="text-end">%</th></tr></thead><tbody>
+              {% for a in pd.authoral %}<tr><td>{{ a.name }}</td><td>{{ a.editorial or '—' }}</td><td>{{ delivery_author_roles.get(a.role, a.role) }}</td><td class="text-end">{{ a.pct }}</td></tr>{% endfor %}
+            </tbody></table></div>
+          </div>
+        {% endif %}
+        {% if pd.lyrics %}
+          <div class="border rounded p-2" style="background:#fffdf5;">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2"><span class="fw-semibold">Letra</span>{{ pd_actions('lyrics') }}</div>
+            <pre class="small mb-0" style="white-space:pre-wrap;max-height:220px;overflow:auto;">{{ pd.lyrics }}</pre>
+          </div>
+        {% endif %}
+        {# TEXTO PARA EL PITCH: al consolidarlo entra en el pitch de la ficha, igual que si se
+           hubiera escrito a mano. #}
+        {% if pd.pitch %}
+          <div class="border rounded p-2" style="background:#fffdf5;">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2"><span class="fw-semibold">Texto para el pitch</span>{{ pd_actions('pitch') }}</div>
+            {# Justificado como en todos los demás sitios (y con la letra de la app, no la de un <pre>). #}
+            <div class="pitch-text pitch-text--sm" style="max-height:220px;overflow:auto;">{{ pd.pitch }}</div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  {# ---------- PORTADA: principal (+ provisional solo si existe) ---------- #}
+  {% macro cover_box(role_slot, role_label, role_item) %}
+    <div class="mat-cover">
+      <span class="mat-cover__badge {{ 'mat-cover__badge--main' if role_slot == 'COVER' else '' }}">{{ role_label }}</span>
+      {% if role_item %}
+        <img class="mat-cover__img" src="{{ role_item.file_url or DEFAULT_COVER_URL }}" alt="Portada {{ role_label|lower }}"
+             {% if role_item.file_url %}data-viewer-src="{{ role_item.file_url }}" data-viewer-kind="IMAGE"
+             data-viewer-name="Portada {{ role_label|lower }} · {{ song.title }}" data-viewer-download="{{ role_item.file_url }}"
+             data-viewer-set="portadas" style="cursor:zoom-in"{% endif %}>
+        <div class="mat-cover__body"><div class="small text-muted text-truncate">{{ role_item.base_name }}</div></div>
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {{ mat_share_dl('Portada', role_item, is_cover=True) }}
+            {% if CAN_EDIT_DISCOGRAFICA %}
+              <li><hr class="dropdown-divider"></li>
+              <li><form method="post" action="{{ url_for('discografica_song_cover_role', song_id=song.id, material_id=role_item.id) }}"><button class="dropdown-item"><i class="fa fa-arrows-rotate fa-fw me-1"></i>{{ 'Convertir en provisional' if role_slot == 'COVER' else 'Convertir en principal' }}</button></form></li>
+              <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir portada', category:'COVER', slotKey:'{{ role_slot }}', materialId:{{ role_item.id|tojson|forceescape }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+              <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=role_item.id) }}" onsubmit="return confirm('¿Eliminar esta portada?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+            {% endif %}
+          </ul>
+        </div>
+      {% else %}
+        <div class="mat-cover__placeholder"><i class="fa fa-image"></i></div>
+        <div class="mat-cover__body"><div class="small text-muted">Sin portada {{ role_label|lower }}.</div></div>
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir portada {{ role_label|lower }}', category:'COVER', slotKey:'{{ role_slot }}', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endmacro %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+        <div class="d-flex align-items-center gap-2"><i class="fa fa-image text-muted"></i><h6 class="m-0">Portada</h6></div>
+        {% if CAN_EDIT_DISCOGRAFICA and not song_materials.cover_provisional %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSongMaterialModal({title:'Subir portada provisional', category:'COVER', slotKey:'COVER_PROVISIONAL', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-plus me-1"></i>Portada provisional</button>
+        {% endif %}
+      </div>
+      <div class="row g-3">
+        <div class="{{ 'col-12 col-md-6' if song_materials.cover_provisional else 'col-12' }}">{{ cover_box('COVER', 'Principal', song_materials.cover_principal) }}</div>
+        {% if song_materials.cover_provisional %}
+          <div class="col-12 col-md-6">{{ cover_box('COVER_PROVISIONAL', 'Provisional', song_materials.cover_provisional) }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+
+  <div class="row g-3">
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body d-flex flex-column gap-3">
+          <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+            <div class="d-flex align-items-center gap-2"><i class="fa fa-compact-disc text-muted"></i><h6 class="m-0">Masters</h6></div>
+            {% if CAN_EDIT_DISCOGRAFICA %}
+              <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir subproducto master', category:'MASTER', slotKey:'SUBPRODUCT', showDisplayName:true, multiple:false, stemMode:false, displayName:''})"><i class="fa fa-plus"></i> Subproducto</button>
+            {% endif %}
+          </div>
+
+          {% for slot_key, slot_label in [('MASTER_48', 'Master 48 bits'), ('MASTER_24', 'Master 24 bits'), ('MASTER_16', 'Master 16 bits')] %}
+            {% set item = song_materials.masters_default[slot_key] %}
+            <div class="mat-module">
+              <div class="mat-module__head">
+                <span class="fw-semibold">{{ slot_label }}</span>
+                {# Con archivo subido NO se repite «Sustituir»: está en el menú de 3 puntitos. #}
+                {% if CAN_EDIT_DISCOGRAFICA and not item %}
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir {{ slot_label }}', category:'MASTER', slotKey:'{{ slot_key }}', materialId:'', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
+                {% endif %}
+              </div>
+              {% if item %}{{ audio_row(slot_label, item) }}{% else %}<div class="mat-empty">Pendiente de subida.</div>{% endif %}
+            </div>
+          {% endfor %}
+
+          <div>
+            <div class="mat-subhead">Subproductos</div>
+            {% if song_materials.master_subproducts and (song_materials.master_subproducts|length) > 0 %}
+              <div class="d-flex flex-column gap-2">
+                {% for item in song_materials.master_subproducts %}
+                  <div class="mat-module"><div class="mat-module__head"><span class="fw-semibold">{{ item.label }}</span></div>{{ audio_row(item.label, item, fixed_slot=False) }}</div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="mat-empty">No hay subproductos de master.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% for category_key, title, item_default, subproducts, icon in [
+      ('INSTRUMENTAL', 'Instrumental', song_materials.instrumental_default, song_materials.instrumental_subproducts, 'fa-guitar'),
+      ('TV_TRACK', 'TV Track', song_materials.tv_track_default, song_materials.tv_track_subproducts, 'fa-tv')
+    ] %}
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-body d-flex flex-column gap-3">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+              <div class="d-flex align-items-center gap-2"><i class="fa {{ icon }} text-muted"></i><h6 class="m-0">{{ title }}</h6></div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir subproducto {{ title|lower }}', category:'{{ category_key }}', slotKey:'SUBPRODUCT', showDisplayName:true, multiple:false, stemMode:false, displayName:''})"><i class="fa fa-plus"></i> Subproducto</button>
+              {% endif %}
+            </div>
+
+            <div class="mat-module">
+              <div class="mat-module__head">
+                <span class="fw-semibold">{{ title }}</span>
+                {# Igual que en los masters: «Sustituir» solo en el menú de 3 puntitos. #}
+                {% if CAN_EDIT_DISCOGRAFICA and not item_default %}
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir {{ title }}', category:'{{ category_key }}', slotKey:'DEFAULT', materialId:'', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
+                {% endif %}
+              </div>
+              {% if item_default %}{{ audio_row(title, item_default) }}{% else %}<div class="mat-empty">Pendiente de subida.</div>{% endif %}
+            </div>
+
+            <div>
+              <div class="mat-subhead">Subproductos</div>
+              {% if subproducts and (subproducts|length) > 0 %}
+                <div class="d-flex flex-column gap-2">
+                  {% for item in subproducts %}
+                    <div class="mat-module"><div class="mat-module__head"><span class="fw-semibold">{{ item.label }}</span></div>{{ audio_row(item.label, item, fixed_slot=False) }}</div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="mat-empty">No hay subproductos.</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+
+    {# Stems ocupa media columna: cae debajo de Instrumental y al lado de TV Track. #}
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+            <div class="d-flex align-items-center gap-2"><i class="fa fa-layer-group text-muted"></i><h6 class="m-0">Stems</h6></div>
+            {% if CAN_EDIT_DISCOGRAFICA %}
+              <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir stems', category:'STEMS', slotKey:'BUNDLE', showDisplayName:true, multiple:true, stemMode:true, displayName:'Stems'})"><i class="fa fa-plus"></i> Añadir stems</button>
+            {% endif %}
+          </div>
+
+          {% if song_materials.stem_groups and (song_materials.stem_groups|length) > 0 %}
+            <div class="d-flex flex-column gap-3">
+              {% for group in song_materials.stem_groups %}
+                <div class="mat-module">
+                  <div class="mat-module__head">
+                    <span class="fw-semibold">{{ group.label }} <span class="text-muted small fw-normal">· {{ group.file_count }} archivo{% if group.file_count != 1 %}s{% endif %}</span>{% if group.is_pending %} <span class="badge text-bg-warning text-dark ms-1">Pendiente de validar</span>{% endif %}</span>
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        {% if group.is_pending and CAN_EDIT_DISCOGRAFICA %}
+                          <li><form method="post" action="{{ url_for('discografica_song_stems_validate', song_id=song.id, bundle_key=group.bundle_key) }}"><button class="dropdown-item text-success"><i class="fa fa-check fa-fw me-1"></i>Validar stems</button></form></li>
+                          <li><hr class="dropdown-divider"></li>
+                        {% endif %}
+                        <li><h6 class="dropdown-header">Compartir (paquete completo)</h6></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (group.label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ group.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (group.label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ group.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (group.label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ group.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ group.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ group.download_zip_url }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar ZIP</a></li>
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                          <li><hr class="dropdown-divider"></li>
+                          <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir stems', category:'STEMS', slotKey:'BUNDLE', bundleKey:{{ group.bundle_key|tojson|forceescape }}, showDisplayName:true, multiple:true, stemMode:true, displayName:{{ group.label|tojson|forceescape }}})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+                          <li><form method="post" action="{{ url_for('discografica_song_material_bundle_delete', song_id=song.id, bundle_key=group.bundle_key) }}" onsubmit="return confirm('¿Eliminar este grupo de stems?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+                        {% endif %}
+                      </ul>
+                    </div>
+                  </div>
+                  {# El paquete se enseña PLEGADO: arriba se comparte o se descarga entero, y al
+                     pinchar se despliegan sus archivos, cada uno con lo suyo. #}
+                  <button type="button" class="mat-stems-toggle" data-stems-toggle aria-expanded="false">
+                    <i class="fa fa-caret-right"></i>
+                    <span>Ver los {{ group.file_count }} archivo{% if group.file_count != 1 %}s{% endif %}</span>
+                  </button>
+                  <div class="d-flex flex-column gap-1 d-none" data-stems-list>
+                    {% for f in group.rows %}
+                      <div class="mat-stemfile">
+                        <span class="mat-stemfile__name">{{ f.base_name }}</span>
+                        {% if f.is_audio %}{{ audio_chip(f) }}{% endif %}
+                        <div class="dropdown ms-auto">
+                          <button class="btn btn-sm btn-link text-muted p-0 px-1" type="button" data-bs-toggle="dropdown" title="Descargar o compartir este archivo"><i class="fa fa-ellipsis-h"></i></button>
+                          <ul class="dropdown-menu dropdown-menu-end">
+                            <li><h6 class="dropdown-header">{{ f.base_name }}</h6></li>
+                            {% if f.download_wav_url %}<li><a class="dropdown-item" href="{{ f.download_wav_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar WAV</a></li>{% endif %}
+                            {% if f.download_mp3_url %}<li><a class="dropdown-item" href="{{ f.download_mp3_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar MP3</a></li>{% endif %}
+                            {% if f.download_original_url %}<li><a class="dropdown-item" href="{{ f.download_original_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar original</a></li>{% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (f.base_name ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ f.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (f.base_name ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ f.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (f.base_name ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ f.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ f.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                          </ul>
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+            <script>
+              document.addEventListener('click', function (ev) {
+                var b = ev.target.closest('[data-stems-toggle]');
+                if (!b) return;
+                var lista = b.parentElement.querySelector('[data-stems-list]');
+                if (!lista) return;
+                var abierto = !lista.classList.toggle('d-none');
+                b.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+                b.classList.toggle('is-open', abierto);
+                var txt = b.querySelector('span');
+                if (txt) txt.textContent = (abierto ? 'Ocultar los ' : 'Ver los ') + txt.textContent.replace(/^\D+/, '');
+              });
+            </script>
+          {% else %}
+            <div class="mat-empty">Todavía no hay stems subidos.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% include "_song_material_modal.html" %}

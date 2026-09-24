@@ -20411,11 +20411,13 @@ def _isrc_panel_context(session_db, *, isrc_tab: str = "repertorio", artist_id=N
 SONG_DETAIL_TABS = {
     "informacion", "editorial", "materiales", "videoclip", "royalties", "ingresos",
     "gastos", "promocion", "marketing", "radio", "playlisting",
+    # EL PLAN DE LANZAMIENTO: el MISMO de su proyecto (`_release_plan_tab_context`).
+    "lanzamiento",
 }
 # ⚠️ Una pestaña NUEVA hay que meterla aquí: si no, cae en «Información» y su panel no se pinta
 # (sin dar ningún error).
 ALBUM_DETAIL_TABS = {"informacion", "canciones", "materiales", "beneficiarios", "gastos",
-                     "promocion", "marketing"}
+                     "promocion", "marketing", "lanzamiento"}
 
 # Lo que define el listado de origen. `nav` dice cuál es y el resto son SUS filtros.
 FICHA_NAV_PARAMS = ("nav", "nav_artista", "nav_q", "nav_onestop")
@@ -26357,6 +26359,8 @@ def discografica_song_detail(song_id):
 
     response = render_template(
         "song_detail.html",
+        # EL PLAN DE LANZAMIENTO de la canción: el MISMO de su proyecto (solo en su pestaña: es caro).
+        plan_view=(_release_plan_tab_context(session_db, song=s) if tab == "lanzamiento" else None),
         song=s,
         primary_artist=primary_artist,
         tab=tab,
@@ -27853,7 +27857,7 @@ def discografica_song_material_upload(song_id):
     category = (request.form.get("category") or "").strip().upper()
     slot_key = (request.form.get("slot_key") or "DEFAULT").strip().upper()
     # ⚠️ Lo del VÍDEO vive ya en su propia pestaña: hay que volver ahí, no a Materiales.
-    _tab = "videoclip" if category in ("VIDEOCLIP", "VIDEO_THUMB", "VIDEO_RIGHTS") else "materiales"
+    _tab = "videoclip" if category in ("VIDEOCLIP", "VIDEO_THUMB", "VIDEO_RIGHTS") else _materials_return_tab()
     display_name = (request.form.get("display_name") or "").strip() or None
     replace_material_id = (request.form.get("material_id") or "").strip() or None
     replace_bundle_key = (request.form.get("bundle_key") or "").strip() or None
@@ -28175,7 +28179,7 @@ def discografica_song_material_delete(song_id, material_id):
     if not can_edit_discografica():
         return forbid("No tienes permisos para eliminar materiales.")
 
-    _tab = "materiales"
+    _tab = _materials_return_tab()
     session_db = db()
     try:
         song = session_db.get(Song, to_uuid(song_id))
@@ -28224,7 +28228,7 @@ def discografica_song_cover_role(song_id, material_id):
         row = session_db.get(SongMaterial, to_uuid(material_id))
         if not song or not row or row.song_id != song.id or (row.category or "").upper() != "COVER":
             flash("Portada no encontrada.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
         current = (row.slot_key or "COVER").strip().upper()
         target = "COVER" if current == "COVER_PROVISIONAL" else "COVER_PROVISIONAL"
         # Solo una principal y una provisional: si ya hay otra en el rol destino, se intercambian.
@@ -28253,7 +28257,7 @@ def discografica_song_cover_role(song_id, material_id):
         flash(f"Error actualizando la portada: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 # ---------- ENTREGA DE MASTERS (enlace público) ----------
@@ -36772,7 +36776,9 @@ def disco_project_detail(project_id):
             release_modes=DISCO_RELEASE_MODES,
             physical_formats=DISCO_PHYSICAL_FORMATS,
             release=release,
-            release_songs=(_disco_project_release_songs(session_db, project) if tab == "materiales" else []),
+            # ⚠️ También en el PLAN: su sección «Materiales del lanzamiento» es la misma que la pestaña.
+            release_songs=(_disco_project_release_songs(session_db, project)
+                           if tab in ("materiales", "lanzamiento") else []),
             date_state=fechas_estado,
             production=produccion,
             # LOGÍSTICA del proyecto (¿hace falta?, a quién se le ha pedido y qué se le pide).
@@ -40284,6 +40290,179 @@ def _disco_plan_row_or_none(session_db, project, model, row_id):
     return fila
 
 
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# EL PLAN DE LANZAMIENTO EN LA FICHA DE UN SINGLE O DE UN ÁLBUM (sep 2026, lo pidió Dani).
+# ⚠️⚠️ NO HAY DOS PLANES: la pestaña «Plan de lanzamiento» de la canción o del álbum enseña EL
+# MISMO `DiscoReleasePlan` de su proyecto, pintado con el MISMO parcial (`_disco_plan_panel.html`)
+# y guardado en los MISMOS endpoints (`disco_plan_*`, que vuelven a donde se estaba con `next`).
+# Lo que se toque en un sitio se ve en el otro porque es el mismo dato.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+def _release_plan_project(session_db, *, song=None, album=None):
+    """EL PROYECTO cuyo plan es el de este lanzamiento → (proyecto, álbum_por_el_que_se_llega).
+
+    · Una CANCIÓN: el proyecto que la lanza (`release_song_id`) y, si no hay, el de un ÁLBUM que
+      la incluye (entonces su plan es el del disco, y se dice).
+    · Un ÁLBUM: el proyecto que lo lanza (`album_id`).
+    Entre varios manda el que NO es solo de videoclip (un videoclip de un tema ya existente también
+    apunta a la canción), después el activo y después el más reciente."""
+    def _mejor(q):
+        filas = q.all()
+        if not filas:
+            return None
+        def _peso(p):
+            k = (p.kind or "").upper()
+            return (0 if k != "VIDEOCLIP" else 1,
+                    0 if (p.status or "ACTIVO") == "ACTIVO" else 1,
+                    -(p.created_at.timestamp() if getattr(p, "created_at", None) else 0))
+        return sorted(filas, key=_peso)[0]
+
+    try:
+        if album is not None:
+            return _mejor(session_db.query(DiscoProject)
+                          .filter(DiscoProject.album_id == album.id)), None
+        if song is not None:
+            propio = _mejor(session_db.query(DiscoProject)
+                            .filter(DiscoProject.release_song_id == song.id))
+            if propio is not None:
+                return propio, None
+            album_ids = [r[0] for r in session_db.query(AlbumTrack.album_id)
+                         .filter(AlbumTrack.song_id == song.id).all()]
+            if album_ids:
+                del_disco = _mejor(session_db.query(DiscoProject)
+                                   .filter(DiscoProject.album_id.in_(album_ids)))
+                if del_disco is not None:
+                    return del_disco, session_db.get(Album, del_disco.album_id)
+    except Exception:
+        app.logger.exception("[plan] no se pudo buscar el proyecto del lanzamiento")
+    return None, None
+
+
+def _disco_plan_view_context(session_db, project) -> dict:
+    """TODO lo que necesita el parcial del plan (`_disco_plan_panel.html`) y sus pop-ups.
+
+    Punto único: lo usan la ficha del PROYECTO y las de la CANCIÓN y el ÁLBUM, así que las tres
+    pintan exactamente lo mismo."""
+    estado = _disco_plan_state(session_db, project)
+    gente = (_disco_plan_reminder_candidates(session_db, project, estado.get("plan"))
+             if estado and estado.get("exists") else [])
+    return {
+        "project": project,
+        "plan": estado,
+        "plan_agenda": (_disco_plan_agenda(session_db, project, estado) if estado else None),
+        "plan_candidates": gente,
+        "links": _disco_release_links_state(session_db, project),
+        "release": _disco_project_release(session_db, project),
+        "release_songs": _disco_project_release_songs(session_db, project),
+        "can_review_plan": (str((_current_user_state() or {}).get("user_id") or "")
+                            in _direccion_sello_user_ids(session_db)),
+        "plan_sections": DISCO_PLAN_SECTIONS,
+        "plan_companies": session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+        "can_add_marketing": can_edit_promocion(),
+        "plan_action_kinds": DISCO_PLAN_ACTION_DATE_KINDS,
+        "content_networks": DISCO_CONTENT_NETWORKS,
+    }
+
+
+def _release_plan_tab_context(session_db, *, song=None, album=None) -> dict:
+    """La pestaña «Plan de lanzamiento» de una canción o de un álbum: su proyecto y su plan."""
+    project, via_album = _release_plan_project(session_db, song=song, album=album)
+    if project is None:
+        # Sin proyecto: lo que necesita el botón de «Empezar su plan».
+        return {"project": None, "song_id": (str(song.id) if song is not None and album is None else ""),
+                "album_id": (str(album.id) if album is not None else "")}
+    ctx = _disco_plan_view_context(session_db, project)
+    ctx["via_album"] = via_album
+    ctx["project_title"] = _disco_project_title(project)
+    return ctx
+
+
+def _materials_return_tab() -> str:
+    """A QUÉ PESTAÑA se vuelve después de tocar un material de una canción o de un álbum.
+
+    Los materiales se pintan en DOS sitios de la ficha —su pestaña y la sección «Materiales del
+    lanzamiento» del PLAN (el mismo parcial)—, y quien sube algo desde el plan tiene que seguir en
+    el plan. Se mira solo el `tab` de la página de la que viene (la URL de vuelta la compone el
+    servidor, así que no se puede usar para mandar a ningún otro sitio)."""
+    try:
+        ref = urlparse(request.referrer or "")
+        if (parse_qs(ref.query).get("tab") or [""])[0] == "lanzamiento":
+            return "lanzamiento"
+    except Exception:
+        pass
+    return "materiales"
+
+
+@app.post("/discografica/plan-lanzamiento/crear", endpoint="disco_plan_release_start")
+@admin_required
+def disco_plan_release_start():
+    """EMPIEZA EL PLAN de una canción o un álbum que no tiene proyecto.
+
+    El plan vive en el proyecto (su bolsa, sus encargos a diseño y a promoción, su aprobación), así
+    que se monta un proyecto SOBRE el lanzamiento que ya existe —no se crea otra canción ni otro
+    disco, y lo que ya está en el repertorio no se marca provisional—."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    song_id = _safe_uuid(request.form.get("song_id"))
+    album_id = _safe_uuid(request.form.get("album_id"))
+    destino = (url_for("discografica_album_detail", album_id=album_id, tab="lanzamiento") if album_id
+               else url_for("discografica_song_detail", song_id=song_id, tab="lanzamiento") if song_id
+               else url_for("discografica_view", section="proyectos"))
+    try:
+        song = session_db.get(Song, song_id) if song_id else None
+        album = session_db.get(Album, album_id) if album_id else None
+        if song is None and album is None:
+            flash("No se encuentra el lanzamiento.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        # Si ya tiene proyecto (otra pestaña, doble clic), no se crea otro: se usa ese.
+        ya, _via = _release_plan_project(session_db, song=song, album=album)
+        if ya is not None:
+            return redirect(safe_next_or(destino))
+        if album is not None:
+            artist_id = album.artist_id
+        else:
+            artista = _song_primary_artist(session_db, song)
+            artist_id = getattr(artista, "id", None)
+        if not artist_id:
+            flash("El lanzamiento no tiene artista: pónselo antes de empezar su plan.", "warning")
+            return redirect(safe_next_or(destino))
+        estado = _current_user_state() or {}
+        kind = (("EP" if (album.album_type or "").upper() == "EP" else "ALBUM") if album is not None
+                else "SINGLE")
+        project = DiscoProject(
+            artist_id=artist_id, kind=kind, status="ACTIVO",
+            title=((album.title if album is not None else song.title) or "").strip(),
+            release_date=(album.release_date if album is not None else song.release_date),
+            release_mode=("DIGITAL" if album is not None else None),
+            company_id=getattr(_pies_group_company(session_db), "id", None),
+            created_by_user_id=_safe_uuid(estado.get("user_id")),
+            created_by_nick=(estado.get("nick") or None),
+        )
+        session_db.add(project)
+        session_db.flush()
+        if album is not None:
+            project.album_id = album.id
+            temas = (session_db.query(AlbumTrack).filter(AlbumTrack.album_id == album.id)
+                     .order_by(AlbumTrack.track_number.asc()).all())
+            for i, t in enumerate(temas, start=1):
+                cancion = session_db.get(Song, t.song_id)
+                session_db.add(DiscoProjectTrack(
+                    project_id=project.id, position=i, title=(getattr(cancion, "title", None) or ""),
+                    song_id=t.song_id, is_existing=True))
+        else:
+            project.release_song_id = song.id
+        _ensure_project_bag(session_db, project)
+        session_db.commit()
+        flash("Plan de lanzamiento creado: vive en su proyecto, y se ve igual aquí y allí.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo empezar el plan del lanzamiento")
+        flash("No se pudo crear el plan: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
 @app.post("/discografica/proyectos/<project_id>/plan", endpoint="disco_plan_save")
 @admin_required
 def disco_plan_save(project_id):
@@ -40335,7 +40514,7 @@ def disco_plan_action_save(project_id):
         titulo = (f.get("title") or "").strip()
         if not titulo:
             flash("Ponle título a la acción.", "warning")
-            return redirect(destino)
+            return redirect(safe_next_or(destino))
         fila.title = titulo[:250]
         fila.description = (f.get("description") or "").strip() or None
         modo = (f.get("cost_mode") or "NONE").strip().upper()
@@ -40789,7 +40968,7 @@ def disco_plan_review(project_id):
             faltan = _disco_plan_missing(_disco_plan_state(session_db, project))
             if faltan:
                 flash("Todavía no se puede pedir el OK: falta %s." % " · ".join(faltan), "warning")
-                return redirect(destino)
+                return redirect(safe_next_or(destino))
         if accion == "reject":
             if str(yo.get("user_id") or "") not in _direccion_sello_user_ids(session_db):
                 return forbid("El plan lo repasa quien es dirección y sello.")
@@ -40977,7 +41156,7 @@ def disco_plan_ok(project_id):
             plan.ok_sello_by_nick = (None if deshacer else quien)
         else:
             flash("No sé de quién es el OK.", "warning")
-            return redirect(destino)
+            return redirect(safe_next_or(destino))
         plan.updated_at = _now_madrid()
         # ⚠️ Un OK BORRA el rechazo anterior: si lo aprueban, ya no está devuelto.
         if not deshacer:
@@ -41228,7 +41407,7 @@ def disco_plan_reminders(project_id):
             return redirect(safe_next_or(destino))
         if not (plan.ok_direccion_at and plan.ok_sello_at):
             flash("El plan tiene que estar aprobado por dirección y por el sello.", "warning")
-            return redirect(destino)
+            return redirect(safe_next_or(destino))
         # A QUIÉN: lo marcado de los candidatos + los correos escritos a mano.
         marcados = {x.strip().lower() for x in f.getlist("to[]") if (x or "").strip()}
         gente = [c for c in _disco_plan_reminder_candidates(session_db, project, plan)
@@ -41239,7 +41418,7 @@ def disco_plan_reminders(project_id):
                           "channel": "EMAIL"})
         if not gente:
             flash("Marca a quién se le avisa.", "warning")
-            return redirect(destino)
+            return redirect(safe_next_or(destino))
         try:
             minutos = max(1, min(1440, int((f.get("minutes") or DISCO_PLAN_REMINDER_DEFAULT_MINUTES))))
         except Exception:
@@ -48614,7 +48793,7 @@ def discografica_song_delivery_create(song_id):
     conf_campos, sections, materials = _song_delivery_config_from_form(request.form)
     if not sections:
         flash("Marca al menos un dato o material que quieras pedir.", "warning")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
     session_db = db()
     try:
         song = session_db.get(Song, to_uuid(song_id))
@@ -48651,7 +48830,7 @@ def discografica_song_delivery_create(song_id):
         flash(f"Error generando el enlace: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales", delivery_created=1))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab(), delivery_created=1))
 
 
 @app.post("/discografica/canciones/<song_id>/entrega/<link_id>/anular")
@@ -48675,7 +48854,7 @@ def discografica_song_delivery_cancel(song_id, link_id):
         flash(f"Error anulando el enlace: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 @app.get("/api/promoters/<promoter_id>/emails", endpoint="api_promoter_emails")
@@ -49334,14 +49513,14 @@ def discografica_song_delivery_send_email(song_id, link_id):
     note = (request.form.get("note") or "").strip()
     if not recipients:
         flash("Indica al menos un destinatario.", "warning")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
     session_db = db()
     try:
         song = session_db.get(Song, to_uuid(song_id))
         link = session_db.get(SongMasterDeliveryLink, to_uuid(link_id))
         if not song or not link or link.song_id != song.id or link.status != "ACTIVE":
             flash("Enlace de entrega no válido.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
         artist = _song_artist_names_str(song)
         collab = (getattr(song, "collaborator", None) or "").strip()
         title_artist = artist + (" (con %s)" % collab if collab else "")
@@ -49366,7 +49545,7 @@ def discografica_song_delivery_send_email(song_id, link_id):
         flash(f"Error enviando el correo: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 def _song_delivery_active_link(session_db, token):
@@ -49872,7 +50051,7 @@ def discografica_song_material_validate(song_id, material_id):
         row = session_db.get(SongMaterial, to_uuid(material_id))
         if not song or not row or row.song_id != song.id:
             flash("Material no encontrado.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
         cat = (row.category or "").upper()
         slot = (row.slot_key or "DEFAULT").upper()
         # Al validar un slot fijo, sustituye al material validado previo de ese mismo slot.
@@ -49900,7 +50079,7 @@ def discografica_song_material_validate(song_id, material_id):
         flash(f"Error validando el material: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 @app.post("/discografica/canciones/<song_id>/materials/stems/<bundle_key>/validate")
@@ -49930,7 +50109,7 @@ def discografica_song_stems_validate(song_id, bundle_key):
         flash(f"Error validando los stems: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 @app.post("/discografica/canciones/<song_id>/entrega/<link_id>/consolidar")
@@ -49945,7 +50124,7 @@ def discografica_song_delivery_consolidate(song_id, link_id):
         link = session_db.get(SongMasterDeliveryLink, to_uuid(link_id))
         if not song or not link or link.song_id != song.id:
             flash("Entrega no encontrada.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
         data = dict(link.data or {})
         if section == "production" and data.get("production"):
             p = data["production"]
@@ -50033,7 +50212,7 @@ def discografica_song_delivery_consolidate(song_id, link_id):
             flash("Autoría consolidada (revisa Editorial).", "success")
         else:
             flash("No hay datos de esa sección por consolidar.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
         data.pop(section, None)
         link.data = data
         link.updated_at = datetime.now(TZ_MADRID)
@@ -50047,7 +50226,7 @@ def discografica_song_delivery_consolidate(song_id, link_id):
         flash(f"Error consolidando: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 @app.post("/discografica/canciones/<song_id>/entrega/<link_id>/descartar-datos")
@@ -50073,7 +50252,7 @@ def discografica_song_delivery_discard_section(song_id, link_id):
         flash(f"Error: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 @app.post("/discografica/canciones/<song_id>/materials/stems/<bundle_key>/delete")
@@ -50096,7 +50275,7 @@ def discografica_song_material_bundle_delete(song_id, bundle_key):
         )
         if not rows:
             flash("Grupo de stems no encontrado.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
         for row in rows:
             if (row.validation_status or "").upper() == "PENDING":
                 _song_delivery_mark_rejected(session_db, row)
@@ -50117,7 +50296,7 @@ def discografica_song_material_bundle_delete(song_id, bundle_key):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
 
 @app.get("/discografica/canciones/<song_id>/materials/<material_id>/download")
@@ -50129,13 +50308,13 @@ def discografica_song_material_download(song_id, material_id):
         row = session_db.get(SongMaterial, to_uuid(material_id))
         if not row or row.song_id != to_uuid(song_id):
             flash("Material no encontrado.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
 
         data, mimetype, download_name = _song_material_download_payload(session_db, row, fmt)
         return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=download_name)
     except Exception as e:
         flash(f"No se pudo descargar el material: {e}", "danger")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
     finally:
         session_db.close()
 
@@ -50207,14 +50386,14 @@ def discografica_song_stems_bundle_download(song_id, bundle_key):
         )
         if not rows:
             flash("Grupo de stems no encontrado.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
         song = session_db.get(Song, to_uuid(song_id))
         archive_label = _stems_archive_label(session_db, song, rows)
         payload, filename = _bundle_song_material_rows_to_zip(rows, archive_label=archive_label)
         return send_file(BytesIO(payload), mimetype="application/zip", as_attachment=True, download_name=filename)
     except Exception as e:
         flash(f"No se pudieron descargar los stems: {e}", "danger")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_materials_return_tab()))
     finally:
         session_db.close()
 
@@ -52359,6 +52538,8 @@ def discografica_album_detail(album_id):
     response = render_template(
         "album_detail.html",
         album=album,
+        # EL PLAN DE LANZAMIENTO del álbum: el MISMO de su proyecto (solo en su pestaña: es caro).
+        plan_view=(_release_plan_tab_context(session_db, album=album) if tab == "lanzamiento" else None),
         album_bag=_album_bag_ctx,
         **_album_bag_panel,
         artist=artist,
@@ -52905,13 +53086,13 @@ def discografica_album_material_upload(album_id):
     category = (request.form.get("category") or "").strip().upper()
     if category not in {"COVER", "DDP", "BODEGON", "PHYSICAL_DESIGN"}:
         flash("Tipo de material no válido.", "warning")
-        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab=_materials_return_tab()))
 
     file_storage = request.files.get("file")
     display_name = (request.form.get("display_name") or "").strip() or None
     if not file_storage or not getattr(file_storage, "filename", ""):
         flash("Selecciona un archivo.", "warning")
-        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab=_materials_return_tab()))
 
     session_db = db()
     try:
@@ -52969,7 +53150,7 @@ def discografica_album_material_upload(album_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab=_materials_return_tab()))
 
 
 @app.post("/discografica/albumes/<album_id>/materials/<material_id>/delete")
@@ -52984,7 +53165,7 @@ def discografica_album_material_delete(album_id, material_id):
         row = session_db.get(AlbumMaterial, to_uuid(material_id))
         if not album or not row or row.album_id != album.id:
             flash("Material no encontrado.", "warning")
-            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab=_materials_return_tab()))
         if row.category == "COVER" and getattr(album, "cover_url", None) == row.file_url:
             album.cover_url = None
             album.updated_at = datetime.now(TZ_MADRID)
@@ -52998,7 +53179,7 @@ def discografica_album_material_delete(album_id, material_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab=_materials_return_tab()))
 
 
 @app.get("/api/album_royalty_beneficiaries/<beneficiary_id>")

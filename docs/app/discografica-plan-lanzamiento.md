@@ -7,6 +7,7 @@
 ## Qué hay aquí
 
 - PROYECTO · PLAN DE LANZAMIENTO: su propia pestaña
+- EL PLAN EN LA FICHA DEL SINGLE Y DEL ÁLBUM · el mismo plan, con los MATERIALES dentro
 - CONTENIDO EXPLÍCITO · hay que decirlo en TODAS las canciones
 - EL LABEL COPY ES UN SOLO CONTENIDO: PDF, ENLACE Y CORREO DICEN LO MISMO (ago 2026,
 - LA CALIFICACIÓN DE CONTENIDO es un campo del LABEL COPY (ago 2026,
@@ -118,6 +119,30 @@
   avisos: a la izquierda las publicaciones con su hora, su copy, sus menciones y sus hashtags —que se
   **copian con un clic**— y a la derecha el calendario; cada contenido se abre a tamaño y se descarga.
   Siempre **al día**: se pinta con lo que hay en ese momento.
+
+- ⚠️⚠️ **EL PLAN EN LA FICHA DEL SINGLE Y DEL ÁLBUM · el mismo plan, con los MATERIALES dentro**
+  (sep 2026, lo pidió Dani: «que los cambios de un sitio afecten a los otros»). Pestaña **«Plan de
+  lanzamiento»** en la canción y en el álbum (`lanzamiento` en `SONG_DETAIL_TABS` y
+  `ALBUM_DETAIL_TABS`; se pinta con el recurso `discografica.proyectos`, que es el de los endpoints).
+  · ⚠️⚠️ **NO HAY DOS PLANES**: enseña el `DiscoReleasePlan` de **SU PROYECTO**
+  (`_release_plan_project`: la canción por `release_song_id`, y si no tiene, el proyecto de un
+  ÁLBUM que la incluye —y lo dice—; el álbum por `album_id`; entre varios gana el que no es solo de
+  videoclip, luego el activo, luego el más reciente).
+  · **UN SOLO PARCIAL**: `_disco_plan_panel.html` lo pintan las TRES fichas; el contexto lo reúne
+  **`_disco_plan_view_context`** y la pestaña de la ficha es `_release_plan_tab.html` (lo pasa con un
+  `{% with %}`, así no choca con las variables de la ficha). Todo postea a los `disco_plan_*` de
+  siempre, que vuelven con `next` — ⚠️ también en los caminos de ERROR, que antes mandaban al proyecto.
+  · **MATERIALES DEL LANZAMIENTO** es una sección nueva del plan: en la canción y en el álbum es **el
+  MISMO parcial de su pestaña «Materiales»** (`_song_materials_panel.html` /
+  `_album_materials_panel.html`, vía `plan_materials_template`); en el proyecto, lo mismo que su
+  pestaña «Materiales» (`_disco_release_materials.html`: el estado y el camino a la ficha, que es
+  donde se suben). ⚠️ Los endpoints de materiales vuelven a donde se estaba con
+  **`_materials_return_tab()`** (mira solo el `tab` del referer; la URL la compone el servidor): sin
+  eso, subir desde el plan te sacaba a «Materiales».
+  · **SIN PROYECTO**: botón «Empezar su plan de lanzamiento» (`disco_plan_release_start`), que monta
+  un proyecto **sobre el lanzamiento que ya existe** (no crea otra canción ni otro disco, ni lo marca
+  provisional; en un álbum sus temas entran como `is_existing`). El plan vive en el proyecto (su
+  bolsa, sus encargos, su aprobación), por eso no se inventa un plan suelto. Doble clic no duplica.
 
 - **CONTENIDO EXPLÍCITO · hay que decirlo en TODAS las canciones** (ago 2026). `Song.is_explicit`
   pasa a **TRES estados**: True · False · **NULL = sin decidir**, que **no es «no explícita»**.

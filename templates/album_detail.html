@@ -195,6 +195,7 @@
     ('informacion','Información','discografica.canciones'),
     ('canciones','Canciones','discografica.canciones'),
     ('materiales','Materiales','discografica.canciones'),
+    ('lanzamiento','Plan de lanzamiento','discografica.proyectos'),
     ('beneficiarios','Beneficiarios','discografica.royalties'),
     ('gastos','Gastos','discografica.gastos'),
     ('marketing','Marketing','promocion')
@@ -1042,133 +1043,12 @@
     {% endif %}
 
   {% elif tab == 'materiales' %}
+    {% include '_album_materials_panel.html' %}
 
-    {# LA MAQUETA del proyecto que creó este álbum: se ve MIENTRAS NO HAYA MÁSTERS; en cuanto se
-       suben desaparece de aquí y se queda en Demos. #}
-    {% if project_demos %}
-      <div class="ficha-section mb-3">
-        <div class="ficha-section__head">
-          <h6 class="ficha-section__title"><i class="fa fa-compact-disc"></i>Maquetas del proyecto</h6>
-          <span class="text-muted small">Se dejan de ver aquí en cuanto se suban los másters.</span>
-        </div>
-        <div class="ficha-section__body">
-          <div class="d-grid gap-2">
-            {% for d in project_demos %}
-              <div class="d-flex align-items-center gap-3 border rounded p-2 flex-wrap">
-                <img src="{{ d.cover_url or DEFAULT_COVER_URL }}" alt=""
-                     style="width:52px;height:52px;border-radius:10px;object-fit:cover;">
-                <span class="flex-grow-1 min-w-0">
-                  <span class="fw-semibold d-block text-truncate">{{ d.title }}</span>
-                  <span class="small text-muted text-truncate d-block">{{ d.who or '' }}</span>
-                </span>
-                {% if d.audio_url %}
-                  <span class="mat-chip mat-chip--bare" data-chip-src="{{ d.audio_url }}">
-                    <i class="fa fa-play"></i></span>
-                {% endif %}
-                <a class="btn btn-sm btn-outline-secondary"
-                   href="{{ url_for('discografica_view', section='demos', demo_artist=(d.artist_id or 'none')) }}">
-                  <i class="fa fa-arrow-right me-1"></i>Ver en Demos</a>
-              </div>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-    {% endif %}
-
-
-    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
-      <div>
-        <h5 class="m-0">Materiales</h5>
-        <div class="text-muted">Portada, DDP, bodegones y diseños físicos del lanzamiento.</div>
-      </div>
-    </div>
-
-    <div class="row g-3">
-      {% set material_cards = [
-        ('COVER', 'Portada', 'Portada en cualquier formato', material_groups.get('COVER', [])),
-        ('DDP', 'DDP', 'Archivo maestro DDP', material_groups.get('DDP', [])),
-        ('BODEGON', 'Bodegón', 'Se pueden subir varios archivos', material_groups.get('BODEGON', [])),
-        ('PHYSICAL_DESIGN', 'Diseño físico', 'Se pueden subir varios archivos', material_groups.get('PHYSICAL_DESIGN', []))
-      ] %}
-
-      {% for category, title, subtitle, rows in material_cards %}
-        <div class="col-12 col-xl-6">
-          <div class="card h-100">
-            <div class="card-body d-flex flex-column gap-3">
-              <div>
-                <div class="fw-semibold">{{ title }}</div>
-                <div class="text-muted small">{{ subtitle }}</div>
-              </div>
-
-              {% if CAN_EDIT_DISCOGRAFICA %}
-                <form method="post" action="{{ url_for('discografica_album_material_upload', album_id=album.id) }}" enctype="multipart/form-data" class="row g-2">
-                  <input type="hidden" name="category" value="{{ category }}">
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">Archivo</label>
-                    <input type="file" name="file" class="form-control" {% if category == 'COVER' %}accept="image/*"{% endif %} required>
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">Nombre del archivo</label>
-                    <input name="display_name" class="form-control" placeholder="Opcional">
-                  </div>
-                  <div class="col-12 d-grid">
-                    <button class="btn btn-outline-primary"><i class="fa fa-upload"></i> Subir</button>
-                  </div>
-                </form>
-              {% endif %}
-
-              {% if not rows or (rows|length) == 0 %}
-                <div class="text-muted small">No hay archivos subidos.</div>
-              {% else %}
-                <div class="list-group list-group-flush border rounded">
-                  {% for item in rows %}
-                    <div class="list-group-item d-flex justify-content-between align-items-center gap-2 flex-wrap">
-                      <div>
-                        <div class="fw-semibold">{{ item.file_name }}</div>
-                        <div class="small text-muted">{{ item.mime_type or 'Archivo' }}</div>
-                      </div>
-                      <div class="d-flex gap-2">
-                        {#- «Ver» abre el material EN EL VISOR (una portada en grande, un PDF en su marco, un
-                            vídeo por su versión web); lo que no se puede ver se descarga desde ahí. -#}
-                        {% set _ext = ((item.file_url or '').split('?')[0].lower().rsplit('.', 1) | last) %}
-                        {% set _vk = 'IMAGE' if _ext in ('jpg', 'jpeg', 'png', 'webp', 'gif') else ('PDF' if _ext == 'pdf' else ('VIDEO' if _ext in ('mp4', 'mov', 'm4v', 'webm') else ('AUDIO' if _ext in ('mp3', 'wav', 'm4a', 'aac') else 'FILE'))) %}
-                        <a href="{{ item.file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm" data-no-doc-loader
-                           data-viewer-src="{{ video_play_url(item.file_url) if _vk == 'VIDEO' else item.file_url }}"
-                           data-viewer-kind="{{ _vk }}" data-viewer-name="{{ item.file_name }}"
-                           data-viewer-download="{{ item.file_url }}" data-viewer-set="album-materiales">
-                          <i class="fa fa-eye"></i> Ver
-                        </a>
-                        {# Compartir: SIEMPRE el enlace de previsualización de la casa (portada +
-                           «Artista · Álbum» + «Descarga · tipo»), nunca la URL de Storage. #}
-                        <div class="dropdown">
-                          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Compartir o descargar">
-                            <i class="fa fa-ellipsis-vertical"></i>
-                          </button>
-                          <ul class="dropdown-menu dropdown-menu-end">
-                            <li><h6 class="dropdown-header">Compartir</h6></li>
-                            <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (item.label ~ ' · ' ~ album.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
-                            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (item.label ~ ' · ' ~ album.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
-                            <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (item.label ~ ' · ' ~ album.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
-                            <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ item.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="{{ item.share_url }}" target="_blank" rel="noopener"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
-                          </ul>
-                        </div>
-                        {% if CAN_EDIT_DISCOGRAFICA %}
-                          <form method="post" action="{{ url_for('discografica_album_material_delete', album_id=album.id, material_id=item.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este material?');">
-                            <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
-                          </form>
-                        {% endif %}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
+  {% elif tab == 'lanzamiento' %}
+    {# EL PLAN DE LANZAMIENTO: el MISMO de su proyecto, con sus materiales dentro. #}
+    {% set plan_materials_template = '_album_materials_panel.html' %}
+    {% include '_release_plan_tab.html' %}
 
   {% elif tab == 'beneficiarios' %}
 

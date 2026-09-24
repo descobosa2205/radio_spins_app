@@ -1,0 +1,58 @@
+{# ============================================================================================
+   LA PESTAÑA «PLAN DE LANZAMIENTO» DE UNA CANCIÓN O DE UN ÁLBUM.
+   ⚠️⚠️ NO ES OTRO PLAN: es el de SU PROYECTO (`_release_plan_tab_context`), pintado con el MISMO
+   parcial que la ficha del proyecto (`_disco_plan_panel.html`) y guardado en los MISMOS endpoints,
+   que vuelven aquí con `next`. Lo que se toque aquí se ve en el proyecto y al revés.
+   Quien la incluye pone antes `plan_materials_template`: sus materiales van DENTRO del plan.
+   ============================================================================================ #}
+{% set pv = plan_view or {} %}
+{% if pv.project %}
+  <div class="alert alert-light border d-flex align-items-center gap-2 flex-wrap small mb-3">
+    <i class="fa fa-diagram-project text-muted"></i>
+    <span class="flex-grow-1">
+      {% if pv.via_album %}
+        Esta canción sale en <strong>{{ pv.via_album.title }}</strong>: su plan de lanzamiento es el
+        del disco.
+      {% else %}
+        Es el plan del proyecto <strong>{{ pv.project_title }}</strong>: lo que se cambie aquí se ve
+        también allí.
+      {% endif %}
+    </span>
+    <a class="btn btn-sm btn-outline-secondary"
+       href="{{ url_for('disco_project_detail', project_id=pv.project.id, tab='lanzamiento') }}">
+      <i class="fa fa-arrow-right me-1"></i>Ver el proyecto</a>
+  </div>
+  {% with project=pv.project, plan=pv.plan, plan_agenda=pv.plan_agenda, links=pv.links,
+          release=pv.release, release_songs=pv.release_songs, plan_candidates=pv.plan_candidates,
+          can_review_plan=pv.can_review_plan, plan_sections=pv.plan_sections,
+          plan_companies=pv.plan_companies, can_add_marketing=pv.can_add_marketing,
+          plan_action_kinds=pv.plan_action_kinds, content_networks=pv.content_networks,
+          CAN_EDIT=CAN_EDIT_DISCOGRAFICA %}
+    {% include '_disco_plan_panel.html' %}
+  {% endwith %}
+{% else %}
+  {# SIN PROYECTO: el plan vive en el proyecto (su bolsa, sus encargos y su aprobación), así que se
+     le monta uno SOBRE este lanzamiento —no se crea otra canción ni otro disco—. #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head"><span><i class="fa fa-rocket me-1"></i>Plan de lanzamiento</span></div>
+    <div class="sim-cat-card__body">
+      <p class="mb-2">Este lanzamiento todavía no tiene plan. El plan es el mismo que el de los
+        proyectos: estrategia, acciones, marketing, promoción, contenidos, materiales y cronograma.</p>
+      {% if CAN_EDIT_DISCOGRAFICA %}
+        <form method="post" action="{{ url_for('disco_plan_release_start') }}"
+              data-confirm="Se crea el proyecto de este lanzamiento, que es donde vive su plan (no se crea otra canción ni otro disco). ¿Seguir?">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <input type="hidden" name="album_id" value="{{ pv.album_id or '' }}">
+          <input type="hidden" name="song_id" value="{{ pv.song_id or '' }}">
+          <button class="btn btn-danger btn-sm"><i class="fa fa-rocket me-1"></i>Empezar su plan de lanzamiento</button>
+        </form>
+      {% else %}
+        <div class="small text-muted">Lo empieza quien lleva Discográfica.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head"><span><i class="fa fa-folder-open me-1"></i>Materiales del lanzamiento</span></div>
+    <div class="sim-cat-card__body">{% include plan_materials_template %}</div>
+  </div>
+{% endif %}

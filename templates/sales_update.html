@@ -81,7 +81,7 @@
             <form method="post" action="{{ url_for('concert_et_sync', cid=c.id) }}" class="m-0">
               <input type="hidden" name="next" value="{{ request.full_path }}">
               <button class="btn btn-sm btn-outline-success" type="submit"
-                      title="Traer ahora mismo las ventas de Enterticket">
+                      title="Traer ahora mismo las ventas de su ticketera (Enterticket o One Box)">
                 <i class="fa fa-rotate me-1"></i> Actualizar ahora
               </button>
             </form>
@@ -134,7 +134,7 @@
         <div class="d-flex flex-wrap gap-2">
           {# ⚠️ Una CONECTADA no sale nunca como «pendiente»: la actualiza la conexión. #}
           {% if st.connected %}
-            <span class="badge text-bg-success" title="Integrada con Enterticket: las ventas, los cupos y los precios se actualizan solos">
+            <span class="badge text-bg-success" title="Integrada con su ticketera (Enterticket o One Box): las ventas, los cupos y los precios se actualizan solos">
               <i class="fa fa-plug me-1"></i>Conectada{% if st.et_label %} · {{ st.et_label }}{% endif %}
             </span>
           {% elif updated_last == day %}
@@ -305,14 +305,14 @@
                     {% set tid = ct.ticketer_id %}
                     {% set key = (c.id|string) + ':' + (tid|string) %}
                     {% set has_today = (key in ticketer_has_today) %}
-                    {% set is_et = ((ct.ticketer.name or '')|lower == 'enterticket') and ((c.id|string) in (et_linked_concert_ids or [])) %}
+                    {% set is_et = ((ct.ticketer.name or '')|lower in ('enterticket', 'one box')) and ((c.id|string) in (et_linked_concert_ids or [])) %}
 
                     <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
                           <img src="{{ ct.ticketer.logo_url or DEFAULT_AVATAR_URL }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
                           <strong>{{ ct.ticketer.name }}</strong>
-                          {% if is_et %}<span class="badge ms-1" style="background:#E33D48" title="Integrada con la API de Enterticket: ventas, cupos y precios se actualizan solos"><i class="fa fa-bolt me-1"></i>Automática</span>{% endif %}
+                          {% if is_et %}<span class="badge ms-1" style="background:#E33D48" title="Integrada con la API de {{ ct.ticketer.name }}: ventas, cupos y precios se actualizan solos"><i class="fa fa-bolt me-1"></i>Automática</span>{% endif %}
                           <span class="text-muted ms-2">Aforo a la venta: {{ ticketer_capacity_cfg_map.get(c.id, {}).get(tid, 0) }}</span>
                           {% if ct.ticketer %}{{ linked_mini('ticketer', ct.ticketer.id) }}{% endif %}
                         </div>
@@ -375,7 +375,7 @@
                                         value="{{ sold_acum }}"
                                         data-sales-total
                                         data-sales-base="{{ sold_acum - today_val }}"
-                                        {% if is_et %}disabled title="Se actualiza sola desde Enterticket"{% endif %}
+                                        {% if is_et %}disabled title="Se actualiza sola desde {{ ct.ticketer.name }}"{% endif %}
                                       >
                                     </td>
                                     <td class="text-end" data-sales-day="qty-{{ c.id }}-{{ tid }}-{{ tt.id }}">
@@ -391,7 +391,7 @@
 
                           <div class="d-flex gap-2 justify-content-end align-items-center">
                             {% if is_et %}
-                              <span class="small text-muted"><i class="fa fa-bolt me-1"></i>Esta ticketera se actualiza sola desde la API de Enterticket; no hace falta apuntar ventas a mano.</span>
+                              <span class="small text-muted"><i class="fa fa-bolt me-1"></i>Esta ticketera se actualiza sola desde la API de {{ ct.ticketer.name }}; no hace falta apuntar ventas a mano.</span>
                             {% else %}
                             <button id="save-{{ c.id }}-{{ tid }}" class="btn btn-sm btn-primary" type="submit">
                               <i class="fa-solid fa-floppy-disk me-1"></i> Guardar
@@ -740,7 +740,7 @@
                    IVA/SGAE, las categorías de la ficha y el Sold Out) para configurarla de nuevo. Con
                    Enterticket conectado no se ofrece: la siguiente sincronización lo volvería a volcar. #}
                 {% if st.connected %}
-                  <span class="small text-muted"><i class="fa fa-circle-info me-1"></i>Conectada a Enterticket: para reiniciar la venta hay que desvincularla antes desde su ficha.</span>
+                  <span class="small text-muted"><i class="fa fa-circle-info me-1"></i>Conectada a su ticketera (Enterticket o One Box): para reiniciar la venta hay que desvincularla antes desde su ficha.</span>
                 {% else %}
                   <form method="post" action="{{ url_for('concert_sales_reset', cid=c.id) }}" class="m-0"
                         data-confirm="¿Reiniciar la venta de esta actividad?&#10;&#10;Se borran los tipos de entrada, las ticketeras con sus cupos y precios, todo el histórico diario de ventas, el IVA/SGAE, las categorías de la ficha (con sus invitaciones pactadas) y el Sold Out. No se puede deshacer.&#10;&#10;Se conservan el aforo, quién vende, el responsable de ticketing, la salida a la venta y los compradores.">

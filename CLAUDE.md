@@ -550,6 +550,9 @@ finally close`, o `with get_db() as s` · **dinero siempre `Decimal`**, nunca `f
   línea del SMS sea exactamente el del enlace. → `docs/app/externos-publico.md`
 - **Enterticket**: `_et_split_seat` (butaca del plano en vivo) se afinó **sin datos de un evento
   numerado real**. → `docs/app/ventas-ticketing.md`
+- **One Box**: la integración (la de Enterticket, sobre el mismo espejo) se hizo **sin poder probar
+  contra su API real**: faltan `ONEBOX_API_KEY` (o `ONEBOX_USER`/`ONEBOX_PASSWORD`) en Render. La
+  primera sincronización confirma los campos. → `docs/app/ventas-ticketing.md`
 - **Detección de entradas PDF**: los patrones de sector/fila/asiento se afinan con cada ticketera
   nueva; se valida con el PDF real antes de subir. → `docs/app/invitaciones.md`
 

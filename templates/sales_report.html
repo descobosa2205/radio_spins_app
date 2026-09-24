@@ -260,9 +260,9 @@
           {% if et_map is defined and et_map.get(c.id) %}
             {% set et = et_map[c.id] %}
             {% if et.synced %}
-            <span class="badge bg-success" title="Actualizado automáticamente por la conexión con Enterticket">Actualizado {% if et.is_today %}hoy{% else %}{{ et.date }}{% endif %} · {{ et.time }} <i class="fa fa-plug ms-1"></i></span>
+            <span class="badge bg-success" title="Actualizado automáticamente por la conexión con su ticketera (Enterticket o One Box)">Actualizado {% if et.is_today %}hoy{% else %}{{ et.date }}{% endif %} · {{ et.time }} <i class="fa fa-plug ms-1"></i></span>
             {% else %}
-            <span class="badge bg-secondary" title="Integrado con Enterticket · sincronizando…"><i class="fa fa-plug me-1"></i>Sincronizando…</span>
+            <span class="badge bg-secondary" title="Integrado con su ticketera · sincronizando…"><i class="fa fa-plug me-1"></i>Sincronizando…</span>
             {% endif %}
           {% elif is_today %}
             <span class="badge bg-success">Actualizado hoy</span>

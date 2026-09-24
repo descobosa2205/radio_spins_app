@@ -68,6 +68,15 @@ class Settings:
     ENTERTICKET_API_BASE = os.getenv("ENTERTICKET_API_BASE", "https://api.enterticket.es")
     # Clave del endpoint /cron/enterticket/refresh (si falta, se acepta la de Chartmetric).
     ENTERTICKET_CRON_KEY = os.getenv("ENTERTICKET_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
+    # ONE BOX (ticketera de fuera): la MISMA sincronización que Enterticket. Se entra con la API
+    # key que da One Box (ONEBOX_API_KEY) o, si no, con un USUARIO y CONTRASEÑA de su plataforma
+    # (su OAuth admite los dos). Sin ninguna de las dos, la integración está desactivada.
+    ONEBOX_API_KEY = os.getenv("ONEBOX_API_KEY")
+    ONEBOX_USER = os.getenv("ONEBOX_USER")
+    ONEBOX_PASSWORD = os.getenv("ONEBOX_PASSWORD")
+    ONEBOX_CLIENT_ID = os.getenv("ONEBOX_CLIENT_ID", "onebox-client")
+    # Producción: https://api.oneboxtds.com · pruebas: https://api.oneboxtds.net
+    ONEBOX_API_BASE = os.getenv("ONEBOX_API_BASE", "https://api.oneboxtds.com")
     # Web Push (notificaciones del navegador / centro de notificaciones). Claves VAPID: se generan una
     # vez (p. ej. con `vapid --gen` de py-vapid) y se ponen en Render. Sin ellas, el push queda
     # DESACTIVADO (la app funciona igual). VAPID_SUBJECT = "mailto:tu-correo" o la URL del sitio.

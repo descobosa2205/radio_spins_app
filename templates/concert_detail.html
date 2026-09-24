@@ -4470,7 +4470,7 @@
             <h6 class="mb-0"><i class="fa fa-rotate-left me-1 text-danger"></i>Reiniciar la venta</h6>
             <div class="small text-muted">
               {% if et_event %}
-                Deja la venta a cero para configurarla de nuevo. Con Enterticket vinculado no se puede:
+                Deja la venta a cero para configurarla de nuevo. Con {{ ticketing_provider_label(et_event) }} vinculado no se puede:
                 desvincúlalo primero (arriba), o la siguiente sincronización lo volvería a volcar.
               {% elif _rs_hay %}
                 Deja la venta a cero para configurarla de nuevo. Ahora mismo hay

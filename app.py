@@ -73366,7 +73366,7 @@ def concert_detail_view(cid):
                         et_buyers_total = (session.query(func.count(BuyerEvent.id))
                                            .filter(BuyerEvent.event_id == et_event.id).scalar() or 0)
                     et_venue_map = _et_venue_map_payload(session, c, et_event)
-                elif et_api.enterticket_configured() and _concert_is_group_promoted(session, c):
+                elif _ticketing_integrations_configured() and _concert_is_group_promoted(session, c):
                     et_candidates = _et_concert_link_candidates(session, c)
             except Exception:
                 et_event = None
@@ -79378,7 +79378,7 @@ def sales_update_view():
         # LAS CONECTADAS se actualizan solas: al abrir la pantalla se dispara el sync de las que
         # estén viejas (en 2º plano, con guarda) y de aquí sale su etiqueta «Conectada · hora».
         et_map = {}
-        if concert_ids and et_api.enterticket_configured():
+        if concert_ids and _ticketing_integrations_configured():
             try:
                 for _ev in (session_db.query(EnterticketEvent)
                             .filter(EnterticketEvent.concert_id.in_(concert_ids)).all()):
@@ -79670,8 +79670,9 @@ def concert_sales_reset(cid):
             return redirect(url_for("concerts_view"))
         ev = _et_concert_event(session_db, concert.id)
         if ev is not None:
-            flash("Esta actividad sigue vinculada al evento «%s» de Enterticket: desvincúlalo primero "
-                  "(si no, la siguiente sincronización volvería a volcar sus ventas)." % (ev.name or "Evento"),
+            flash("Esta actividad sigue vinculada al evento «%s» de %s: desvincúlalo primero "
+                  "(si no, la siguiente sincronización volvería a volcar sus ventas)."
+                  % ((ev.name or "Evento"), _et_provider_label(ev)),
                   "warning")
             return redirect(volver)
         salida = _concert_sales_reset(session_db, concert)
@@ -80195,10 +80196,11 @@ def sales_ticketer_day_save(cid, tid):
         # desde la API (el bloqueo de la plantilla no basta: una pestaña vieja o un POST directo
         # pisaría la rejilla espejada con ceros).
         tk_row = session_db.get(Ticketer, ticketer_id)
-        if (tk_row and (tk_row.name or "").strip().lower() == "enterticket"
+        if (tk_row and (tk_row.name or "").strip().lower() in _et_ticketer_names()
                 and session_db.query(EnterticketEvent.id)
                 .filter(EnterticketEvent.concert_id == concert_id).first()):
-            flash("Esta ticketera se actualiza sola desde la API de Enterticket; no se guardan apuntes manuales.", "warning")
+            flash("Esta ticketera se actualiza sola desde su API (%s); no se guardan apuntes manuales."
+                  % tk_row.name, "warning")
             return redirect(request.referrer or url_for("sales_update_view"))
 
         # Precio bruto por tipo para esta ticketera (configuración)
@@ -80424,7 +80426,7 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
         # reporte vigila /ventas/et/estado y recarga una vez cuando terminan los syncs lanzados.
         et_map = {}
         et_stamp = 0
-        if concert_ids and et_api.enterticket_configured():
+        if concert_ids and _ticketing_integrations_configured():
             try:
                 for _ev in (session.query(EnterticketEvent)
                             .filter(EnterticketEvent.concert_id.in_(concert_ids)).all()):
@@ -140664,7 +140666,7 @@ def _sales_request_ticketer(session_db, concert):
                                                if getattr(ct, "ticketer_id", None) else None)
         if tk is None:
             continue
-        if (getattr(tk, "name", None) or "").strip().lower() == "enterticket":
+        if (getattr(tk, "name", None) or "").strip().lower() in _et_ticketer_names():
             continue
         manuales.append(tk)
     if len(manuales) == 1:
@@ -173382,15 +173384,34 @@ def integrations_view():
                 flash(f"Enterticket: error al sincronizar el catálogo: {e}", "danger")
             finally:
                 s.close()
+        elif action == "ping_onebox":
+            ok, msg = _ob_ping_and_store()
+            flash(f"One Box: {msg}", "success" if ok else "danger")
+        elif action == "ob_sync_catalog":
+            s = db()
+            try:
+                total, nuevos = _ob_sync_catalog(s)
+                flash(f"One Box: catálogo sincronizado ({total} sesiones, {nuevos} nuevas).", "success")
+            except Exception as e:
+                try:
+                    s.rollback()
+                    _m = _ob_meta_row(s)
+                    _m.last_error = str(e)[:500]
+                    s.commit()
+                except Exception:
+                    pass
+                flash(f"One Box: error al sincronizar el catálogo: {e}", "danger")
+            finally:
+                s.close()
         elif action == "et_sync_all":
             threading.Thread(target=_et_sync_all_bg, daemon=True).start()
-            flash("Enterticket: sincronización completa en marcha en segundo plano (catálogo + ventas de los eventos vinculados). Recarga en unos minutos.", "info")
+            flash("Sincronización completa en marcha en segundo plano (catálogo + ventas de los eventos vinculados, de las dos ticketeras). Recarga en unos minutos.", "info")
         elif action in {"et_link", "et_unlink", "et_ignore", "et_unignore", "et_request", "et_sync_event"}:
             s = db()
             try:
                 ev = s.get(EnterticketEvent, to_uuid(request.form.get("et_event_pk") or ""))
                 if not ev:
-                    flash("Evento de Enterticket no encontrado.", "danger")
+                    flash("Evento de la ticketera no encontrado.", "danger")
                 elif action == "et_link":
                     c = s.get(Concert, to_uuid(request.form.get("concert_id") or ""))
                     if not c:
@@ -173401,7 +173422,7 @@ def integrations_view():
                         threading.Thread(target=_et_sync_event_bg, args=(str(ev.id),), daemon=True).start()
                         flash(f"«{ev.name}» vinculado al concierto. Sincronizando ventas en segundo plano…", "success")
                         if _et_concert_has_legacy_sales(s, c.id):
-                            flash("Aviso: este concierto llevaba la venta en modo básico (histórico manual antiguo). Al integrarse con Enterticket, el reporte pasa a usar el desglose por ticketeras y ese histórico básico deja de sumarse.", "warning")
+                            flash("Aviso: este concierto llevaba la venta en modo básico (histórico manual antiguo). Al integrarse con %s, el reporte pasa a usar el desglose por ticketeras y ese histórico básico deja de sumarse." % _et_provider_label(ev), "warning")
                 elif action == "et_unlink":
                     _et_unlink_event(s, ev)
                     s.commit()
@@ -173417,7 +173438,7 @@ def integrations_view():
                 elif action == "et_request":
                     _et_create_booking_request(s, ev)
                     s.commit()
-                    flash(f"Petición enviada a Contratación para crear «{ev.name}» con los datos de Enterticket.", "success")
+                    flash(f"Petición enviada a Contratación para crear «{ev.name}» con los datos de {_et_provider_label(ev)}.", "success")
                 elif action == "et_sync_event":
                     threading.Thread(target=_et_sync_event_bg, args=(str(ev.id),), daemon=True).start()
                     flash(f"Sincronizando «{ev.name}» en segundo plano…", "info")
@@ -173426,10 +173447,10 @@ def integrations_view():
                     s.rollback()
                 except Exception:
                     pass
-                flash(f"Enterticket: {e}", "danger")
+                flash(f"Ticketera: {e}", "danger")
             finally:
                 s.close()
-        if action == "ping_enterticket" or action.startswith("et_"):
+        if action in ("ping_enterticket", "ping_onebox") or action.startswith(("et_", "ob_")):
             return redirect(url_for("integrations_view") + "#tab-enterticket")
         return redirect(url_for("integrations_view"))
     # Resumen de la caché + tabla de revisión (artista -> ID de Chartmetric elegido).
@@ -173471,87 +173492,46 @@ def integrations_view():
             pass
         finally:
             s.close()
-    # --- Enterticket: estado + catálogo de eventos con su vínculo ---
+    # --- TICKETERAS (Enterticket y One Box): estado + catálogo de eventos con su vínculo ---
+    # ⚠️ Las dos se pintan igual (`_ticketing_integration_state`, un punto único): mismo listado,
+    # mismos botones y el mismo pop-up de vincular. Cada una con SU estado y SUS eventos.
     et_configured = et_api.enterticket_configured()
-    et_meta = None
-    et_events = []
+    ob_configured = ob_api.onebox_configured()
     et_concert_options = []
-    et_past_count = 0          # eventos ya celebrados: no se listan (siguen vinculados)
-    et_counts = {"total": 0, "linked": 0, "pending": 0, "requested": 0, "ignored": 0}
-    if et_configured:
-        s = db()
-        try:
-            et_meta = s.get(EnterticketMeta, 1)
-            today = date.today()
-            # SOLO EVENTOS FUTUROS. Un evento pasado no hay que vincularlo ni pedirlo: lo que ya
-            # estuviera vinculado sigue vinculado y sus datos se ven en la ficha de su actividad
-            # (pestaña Ticketing), pero aquí no pinta nada y solo ensucia la lista. Los que NO tienen
-            # fecha se conservan: no se puede afirmar que hayan pasado.
-            # La fecha de fin manda cuando la hay (un festival de varios días sigue vivo el último).
-            rows_all = (s.query(EnterticketEvent)
-                        .options(joinedload(EnterticketEvent.concert).joinedload(Concert.artist),
-                                 joinedload(EnterticketEvent.concert).joinedload(Concert.venue))
-                        .order_by(EnterticketEvent.event_date.asc().nullsfirst()).all())
-            rows = [r for r in rows_all
-                    if (r.event_end_date or r.event_date) is None
-                    or (r.event_end_date or r.event_date) >= today]
-            et_past_count = len(rows_all) - len(rows)
-            for ev in rows:
-                st = (ev.link_status or "PENDING").upper()
-                et_counts["total"] += 1
-                et_counts[{"LINKED": "linked", "REQUESTED": "requested", "IGNORED": "ignored"}.get(st, "pending")] += 1
-                concert_label = ""
-                if ev.concert:
-                    c = ev.concert
-                    vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
-                    concert_label = f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else "")
-                candidates = []
-                # La consulta de candidatos ya va acotada por la fecha del evento (± margen), así
-                # que no hace falta ningún corte adicional por antigüedad.
-                if st == "PENDING" and ev.event_date:
-                    for score, c in _et_automatch_candidates(s, ev, day_margin=3)[:6]:
-                        vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
-                        candidates.append({
-                            "id": str(c.id), "score": score,
-                            "label": f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else ""),
-                        })
-                et_events.append({
-                    "pk": str(ev.id), "et_event_id": ev.et_event_id, "name": ev.name,
-                    "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
-                    "is_past": bool(ev.event_date and ev.event_date < today),
-                    "venue": ev.venue_name or "", "town": ev.venue_town or "",
-                    "artists": ev.artist_names or "", "image": ev.artist_image or ev.image_url or "",
-                    "status": st, "active": bool(ev.active),
-                    "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
-                    "concert_label": concert_label, "url": ev.url_enterticket or "",
-                    "last_synced": _et_fmt_dt(ev.last_synced_at),
-                    "last_error": ev.last_error or "", "candidates": candidates,
-                    "capacity": ev.capacity_on_sale,
+    tk_states = {}
+    s = db()
+    try:
+        for _prov in TICKETING_PROVIDERS:
+            tk_states[_prov] = _ticketing_integration_state(s, _prov)
+        # Selector del modal «Vincular con otro concierto»: TODAS las actividades (buscable con
+        # Select2 por artista/fecha/recinto), porque la fecha del evento en la ticketera y la
+        # nuestra no siempre coinciden y hay que poder corregirlo. Se ordenan por fecha
+        # descendente y se acota el número de filas, no la fecha.
+        # ⚠️ Los ya vinculados se descartan mirando TODOS los eventos (también los pasados y los
+        # de la OTRA ticketera): una actividad solo puede tener uno.
+        if any(e["status"] == "PENDING" for st in tk_states.values() for e in st["events"]):
+            linked_ids = [r[0] for r in s.query(EnterticketEvent.concert_id)
+                          .filter(EnterticketEvent.concert_id.isnot(None)).all()]
+            copts_q = (s.query(Concert)
+                       .options(joinedload(Concert.artist), joinedload(Concert.venue)))
+            if linked_ids:
+                copts_q = copts_q.filter(~Concert.id.in_(linked_ids))
+            copts = copts_q.order_by(Concert.date.desc().nullslast()).limit(3000).all()
+            for c in copts:
+                vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
+                et_concert_options.append({
+                    "id": str(c.id),
+                    "label": f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else ""),
                 })
-            # Selector del modal «Vincular con otro concierto»: TODAS las actividades (buscable con
-            # Select2 por artista/fecha/recinto), porque la fecha del evento en Enterticket y la
-            # nuestra no siempre coinciden y hay que poder corregirlo. Se ordenan por fecha
-            # descendente y se acota el número de filas, no la fecha.
-            # ⚠️ Los ya vinculados se descartan mirando TODOS los eventos (`rows_all`), no solo los
-            # futuros: si no, una actividad enlazada a un evento pasado volvería a ofrecerse y se
-            # podría vincular dos veces.
-            if any(e["status"] == "PENDING" for e in et_events):
-                linked_ids = [r.concert_id for r in rows_all if r.concert_id]
-                copts_q = (s.query(Concert)
-                           .options(joinedload(Concert.artist), joinedload(Concert.venue)))
-                if linked_ids:
-                    copts_q = copts_q.filter(~Concert.id.in_(linked_ids))  # ya tienen su evento ET
-                copts = copts_q.order_by(Concert.date.desc().nullslast()).limit(3000).all()
-                for c in copts:
-                    vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
-                    et_concert_options.append({
-                        "id": str(c.id),
-                        "label": f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else ""),
-                    })
-        except Exception:
-            pass
-        finally:
-            s.close()
+    except Exception:
+        app.logger.exception("[integraciones] no se pudo montar el estado de las ticketeras")
+    finally:
+        s.close()
+    _et_st = tk_states.get("ENTERTICKET") or {}
+    et_meta = _et_st.get("meta")
+    et_events = _et_st.get("events") or []
+    et_counts = _et_st.get("counts") or {"total": 0, "linked": 0, "pending": 0, "requested": 0, "ignored": 0}
+    et_past_count = _et_st.get("past_count") or 0
     # --- Pleo: una subpestaña por EMPRESA del grupo (credencial, estado y empleados) ---
     pleo_rows, pleo_people, pleo_any = [], [], False
     s = db()
@@ -173630,6 +173610,8 @@ def integrations_view():
         chartmetric_configured=chartmetric_utils.chartmetric_configured(),
         cm_status=_chartmetric_status(),
         enterticket_configured=et_configured,
+        onebox_configured=ob_configured,
+        tk_states=tk_states,
         et_meta=et_meta,
         et_last_catalog_sync=(_et_fmt_dt(et_meta.last_catalog_sync_at) if et_meta else ""),
         et_events=et_events,
@@ -175091,10 +175073,73 @@ def cron_chartmetric_refresh():
 #   con `updated`; se dispara al abrir la pestaña Ticketing (si han pasado >10 min), desde los
 #   botones «Actualizar», el polling de la pestaña y el cron externo /cron/enterticket/refresh.
 import enterticket_utils as et_api
+import onebox_utils as ob_api
 from models import engine as _et_engine
 from sqlalchemy.dialects.postgresql import insert as _et_pg_insert
 
 _ET_TOKEN_LOCAL = {"token": None, "read_at": 0.0}
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# LAS TICKETERAS INTEGRADAS: ENTERTICKET y ONE BOX (sep 2026, lo pidió Dani: «que haga la misma
+# función y con los mismos criterios que la de Enterticket»).
+# ⚠️⚠️ LAS DOS VUELCAN EN EL MISMO ESPEJO (`EnterticketEvent`/`EnterticketTicketType`/
+# `EnterticketSale`, con `provider`): lo que se hace con la venta —el reporte, la rejilla diaria,
+# los compradores, las invitaciones, el Resultado, el Sold Out, el vínculo automático— es el MISMO
+# código, así que los criterios no se pueden desparejar. Lo único propio de cada una es cómo se
+# PIDEN los datos (`_et_sync_*` / `_ob_sync_*`) y cómo se traducen a ese espejo.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+TICKETING_PROVIDERS = {
+    "ENTERTICKET": {"label": "Enterticket", "ticketer": "Enterticket",
+                    "site": "https://www.enterticket.es", "env": "ENTERTICKET_USER y ENTERTICKET_PASSWORD"},
+    "ONEBOX": {"label": "One Box", "ticketer": "One Box",
+               "site": "https://www.oneboxtds.com", "env": "ONEBOX_API_KEY (o ONEBOX_USER y ONEBOX_PASSWORD)"},
+}
+
+
+def _et_provider(ev) -> str:
+    """De qué ticketera es un evento del espejo (lo de antes, sin marca, es de Enterticket)."""
+    p = (getattr(ev, "provider", None) or "ENTERTICKET").strip().upper()
+    return p if p in TICKETING_PROVIDERS else "ENTERTICKET"
+
+
+def _et_provider_label(ev_or_key) -> str:
+    """El nombre de la ticketera de un evento (o de una clave) tal y como se enseña."""
+    clave = ev_or_key if isinstance(ev_or_key, str) else _et_provider(ev_or_key)
+    return TICKETING_PROVIDERS.get((clave or "").upper(), TICKETING_PROVIDERS["ENTERTICKET"])["label"]
+
+
+def _et_provider_configured(provider: str) -> bool:
+    try:
+        if (provider or "").upper() == "ONEBOX":
+            return bool(ob_api.onebox_configured())
+        return bool(et_api.enterticket_configured())
+    except Exception:
+        return False
+
+
+def _ticketing_integrations_configured() -> bool:
+    """¿Hay ALGUNA ticketera integrada activa? (Enterticket o One Box)."""
+    return any(_et_provider_configured(k) for k in TICKETING_PROVIDERS)
+
+
+def _et_ticketer_names() -> set:
+    """Los nombres (en minúsculas) de las ticketeras que se actualizan SOLAS desde su API: en esas
+    no se aceptan apuntes a mano (su rejilla la recalcula el espejo)."""
+    return {v["ticketer"].strip().lower() for v in TICKETING_PROVIDERS.values()}
+
+
+def _et_provider_ticketer(s, provider: str, create: bool = True):
+    """La TICKETERA (`Ticketer`) de una ticketera integrada; se crea la primera vez."""
+    meta = TICKETING_PROVIDERS.get((provider or "").upper(), TICKETING_PROVIDERS["ENTERTICKET"])
+    tk = s.query(Ticketer).filter(func.lower(Ticketer.name) == meta["ticketer"].lower()).first()
+    if tk is None and create:
+        tk = Ticketer(name=meta["ticketer"], link_url=meta["site"])
+        s.add(tk)
+        s.flush()
+    return tk
+
+
+app.jinja_env.globals["ticketing_provider_label"] = _et_provider_label
 _ET_SYNC_ACTIVE: set = set()          # ids (str) de eventos sincronizándose en este proceso
 _ET_SYNC_GUARD = threading.Lock()
 _ET_SALES_PAGE = 500
@@ -175473,16 +175518,15 @@ def _et_ensure_concert_ticketer(s, ev: EnterticketEvent):
     enlace de venta y el aforo a la venta (ET manda sobre su propia ticketera). Devuelve la fila."""
     if not ev.concert_id:
         return None
-    tk = s.query(Ticketer).filter(func.lower(Ticketer.name) == "enterticket").first()
-    if not tk:
-        tk = Ticketer(name="Enterticket", link_url="https://www.enterticket.es")
-        s.add(tk)
-        s.flush()
+    # ⚠️ La de SU ticketera: «Enterticket» o «One Box» (cada una con su rejilla).
+    tk = _et_provider_ticketer(s, _et_provider(ev))
     # ⚠️ LOS GASTOS DE GESTIÓN DE ENTERTICKET SE PONEN SOLOS (lo pidió Dani): son los de la fórmula
     # de la casa —0,50 € + IVA por entrada y 0,35% + IVA de pasarela, `_et_revenue_breakdown`—, así
     # que el resultado y las simulaciones ya los descuentan sin que nadie los escriba. Solo se
-    # rellenan si están VACÍOS: lo que ponga una persona manda.
-    if getattr(tk, "fee_fixed_gross", None) is None and getattr(tk, "fee_pct", None) is None:
+    # rellenan si están VACÍOS: lo que ponga una persona manda. (En One Box no hay fórmula: lo que
+    # se queda el canal viene desglosado en cada entrada.)
+    if (_et_provider(ev) == "ENTERTICKET"
+            and getattr(tk, "fee_fixed_gross", None) is None and getattr(tk, "fee_pct", None) is None):
         tk.fee_fixed_gross = ET_DEFAULT_FEE_FIXED
         tk.fee_pct = ET_DEFAULT_FEE_PCT
     ct = (s.query(ConcertTicketer)
@@ -175573,15 +175617,16 @@ def _et_mirror_to_sales(s, ev: EnterticketEvent) -> None:
         row = type_by_et_id.get(etid)
         if row is not None:
             return row
-        # Ventas de tipos retirados en ET o sin id: cajón «Enterticket · otros» (cupo 0).
+        # Ventas de tipos retirados o sin id: cajón «<ticketera> · otros» (cupo 0).
         if catchall is None:
-            catchall = existing_types.get("enterticket · otros")
+            _cajon = "%s · otros" % _et_provider_label(ev)
+            catchall = existing_types.get(_cajon.lower())
             if catchall is None:
-                catchall = ConcertTicketType(concert_id=concert_id, name="Enterticket · otros",
+                catchall = ConcertTicketType(concert_id=concert_id, name=_cajon,
                                              qty_for_sale=0, price=0, et_managed=True)
                 s.add(catchall)
                 s.flush()
-                existing_types["enterticket · otros"] = catchall
+                existing_types[_cajon.lower()] = catchall
         return catchall
 
     wanted = {}
@@ -175621,10 +175666,12 @@ def _et_mirror_to_sales(s, ev: EnterticketEvent) -> None:
 def _et_link_event(s, ev: EnterticketEvent, concert: Concert) -> None:
     # Un concierto solo puede tener UN evento de ET: el espejo de ventas (ticketera Enterticket)
     # es por concierto y dos eventos se pisarían mutuamente la rejilla diaria.
+    # ⚠️ Y UNO SOLO entre las dos ticketeras: la pestaña Ticketing enseña UN evento.
     other = (s.query(EnterticketEvent)
              .filter(EnterticketEvent.concert_id == concert.id, EnterticketEvent.id != ev.id).first())
     if other:
-        raise ValueError(f"Ese concierto ya está vinculado al evento «{other.name}» de Enterticket. Desvincúlalo primero.")
+        raise ValueError(f"Ese concierto ya está vinculado al evento «{other.name}» de "
+                         f"{_et_provider_label(other)}. Desvincúlalo primero.")
     ev.concert_id = concert.id
     ev.link_status = "LINKED"
     ev.last_error = None
@@ -175654,7 +175701,7 @@ def _et_unlink_event(s, ev: EnterticketEvent) -> None:
         be.concert_id = None
     if not concert_id:
         return
-    tk = s.query(Ticketer).filter(func.lower(Ticketer.name) == "enterticket").first()
+    tk = _et_provider_ticketer(s, _et_provider(ev), create=False)
     if tk:
         (s.query(TicketSaleDetail)
          .filter(TicketSaleDetail.concert_id == concert_id, TicketSaleDetail.ticketer_id == tk.id)
@@ -175775,7 +175822,9 @@ def _et_sync_catalog(s) -> tuple[int, int]:
 
 
 def _et_sync_catalog_locked(s) -> tuple[int, int]:
-    known = {r.et_event_id: r for r in s.query(EnterticketEvent).all()}
+    # ⚠️ Solo los de ENTERTICKET: el id de evento solo es único dentro de su ticketera.
+    known = {r.et_event_id: r for r in s.query(EnterticketEvent)
+             .filter(EnterticketEvent.provider == "ENTERTICKET").all()}
     desde = int(time.time()) - 730 * 86400
     offset, total, nuevos = 0, 0, 0
     while True:
@@ -175793,7 +175842,8 @@ def _et_sync_catalog_locked(s) -> tuple[int, int]:
             total += 1
             row = known.get(eid)
             if not row:
-                row = EnterticketEvent(et_event_id=eid, name=(info.get("nombre") or f"Evento {eid}"))
+                row = EnterticketEvent(provider="ENTERTICKET", et_event_id=eid,
+                                       name=(info.get("nombre") or f"Evento {eid}"))
                 s.add(row)
                 known[eid] = row
                 nuevos += 1
@@ -175833,6 +175883,12 @@ def _et_sync_event(s, ev: EnterticketEvent, full: bool = False) -> bool:
     bloqueos y base de compradores. `full=True` re-trae todas las ventas (reconciliación).
     Serializado ENTRE workers con advisory lock; devuelve False si otro proceso ya lo estaba
     sincronizando (se salta el trabajo, no es un error)."""
+    if _et_provider(ev) == "ONEBOX":
+        with _et_pg_lock(f"ob_ev_{ev.et_event_id}") as got:
+            if not got:
+                return False
+            _ob_sync_event_locked(s, ev, full=full)
+            return True
     with _et_pg_lock(f"et_ev_{ev.et_event_id}") as got:
         if not got:
             return False
@@ -175916,6 +175972,13 @@ def _et_sync_event_locked(s, ev: EnterticketEvent, full: bool = False) -> None:
     # incompleto, no avanzamos.
     if changes_complete:
         ev.sales_last_sync_unix = max(prev_sync_unix, max_upd_seen) or sync_started
+    _et_sync_finish(s, ev)
+
+
+def _et_sync_finish(s, ev: EnterticketEvent) -> None:
+    """EL FINAL DE UNA SINCRONIZACIÓN, igual para las dos ticketeras (punto único): la marca de
+    hora, la ticketera de la actividad, los compradores, el volcado al módulo de ventas y el aviso
+    del 90% (Sold Out)."""
     ev.last_synced_at = datetime.now(TZ_MADRID)
     ev.last_error = None
     if ev.concert_id:
@@ -175926,7 +175989,7 @@ def _et_sync_event_locked(s, ev: EnterticketEvent, full: bool = False) -> None:
     if ev.concert_id:
         _et_mirror_to_sales(s, ev)
         s.commit()
-        # La venta de ET se actualiza sola: aquí es donde se detecta el 90% de un concierto
+        # La venta se actualiza sola: aquí es donde se detecta el 90% de un concierto
         # vinculado, sin que nadie tenga que apuntar nada a mano.
         _soldout_artwork_check(s, [ev.concert_id])
 
@@ -175960,7 +176023,7 @@ def _et_sync_event_bg(event_pk: str, full: bool = False) -> None:
 
 def _et_maybe_sync_event(ev: EnterticketEvent, max_age_min: int = 10) -> bool:
     """Lanza una sincronización en segundo plano si los datos están «viejos». True si se lanzó."""
-    if not et_api.enterticket_configured():
+    if not _et_provider_configured(_et_provider(ev)):
         return False
     if ev.last_synced_at:
         age = datetime.now(TZ_MADRID) - ev.last_synced_at
@@ -175984,11 +176047,22 @@ def _et_sync_all_bg() -> None:
                 s.commit()
             except Exception:
                 pass
+        # Y el de ONE BOX, con su propio registro de errores (fila 2).
+        try:
+            _ob_sync_catalog(s)
+        except Exception as exc:
+            try:
+                s.rollback()
+                meta = _ob_meta_row(s)
+                meta.last_error = str(exc)[:500]
+                s.commit()
+            except Exception:
+                pass
         cutoff = date.today() - timedelta(days=30)
         ids = [str(r.id) for r in s.query(EnterticketEvent)
                .filter(EnterticketEvent.concert_id.isnot(None))
                .filter(or_(EnterticketEvent.event_end_date.is_(None), EnterticketEvent.event_end_date >= cutoff))
-               .all()]
+               .all() if _et_provider_configured(_et_provider(r))]
     finally:
         s.close()
     for pk in ids:
@@ -175996,6 +176070,467 @@ def _et_sync_all_bg() -> None:
             _et_sync_event_bg(pk)
         except Exception:
             continue
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# ONE BOX · el conector. Pide los datos a su API (`onebox_utils.py`) y los TRADUCE al espejo de
+# siempre; de ahí en adelante todo es lo de Enterticket (`_et_sync_finish`).
+# ⚠️⚠️ Hecho con su documentación pública y SIN poder probarlo contra la API real (no había
+# credenciales): la primera sincronización real confirma los nombres de los campos, y si algo no
+# cuadra, el motivo sale en la fila del evento (Integraciones → Ticketeras) — como con Holded.
+#   · Un EVENTO de One Box tiene SESIONES, y cada sesión es una FECHA: una actividad nuestra. Por
+#     eso cada fila del espejo es una SESIÓN (`et_event_id` = id de la sesión) y el id del evento y
+#     de su plantilla de recinto van en `provider_data`.
+#   · Los TIPOS de entrada son sus «tipos de precio» (`price_type`): lo vendido sale de nuestras
+#     ventas (el mismo criterio que el panel), lo libre del AFORO de la sesión (butacas y zonas no
+#     numeradas con su estado) y el precio de su tabla de precios.
+#   · Cada ENTRADA es un `order-item`: su estado dice si vale (PURCHASE), si es una invitación
+#     (ISSUE o tipo INVITATION), si se devolvió (REFUND) o si es solo una reserva sin pagar
+#     (BOOKING, que no es una venta).
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+from datetime import timezone as _ob_tz
+from sqlalchemy.orm.attributes import flag_modified as _ob_flag_modified
+
+_OB_META_ID = 2                 # su fila en enterticket_meta (la 1 es la de Enterticket)
+_OB_TOKEN_LOCAL = {"token": None, "exp": 0.0}
+_OB_VALID_STATES = {"PURCHASE", "SEC_MKT_PURCHASE", "SEAT_REALLOCATION"}
+_OB_SOLD_SEAT = {"SOLD", "EMITTED", "VALIDATED", "IN", "BOOKED"}
+_OB_LOCKED_SEAT = {"PROMOTOR_LOCKED", "SYSTEM_LOCKED"}
+_OB_SESSION_DEAD = {"CANCELLED", "NOT_ACCOMPLISHED"}
+_OB_MAX_PAGES = 200
+
+
+def _ob_meta_row(s):
+    row = s.get(EnterticketMeta, _OB_META_ID)
+    if not row:
+        try:
+            row = EnterticketMeta(id=_OB_META_ID)
+            s.add(row)
+            s.commit()
+        except Exception:
+            s.rollback()
+            row = s.get(EnterticketMeta, _OB_META_ID)
+    return row
+
+
+def _ob_token_expiry(txt) -> float:
+    try:
+        return datetime.fromisoformat(str(txt)).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _ob_get_token(s, force_refresh: bool = False) -> str:
+    """Token de One Box compartido en BD (dura 12 h). Caché local mientras no caduque."""
+    now = time.time()
+    if not force_refresh and _OB_TOKEN_LOCAL["token"] and _OB_TOKEN_LOCAL["exp"] > now + 60:
+        return _OB_TOKEN_LOCAL["token"]
+    row = _ob_meta_row(s)
+    if not force_refresh and row.token and _ob_token_expiry(row.token_expires_at) > now + 60:
+        _OB_TOKEN_LOCAL.update(token=row.token, exp=_ob_token_expiry(row.token_expires_at))
+        return row.token
+    with _et_pg_lock("ob_token", wait=True):
+        try:
+            s.refresh(row)
+        except Exception:
+            pass
+        if not force_refresh and row.token and _ob_token_expiry(row.token_expires_at) > time.time() + 60:
+            _OB_TOKEN_LOCAL.update(token=row.token, exp=_ob_token_expiry(row.token_expires_at))
+            return row.token
+        token, caduca = ob_api.auth()
+        row.token = token
+        row.token_expires_at = caduca
+        s.commit()
+    _OB_TOKEN_LOCAL.update(token=token, exp=_ob_token_expiry(caduca))
+    return token
+
+
+def _ob_call(s, fn, *args, **kwargs):
+    """Llama `fn(token, ...)`; si el token ya no vale, se pide otro y se reintenta una vez."""
+    token = _ob_get_token(s)
+    try:
+        return fn(token, *args, **kwargs)
+    except ob_api.OneboxAuthError:
+        pass
+    _OB_TOKEN_LOCAL["token"] = None
+    return fn(_ob_get_token(s, force_refresh=True), *args, **kwargs)
+
+
+def _ob_id(v) -> int:
+    """Un id de One Box (int64) para una columna `integer`: tal cual si cabe y, si no, plegado
+    de forma ESTABLE (el mismo id da siempre el mismo número, así ventas y tipos casan)."""
+    try:
+        n = int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+    return n if 0 < n <= 2147483647 else ((n % 2147483646) + 1 if n else 0)
+
+
+def _ob_dt(v):
+    """Una fecha-hora de One Box (ISO, con su huso) → aware; None si no se entiende."""
+    if not v:
+        return None
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=_ob_tz.utc)
+    except Exception:
+        return None
+
+
+def _ob_local(v):
+    """→ hora de España SIN huso, que es como guarda el espejo la de Enterticket."""
+    d = _ob_dt(v)
+    return d.astimezone(TZ_MADRID).replace(tzinfo=None) if d else None
+
+
+def _ob_num(v) -> Decimal:
+    return _et_money(v if isinstance(v, (int, float, str, Decimal)) else 0)
+
+
+def _ob_get(d, *path):
+    """d['a']['b']… sin reventar si falta algo."""
+    for k in path:
+        if not isinstance(d, dict):
+            return None
+        d = d.get(k)
+    return d
+
+
+def _ob_apply_session(row, ev_info: dict, ses: dict) -> None:
+    """Vuelca una SESIÓN (y su evento) sobre la fila del espejo."""
+    nombre_ev = (ev_info.get("name") or "").strip()
+    nombre_ses = (ses.get("name") or "").strip()
+    row.name = (nombre_ev if (not nombre_ses or nombre_ses.lower() in nombre_ev.lower())
+                else f"{nombre_ev} · {nombre_ses}") or f"Sesión {ses.get('id')}"
+    ini = _ob_dt(ses.get("start_date"))
+    fin = _ob_dt(ses.get("end_date"))
+    if ini:
+        loc = ini.astimezone(TZ_MADRID)
+        row.event_date = loc.date()
+        row.start_time = loc.strftime("%H:%M:%S")
+    if fin:
+        row.event_end_date = fin.astimezone(TZ_MADRID).date()
+    plantilla = ses.get("venue_template") or {}
+    recinto = plantilla.get("venue") or {}
+    if recinto.get("name"):
+        row.venue_name = str(recinto.get("name")).strip().rstrip(".")
+    if recinto.get("city"):
+        row.venue_town = str(recinto.get("city")).strip()
+    try:
+        if plantilla.get("capacity"):
+            row.capacity_on_sale = int(plantilla.get("capacity")) or row.capacity_on_sale
+    except (TypeError, ValueError):
+        pass
+    row.has_seat_mapping = bool(plantilla.get("graphic")) or bool(row.has_seat_mapping)
+    row.active = (str(ses.get("status") or "").upper() not in _OB_SESSION_DEAD)
+    datos = dict(row.provider_data or {})
+    datos.update({"event_id": ev_info.get("id"), "session_id": ses.get("id"),
+                  "template_id": plantilla.get("id"),
+                  "entity": (_ob_get(ev_info, "entity", "name") or ""),
+                  "status": (ses.get("status") or ""), "sale": (ses.get("sale") or "")})
+    row.provider_data = datos
+    try:
+        _ob_flag_modified(row, "provider_data")
+    except Exception:
+        pass
+    row.updated_at = datetime.now(TZ_MADRID)
+
+
+def _ob_sync_catalog(s) -> tuple[int, int]:
+    """El catálogo de One Box: sus EVENTOS y, de cada uno, sus SESIONES (una fila por sesión).
+    Devuelve (sesiones, nuevas). Solo se piden las sesiones de eventos que no hayan terminado hace
+    más de 30 días: lo celebrado no hay que vincularlo, y lo ya vinculado sigue sincronizándose."""
+    if not ob_api.onebox_configured():
+        return (0, 0)
+    with _et_pg_lock("ob_catalog") as got:
+        if not got:
+            return (0, 0)
+        return _ob_sync_catalog_locked(s)
+
+
+def _ob_sync_catalog_locked(s) -> tuple[int, int]:
+    known = {r.et_event_id: r for r in s.query(EnterticketEvent)
+             .filter(EnterticketEvent.provider == "ONEBOX").all()}
+    corte = datetime.now(_ob_tz.utc) - timedelta(days=30)
+    total, nuevas = 0, 0
+    offset = 0
+    for _pag in range(_OB_MAX_PAGES):
+        eventos = _ob_call(s, ob_api.fetch_events, limit=100, offset=offset)
+        if not eventos:
+            break
+        for ev_info in eventos:
+            if str(ev_info.get("status") or "").upper() == "CANCELLED" or ev_info.get("archived"):
+                continue
+            fin = _ob_dt(ev_info.get("end_date"))
+            if fin and fin < corte:
+                continue
+            try:
+                ev_id = int(ev_info.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not ev_id:
+                continue
+            s_off = 0
+            for _p in range(20):
+                sesiones = _ob_call(s, ob_api.fetch_sessions, ev_id, limit=100, offset=s_off)
+                if not sesiones:
+                    break
+                for ses in sesiones:
+                    if str(ses.get("type") or "SESSION").upper() != "SESSION":
+                        continue       # un abono o un pack no es una fecha
+                    sid = _ob_id(ses.get("id"))
+                    if not sid:
+                        continue
+                    total += 1
+                    row = known.get(sid)
+                    if row is None:
+                        row = EnterticketEvent(provider="ONEBOX", et_event_id=sid,
+                                               name=(ev_info.get("name") or f"Sesión {sid}"),
+                                               provider_data={})
+                        s.add(row)
+                        known[sid] = row
+                        nuevas += 1
+                    _ob_apply_session(row, ev_info, ses)
+                s.commit()
+                if len(sesiones) < 100:
+                    break
+                s_off += 100
+        if len(eventos) < 100:
+            break
+        offset += 100
+    for r in known.values():
+        if r.link_status == "PENDING" and not r.concert_id:
+            try:
+                _et_try_automatch(s, r)
+            except Exception:
+                continue
+    meta = _ob_meta_row(s)
+    meta.last_catalog_sync_at = datetime.now(TZ_MADRID)
+    meta.last_error = None
+    s.commit()
+    return (total, nuevas)
+
+
+def _ob_capacity_counts(cap: dict) -> dict:
+    """El AFORO de una sesión contado por tipo de precio: libres, vendidas y bloqueadas.
+    Suma las butacas (`sector_map → row_map → seat_map`) y las zonas no numeradas
+    (`not_numbered_zone_map` con sus contadores de estado)."""
+    por_tipo: dict = {}
+    numerados: set = set()
+    bloqueadas = 0
+
+    def _suma(pt, estado, n=1, numerada=False):
+        nonlocal bloqueadas
+        c = por_tipo.setdefault(pt, {"free": 0, "sold": 0, "locked": 0})
+        estado = (estado or "").upper()
+        if estado == "FREE":
+            c["free"] += n
+        elif estado in _OB_SOLD_SEAT:
+            c["sold"] += n
+        elif estado in _OB_LOCKED_SEAT:
+            c["locked"] += n
+            bloqueadas += n
+        if numerada:
+            numerados.add(pt)
+
+    for sector in (cap.get("sector_map") or []):
+        for fila in (sector.get("row_map") or []):
+            for butaca in (fila.get("seat_map") or []):
+                _suma(_ob_id(butaca.get("price_type")), butaca.get("status"), 1, True)
+        for zona in (sector.get("not_numbered_zone_map") or []):
+            pt = _ob_id(zona.get("price_type"))
+            for cnt in (zona.get("status_counters") or []):
+                try:
+                    _suma(pt, cnt.get("status"), int(cnt.get("count") or 0))
+                except (TypeError, ValueError):
+                    continue
+    return {"types": por_tipo, "numbered": numerados, "locked": bloqueadas}
+
+
+def _ob_prices(prices: list) -> tuple[dict, dict]:
+    """(precio, nombre) de cada tipo de precio. Con varias TARIFAS se toma la más alta de las
+    individuales: es el precio de la entrada (las demás son descuentos)."""
+    precio, nombre = {}, {}
+    for p in (prices or []):
+        pt = _ob_id(_ob_get(p, "price_type", "id"))
+        if not pt:
+            continue
+        nombre.setdefault(pt, (_ob_get(p, "price_type", "description")
+                               or _ob_get(p, "price_type", "code") or "").strip())
+        if str(p.get("ticket_type") or "INDIVIDUAL").upper() != "INDIVIDUAL":
+            continue
+        v = _ob_num(p.get("value"))
+        if v > precio.get(pt, Decimal("-1")):
+            precio[pt] = v
+    return precio, nombre
+
+
+def _ob_upsert_items(s, ev: EnterticketEvent, page: list) -> int:
+    """Una página de `order-items` → el espejo. Devuelve el `last_modified` más alto visto (unix)."""
+    ids = [int(r.get("id") or 0) for r in page if r.get("id")]
+    existentes = {}
+    if ids:
+        for row in s.query(EnterticketSale).filter(EnterticketSale.event_id == ev.id,
+                                                   EnterticketSale.et_sale_id.in_(ids)).all():
+            existentes[int(row.et_sale_id)] = row
+    max_mod = 0
+    for it in page:
+        try:
+            sid = int(it.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not sid or str(it.get("type") or "SEAT").upper() == "PRODUCT":
+            continue
+        mod = _ob_dt(_ob_get(it, "order", "last_modified"))
+        if mod:
+            max_mod = max(max_mod, int(mod.timestamp()))
+        row = existentes.get(sid)
+        if row is None:
+            row = EnterticketSale(event_id=ev.id, et_sale_id=sid)
+            s.add(row)
+            existentes[sid] = row
+        tk = it.get("ticket") or {}
+        alloc = tk.get("allocation") or {}
+        estado = str(it.get("state") or "").upper()
+        pt = alloc.get("price_type") or {}
+        row.et_entrada_id = _ob_id(pt.get("id")) or None
+        row.entrada_name = (pt.get("name") or pt.get("code") or "").strip() or None
+        row.purchase_at = _ob_local(_ob_get(it, "order", "date"))
+        precio = it.get("price") or {}
+        cargos = precio.get("charges") or {}
+        canal = _ob_num(cargos.get("channel"))
+        promotor = _ob_num(cargos.get("promoter"))
+        final = _ob_num(precio.get("final"))
+        extras = (_ob_num(precio.get("delivery")) + _ob_num(precio.get("insurance"))
+                  + _ob_num(precio.get("donation")))
+        # EL PRECIO DE LA ENTRADA = lo pagado menos los gastos (del canal y nuestros) y lo que no
+        # es la entrada (envío, seguro, donativo). Es lo que Enterticket llama «precio».
+        base = final - canal - promotor - extras if final else _ob_num(precio.get("base"))
+        row.price = base if base > 0 else Decimal("0")
+        row.fees = canal + promotor            # los gastos de distribución que paga el comprador
+        row.channel_fees = canal               # … de los que el canal se queda esto
+        row.total = final
+        row.mode = ((_ob_get(it, "channel", "name") or "").strip() or None)
+        row.is_invitation = (estado == "ISSUE" or str(tk.get("type") or "").upper() == "INVITATION")
+        row.invitation_concept = ((_ob_get(tk, "rate", "name") or _ob_get(tk, "quota", "name")
+                                   or "").strip() or None) if row.is_invitation else None
+        # Solo cuenta lo que VALE: una reserva sin pagar no es una venta y una devolución resta.
+        row.refunded = (estado == "REFUND")
+        row.cancelled = not (estado in _OB_VALID_STATES or estado in ("ISSUE", "REFUND"))
+        sector = alloc.get("sector") or {}
+        fila = _ob_get(alloc, "row", "name")
+        butaca = _ob_get(alloc, "seat", "name")
+        row.sector = ((sector.get("name") or _ob_get(alloc, "not_numbered_area", "name") or "")
+                      .strip() or None)
+        # «Fila 5 - Asiento 12»: el formato que ya entiende `_et_split_seat` para casarlo en el plano.
+        row.seat = (f"Fila {fila} - Asiento {butaca}" if (fila and butaca)
+                    else (str(butaca).strip() if butaca else None))
+        comprador = it.get("buyer_data") or {}
+        nombre = " ".join([x for x in [(comprador.get("name") or "").strip(),
+                                       (comprador.get("surname") or "").strip()] if x])
+        row.buyer_name = nombre or None
+        row.buyer_email = ((comprador.get("email") or "").strip().lower()) or None
+        row.buyer_phone = None
+        row.buyer_postal_code = None
+        row.accepts_marketing = bool(comprador.get("allow_commercial_mailing"))
+        if mod:
+            row.updated_at_unix = int(mod.timestamp())
+    return max_mod
+
+
+def _ob_sync_event_locked(s, ev: EnterticketEvent, full: bool = False) -> None:
+    """Sincroniza UNA sesión de One Box: las entradas (nuevas y cambiadas), el aforo y los precios
+    por tipo, y después lo común (`_et_sync_finish`)."""
+    datos = dict(ev.provider_data or {})
+    ev_id, ses_id, tpl_id = datos.get("event_id"), datos.get("session_id"), datos.get("template_id")
+    if not ses_id:
+        raise ValueError("A esta sesión de One Box le falta su referencia: sincroniza el catálogo.")
+    arranque = int(time.time())
+    previo = 0 if full else int(ev.sales_last_sync_unix or 0)
+    # ⚠️ Con 15 min de solape: un pedido tocado justo en el corte no se pierde (se reescribe igual).
+    desde = (datetime.fromtimestamp(max(0, previo - 900), _ob_tz.utc).isoformat()
+             if previo else None)
+    visto, offset, completo = 0, 0, True
+    for pag in range(_OB_MAX_PAGES + 1):
+        if pag == _OB_MAX_PAGES:
+            completo = False      # tope de seguridad: se sigue en la próxima (sin avanzar el cursor)
+            break
+        pagina = _ob_call(s, ob_api.fetch_order_items, ses_id, limit=ob_api.PAGE,
+                          offset=offset, modified_since=desde)
+        if not pagina:
+            break
+        visto = max(visto, _ob_upsert_items(s, ev, pagina))
+        s.commit()
+        if len(pagina) < ob_api.PAGE:
+            break
+        offset += ob_api.PAGE
+    # LOS TIPOS: lo libre y lo bloqueado del aforo, el precio de su tabla y lo vendido de las ventas.
+    cuenta = {"types": {}, "numbered": set(), "locked": 0}
+    if ev_id:
+        try:
+            cuenta = _ob_capacity_counts(_ob_call(s, ob_api.fetch_capacity, ev_id, ses_id) or {})
+        except ob_api.OneboxError as exc:
+            app.logger.warning("[onebox] sin aforo de la sesión %s: %s", ses_id, exc)
+    precios, nombres = {}, {}
+    if ev_id and tpl_id:
+        try:
+            precios, nombres = _ob_prices(_ob_call(s, ob_api.fetch_prices, ev_id, tpl_id) or [])
+        except ob_api.OneboxError as exc:
+            app.logger.warning("[onebox] sin precios de la sesión %s: %s", ses_id, exc)
+    vendidas = {r.tid: int(r.n or 0) for r in
+                _et_valid_sales_filter(s.query(EnterticketSale.et_entrada_id.label("tid"),
+                                               func.count().label("n"),
+                                               func.max(EnterticketSale.entrada_name).label("nm")), ev)
+                .filter(EnterticketSale.is_invitation.is_(False))
+                .group_by(EnterticketSale.et_entrada_id).all() if r.tid}
+    nombres_venta = {r.tid: r.nm for r in
+                     s.query(EnterticketSale.et_entrada_id.label("tid"),
+                             func.max(EnterticketSale.entrada_name).label("nm"))
+                     .filter(EnterticketSale.event_id == ev.id)
+                     .group_by(EnterticketSale.et_entrada_id).all() if r.tid and r.nm}
+    tipos = set(cuenta["types"]) | set(vendidas) | set(precios)
+    tipos.discard(0)
+    entradas = []
+    for pt in sorted(tipos, key=lambda x: (-(precios.get(x) or 0), x)):
+        c = cuenta["types"].get(pt) or {}
+        entradas.append({
+            "id": pt,
+            "nombre": (nombres_venta.get(pt) or nombres.get(pt) or f"Tipo {pt}"),
+            "precio": precios.get(pt, Decimal("0")),
+            "cantidad_vendidas": vendidas.get(pt, 0),
+            "cantidad_disponible": int(c.get("free") or 0),
+            "entrada_numerada": pt in cuenta["numbered"],
+        })
+    _et_apply_ticket_types(s, ev, entradas)
+    if entradas:
+        a_la_venta = sum(e["cantidad_vendidas"] + e["cantidad_disponible"] for e in entradas)
+        if a_la_venta:
+            ev.capacity_on_sale = a_la_venta
+    ev.blocked_count = int(cuenta.get("locked") or 0)
+    ev.blocked_json = []
+    if cuenta["numbered"]:
+        ev.has_seat_mapping = True
+    s.commit()
+    if completo:
+        ev.sales_last_sync_unix = max(previo, visto) or arranque
+    _et_sync_finish(s, ev)
+
+
+def _ob_ping_and_store() -> tuple[bool, str]:
+    """«Probar conexión» de One Box: si entra, deja el token guardado para lo demás."""
+    ok, msg, token, caduca = ob_api.ping()
+    if ok and token:
+        s = db()
+        try:
+            row = _ob_meta_row(s)
+            row.token = token
+            row.token_expires_at = caduca
+            row.last_error = None
+            s.commit()
+            _OB_TOKEN_LOCAL.update(token=token, exp=_ob_token_expiry(caduca))
+        finally:
+            s.close()
+    return ok, msg
 
 
 def _et_concert_event(s, concert_id):
@@ -176076,8 +176611,18 @@ def _et_revenue_breakdown(session_db, ev) -> dict:
         _et_valid_sales_filter(session_db.query(func.coalesce(func.sum(EnterticketSale.total), 0)), ev)
         .filter(EnterticketSale.is_invitation.is_(False), EnterticketSale.fees > 0).scalar())
     neto = _et_net_from_gross(base)
-    ticketera = _et_money(ET_TICKETER_FEE * con_gd)
-    pasarela = _et_money(cobrado_con_gd * ET_GATEWAY_PCT / Decimal("100"))
+    if _et_provider(ev) == "ONEBOX":
+        # ⚠️ En ONE BOX no hay fórmula: cada entrada dice lo que de sus gastos se queda el CANAL
+        # (`channel_fees`, de `charges.channel`), y eso es lo que no es nuestro. Sin pasarela
+        # aparte (va dentro de lo del canal).
+        ticketera = _et_money(
+            _et_valid_sales_filter(session_db.query(
+                func.coalesce(func.sum(EnterticketSale.channel_fees), 0)), ev)
+            .filter(EnterticketSale.is_invitation.is_(False)).scalar())
+        pasarela = Decimal("0")
+    else:
+        ticketera = _et_money(ET_TICKETER_FEE * con_gd)
+        pasarela = _et_money(cobrado_con_gd * ET_GATEWAY_PCT / Decimal("100"))
     gd_neto = _et_money(gd - ticketera - pasarela)
     return {
         "sold": vendidas,
@@ -176178,13 +176723,14 @@ def _et_create_booking_request(s, ev: EnterticketEvent) -> BookingRequest:
     art_names = [a.strip() for a in (ev.artist_names or "").split(",") if a.strip()]
     if art_names:
         artist = s.query(Artist).filter(_sa_folded_text(Artist.name) == _norm_text_key(art_names[0])).first()
-    notes = (f"Evento detectado en Enterticket (id {ev.et_event_id}).\n"
+    _prov = _et_provider_label(ev)
+    notes = (f"Evento detectado en {_prov} (id {ev.et_event_id}).\n"
              f"Artista(s): {ev.artist_names or '—'}\nRecinto: {ev.venue_name or '—'}"
              f" ({ev.venue_town or '—'}, {ev.venue_province or '—'})\n"
              f"Enlace de venta: {ev.url_enterticket or '—'}")
     r = BookingRequest(
         status="NUEVA",
-        subject=f"Enterticket · {ev.name}",
+        subject=f"{_prov} · {ev.name}",
         requested_date=ev.event_date,
         artist_id=(artist.id if artist else None),
         artist_ids=([str(artist.id)] if artist else []),
@@ -176198,7 +176744,7 @@ def _et_create_booking_request(s, ev: EnterticketEvent) -> BookingRequest:
         created_by_nick=session.get("nick"),
         payload={
             "activity_type": "CONCIERTO", "no_cache": False, "departments": ["CONTRATACION"],
-            "date_kind": "EXACT", "source_integration": "ENTERTICKET",
+            "date_kind": "EXACT", "source_integration": _et_provider(ev),
             "et_event_id": ev.et_event_id, "description": notes,
         },
     )
@@ -176380,6 +176926,8 @@ def _et_concert_link_candidates(s, c: Concert, day_margin: int = 0) -> list:
     rows = (s.query(EnterticketEvent)
             .filter(EnterticketEvent.concert_id.is_(None))
             .filter(EnterticketEvent.link_status != "IGNORED")
+            .filter(EnterticketEvent.provider.in_([k for k in TICKETING_PROVIDERS
+                                                   if _et_provider_configured(k)]))
             .filter(EnterticketEvent.event_date >= c.date - timedelta(days=day_margin),
                     EnterticketEvent.event_date <= c.date + timedelta(days=day_margin))
             .order_by(EnterticketEvent.event_date.asc()).all())
@@ -176394,6 +176942,8 @@ def _et_concert_link_candidates(s, c: Concert, day_margin: int = 0) -> list:
             "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
             "venue": ev.venue_name or "", "town": ev.venue_town or "",
             "artists": ev.artist_names or "", "image": ev.artist_image or ev.image_url or "",
+            # De qué ticketera es (Enterticket o One Box): salen juntas en la misma lista.
+            "provider": _et_provider_label(ev),
         })
     out.sort(key=lambda x: -x["score"])
     return out[:8]
@@ -176475,14 +177025,14 @@ def concert_et_link(cid):
         if not c or not ev:
             flash("No se pudo vincular: evento no encontrado.", "danger")
         elif ev.concert_id and ev.concert_id != c.id:
-            flash("Ese evento de Enterticket ya está vinculado a otro concierto.", "warning")
+            flash(f"Ese evento de {_et_provider_label(ev)} ya está vinculado a otro concierto.", "warning")
         else:
             _et_link_event(s, ev, c)
             s.commit()
             threading.Thread(target=_et_sync_event_bg, args=(str(ev.id),), daemon=True).start()
             flash(f"Vinculado con «{ev.name}». Sincronizando ventas en segundo plano…", "success")
             if _et_concert_has_legacy_sales(s, c.id):
-                flash("Aviso: este concierto llevaba la venta en modo básico (histórico manual antiguo). Al integrarse con Enterticket, el reporte pasa a usar el desglose por ticketeras y ese histórico básico deja de sumarse.", "warning")
+                flash(f"Aviso: este concierto llevaba la venta en modo básico (histórico manual antiguo). Al integrarse con {_et_provider_label(ev)}, el reporte pasa a usar el desglose por ticketeras y ese histórico básico deja de sumarse.", "warning")
     except Exception as e:
         try:
             s.rollback()
@@ -176505,7 +177055,7 @@ def concert_et_dismiss(cid):
     try:
         ev = s.get(EnterticketEvent, to_uuid(request.form.get("et_event_pk") or "") or uuid.uuid4())
         if not ev:
-            flash("Evento de Enterticket no encontrado.", "warning")
+            flash("Evento de la ticketera no encontrado.", "warning")
         else:
             ev.link_status = "IGNORED"
             s.commit()
@@ -176533,7 +177083,7 @@ def concert_et_unlink(cid):
             # Desvincular limpia lo que trajo el espejo, pero no lo que ya estaba ni lo que se volcó
             # a la ficha: si el vínculo era un error y hay que empezar de cero, está «Reiniciar la
             # venta» en esta misma pestaña.
-            flash("Evento de Enterticket desvinculado. Si en la venta quedan datos de ese evento "
+            flash(f"Evento de {_et_provider_label(ev)} desvinculado. Si en la venta quedan datos de ese evento "
                   "(categorías, aforo, histórico), abajo está «Reiniciar la venta» para dejarla a cero "
                   "y configurarla de nuevo.", "info")
     finally:
@@ -176551,9 +177101,9 @@ def concert_et_sync(cid):
     try:
         ev = _et_concert_event(s, to_uuid(cid))
         if not ev:
-            flash("Este concierto no tiene evento de Enterticket vinculado.", "warning")
+            flash("Este concierto no tiene ningún evento de ticketera vinculado.", "warning")
         elif _et_sync_event(s, ev):
-            flash("Ventas de Enterticket actualizadas.", "success")
+            flash(f"Ventas de {_et_provider_label(ev)} actualizadas.", "success")
         else:
             flash("Ya hay una sincronización de este evento en curso; recarga en unos segundos.", "info")
     except Exception as e:
@@ -176561,7 +177111,7 @@ def concert_et_sync(cid):
             s.rollback()
         except Exception:
             pass
-        flash(f"No se pudo actualizar desde Enterticket: {e}", "danger")
+        flash(f"No se pudo actualizar desde la ticketera: {e}", "danger")
     finally:
         s.close()
     # ⚠️ Se vuelve a DONDE se pulse: el botón está en la ficha y también en «Actualizar ventas».
@@ -176591,6 +177141,73 @@ def sales_et_status():
         return jsonify({"stamp": int(mx.timestamp()) if mx else 0})
     finally:
         s.close()
+
+
+def _ticketing_integration_state(s, provider: str) -> dict:
+    """LO QUE SE VE DE UNA TICKETERA en Integraciones: si está activa, su último catálogo y sus
+    eventos POR VENIR con su vínculo y sus candidatos. Punto único para las dos (Enterticket y
+    One Box), así que se leen igual.
+    ⚠️ SOLO EVENTOS FUTUROS. Uno pasado no hay que vincularlo ni pedirlo: lo que ya estuviera
+    vinculado sigue vinculado y sus datos se ven en la ficha de su actividad (pestaña Ticketing).
+    Los que no tienen fecha se conservan (no se puede afirmar que hayan pasado) y la fecha de fin
+    manda cuando la hay (un festival de varios días sigue vivo el último)."""
+    meta_info = TICKETING_PROVIDERS.get(provider, TICKETING_PROVIDERS["ENTERTICKET"])
+    estado = {"key": provider, "label": meta_info["label"], "env": meta_info["env"],
+              "configured": _et_provider_configured(provider), "meta": None,
+              "last_catalog": "", "events": [], "past_count": 0,
+              "counts": {"total": 0, "linked": 0, "pending": 0, "requested": 0, "ignored": 0}}
+    if not estado["configured"]:
+        return estado
+    meta = s.get(EnterticketMeta, _OB_META_ID if provider == "ONEBOX" else 1)
+    estado["meta"] = meta
+    estado["last_catalog"] = (_et_fmt_dt(meta.last_catalog_sync_at) if meta else "")
+    estado["token_until"] = ""
+    if meta and meta.token_expires_at:
+        estado["token_until"] = (_et_fmt_dt(datetime.fromisoformat(meta.token_expires_at))
+                                 if provider == "ONEBOX" and "T" in str(meta.token_expires_at)
+                                 else str(meta.token_expires_at))
+    today = date.today()
+    rows_all = (s.query(EnterticketEvent)
+                .options(joinedload(EnterticketEvent.concert).joinedload(Concert.artist),
+                         joinedload(EnterticketEvent.concert).joinedload(Concert.venue))
+                .filter(EnterticketEvent.provider == provider)
+                .order_by(EnterticketEvent.event_date.asc().nullsfirst()).all())
+    rows = [r for r in rows_all
+            if (r.event_end_date or r.event_date) is None
+            or (r.event_end_date or r.event_date) >= today]
+    estado["past_count"] = len(rows_all) - len(rows)
+    for ev in rows:
+        st = (ev.link_status or "PENDING").upper()
+        estado["counts"]["total"] += 1
+        estado["counts"][{"LINKED": "linked", "REQUESTED": "requested",
+                          "IGNORED": "ignored"}.get(st, "pending")] += 1
+        concert_label = ""
+        if ev.concert:
+            c = ev.concert
+            vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
+            concert_label = f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else "")
+        candidates = []
+        if st == "PENDING" and ev.event_date:
+            for score, c in _et_automatch_candidates(s, ev, day_margin=3)[:6]:
+                vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
+                candidates.append({
+                    "id": str(c.id), "score": score,
+                    "label": f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else ""),
+                })
+        estado["events"].append({
+            "pk": str(ev.id), "et_event_id": ev.et_event_id, "name": ev.name,
+            "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
+            "is_past": bool(ev.event_date and ev.event_date < today),
+            "venue": ev.venue_name or "", "town": ev.venue_town or "",
+            "artists": ev.artist_names or "", "image": ev.artist_image or ev.image_url or "",
+            "status": st, "active": bool(ev.active),
+            "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
+            "concert_label": concert_label, "url": ev.url_enterticket or "",
+            "last_synced": _et_fmt_dt(ev.last_synced_at),
+            "last_error": ev.last_error or "", "candidates": candidates,
+            "capacity": ev.capacity_on_sale,
+        })
+    return estado
 
 
 @app.get("/cron/enterticket/refresh", endpoint="cron_enterticket_refresh")
@@ -177756,7 +178373,7 @@ def buyers_view():
             subjects=(_buyer_subject_options(s) if can_edit_buyers() else []),
             companies=companies_all,
             sms_ready=_sms_available(),
-            et_configured=et_api.enterticket_configured(),
+            et_configured=_ticketing_integrations_configured(),
             q=filtros["q"],
             # Lo del ENVÍO: por la compra o publicitario, desde qué cuenta sale, el borrador que se
             # está preparando (`?campaign=`, al volver del editor) y las cuentas para la actividad.
@@ -185982,8 +186599,9 @@ def _cron_cabify_sync_bg() -> None:
 
 
 def _cron_enterticket_guard() -> bool:
+    """El cron de las ticketeras corre si hay ALGUNA activa (Enterticket o One Box)."""
     try:
-        return bool(et_api.enterticket_configured())
+        return _ticketing_integrations_configured()
     except Exception:
         return False
 
@@ -186021,7 +186639,7 @@ CRON_TASKS = [
     # hora después de tocar (y `reminder_48_at`/`reminder_24_at` impiden que se repita).
     {"key": "prl_recordatorio", "label": "Recordar por SMS el alta y la PRL que faltan (48 h y 24 h)",
      "every": 15, "fn": "_prl_reminder_sweep", "icon": "fa-helmet-safety"},
-    {"key": "enterticket", "label": "Enterticket · ventas en vivo", "every": 15,
+    {"key": "enterticket", "label": "Enterticket y One Box · ventas en vivo", "every": 15,
      "run": _cron_thread_task("_et_sync_all_bg", "_cron_enterticket_guard"), "icon": "fa-ticket"},
     # ── cada hora ──────────────────────────────────────────────────────────────────────────
     {"key": "anuncio", "label": "Actividades sin anunciar (el aviso del mes, el recordatorio y el "

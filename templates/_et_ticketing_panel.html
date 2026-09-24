@@ -3,13 +3,14 @@
    _et_ticketing_context), et_buyers (compradores del evento) y, si NO hay vínculo,
    et_candidates (eventos de ET que encajan por artista/recinto/fecha para vincular aquí).
    Se refresca solo: polling a concert_et_status cada 60 s (dispara sync si los datos están viejos). #}
+{% set tk_label = ticketing_provider_label(et_event) if et_event else 'Enterticket' %}
 {% if et_event and et_ctx %}
 <div class="card mb-3"><div class="card-body">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
     <div class="d-flex align-items-center gap-2">
       {% if et_event.artist_image or et_event.image_url %}<img src="{{ et_event.artist_image or et_event.image_url }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover">{% endif %}
       <div>
-        <h5 class="mb-0"><i class="fa fa-ticket text-danger me-1"></i>Venta de entradas <span class="text-muted small fw-normal">· Enterticket</span></h5>
+        <h5 class="mb-0"><i class="fa fa-ticket text-danger me-1"></i>Venta de entradas <span class="text-muted small fw-normal">· {{ tk_label }}</span></h5>
         <div class="small text-muted">
           {{ et_event.name }}
           {% if et_event.url_enterticket %} · <a href="{{ et_event.url_enterticket }}" target="_blank" rel="noopener" class="text-decoration-none"><i class="fa fa-arrow-up-right-from-square me-1"></i>Enlace de venta</a>{% endif %}
@@ -25,7 +26,7 @@
          Antes de tocar nada se enseña QUÉ cambia y hay que aceptarlo. #}
       <button type="button" class="btn btn-primary btn-sm" data-et-dump-open><i class="fa fa-download me-1"></i>Volcar configuración</button>
       <form method="post" action="{{ url_for('concert_et_sync', cid=concert.id) }}"><button class="btn btn-outline-secondary btn-sm"><i class="fa fa-rotate me-1"></i>Actualizar ahora</button></form>
-      <form method="post" action="{{ url_for('concert_et_unlink', cid=concert.id) }}" onsubmit="return confirm('¿Desvincular este concierto del evento de Enterticket?\n\nSe borran las ventas que trajo la sincronización y vuelve a verse el último dato de ventas anterior. No se volverá a vincular solo: habría que hacerlo a mano.\n\nSi la venta se queda con datos de ese evento (categorías, aforo, histórico), después está «Reiniciar la venta» para dejarla a cero.');"><button class="btn btn-outline-danger btn-sm" title="Desvincular"><i class="fa fa-link-slash"></i></button></form>
+      <form method="post" action="{{ url_for('concert_et_unlink', cid=concert.id) }}" onsubmit="return confirm('¿Desvincular este concierto del evento de {{ tk_label }}?\n\nSe borran las ventas que trajo la sincronización y vuelve a verse el último dato de ventas anterior. No se volverá a vincular solo: habría que hacerlo a mano.\n\nSi la venta se queda con datos de ese evento (categorías, aforo, histórico), después está «Reiniciar la venta» para dejarla a cero.');"><button class="btn btn-outline-danger btn-sm" title="Desvincular"><i class="fa fa-link-slash"></i></button></form>
       {% endif %}
     </div>
   </div>
@@ -150,7 +151,7 @@
         </table>
       </div>
       {% if et_ctx.invitations %}
-      <h6 class="text-uppercase small text-muted mt-3"><i class="fa fa-gift me-1"></i>Invitaciones emitidas en Enterticket</h6>
+      <h6 class="text-uppercase small text-muted mt-3"><i class="fa fa-gift me-1"></i>Invitaciones emitidas en {{ tk_label }}</h6>
       <div class="d-flex flex-wrap gap-2" id="et-inv-chips">
         {% for inv in et_ctx.invitations %}
         <span class="badge rounded-pill text-bg-light border">{{ inv.concept }} <strong class="ms-1">{{ inv.count|k }}</strong></span>
@@ -191,8 +192,8 @@
               {% if et_venue_map.unmatched %} · <span class="fw-semibold" title="Entradas cuyo sector/fila/asiento no casa con el mapa del recinto. Añade alias al sector en la ficha del recinto (Ticketing → Mapa de butacas).">{{ et_venue_map.unmatched|k }} sin casar</span>{% endif %}
               <div class="mt-1">Cada butaca libre lleva el color de su categoría a la venta. Pista y zonas sin numerar: en la tabla de tipos de arriba.</div>
               {% if et_venue_map.blocked_count %}
-              <div class="mt-1"><i class="fa fa-lock me-1"></i><strong>{{ et_venue_map.blocked_count|k }}</strong> bloqueada(s) en Enterticket
-                <span title="Enterticket da los bloqueos como contador (concepto, nombre y código), sin decir qué butacas son, así que no se pueden pintar en el plano.">(sin butaca)</span>
+              <div class="mt-1"><i class="fa fa-lock me-1"></i><strong>{{ et_venue_map.blocked_count|k }}</strong> bloqueada(s) en {{ tk_label }}
+                <span title="{{ tk_label }} da los bloqueos como contador (concepto, nombre y código), sin decir qué butacas son, así que no se pueden pintar en el plano.">(sin butaca)</span>
               </div>
               {% endif %}
             </div>
@@ -352,13 +353,13 @@
 
 {% elif et_candidates %}
 <div class="card mb-3"><div class="card-body">
-  <h5 class="mb-1"><i class="fa fa-ticket text-danger me-1"></i>Venta de entradas <span class="text-muted small fw-normal">· Enterticket</span></h5>
-  <p class="text-muted small mb-3">Eventos de Enterticket <strong>del mismo día</strong> que todavía no están vinculados a ninguna actividad.{% if CAN_EDIT_CONCERTS %} Vincúlalo para ver la venta en tiempo real, o descártalo para que no vuelva a aparecer.{% endif %}</p>
+  <h5 class="mb-1"><i class="fa fa-ticket text-danger me-1"></i>Venta de entradas <span class="text-muted small fw-normal">· {{ tk_label }}</span></h5>
+  <p class="text-muted small mb-3">Eventos de las ticketeras integradas <strong>del mismo día</strong> que todavía no están vinculados a ninguna actividad.{% if CAN_EDIT_CONCERTS %} Vincúlalo para ver la venta en tiempo real, o descártalo para que no vuelva a aparecer.{% endif %}</p>
   {% for cand in et_candidates %}
   <div class="d-flex align-items-center gap-2 border rounded p-2 mb-2">
     {% if cand.image %}<img src="{{ cand.image }}" alt="" style="width:38px;height:38px;border-radius:8px;object-fit:cover">{% endif %}
     <div class="flex-grow-1 min-w-0">
-      <div class="fw-semibold small">{{ cand.name }}</div>
+      <div class="fw-semibold small">{{ cand.name }} <span class="badge text-bg-light border ms-1">{{ cand.provider }}</span></div>
       <div class="small text-muted">{{ cand.date }} · {{ cand.venue }}{% if cand.town %} ({{ cand.town }}){% endif %}{% if cand.artists %} · {{ cand.artists }}{% endif %}</div>
     </div>
     {% if cand.score >= 4 %}<span class="badge text-bg-success">Coincidencia fuerte</span>{% endif %}
@@ -384,7 +385,7 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-download me-2 text-danger"></i>Volcar la configuración de Enterticket</h5>
+        <h5 class="modal-title"><i class="fa fa-download me-2 text-danger"></i>Volcar la configuración de {{ tk_label }}</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" data-et-dump-body>
@@ -427,9 +428,9 @@
         }
         var h = '';
         if (!d.changes && !d.capacity.changes && !d.entry_mode.changes && !(d.removed||[]).length){
-          h += '<div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>La ficha ya está igual que Enterticket: volcar no cambiaría nada.</div>';
+          h += '<div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>La ficha ya está igual que {{ tk_label }}: volcar no cambiaría nada.</div>';
         } else {
-          h += '<div class="alert alert-warning"><i class="fa fa-triangle-exclamation me-1"></i>Esto es lo que va a cambiar en la ficha. Lo de Enterticket <strong>sustituye</strong> a lo que hay ahora.</div>';
+          h += '<div class="alert alert-warning"><i class="fa fa-triangle-exclamation me-1"></i>Esto es lo que va a cambiar en la ficha. Lo de {{ tk_label }} <strong>sustituye</strong> a lo que hay ahora.</div>';
         }
         h += '<div class="table-responsive"><table class="table table-sm align-middle mb-2">'
           + '<thead class="table-light"><tr><th>Categoría</th><th class="text-end">Precio</th>'
@@ -451,16 +452,16 @@
         });
         h += '</tbody></table></div>';
         if ((d.removed || []).length){
-          h += '<div class="alert alert-danger small"><i class="fa fa-circle-minus me-1"></i>Se quitarán de la ficha (no están en Enterticket): <strong>'
+          h += '<div class="alert alert-danger small"><i class="fa fa-circle-minus me-1"></i>Se quitarán de la ficha (no están en {{ tk_label }}): <strong>'
              + d.removed.map(esc).join(', ') + '</strong></div>';
         }
         h += '<ul class="list-unstyled small mb-3">';
         if (d.capacity.changes) h += '<li><i class="fa fa-users fa-fw me-1"></i>Aforo: <span class="text-muted text-decoration-line-through">' + num(d.capacity.before) + '</span> → <strong>' + num(d.capacity.after) + '</strong></li>';
         if (d.entry_mode.changes) h += '<li><i class="fa fa-ticket fa-fw me-1"></i>Modo de entrada: <span class="text-muted text-decoration-line-through">' + esc(d.entry_mode.before) + '</span> → <strong>con venta de entradas</strong></li>';
         if (d.sold_out.changes) h += '<li><i class="fa fa-fire fa-fw me-1"></i>' + (d.sold_out.after ? 'Se marcará como <strong>agotado</strong>' : 'Se quitará la marca de agotado') + '</li>';
-        h += '<li><i class="fa fa-gift fa-fw me-1"></i>Las <strong>invitaciones pactadas</strong> de cada categoría se conservan: Enterticket solo informa de las ya emitidas.</li>';
+        h += '<li><i class="fa fa-gift fa-fw me-1"></i>Las <strong>invitaciones pactadas</strong> de cada categoría se conservan: {{ tk_label }} solo informa de las ya emitidas.</li>';
         h += '<li><i class="fa fa-chart-line fa-fw me-1"></i>El plan de ingresos, el punto de empate y las previsiones se recalculan solos con los datos nuevos.</li>';
-        if (d.blocked_count) h += '<li><i class="fa fa-lock fa-fw me-1"></i>Enterticket dice que hay <strong>' + num(d.blocked_count) + '</strong> entradas bloqueadas, pero su API no dice <em>cuáles</em>: no se pueden repartir por categoría ni pintar en el plano.</li>';
+        if (d.blocked_count) h += '<li><i class="fa fa-lock fa-fw me-1"></i>{{ tk_label }} dice que hay <strong>' + num(d.blocked_count) + '</strong> entradas bloqueadas, pero su API no dice <em>cuáles</em>: no se pueden repartir por categoría ni pintar en el plano.</li>';
         h += '</ul>';
         h += '<div class="small text-muted">Evento: <strong>' + esc(d.event_name) + '</strong>'
            + (d.last_synced ? ' · última sincronización ' + esc(d.last_synced) : '') + '</div>';

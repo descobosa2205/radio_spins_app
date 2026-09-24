@@ -10,6 +10,7 @@
 - SIMULAR SOBRE UNA ACTIVIDAD, Y LAS OFERTAS (descuentos y packs) del ticketing
 - RECAUDACIÓN del reporte de ventas = el interruptor ECONÓMICO de «Reporte de ventas»
 - Integración Enterticket (ticketing en tiempo casi real): cliente HTTP en enterticket_utils.py
+- ONE BOX · la misma integración que Enterticket, sobre el MISMO espejo (`provider`)
 - COMPRADORES · listados, categorías, importación a mano y ENVÍOS. La base de
 - COMPRADORES · EL CONTENEDOR DE UN EVENTO ES EL EVENTO: la gira, el ciclo o el festival propios de un
   evento no son un sujeto aparte en la rejilla (salía dos veces, con dos fotos) (sep 2026)
@@ -133,6 +134,60 @@
   no tienen fecha se conservan (no se puede dar por pasado lo que no se sabe cuándo es). ⚠️ Los ya
   vinculados se descartan del selector «vincular con otro concierto» mirando **todos** los eventos,
   no solo los futuros: si no, una actividad enlazada a uno pasado se ofrecería otra vez.
+
+- ⚠️⚠️ **ONE BOX · LA MISMA INTEGRACIÓN QUE ENTERTICKET, SOBRE EL MISMO ESPEJO** (sep 2026, lo pidió
+  Dani: «que haga la misma función y con los mismos criterios que Enterticket»). Cliente HTTP en
+  **`onebox_utils.py`**; el conector (`_ob_*`) está junto al de Enterticket en `app.py`.
+  · ⚠️⚠️ **NO HAY UNA SEGUNDA INTEGRACIÓN**: One Box vuelca en `EnterticketEvent` /
+  `EnterticketTicketType` / `EnterticketSale` con **`provider = 'ONEBOX'`** (lo de antes es
+  `'ENTERTICKET'`). Todo lo que se hace con la venta —el panel de Ticketing, la rejilla diaria del
+  reporte, los compradores, las invitaciones, el plano, el Resultado, el Sold Out, el vínculo
+  automático y el de a mano, «Volcar configuración»— es EL MISMO código: los criterios no se pueden
+  desparejar. Lo único propio es cómo se PIDEN los datos y cómo se traducen. El final de un sync es
+  común: **`_et_sync_finish`**.
+  · **Un id de evento solo es único DENTRO de su ticketera** (`uq_et_events_provider_event`,
+  se soltó el UNIQUE viejo de `et_event_id`): todo lo que busque por `et_event_id` filtra
+  `provider`. `TICKETING_PROVIDERS` es el catálogo (nombre, ticketera, variables), con
+  `_et_provider(ev)` · `_et_provider_label` (global de plantilla `ticketing_provider_label`) ·
+  `_et_provider_configured` · `_ticketing_integrations_configured` (¿alguna activa?) ·
+  `_et_provider_ticketer` (la `Ticketer` «Enterticket» o «One Box») · `_et_ticketer_names` (las que
+  no admiten apuntes a mano).
+  · **UNA ACTIVIDAD, UN EVENTO**, entre las dos ticketeras: la pestaña Ticketing enseña uno solo.
+  · **CÓMO SE TRADUCE** (`_ob_sync_catalog` / `_ob_sync_event_locked`):
+    · un **evento** de One Box tiene **sesiones** y cada sesión es una **fecha**: cada fila del
+      espejo es una SESIÓN (`et_event_id` = id de la sesión; el del evento y el de su plantilla de
+      recinto van en **`provider_data`**). Solo se piden las sesiones de eventos que no acabaron hace
+      más de 30 días, y los abonos/packs no son fechas.
+    · **tipos** = sus «tipos de precio»: lo **vendido** sale de nuestras ventas (el criterio del
+      panel), lo **libre** y lo **bloqueado** del AFORO de la sesión (`/capacity`: butacas y zonas no
+      numeradas con su estado) y el **precio** de su tabla (la tarifa individual más alta: las demás
+      son descuentos).
+    · cada **entrada** es un `order-item` (en modo NET, su estado actual): `PURCHASE` vale ·
+      `ISSUE` o tipo `INVITATION` es invitación (concepto = su tarifa) · `REFUND` devuelta ·
+      `BOOKING` (reserva sin pagar) **no es una venta**. **Precio** = lo pagado − los gastos − envío,
+      seguro y donativo; **gastos** = `charges.channel + charges.promoter`, y `channel_fees` (columna
+      nueva) guarda lo del CANAL.
+    · **lo que se ingresa** (`_et_revenue_breakdown`): IVA y SGAE igual; en One Box **no hay fórmula
+      de ticketera**: lo que no es nuestro es lo que dice cada entrada que se queda el canal. Por eso a
+      la ticketera «One Box» no se le ponen los gastos de la fórmula de Enterticket.
+    · **incremental** por `last_modified` del pedido (con 15 min de solape, en el reloj de ONE BOX),
+      que también trae las devoluciones; tope de páginas y, si se corta, no avanza el cursor.
+    · la butaca va como «Fila 5 - Asiento 12», que es lo que ya casa `_et_split_seat` en el plano.
+  · **ENTRA CON API KEY O CON USUARIO**: `ONEBOX_API_KEY` (client_credentials, `ONEBOX_CLIENT_ID`
+  por defecto «onebox-client») o `ONEBOX_USER` + `ONEBOX_PASSWORD` (su OAuth admite el grant
+  `password`). `ONEBOX_API_BASE` para su entorno de pruebas (`api.oneboxtds.net`). Token de 12 h
+  en la **fila 2** de `enterticket_meta` (la 1 es la de Enterticket).
+  ⚠️ **El enlace que dieron (`dash.oneboxtds.com/superset/…`) es un PANEL DE GRÁFICOS**, no la API:
+  pide su propio login y no sirve para sincronizar.
+  · **INTEGRACIONES**: la pestaña se llama ahora **«Ticketeras»** (sigue siendo `#tab-enterticket`)
+  y cada ticketera es la MISMA tarjeta (`_ticketing_provider_card.html` con
+  `_ticketing_integration_state`), con el mismo pop-up de vincular. El cron `enterticket` sincroniza
+  las dos.
+  ⚠️⚠️ **HECHO SIN PODER PROBARLO CONTRA LA API REAL**: con su documentación (OpenAPI públicas en
+  `onebox-api-docs.s3-eu-west-1.amazonaws.com/<api>/master/v1/public/openapi.yml`) y con una API de
+  mentira con esa forma. La **primera sincronización real** confirma los nombres; si algo falla, el
+  motivo sale en la fila del evento y en la tarjeta. Lo primero a mirar: que `/order-items` acepta
+  `session_id` y `last_modified=gte:` así, y que el precio y los gastos cuadran con su panel.
 
 - **COMPRADORES · listados, categorías, importación a mano y ENVÍOS** (ago 2026). La base de
   compradores tiene ya dos orígenes y los dos se ven y se trabajan igual («listados»):

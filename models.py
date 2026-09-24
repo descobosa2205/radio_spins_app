@@ -13442,7 +13442,15 @@ class EnterticketEvent(Base):
 
     __tablename__ = "enterticket_events"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    et_event_id = Column(Integer, nullable=False, unique=True)
+    # ⚠️⚠️ DE QUÉ TICKETERA ES (sep 2026): ENTERTICKET | ONEBOX. Las dos vuelcan en ESTE espejo, así
+    # que lo que se hace con la venta (el reporte, los compradores, el Resultado, el Sold Out…) es
+    # el MISMO código para las dos. El id del evento solo es único DENTRO de su ticketera: en One
+    # Box `et_event_id` es el id de la SESIÓN (cada sesión es una fecha, o sea, una actividad).
+    provider = Column(Text, nullable=False, server_default=text("'ENTERTICKET'"))
+    et_event_id = Column(Integer, nullable=False)
+    # Lo que cada ticketera necesita para volver a pedir el detalle (en One Box: el id del EVENTO
+    # y el de su plantilla de recinto, para el aforo y los precios de la sesión).
+    provider_data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     et_client_id = Column(Integer)
     name = Column(Text, nullable=False)
     event_date = Column(Date)
@@ -13486,6 +13494,10 @@ class EnterticketEvent(Base):
         order_by="EnterticketTicketType.sort_order", back_populates="event",
     )
 
+    __table_args__ = (
+        UniqueConstraint("provider", "et_event_id", name="uq_et_events_provider_event"),
+    )
+
 
 class EnterticketTicketType(Base):
     """Tipo de entrada del evento en ET (espejo de /eventos/:id → entradas[]), con el estado de
@@ -13527,6 +13539,9 @@ class EnterticketSale(Base):
     price = Column(Numeric, nullable=False, server_default=text("0"))
     fees = Column(Numeric, nullable=False, server_default=text("0"))          # gastos_distribucion
     total = Column(Numeric, nullable=False, server_default=text("0"))         # precio_total
+    # Lo que de los gastos se queda el CANAL (One Box lo desglosa: `charges.channel`). En
+    # Enterticket es 0: ahí la comisión de la ticketera es una fórmula fija.
+    channel_fees = Column(Numeric, nullable=False, server_default=text("0"))
     mode = Column(Text)                    # Online / Taquilla / RRPP...
     is_invitation = Column(Boolean, nullable=False, server_default=text("false"))
     invitation_concept = Column(Text)
@@ -13752,7 +13767,7 @@ def ensure_enterticket_schema():
         """
         CREATE TABLE IF NOT EXISTS enterticket_events (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-            et_event_id integer NOT NULL UNIQUE,
+            et_event_id integer NOT NULL,
             et_client_id integer,
             name text NOT NULL,
             event_date date,
@@ -13785,6 +13800,13 @@ def ensure_enterticket_schema():
         # ⚠️ En su PROPIA sentencia con IF NOT EXISTS: dentro de un DO $$ … IF NOT EXISTS(otra) $$
         # no se aplicaría en cuanto esa otra ya existiera, y la app reventaría al consultar la tabla.
         "ALTER TABLE IF EXISTS enterticket_events ADD COLUMN IF NOT EXISTS autolink_blocked boolean NOT NULL DEFAULT false;",
+        # ONE BOX vuelca en el mismo espejo: de qué ticketera es cada evento (cada columna en SU
+        # sentencia) y el id del evento pasa a ser único POR ticketera. ⚠️ Primero el índice nuevo
+        # y luego se suelta el UNIQUE viejo (el que puso `et_event_id integer NOT NULL UNIQUE`).
+        "ALTER TABLE IF EXISTS enterticket_events ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'ENTERTICKET';",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_et_events_provider_event ON enterticket_events(provider, et_event_id);",
+        "ALTER TABLE IF EXISTS enterticket_events ADD COLUMN IF NOT EXISTS provider_data jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS enterticket_events DROP CONSTRAINT IF EXISTS enterticket_events_et_event_id_key;",
         "CREATE INDEX IF NOT EXISTS idx_et_events_concert ON enterticket_events(concert_id);",
         "CREATE INDEX IF NOT EXISTS idx_et_events_status ON enterticket_events(link_status, event_date);",
         """
@@ -13835,6 +13857,8 @@ def ensure_enterticket_schema():
         "CREATE INDEX IF NOT EXISTS idx_et_sales_event_day ON enterticket_sales(event_id, purchase_at);",
         "CREATE INDEX IF NOT EXISTS idx_et_sales_event_type ON enterticket_sales(event_id, et_entrada_id);",
         "CREATE INDEX IF NOT EXISTS idx_et_sales_email ON enterticket_sales(buyer_email);",
+        # Lo que de los gastos se queda el CANAL (One Box): en SU sentencia, después de crear la tabla.
+        "ALTER TABLE IF EXISTS enterticket_sales ADD COLUMN IF NOT EXISTS channel_fees numeric NOT NULL DEFAULT 0;",
         """
         CREATE TABLE IF NOT EXISTS buyers (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

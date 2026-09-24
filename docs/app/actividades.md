@@ -1981,6 +1981,17 @@ clic no llegaba a `document` y Bootstrap tampoco abría el menú.
   pactado y un descuento anónimo. Ahora el módulo de Caché saca el caché COMPLETO, debajo **cada
   comisión que lo reduce con su nombre y su concepto**, y al final **«Queda»**. Va dentro del propio
   módulo de caché, así que no se puede dejar fuera por su cuenta.
+  · ⚠️⚠️ **LOS «OTROS GASTOS» QUE REDUCEN EL CACHÉ, EN CAMBIO, SÍ SE PUEDEN OCULTAR** (sep 2026, lo
+  pidió Dani: «si no, la información que le llega al artista no sería la correcta»). Antes iban
+  dentro del caché rotulados como comisión y sin ojo, y el «Queda» los descontaba siempre. Ahora
+  obedecen al **MISMO ojo que el módulo «Otros gastos»** (`gastos`): su fila lleva `hide_with` (y el
+  ojo al lado en la vista previa) y el «Queda» lleva `if_hidden` con lo que queda **sin** ellos —o
+  desaparece, si no hay comisiones que descontar—. Punto único **`_notice_visible_rows`**, que usan
+  el HTML del aviso **y** los datos guardados de lo mandado (`_activity_notice_facts(ctx, ocultos)`):
+  sin eso el siguiente aviso marcaría «Cambio» sobre un gasto que el artista nunca vio. El descuento
+  se separa con `_concert_commission_reduction(..., entry_kind="EXPENSE"|"COMMISSION")`.
+  ⚠️ De paso: `_concert_cache_commissions` comparaba el tipo con `"OTHER_EXPENSE"` (no existe: es
+  `"EXPENSE"`) y todo salía rotulado «Comisión» en el resultado.
   · Y si **no hay filas de `ConcertCache` pero la ficha de contratación dice el caché**
   (`economics_cache`), se enseña eso en vez de «Sin Caché»: el dato existe.
 

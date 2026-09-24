@@ -5628,8 +5628,12 @@ def _concert_commission_rows(session_db, concert) -> list[dict]:
     return filas
 
 
-def _concert_commission_reduction(session_db, concert) -> Decimal:
+def _concert_commission_reduction(session_db, concert, entry_kind: str = "") -> Decimal:
     """Lo que las comisiones que REDUCEN el caché descuentan de él.
+
+    `entry_kind` ("COMMISSION" | "EXPENSE") cuenta solo las comisiones o solo los OTROS GASTOS:
+    el aviso al artista necesita las dos cifras por separado, porque los otros gastos se pueden
+    dejar fuera con su ojo y entonces lo que le «queda» tiene que salir sin descontarlos.
 
     ⚠️ Solo cuenta lo que se puede descontar de verdad: un importe FIJO, o un porcentaje sobre el
     caché pactado. Una comisión sobre la recaudación no se puede descontar aquí (no se sabe hasta
@@ -5642,6 +5646,8 @@ def _concert_commission_reduction(session_db, concert) -> Decimal:
         base_cache += _money_or_zero(getattr(c, "amount", None))
     for a in (getattr(concert, "zone_agents", None) or []):
         if _commission_apply_mode(getattr(a, "apply_mode", None)) != "REDUCE":
+            continue
+        if entry_kind and _commission_entry_kind(getattr(a, "entry_kind", None)) != entry_kind:
             continue
         importe = _money_or_zero(getattr(a, "commission_amount", None))
         if importe:
@@ -130813,7 +130819,9 @@ def _concert_cache_commissions(session_db, concert, *, cache_net: Decimal, offic
             "name": (_promoter_display_name(promoter) if promoter is not None else "") or "Comisionista",
             "photo_url": ((getattr(promoter, "logo_url", None) or "") if promoter is not None else ""),
             "concept": (getattr(a, "concept", None) or "").strip(),
-            "kind_label": ("Otro gasto" if (getattr(a, "entry_kind", None) or "COMMISSION").upper() == "OTHER_EXPENSE"
+            # ⚠️ El tipo se lee con su normalizador: comparaba con "OTHER_EXPENSE", que no existe
+            # (el valor es "EXPENSE"), y todo salía como «Comisión».
+            "kind_label": ("Otro gasto" if _commission_entry_kind(getattr(a, "entry_kind", None)) == "EXPENSE"
                            else "Comisión"),
             "amount": importe,
             "over_office": sobre_oficina,
@@ -132680,14 +132688,26 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
         _descuento = _concert_commission_reduction(session_db, concert)
     except Exception:
         _descuento = Decimal("0")
+    # ⚠️⚠️ Y LOS «OTROS GASTOS» QUE REDUCEN EL CACHÉ SE PUEDEN DEJAR FUERA (sep 2026, lo pidió Dani:
+    # «tiene que dar la opción de mostrarlos u ocultarlos, si no la información que le llega al
+    # artista no sería la correcta»). Obedecen al MISMO ojo que el módulo «Otros gastos» (`gastos`):
+    # sus filas llevan `hide_with` y el «Queda» lleva `if_hidden` con lo que le queda SIN
+    # descontarlos, así que lo que se manda cuadra siempre con lo que se enseña. Las COMISIONES que
+    # reducen el caché siguen sin poder quitarse: son la cuenta del caché.
     if filas_cache and _reductoras:
         for _c in _reductoras:
-            filas_cache.append({
+            _es_gasto = bool(_c.get("is_expense_entry"))
+            _fila = {
                 "label": _c["name"],
                 "value": "− %s" % (_c["amount_label"] if _c["is_fixed"]
                                    else "%s · %s" % (_c["pct_label"], _c["base_label"])),
-                "note": (_c["concept"] or "Comisión que se descuenta del caché"),
-            })
+                "note": (" · ".join([x for x in [_c.get("category_label"), _c.get("concept")] if x])
+                         or ("Gasto que se descuenta del caché" if _es_gasto
+                             else "Comisión que se descuenta del caché")),
+            }
+            if _es_gasto:
+                _fila["hide_with"] = "gastos"
+            filas_cache.append(_fila)
         # Lo que le queda al artista, solo si se puede calcular de verdad (una comisión sobre la
         # recaudación no se sabe hasta liquidar y `_concert_commission_reduction` la deja fuera).
         if _descuento:
@@ -132695,8 +132715,25 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
             for _ch in (getattr(concert, "caches", None) or []):
                 _bruto += _money_or_zero(getattr(_ch, "amount", None))
             if _bruto:
-                filas_cache.append({"label": "Queda", "value": format_eur(_bruto - _descuento),
-                                    "note": "Caché menos las comisiones que se descuentan"})
+                try:
+                    _desc_gastos = _concert_commission_reduction(session_db, concert, entry_kind="EXPENSE")
+                except Exception:
+                    _desc_gastos = Decimal("0")
+                _desc_com = _descuento - _desc_gastos
+                _hay_com = any(not c.get("is_expense_entry") for c in _reductoras)
+                _hay_gas = any(c.get("is_expense_entry") for c in _reductoras)
+                _queda = {"label": "Queda", "value": format_eur(_bruto - _descuento),
+                          "note": ("Caché menos las comisiones y los gastos que se descuentan"
+                                   if (_hay_com and _hay_gas) else
+                                   ("Caché menos los gastos que se descuentan" if _hay_gas
+                                    else "Caché menos las comisiones que se descuentan"))}
+                if _desc_gastos:
+                    # Con los otros gastos ocultos: lo que queda SOLO con las comisiones y, si no
+                    # hay ninguna que descontar, la línea sobra (sería el caché repetido).
+                    _queda["if_hidden"] = {"gastos": ({"value": format_eur(_bruto - _desc_com),
+                                                        "note": "Caché menos las comisiones que se descuentan"}
+                                                       if _desc_com else None)}
+                filas_cache.append(_queda)
     modulos.append({
         "key": "cache",
         "label": "Caché",
@@ -133295,8 +133332,46 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
 # valores: cada aviso se queda con los suyos (`ConcertArtistNotification.facts`) y el siguiente se
 # compara con ellos.
 # ═════════════════════════════════════════════════════════════════════════════════════════════
-def _activity_notice_facts(ctx: dict) -> dict:
-    """LO QUE DICE ESTE AVISO, dato a dato: la cabecera (fecha, hora, recinto…) y el caché."""
+def _notice_visible_rows(rows, hidden=(), *, preview: bool = False) -> list:
+    """Las filas de un módulo tal y como SALEN con estos módulos ocultos.
+
+    · Una fila con `hide_with` obedece al ojo de ESE módulo (un otro gasto metido en la cuenta del
+      caché): oculto, no se manda (en la vista previa se sigue viendo, atenuada, para volverla a
+      encender).
+    · Una fila con `if_hidden` cambia de valor —o desaparece, con None— cuando ese módulo está
+      oculto (el «Queda» del caché, que sin los gastos es otra cifra).
+    Punto único: lo usan el HTML del aviso y los datos que se guardan de lo mandado."""
+    ocultos = {str(x).strip().lower() for x in (hidden or [])}
+    salida = []
+    for r in (rows or []):
+        hw = (r.get("hide_with") or "").strip().lower() if isinstance(r, dict) else ""
+        if hw and hw in ocultos and not preview:
+            continue
+        alt = r.get("if_hidden") if isinstance(r, dict) else None
+        if isinstance(alt, dict):
+            quitar = False
+            for clave, cambio in alt.items():
+                if str(clave).strip().lower() not in ocultos:
+                    continue
+                if cambio is None:
+                    quitar = True
+                    break
+                r = dict(r, **cambio)
+                # La etiqueta de «Cambio» se calculó contra el valor completo: si lo que sale ahora
+                # es lo mismo que se mandó la otra vez, no ha cambiado nada.
+                if (r.get("before") or "") == (r.get("value") or ""):
+                    r.pop("before", None)
+            if quitar:
+                continue
+        salida.append(r)
+    return salida
+
+
+def _activity_notice_facts(ctx: dict, hidden=()) -> dict:
+    """LO QUE DICE ESTE AVISO, dato a dato: la cabecera (fecha, hora, recinto…) y el caché.
+
+    ⚠️ Con los módulos que se han ocultado (`hidden`): lo que se guarda es lo que se MANDÓ, o el
+    siguiente aviso marcaría como «cambio» un gasto que el artista nunca vio."""
     salida = {}
     for r in (ctx.get("hero_rows") or []):
         etiqueta = (r.get("label") or "").strip()
@@ -133305,7 +133380,7 @@ def _activity_notice_facts(ctx: dict) -> dict:
     for modulo in (ctx.get("conditions") or []):
         if (modulo.get("key") or "") != "cache":
             continue
-        for r in (modulo.get("rows") or []):
+        for r in _notice_visible_rows(modulo.get("rows"), hidden):
             etiqueta = (r.get("label") or "").strip()
             if etiqueta:
                 salida["cache:" + etiqueta] = str(r.get("value") or "")
@@ -133474,12 +133549,17 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
         # correo, así que el importe del caché salía flotando en mitad del email. Con `width="1%"`
         # + `nowrap` la etiqueta se encoge a su texto y el valor va a su lado: «Caché fijo: 12.000 €».
         out = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:8px;">'
-        for r in rows:
+        for r in _notice_visible_rows(rows, ocultos, preview=preview):
+            # Una fila que obedece al ojo de OTRO módulo (un gasto dentro del caché) lleva ese ojo
+            # a su lado en la vista previa, y atenuada si está oculta.
+            _hw = (r.get("hide_with") or "").strip().lower()
+            _tenue = ' style="opacity:.35;"' if (_hw and _hw in ocultos) else ""
             out += (
-                '<tr>'
+                f'<tr{_tenue}>'
                 f'<td width="1%" style="padding:3px 8px 3px 0;color:#6b7683;font-size:12px;vertical-align:top;white-space:nowrap;">{esc(r.get("label") or "")}:</td>'
                 f'<td width="99%" style="padding:3px 0;color:#212529;font-size:14px;font-weight:700;text-align:left;">{esc(r.get("value") or "")}'
                 + cambio_html(r)
+                + (ojo(_hw, ACTIVITY_NOTICE_MODULE_LABELS.get(_hw, _hw)) if _hw else "")
                 + (f'<div style="font-weight:400;color:#6b7683;font-size:12px;">{esc(r.get("note"))}</div>' if (r.get("note") or "").strip() else "")
                 + '</td></tr>'
             )
@@ -134437,7 +134517,7 @@ def concert_artist_notice_send(cid):
             signature=_concert_notice_signature(session_db, concert),
             # ⚠️ LOS DATOS DE ESTE AVISO (fecha, hora, recinto, caché): con ellos, el aviso SIGUIENTE
             # puede decir qué cambió y qué ponía antes. La firma sola solo dice que algo cambió.
-            facts=_activity_notice_facts(ctx),
+            facts=_activity_notice_facts(ctx, ocultos),
             sent_by_user_id=to_uuid((_current_user_state() or {}).get("user_id") or "") or None,
             sent_by_nick=((_current_user_state() or {}).get("nick") or None),
         )
